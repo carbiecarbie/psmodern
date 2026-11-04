@@ -73,6 +73,8 @@ mingw-w64-ucrt-x86_64-zstd 1.5.7-2
 `dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9`, LGPL-3.0-or-later, compatible
 with this project's GPL-3.0-or-later license. `third_party/redcode-z80`
 contains its API header, C implementation, and GPL and LGPL license texts.
+`Machine::step` mirrors the core's interrupt acceptance checks; re-verify
+that mirror against `Z80.c` whenever the core pin changes.
 The required headers from [redcode/Zeta](https://github.com/redcode/Zeta)
 are vendored at commit `42830b0e735cc3a83c7630e2dcf21949e8441c6d` under
 `third_party/zeta`, with its GPL and LGPL license texts. Zeta headers are
@@ -136,6 +138,10 @@ observations are in the [milestone plan](milestone-1-plan.md#2-reference-emulato
   [mapper registers](https://www.smspower.org/Development/Mappers), and
   [I/O port map](https://www.smspower.org/Development/IOPortMap): memory and ports.
 - [Charles MacDonald's VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt): display and interrupts.
+- [Charles MacDonald's SMS display timing measurements](https://www.smspower.org/forums/8161-SMSDisplayTiming): IRQ, sync and Pause NMI timing on an original NTSC console.
+- [SMS VDPTest](https://github.com/FluBBaOfWard/SmsVdpTest): hardware-tested
+  VDP counter, IRQ and status timing. Its author describes testing the original
+  SMS1 VDP in [the SMS Power discussion](https://www.smspower.org/forums/10695-SMSVDPTester?start=50).
 - [Maxim's SN76489 notes](https://www.smspower.org/Development/SN76489): Sega sound.
 - [Zilog Z80 CPU User Manual](https://www.smspower.org/uploads/Development/z80cpu_um.zip): CPU bus and interrupt timing.
 

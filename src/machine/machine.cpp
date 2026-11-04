@@ -1,90 +1,169 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "machine/machine.h"
+#include <algorithm>
 #include <stdexcept>
 
 namespace psmodern {
 Machine::Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram)
-    : memory_(std::move(rom), ram), cpu_(*this) {}
+    : memory_(std::move(rom), ram), cpu_(*this) {
+    sampled_int_=vdp_.irq();
+    z80_int(&cpu_.raw(),sampled_int_);
+}
 Machine::Machine(const Machine& o)
-    : memory_(o.memory_), cpu_(o.cpu_), cycle_(o.cycle_), opcode_fetches_(o.opcode_fetches_), scheduled_nmi_(o.scheduled_nmi_),
-      pads_(o.pads_), io_control_(o.io_control_), open_bus_(o.open_bus_), reset_(o.reset_), pause_(o.pause_),
-      int_(o.int_), accesses_(o.accesses_) { bind(); }
+    : memory_(o.memory_), cpu_(o.cpu_), vdp_(o.vdp_), cycle_(o.cycle_), opcode_fetches_(o.opcode_fetches_),
+      scheduled_nmi_(o.scheduled_nmi_), pads_(o.pads_), pending_pads_(o.pending_pads_), io_control_(o.io_control_),
+      open_bus_(o.open_bus_), reset_(o.reset_), pause_(o.pause_), pending_reset_(o.pending_reset_), pending_pause_(o.pending_pause_),
+      input_latched_(o.input_latched_), sampled_int_(o.sampled_int_), pause_nmi_level_(o.pause_nmi_level_)
+#ifdef PSMODERN_TEST_PROBES
+      , last_access_(o.last_access_)
+#endif
+      { bind(); }
 Machine& Machine::operator=(const Machine& o) {
     if (this != &o) {
-        memory_=o.memory_; cpu_=o.cpu_; cycle_=o.cycle_; opcode_fetches_=o.opcode_fetches_; scheduled_nmi_=o.scheduled_nmi_;
-        pads_=o.pads_; io_control_=o.io_control_; open_bus_=o.open_bus_; reset_=o.reset_; pause_=o.pause_;
-        int_=o.int_; accesses_=o.accesses_; bind();
+        memory_=o.memory_; cpu_=o.cpu_; vdp_=o.vdp_; cycle_=o.cycle_; opcode_fetches_=o.opcode_fetches_;
+        scheduled_nmi_=o.scheduled_nmi_; pads_=o.pads_; pending_pads_=o.pending_pads_; io_control_=o.io_control_;
+        open_bus_=o.open_bus_; reset_=o.reset_; pause_=o.pause_; pending_reset_=o.pending_reset_; pending_pause_=o.pending_pause_;
+        input_latched_=o.input_latched_; sampled_int_=o.sampled_int_; pause_nmi_level_=o.pause_nmi_level_;
+#ifdef PSMODERN_TEST_PROBES
+        last_access_=o.last_access_;
+#endif
+        bind();
     }
     return *this;
 }
 void Machine::bind() { cpu_.bind(*this); }
 bool Machine::equivalent(const Machine& o) const {
-    return memory_==o.memory_ && cpu_.equivalent(o.cpu_) && cycle_==o.cycle_ &&
-        opcode_fetches_==o.opcode_fetches_ && scheduled_nmi_==o.scheduled_nmi_ &&
-        pads_==o.pads_ && io_control_==o.io_control_ && open_bus_==o.open_bus_ && reset_==o.reset_ &&
-        pause_==o.pause_ && int_==o.int_ && accesses_==o.accesses_;
+    return memory_==o.memory_ && cpu_.equivalent(o.cpu_) && vdp_==o.vdp_ && cycle_==o.cycle_ &&
+        opcode_fetches_==o.opcode_fetches_ && scheduled_nmi_==o.scheduled_nmi_ && pads_==o.pads_ &&
+        pending_pads_==o.pending_pads_ && io_control_==o.io_control_ && open_bus_==o.open_bus_ &&
+        reset_==o.reset_ && pause_==o.pause_ && pending_reset_==o.pending_reset_ && pending_pause_==o.pending_pause_ &&
+        input_latched_==o.input_latched_ && sampled_int_==o.sampled_int_ && pause_nmi_level_==o.pause_nmi_level_;
 }
-void Machine::set_int(bool level) { int_=level; z80_int(&cpu_.raw(), level); }
-void Machine::set_pause(bool level) { if (level && !pause_) z80_nmi(&cpu_.raw()); pause_=level; }
+void Machine::latch_input() {
+    pads_=pending_pads_; reset_=pending_reset_;
+    pause_=pending_pause_; input_latched_=true;
+}
+void Machine::sync(std::uint64_t target) {
+    if (target<vdp_.cycle()) throw std::invalid_argument("Machine cannot run backwards");
+    if (!input_latched_) latch_input();
+    auto now=vdp_.cycle();
+    while (now<target) {
+        auto frame=(now/frame_cycles+1)*frame_cycles;
+        auto pause_sample=(now/frame_cycles)*frame_cycles+pause_sample_offset;
+        if (pause_sample<=now) pause_sample+=frame_cycles;
+        auto next=std::min({target,frame,pause_sample});
+        vdp_.sync(next);
+        if (next==frame) latch_input();
+        if (next==pause_sample) {
+            if (pause_ && !pause_nmi_level_) z80_nmi(&cpu_.raw());
+            pause_nmi_level_=pause_;
+        }
+        now=next;
+    }
+    vdp_.sync(target);
+    if (scheduled_nmi_ && *scheduled_nmi_<=target) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
+}
+void Machine::advance(std::uint64_t cycles) {
+    sync(cycle_+cycles); cycle_+=cycles; sampled_int_=vdp_.irq();
+    z80_int(&cpu_.raw(),sampled_int_);
+}
+std::uint64_t Machine::run_frame() {
+    auto target=(cycle_/frame_cycles+1)*frame_cycles;
+    while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step();
+    return cycle_-target;
+}
 void Machine::schedule_nmi(std::uint64_t cycle) {
-    if (cycle < cycle_) throw std::invalid_argument("NMI is in the past");
+    if (cycle<cycle_) throw std::invalid_argument("NMI is in the past");
     scheduled_nmi_=cycle;
 }
 std::optional<std::uint64_t> Machine::next_nmi() const {
     if (cpu_.raw().request & Z80_REQUEST_NMI) return cycle_;
-    return scheduled_nmi_;
+    auto next=scheduled_nmi_;
+    auto frame_start=(cycle_/frame_cycles)*frame_cycles;
+    auto sample=frame_start+pause_sample_offset;
+    bool level=pause_nmi_level_;
+    if (sample>cycle_) {
+        bool input=input_latched_ ? pause_ : pending_pause_;
+        if (input && !level && (!next || sample<*next)) next=sample;
+        level=input;
+    }
+    sample=frame_start+frame_cycles+pause_sample_offset;
+    if (pending_pause_ && !level && (!next || sample<*next)) next=sample;
+    return next;
 }
 void Machine::deliver_nmi() {
-    if (scheduled_nmi_ && *scheduled_nmi_ <= cycle_) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
+    if (scheduled_nmi_ && *scheduled_nmi_<=cycle_) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
 }
 std::uint64_t Machine::step(const Hook& hook) {
-    deliver_nmi();
-    z80_int(&cpu_.raw(), int_);
-    const auto request = cpu_.raw().request;
-    const bool reject_nmi = (request & Z80_REQUEST_REJECT_NMI) != 0;
-    const bool nmi = !reject_nmi && (request & Z80_REQUEST_NMI);
-    const bool reti_delay = cpu_.raw().data.uint8_array[0] == 0xed &&
-        (cpu_.raw().data.uint8_array[1] & 0xc7) == 0x45 && (cpu_.raw().data.uint8_array[2] & 1);
-    const bool irq = !reject_nmi && !nmi && (request & Z80_REQUEST_INT) &&
-        cpu_.raw().data.uint8_array[0] != 0xfb && !reti_delay;
-    if (cpu_.raw().resume == 0 && !nmi && !irq && hook) {
+    sync(cycle_); deliver_nmi();
+    z80_int(&cpu_.raw(), sampled_int_);
+    const auto request=cpu_.raw().request;
+    // Mirrors the pinned Z80.c RETN bookkeeping (lines 1141-1146) and
+    // request/RETN acceptance checks (lines 2558-2612). Re-verify on a pin change.
+    const bool reject_nmi=(request & Z80_REQUEST_REJECT_NMI)!=0;
+    const bool nmi=!reject_nmi && (request & Z80_REQUEST_NMI);
+    const bool reti_delay=cpu_.raw().data.uint8_array[0]==0xed &&
+        (cpu_.raw().data.uint8_array[1]&0xc7)==0x45 && !(cpu_.raw().data.uint8_array[2]&1);
+    const bool irq=!reject_nmi && !nmi && (request & Z80_REQUEST_INT) &&
+        cpu_.raw().data.uint8_array[0]!=0xfb && !reti_delay;
+    if (cpu_.raw().resume==0 && !nmi && !irq && hook) {
         const auto pc=cpu_.raw().pc.uint16_value;
-        if (auto target=hook(pc, memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
+        if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
     }
     const auto elapsed=cpu_.step(cycle_);
-    cycle_ += elapsed;
-    deliver_nmi();
+    // [S,E) samples the line at E-1, after any earlier I/O in that instruction.
+    sync(cycle_+elapsed-1); sampled_int_=vdp_.irq();
+    cycle_+=elapsed; sync(cycle_);
     return elapsed;
 }
 std::uint8_t Machine::opcode(std::uint16_t addr) { ++opcode_fetches_; return read(addr); }
 std::uint8_t Machine::read(std::uint16_t addr) {
-    if (memory_.mapping(addr).kind != Memory::Kind::unmapped) open_bus_=memory_.read(addr);
+    if (memory_.mapping(addr).kind!=Memory::Kind::unmapped) open_bus_=memory_.read(addr);
     return open_bus_;
 }
-void Machine::write(std::uint16_t addr, std::uint8_t value) { memory_.write(addr,value); open_bus_=value; }
-std::uint8_t Machine::input(std::uint16_t addr, std::uint64_t cycle) { return read_port(addr,cycle); }
-void Machine::output(std::uint16_t addr, std::uint8_t value, std::uint64_t cycle) { write_port(addr,value,cycle); }
-std::uint8_t Machine::read_port(std::uint16_t raw, std::uint64_t cycle) {
+void Machine::write(std::uint16_t addr,std::uint8_t value) { memory_.write(addr,value); open_bus_=value; }
+std::uint8_t Machine::input(std::uint16_t addr,std::uint64_t cycle) { return read_port(addr,cycle); }
+void Machine::output(std::uint16_t addr,std::uint8_t value,std::uint64_t cycle) { write_port(addr,value,cycle); }
+std::uint8_t Machine::read_port(std::uint16_t raw,std::uint64_t cycle) {
+    sync(cycle);
     const auto port=static_cast<std::uint8_t>(raw);
-    if (port < 0x40) return open_bus_;
-    if (port < 0xc0) { accesses_.push_back({cycle,port,0xff,false}); return 0xff; }
-    if (!memory_.io_enabled()) return open_bus_;
-    auto low=[](bool pressed) -> unsigned { return pressed ? 0 : 1; };
-    auto pin=[&](unsigned direction, unsigned output, bool input) {
-        return (io_control_ & (1u << direction)) ? low(input) : ((io_control_ >> output) & 1u);
-    };
-    auto& a=pads_[0]; auto& b=pads_[1];
-    if (!(port & 1)) return low(a.up) | (low(a.down)<<1) | (low(a.left)<<2) |
-        (low(a.right)<<3) | (low(a.one)<<4) | (pin(0,4,a.two)<<5) |
-        (low(b.up)<<6) | (low(b.down)<<7);
-    return low(b.left) | (low(b.right)<<1) | (low(b.one)<<2) | (pin(2,6,b.two)<<3) |
-        (low(reset_)<<4) | 0x20 | (pin(1,5,false)<<6) | (pin(3,7,false)<<7);
+    std::uint8_t value;
+    if (port<0x40) value=open_bus_;
+    else if (port<0x80) value=(port&1) ? vdp_.h_counter() : vdp_.v_counter();
+    else if (port<0xc0) value=(port&1) ? vdp_.read_status(open_bus_) : vdp_.read_data();
+    else if (!memory_.io_enabled()) value=open_bus_;
+    else {
+        auto low=[](bool pressed)->unsigned { return pressed ? 0 : 1; };
+        auto pin=[&](unsigned direction,unsigned output,bool input) {
+            return (io_control_&(1u<<direction)) ? low(input) : ((io_control_>>output)&1u);
+        };
+        auto& a=pads_[0]; auto& b=pads_[1];
+        if (!(port&1)) value=low(a.up)|(low(a.down)<<1)|(low(a.left)<<2)|(low(a.right)<<3)|
+            (low(a.one)<<4)|(pin(0,4,a.two)<<5)|(low(b.up)<<6)|(low(b.down)<<7);
+        else value=low(b.left)|(low(b.right)<<1)|(low(b.one)<<2)|(pin(2,6,b.two)<<3)|
+            (low(reset_)<<4)|0x20|(pin(1,5,false)<<6)|(pin(3,7,false)<<7);
+    }
+#ifdef PSMODERN_TEST_PROBES
+    last_access_=PortAccess{cycle,port,value,false};
+#endif
+    return value;
 }
-void Machine::write_port(std::uint16_t raw, std::uint8_t value, std::uint64_t cycle) {
+void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle) {
+    sync(cycle);
     const auto port=static_cast<std::uint8_t>(raw);
-    if (port < 0x40) {
-        if (port & 1) io_control_=value;
-        else memory_.set_memory_control(value);
-    } else if (port < 0xc0) accesses_.push_back({cycle,port,value,true});
+    if (port<0x40) {
+        if (port&1) {
+            auto th=[](std::uint8_t control,unsigned direction,unsigned output) {
+                return (control&(1u<<direction)) || (control&(1u<<output));
+            };
+            if ((!th(io_control_,1,5) && th(value,1,5)) || (!th(io_control_,3,7) && th(value,3,7))) vdp_.latch_h_counter();
+            io_control_=value;
+        } else memory_.set_memory_control(value);
+    } else if (port>=0x80 && port<0xc0) {
+        if (port&1) vdp_.write_control(value); else vdp_.write_data(value);
+    } // PSG placeholder: no retained log.
+#ifdef PSMODERN_TEST_PROBES
+    last_access_=PortAccess{cycle,port,value,true};
+#endif
 }
 }

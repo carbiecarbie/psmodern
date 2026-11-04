@@ -6,7 +6,6 @@ namespace psmodern {
 Memory::Memory(std::shared_ptr<const Rom> rom, CartridgeRam cartridge_ram)
     : rom_(std::move(rom)), cartridge_ram_(cartridge_ram) {
     if (!rom_ || rom_->size() != 512 * 1024) throw std::invalid_argument("Expected a 512 KiB ROM image");
-    ram_[0] = 0xab;
 }
 
 Memory::Mapping Memory::mapping(std::uint16_t address) const {

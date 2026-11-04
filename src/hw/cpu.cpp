@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "hw/cpu.h"
+#include "hw/initial_state.h"
 namespace psmodern {
 Cpu::Cpu(CpuBus& bus) : bus_(&bus) {
-    bind(bus); state_.options=Z80_MODEL_ZILOG_NMOS; z80_power(&state_,1);
+    bind(bus); state_.options=Z80_MODEL_ZILOG_NMOS; initial_state::cpu(state_);
 }
 Cpu::Cpu(const Cpu& other) : state_(other.state_), bus_(other.bus_), start_cycle_(other.start_cycle_) { bind(*bus_); }
 Cpu& Cpu::operator=(const Cpu& other) {

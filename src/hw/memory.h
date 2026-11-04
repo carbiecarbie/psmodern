@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "hw/initial_state.h"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -23,6 +24,7 @@ public:
     void set_memory_control(std::uint8_t value) { memory_control_ = value; }
     std::uint8_t memory_control() const { return memory_control_; }
     bool io_enabled() const { return !(memory_control_ & 0x04); }
+    const auto& ram() const { return ram_; }
     const CartridgeRam& cartridge_ram() const { return cartridge_ram_; }
     bool cartridge_ram_dirty() const { return cartridge_ram_dirty_; }
     void clear_cartridge_ram_dirty() { cartridge_ram_dirty_ = false; }
@@ -30,11 +32,11 @@ public:
 
 private:
     std::shared_ptr<const Rom> rom_;
-    std::array<std::uint8_t, 8192> ram_{};
+    std::array<std::uint8_t, 8192> ram_=initial_state::work_ram();
     CartridgeRam cartridge_ram_{};
-    std::array<std::uint8_t, 3> banks_{0, 1, 2};
-    std::uint8_t mapper_control_ = 0;
-    std::uint8_t memory_control_ = 0xab;
+    std::array<std::uint8_t, 3> banks_=initial_state::mapper_banks;
+    std::uint8_t mapper_control_ = initial_state::mapper_control;
+    std::uint8_t memory_control_ = initial_state::memory_control;
     bool cartridge_ram_dirty_ = false;
 };
 }
