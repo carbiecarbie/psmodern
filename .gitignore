@@ -1,0 +1,16 @@
+# Build directories
+/build/
+/build-*/
+__pycache__/
+
+# Game data and dumps never enter this repository (see AGENTS.md)
+*.sms
+*.gg
+*.bin
+*.rom
+*.sav
+*.srm
+*.zip
+*.7z
+*.nsp
+*.xci
