@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: CI
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build-and-test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: minimal
+      - name: Install verified pinned packages
+        shell: msys2 {0}
+        run: |
+          set -eu
+          dir=$(cygpath -u "$RUNNER_TEMP")/psmodern-packages
+          mkdir -p "$dir"
+          while read -r sum file; do
+            case "$sum" in ''|'#'*) continue ;; esac
+            curl -fsSL --retry 3 -o "$dir/$file" "https://repo.msys2.org/mingw/ucrt64/$file"
+            echo "$sum  $dir/$file" | sha256sum -c --quiet
+          done < .github/ci/msys2-packages.txt
+          pacman -U --noconfirm "$dir"/*.pkg.tar.zst
+          pacman -Q | grep '^mingw-w64-ucrt-x86_64-'
+      - name: Configure, build and test
+        shell: msys2 {0}
+        run: |
+          set -eu
+          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF
+          if grep -q NDEBUG build-rel/build.ninja; then
+            echo 'Unexpected NDEBUG in build-rel.'; exit 1
+          fi
+          cmake --build build-rel
+          ctest --test-dir build-rel --output-on-failure --no-tests=error

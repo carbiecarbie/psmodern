@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+cmake_minimum_required(VERSION 3.20)
+# Keep assertions in the optimized validation build, as in MMModern.
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
+project(PSModern LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(PSMODERN_ROM_TESTS "Register tests requiring external ROMs" ON)
+set(PSMODERN_ROM_US "" CACHE FILEPATH "US Rev-A ROM for tests")
+set(PSMODERN_ROM_BR "" CACHE FILEPATH "Brazilian ROM for tests")
+set(PSMODERN_REFERENCE_DIR "" CACHE PATH "External reference emulator output")
+
+find_package(SDL2 CONFIG REQUIRED)
+add_library(psmodern_rom src/rom/rom.cpp src/rom/sha1.cpp)
+target_include_directories(psmodern_rom PUBLIC src)
+add_executable(psmodern src/app/main.cpp)
+target_link_libraries(psmodern PRIVATE psmodern_rom SDL2::SDL2)
+if(MINGW)
+  target_compile_options(psmodern_rom PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(psmodern PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(psmodern_unit_tests tests/rom_tests.cpp)
+  target_link_libraries(psmodern_unit_tests PRIVATE psmodern_rom)
+  add_test(NAME rom_unit COMMAND psmodern_unit_tests "${CMAKE_CURRENT_BINARY_DIR}/rom-unit")
+  set_tests_properties(rom_unit PROPERTIES LABELS fast)
+
+  # Each ROM test executable receives a path and returns 77 when it is absent.
+  function(psmodern_rom_test name path version)
+    if(PSMODERN_ROM_TESTS)
+      add_test(NAME "${name}" COMMAND psmodern_rom_tests "${path}" "${version}")
+      set_tests_properties("${name}" PROPERTIES SKIP_RETURN_CODE 77 LABELS fast)
+    endif()
+  endfunction()
+  if(PSMODERN_ROM_TESTS)
+    add_executable(psmodern_rom_tests tests/real_rom_tests.cpp)
+    target_link_libraries(psmodern_rom_tests PRIVATE psmodern_rom)
+  endif()
+  psmodern_rom_test(rom_us "${PSMODERN_ROM_US}" us)
+  psmodern_rom_test(rom_br "${PSMODERN_ROM_BR}" br)
+endif()

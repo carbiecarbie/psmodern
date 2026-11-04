@@ -334,12 +334,7 @@ game, a walk in Camineet, a named save and a battle (final frame 6754 US,
 
 ### 4. Hardware documentation
 
-**Hardware documentation.** Use the [SMS Power development index](https://www.smspower.org/Development/Index),
-[memory map](https://www.smspower.org/Development/MemoryMap), [mapper registers](https://www.smspower.org/Development/Mappers)
-and [I/O port map](https://www.smspower.org/Development/IOPortMap) for memory and port decoding.
-For display and interrupts use [Charles MacDonald's VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt),
-for Sega sound [Maxim's SN76489 notes](https://www.smspower.org/Development/SN76489),
-and for CPU bus and interrupt timing the [Zilog Z80 CPU User Manual](https://www.smspower.org/uploads/Development/z80cpu_um.zip).
+**Hardware documentation.** See the list in [dependencies](dependencies.md#hardware-documentation).
 
 **Settled in the coordinator review (2026-11-04): no palette-slot numbers.**
 Part D compares the picture as 6-bit colors, and CRAM, VRAM and RAM are

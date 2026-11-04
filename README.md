@@ -21,6 +21,20 @@ of the game works.
 - [Design](docs/design.md)
 - [Project status](docs/project-status.md)
 
+## Build and run
+
+With the [pinned MSYS2 UCRT64 toolchain](docs/dependencies.md), in a UCRT64 shell:
+
+```sh
+cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build-rel
+ctest --test-dir build-rel --output-on-failure
+./build-rel/psmodern.exe "path/to/your-game.sms"
+```
+
+The current executable identifies a supported ROM and exits; it does not run
+the game yet. See [development](docs/development.md) for ROM test paths.
+
 ## License
 
 GPL-3.0-or-later. Phantasy Star is a trademark of SEGA; this project is not

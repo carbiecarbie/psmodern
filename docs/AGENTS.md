@@ -16,14 +16,14 @@ All documentation is in English (maintainer decision, 2026-11-04).
 | `docs/project-status.md` | What runs and can be done now; architecture overview; rewritten vs Z80 systems; known gaps | ~100-300 lines |
 | `docs/milestone-N-plan.md` | That milestone's plan; condensed at closure | Closed: ~30-100 lines |
 | `AGENTS.md`, `docs/AGENTS.md` | Agent instructions: every task; documentation | Root under 240 lines |
+| `docs/dependencies.md` | Toolchain, libraries and versions, build setup (authoritative) | As needed |
+| `docs/development.md` | Developer entry modes, ROM locations, tests, recordings | As needed |
+| `tools/AGENTS.md` | Complete test-suite protocol | Short |
 
 Created by the task that first needs them, and listed here in that change:
 
 | Document | Responsibility | Created by |
 | --- | --- | --- |
-| `docs/dependencies.md` | Toolchain, libraries and versions, build setup (authoritative) | Milestone 1 |
-| `docs/development.md` | Developer entry modes, ROM locations, tests, recordings | Milestone 1 |
-| `tools/AGENTS.md` | Complete test-suite protocol | Milestone 1 or 2 |
 | `docs/project-history.md` | One short entry per completed milestone, with its closing commit | Closure of milestone 1 |
 | `docs/how-it-works/` | One chapter per game system, for a reader who does not program, with evidence labels (below) | First studied system (milestone 3) |
 | `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates | First entry |

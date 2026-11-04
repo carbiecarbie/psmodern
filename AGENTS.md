@@ -29,9 +29,9 @@ below automatically, so read each one whose trigger applies before acting.
 | File | Read it before |
 | --- | --- |
 | `docs/AGENTS.md` | Creating or editing `README.md`, any `AGENTS.md` or anything under `docs/`: design, milestone plans, milestone closure, project status, how-it-works chapters |
+| `tools/AGENTS.md` | Running or delegating the complete CTest suite, or rerunning failures |
 
-The test-suite protocol (`tools/AGENTS.md`) and the play-test guide
-(`docs/playtests.md`) are added when the first milestone needs them.
+The play-test guide (`docs/playtests.md`) is added when first needed.
 
 ## Source of truth
 
