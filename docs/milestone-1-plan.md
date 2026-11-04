@@ -102,8 +102,12 @@ All ROM static, US Rev-A, the same bytes in the Brazilian ROM where checked.
   - **Pause** as NMI.
 - **One cycle counter drives everything.** A single 64-bit Z80 cycle counter;
   the VDP and PSG are event-scheduled from it and can advance N cycles
-  without the CPU. Memory and I/O accesses inside an instruction happen at
-  their real cycle offset (an `OUT` lands on its last machine cycle).
+  without the CPU. I/O accesses inside an instruction happen at their real
+  cycle offset (an `OUT` lands on its last machine cycle). Memory accesses
+  need only instruction granularity: on the Master System no memory-mapped
+  device observes timing inside an instruction, and the mapper registers take
+  effect before the next opcode fetch either way (Inference from the
+  hardware documentation; settled in the Part 0 review).
 - **Hooks milestone 2 needs, built and tested now** (nothing uses them yet):
   - a query for the cycle of the next IRQ and the next NMI;
   - advancing the machine by N cycles without executing instructions;
@@ -170,12 +174,12 @@ Results are recorded in this plan before Part A starts.
 
 1. **Z80 core.** Requirements: GPL-3.0-or-later compatible license; passes
    ZEXDOC, ZEXALL and a flags/MEMPTR suite; exact cycle counts, R and
-   interrupt timing; memory and I/O accesses at their cycle offset inside an
+   interrupt timing; I/O accesses at their cycle offset inside an
    instruction; the boundary hook above. Candidates: `floooh/chips` `z80.h`
    (zlib, cycle-stepped, `z80_prefetch`) and `redcode/Z80` (LGPL-3.0,
    instruction-stepped, passes the Rak, Woodmass and Cringle suites).
 2. **Reference emulator.** A primary one that runs headless from a script,
-   feeds input per frame, and dumps CRAM-index frames, RAM and VRAM; and a
+   feeds input per frame, and dumps frames as 6-bit colors, RAM and VRAM; and a
    second one to settle disputes. Check whether Mesen 2 (archived, GPL-3.0)
    or its continuation (named on the Mesen 2 repository as MesenCE) offers
    SMS, Lua and a headless runner; otherwise Emulicious for manual and
@@ -189,6 +193,159 @@ Results are recorded in this plan before Part A starts.
 4. **Hardware documentation** followed (SMS Power development
    documentation, Charles MacDonald's VDP notes, the SN76489 notes), listed
    in `docs/dependencies.md`.
+
+## Part 0 results
+
+### 1. Z80 core
+
+**Decision (coordinator review, maintainer approved 2026-11-04): use
+`redcode/Z80` at `dcc3f28d`.** It passes the same Cringle, Rak and Woodmass
+suites, reports the cycle of I/O accesses inside an instruction, builds as a
+CMake subproject, is LGPL-3.0-or-later (compatible with GPL-3.0-or-later) and
+is long established. Per-access memory timing, RZ80's advantage below, is not
+needed on the Master System (see "One cycle counter drives everything"), and
+RZ80 is a young project with an open provenance question. Part B rebinds the
+copied CPU's callback and context pointers, handles the prefix-resume states
+when redirecting PC, and verifies HALT's R counting and the I/O offsets on the
+integrated pin. The comparison made in Part 0 follows.
+
+**Inference.** Part 0 proposed the RZ80 C model at `6b1ffcea`. It exposes memory and I/O
+pins every half T-state and has published passes for all the required suites.
+**Community source.** The results below are upstream measurements.
+
+- **RZ80.** ZEXDOC and ZEXALL each passed 67/67, Rak's flags, CCF and MEMPTR each
+  passed 160/160, and 50/50 instruction timings matched a hardware capture.
+  Immediate OUT takes 4+3+4 T-states, with the write strobe at T2 of the final
+  cycle. Service each strobe once. INT and latched NMI are sampled at the final
+  T-state. A first, non-prefixed M1 before the read is the redirect point for
+  `z80_set_pc`. Exclude interrupt acknowledges and HALT fetches. The pointer-free
+  live `z80_t` holds pins, pending writes and sequencer state. Copy it with the
+  wrapper's pending bus state. The architectural register view uses shared scratch.
+  Build the C99 core as a CMake library. Original C is MIT. Upstream identifies
+  possible LGPL-derived block-flag logic. Check that provenance and preserve
+  applicable redcode notices before vendoring. Both licenses are GPLv3-compatible.
+  [Results](https://github.com/rejunity/z80-from-schematics/tree/6b1ffceab57561881e9cae429182dc3d4fc28038#status),
+  [API](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/cmodel/z80.h),
+  [timing](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/docs/timing.md),
+  [license](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/LICENSE) and
+  [provenance](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/THIRD_PARTY_NOTICES.md#core-provenance-to-verify).
+- **floooh/chips** `9e88298c` (zlib). One implementation unit, one tick per
+  T-state, memory and OUT strobes on their machine cycles. `z80_opdone` exposes
+  the overlapping M1/T2 fetch and `z80_prefetch` redirects. Copy the pointer-free
+  CPU and caller's pins. Published runs passed ZEXDOC, ZEXALL and Rak 1.2a
+  MEMPTR, but failed 8/160 flags and 67/160 CCF cases. A fix on this pin is
+  unverified. [Core](https://github.com/floooh/chips/blob/9e88298ce56319953ac7a43213a1120359f7a3a6/chips/z80.h),
+  [license](https://github.com/floooh/chips/blob/9e88298ce56319953ac7a43213a1120359f7a3a6/LICENSE) and
+  [suite transcripts](https://github.com/floooh/chips/issues/98).
+- **redcode/Z80** `dcc3f28d` (LGPL-3.0-or-later). CMake subproject with Zeta.
+  Upstream reports Cringle (ZEXDOC/ZEXALL), Rak and Woodmass flags/MEMPTR
+  passes. It returns instruction totals and exposes I/O offsets
+  (`z80_out_cycle` returns 7 for immediate OUT). Memory callbacks lack an
+  equivalent per-access clock. Stop after a complete instruction to replace
+  PC, accounting for prefix-resume states. A copied CPU retains callback and
+  context pointers. Rebind the context. [API](https://github.com/redcode/Z80/blob/dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9/API/Z80.h),
+  [published results](https://github.com/redcode/Z80/tree/dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9#accuracy)
+  and [license](https://github.com/redcode/Z80/blob/dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9/COPYING.LESSER).
+
+All three implement R=0 on CPU reset, preserve bit 7, count prefix M1 fetches
+and advance R every four T-states during HALT. The final indexed-CB opcode is
+a memory read. All retain I and IFF1/2, defer INT for one instruction after EI,
+leave HALT on acceptance, and model IM 1 (13 T) and NMI (11 T). Part B must
+verify strobe timing, redirect without an extra cycle or fetch, mid-cycle
+copy/resume and conformance on the integrated pin.
+
+### 2. Reference emulator
+
+**Reference emulator.** MesenCE 2.2.1 (`20ba206c`, Windows) ran both SMS ROMs
+with Lua and `--testRunner`. The archived Mesen 2.1.1 also has these interfaces.
+Use Emulicious 2026-03-27 as second opinion, with Master System 1, export/NTSC,
+no BIOS and FM off. [Archived runner](https://github.com/SourMesen/Mesen2/blob/2.1.1/UI/Utilities/TestRunner.cs),
+[CE release](https://github.com/nesdev-org/MesenCE/releases/tag/2.2.1) and [Emulicious distribution](https://emulicious.net/downloads/).
+
+- **Startup.** Empty firmware/save folders, SMS `Revision=Sms1` (315-5124),
+  `Region=Ntsc`, `RamPowerOnState=AllZeros`, `EnableFmAudio=false`, two SMS pads.
+  CE still randomizes the starting line. Before the first instruction Lua set
+  `vdp.scanline` and `vdp.vcounter` to zero. Readback gave line 0, VDP cycle 1,
+  CPU cycle 0. PC=0, AF=AB42, BC=0002, DE=A51B, HL=IX=IY=0, SP=DFF0.
+  Alternate AF/BC/DE/HL=0000/0200/C700/C75F, I=0, R=1D, both IFFs clear, IM 1.
+  CE's halted path spends four clocks without advancing R. Use the CPU
+  suites and second emulator to settle HALT timing. [CE CPU](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsCpu.cpp).
+- **Memory.** Mapper control zero, slots 0/1/2. Cartridge, work RAM and I/O
+  enabled. Work RAM is zero except for the `$3E` marker `$AB` at `$C000`.
+  Fresh save RAM and VRAM are zero. CE supplies its post-BIOS CRAM and VDP
+  defaults, including mode 4/192, display and both IRQ enables on, VBlank
+  pending, address `$3D6A`, code 1 and line counter/latch `$FF/$FC`.
+  [Memory initialization](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsMemoryManager.cpp)
+  and [VDP initialization](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp).
+- **Capture.** Apply frame input at `startFrame` (line 0, cycle 0), reapply it
+  at `inputPolled`. At line 0 the previous picture is available before buffer
+  swap. Crop unfiltered RGB rows 24–215 and recover the two bits per channel
+  in SMS order. Two runs per ROM matched at the final boundary in all four
+  dumps (49,152 color bytes, 8,192 RAM, 16,384 VRAM, 32 CRAM).
+  [Lua API](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/LuaApi.cpp)
+  and [SMS display filter](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsDefaultVideoFilter.h).
+
+### 3. Hardware used by the two cartridges
+
+**Reference emulator.** Each fresh-save recording covered power-on, title, new
+game, a walk in Camineet, a named save and a battle (final frame 6754 US,
+6401 Brazilian). All cited ROM addresses are identical in both versions.
+
+- **ROM static + Reference emulator.** The random draw at `00:05C8` executed
+  the only confirmed `LD A,R`. Matches at `14:A717` and `16:B4E0` are literal
+  graphics selected by `00:3E8E` and `00:3E06` and consumed by `00:03FA`.
+  The sole `LD A,I` match, `0A:8DE7`, is graphics selected at `01:6048`
+  for the same decoder. No HALT executed. Reset selects IM 1 at `00:0001`,
+  IRQ entry is `00:0038`, and no IM 0/2 selection executed.
+- **ROM static + Unknown.** Of 484 HALT byte matches per ROM, 244 are in
+  referenced data (e.g. `03:8BF5`) and 12 US / 13 Brazilian are inside
+  other instructions. The extra confirmed Brazilian operand is at `00:158E`.
+  The remaining 228 US / 227 Brazilian lack an established instruction
+  boundary. Known script records index a 182-entry table at `01:4773`.
+  The map selector at `00:0BD3` has no established whole-game bound. Of 11 IM 0/2
+  byte matches, five are graphics and six remain
+  unclassified (`17:B789`, `17:BFB1`, `1E:8ACA`, `1F:8C9F`, `1F:9388`,
+  `1F:9BD5`). The sessions do not establish whole-game absence.
+- **Reference emulator + ROM static.** Port counters recorded reads only at
+  `$BE/$BF/$DC/$DD`, writes only at `$7F/$BE/$BF`, including indirect and
+  block I/O. Sound output at `0C:8028` targets the PSG. `00:3AB0` reads VDP
+  data, `00:0039` status, `00:0339` the pad and `00:010F` Reset. No FM
+  (`$F0–$F2`) or V/H counter access, including mirrors, was observed.
+- **Reference emulator + ROM static.** The game sets R0/R1 to `$06/$A0` at
+  `00:03AA`. Writes at `00:000C` also used R0=`$26` or R1=`$E0`. All select
+  mode 4/192 with VBlank IRQ enabled and line IRQ disabled. Part B gains
+  no FM, IM 0/2 or additional display mode on this evidence. Keep the
+  planned counters and line IRQ timing.
+- **Reference emulator + ROM static.** `00:009F` and `00:00A0` clear the
+  full 8 KiB. Tracking each physical RAM byte across both mirrors found no
+  read before first write. **Inference.** An early Pause NMI could read RAM
+  at `00:0067` before the clear. All 5,196 US and 5,759 Brazilian distinct
+  fetch sites mapped to ROM banks 00, 01 or 0C, including the bank switch
+  at `00:02F0`. No work-RAM or cartridge-RAM code ran on these routes.
+- **Reference emulator + ROM static.** Boot writes `$80` at `00:008B`.
+  `00:07DC` enables cartridge RAM with
+  `$FFFC=$08` (bit 3 on, bank bit 2 clear). `00:07EE` reads fresh save RAM
+  before writing. Initialization at `00:0851` reads through `$9FFA` and
+  writes through `$9FFB`. Slot one wrote `$8400–$87FF` at `00:1D1D` and its
+  flag at `00:1D15`. **Inference.** Use an 8 KiB Part B save image for each ROM.
+  The observed extent is 8,188 bytes in the lower bank. **Hardware documentation.**
+  The US board carries an MB8464A. The Brazilian chip marking is **Unknown**.
+  [US cartridge PCB inventory](https://gendev.spritesmind.net/mirrors/www.nepereny.com/misc2/games/sms_phantasy_star.htm).
+
+### 4. Hardware documentation
+
+**Hardware documentation.** Use the [SMS Power development index](https://www.smspower.org/Development/Index),
+[memory map](https://www.smspower.org/Development/MemoryMap), [mapper registers](https://www.smspower.org/Development/Mappers)
+and [I/O port map](https://www.smspower.org/Development/IOPortMap) for memory and port decoding.
+For display and interrupts use [Charles MacDonald's VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt),
+for Sega sound [Maxim's SN76489 notes](https://www.smspower.org/Development/SN76489),
+and for CPU bus and interrupt timing the [Zilog Z80 CPU User Manual](https://www.smspower.org/uploads/Development/z80cpu_um.zip).
+
+**Settled in the coordinator review (2026-11-04): no palette-slot numbers.**
+Part D compares the picture as 6-bit colors, and CRAM, VRAM and RAM are
+compared separately. Two slots holding the same color look the same to the
+player, so a slot difference with an identical color is not a difference in
+original mode.
 
 ### Part A - Repository, build and CI
 
@@ -223,7 +380,8 @@ Results are recorded in this plan before Part A starts.
 
 - **From power-on, frame by frame:** each ROM, on recordings that reach the
   title screen and a new game in Camineet, compared with the reference every
-  frame (CRAM-index picture cropped to 256x192, RAM, VRAM), reporting the
+  frame (the picture as 6-bit colors cropped to 256x192, RAM, VRAM, CRAM),
+  reporting the
   first frame that differs.
 - **Checkpoints across the game:** the first battle and the first dungeon by
   recording; late-game points (a later town, a 3D dungeon deep in the game, a
