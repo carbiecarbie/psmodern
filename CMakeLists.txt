@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 cmake_minimum_required(VERSION 3.20)
 # Keep assertions in the optimized validation build, as in MMModern.
+set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
 project(PSModern LANGUAGES C CXX)
 
