@@ -44,7 +44,19 @@ jobs:
         shell: msys2 {0}
         run: |
           set -eu
-          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF
+          dir=$(cygpath -u "$RUNNER_TEMP")/psmodern-z80-tests
+          mkdir -p "$dir"
+          base=https://raw.githubusercontent.com/rejunity/z80-from-schematics/6b1ffceab57561881e9cae429182dc3d4fc28038/tests/z80test
+          while read -r sum file; do
+            curl -fsSL --retry 3 -o "$dir/$file" "$base/$file"
+            echo "$sum  $dir/$file" | sha256sum -c --quiet
+          done <<'TESTS'
+          4dbe34a28ed564ac782b538736e1a1c57c562876165a3294bd93af25ea3df653 z80flags.tap
+          444582ddfa4d05711b6235e743ddf68295231e97ba92cc838c5d09a106c9a10f z80memptr.tap
+          a35b3b269b58371015cf033f28a08ad1ac92cce6dd27b428caf67b7f9ce8f5b7 z80ccf.tap
+          67e39cd3bbecedf1e406ea9ce99d55fc48c3b497e235f1c7406d1bc4406b7071 LICENSE.txt
+          TESTS
+          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF -DPSMODERN_Z80_TEST_DIR="$(cygpath -m "$dir")"
           if grep -q NDEBUG build-rel/build.ninja; then
             echo 'Unexpected NDEBUG in build-rel.'; exit 1
           fi

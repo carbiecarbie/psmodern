@@ -21,6 +21,16 @@ fails. Set the option to `OFF` to omit ROM tests, as CI does. The cache path
 `ctest --test-dir build-rel -L fast --output-on-failure` for fast tests.
 See [the complete-suite protocol](../tools/AGENTS.md) before a complete run.
 
+Set the `PSMODERN_Z80_TEST_DIR` cache path to an external directory containing
+`zexdoc.com`, `zexall.com`, `z80flags.tap`, `z80memptr.tap`, `z80ccf.tap`,
+`woodmass.tap` and `spectrum48.rom` to run the Z80 conformance tests. The
+Woodmass tests need both their TAP and the Spectrum 48K firmware. An empty
+path or a missing file skips the affected tests; CI supplies the three Rak
+TAPs and skips the other external suites. See
+[dependencies](dependencies.md#z80-conformance-programs) for provenance and
+licenses. These tests use the integrated CPU wrapper with a test bus, not
+the game ROM or the upstream standalone harness.
+
 Keep ROMs, emulator captures, traces, saves and other working material outside
 the repository, under `D:/Projetos/Phantasy Star/`. Never commit ROM-derived
 data.

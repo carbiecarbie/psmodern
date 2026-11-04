@@ -69,10 +69,57 @@ mingw-w64-ucrt-x86_64-zstd 1.5.7-2
 
 ## Z80 core
 
-[redcode/Z80](https://github.com/redcode/Z80) is selected at commit
+[redcode/Z80](https://github.com/redcode/Z80) is vendored at commit
 `dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9`, LGPL-3.0-or-later, compatible
-with this project's GPL-3.0-or-later license. It is not yet vendored; Part B
-will bring in the pinned source and its license.
+with this project's GPL-3.0-or-later license. `third_party/redcode-z80`
+contains its API header, C implementation, and GPL and LGPL license texts.
+The required headers from [redcode/Zeta](https://github.com/redcode/Zeta)
+are vendored at commit `42830b0e735cc3a83c7630e2dcf21949e8441c6d` under
+`third_party/zeta`, with its GPL and LGPL license texts. Zeta headers are
+LGPL-3.0; the applicable license is stated in each header.
+
+The Z80 files are `API/Z80.h`, `sources/Z80.c`, `COPYING` and
+`COPYING.LESSER`. The Zeta header subset under `API/Z/` is:
+
+- `constants/{boolean,pointer}.h`, `types/{bitwise,integral}.h`;
+- `formats/data_model/{I16LP32,ILP32,ILP64,IP16L32,LLP64,LP32,LP64,SILP64}.h`;
+- `inspection/{C,C++,compiler,data_model,ISA,language,OS,platform}.h`;
+- `inspection/C/modules/{C11,C23,C78,C89,C95,C99}.h` and
+  `inspection/C++/modules/{C++03,C++11,C++14,C++17,C++20,C++23,C++98}.h`;
+- `inspection/compiler/{completion,detection}.h`,
+  `inspection/compiler/modules/{cc65,Clang,GCC,generic,MSVC,TinyCC}.h`,
+  `inspection/data_model/{deduction,detection}.h`, and `detection.h` in
+  each of `inspection/ISA`, `inspection/OS` and `inspection/platform`;
+- `keys/{C,C++,compiler,data_model,endianness,fundamental,ISA,language,OS,platform}.h`;
+- `macros/{bitwise,casting,language,structure,T,token,version}.h`.
+
+## Z80 conformance programs
+
+These programs and their test firmware remain outside the repository. The
+test runner drives the same CPU wrapper as the machine with a flat test bus.
+Each missing file is reported as a CTest skip; a present test must pass.
+
+- Frank Cringle's [ZEXDOC and ZEXALL](https://github.com/agn453/ZEXALL),
+  67 cases each; the ZEXDOC source grants GPL-2.0-or-later. Check the exact
+  origin and notices of a supplied binary before redistributing it.
+- Patrik Rak's [Zilog Z80 CPU Test Suite](https://github.com/raxoft/z80test),
+  version 1.2a (2023-12-02), MIT: flags, MEMPTR and CCF variants, 160 cases
+  each including four deliberately skipped alternative CPU variants. CI
+  downloads these three TAPs and their MIT notice from the
+  [pinned mirror](https://github.com/rejunity/z80-from-schematics/tree/6b1ffceab57561881e9cae429182dc3d4fc28038/tests/z80test),
+  verifies SHA-256 and keeps them in the runner's temporary directory.
+- Mark Woodmass's [Z80 Test Suite (2008)](https://zxe.io/depot/software/ZX%20Spectrum/Z80%20Test%20Suite%20%282008%29%28Woodmass%2C%20Mark%29%5B%21%5D.tap),
+  flags (47 cases) and MEMPTR (58 cases). Its distribution license is not
+  established; use a local copy. These tests also require the external 16 KiB
+  Spectrum 48K firmware; its copyright is retained by Amstrad. An
+  [account of its permission terms](https://github.com/z00m128/zxs-rom/blob/master/LICENSE.md)
+  is available, but neither the firmware nor the Woodmass test is fetched by CI.
+
+**Hardware documentation:** The [Zilog Z80 CPU User Manual, UM008011-0816,
+figure 7](https://www.zilog.com/docs/z80/um0080.pdf), shows the I/O strobe
+beginning in T2, one T-state after the start of the I/O machine cycle. The
+wrapper timestamps the start of this strobe; the core's helpers give the start
+of the machine cycle.
 
 ## Reference emulators
 
