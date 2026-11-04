@@ -32,6 +32,7 @@ void timing() {
     check(m.step()==11,"OUT duration");
     // Port accesses happen at T3 of the I/O M-cycle: M-cycle start plus three.
     check(m.last_access()==PortAccess{17,0x7f,0x42,true},"OUT at T3");
+    check(m.psg().writes()==std::vector<PsgWrite>{{17,0x42}},"PSG receives the T3 timestamp");
     check(m.step()==11,"IN duration");
     check(m.last_access()==PortAccess{28,0xbe,0,false},"IN at T3");
     check(m.step()==4 && m.cpu().resume==Z80_RESUME_XY,"prefix resume");
@@ -212,6 +213,7 @@ void irq_boundaries() {
     for (int i=0;i<30000;++i) loop.step();
     advanced.advance(120000);
     check(loop.vdp()==advanced.vdp(),"NOP loop and advance VDP state");
+    check(loop.psg()==advanced.psg(),"NOP loop and advance PSG state and samples");
     Machine no_cpu(program({0})); no_cpu.read_port(0xbf,0); no_cpu.advance(0);
     check(!no_cpu.cpu().int_line,"advance updates deasserted INT");
     no_cpu.advance(43986); check(no_cpu.vdp().irq() && no_cpu.cpu().int_line,"advance updates asserted INT");
@@ -375,6 +377,12 @@ void copy_run() {
     Machine b=a; Machine c(program({0})); c=a;
     for (int i=0;i<4;++i) { check(a.step()==b.step(),"copy timing"); c.step(); }
     check(a.equivalent(b) && a.equivalent(c),"complete copy state");
+    check(!a.psg().writes().empty(),"copy-run includes a PSG write");
+    b.take_psg_writes(); check(!a.equivalent(b),"pending PSG log is part of machine equality");
+    a.take_psg_writes(); c.take_psg_writes();
+    b.take_samples(); check(!a.equivalent(b),"pending samples are part of machine equality");
+    a.take_samples(); c.take_samples();
+    check(a.equivalent(b) && a.equivalent(c),"matching drains restore copied machine value");
     b.memory().write(0xc050,0x33); check(a.memory().read(0xc050)!=0x33,"copy RAM independent");
 }
 void hook_mappings() {

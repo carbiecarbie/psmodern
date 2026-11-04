@@ -10,7 +10,7 @@ Machine::Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ra
     z80_int(&cpu_.raw(),sampled_int_);
 }
 Machine::Machine(const Machine& o)
-    : memory_(o.memory_), cpu_(o.cpu_), vdp_(o.vdp_), cycle_(o.cycle_), opcode_fetches_(o.opcode_fetches_),
+    : memory_(o.memory_), cpu_(o.cpu_), vdp_(o.vdp_), psg_(o.psg_), cycle_(o.cycle_), opcode_fetches_(o.opcode_fetches_),
       scheduled_nmi_(o.scheduled_nmi_), pads_(o.pads_), pending_pads_(o.pending_pads_), io_control_(o.io_control_),
       open_bus_(o.open_bus_), reset_(o.reset_), pause_(o.pause_), pending_reset_(o.pending_reset_), pending_pause_(o.pending_pause_),
       input_latched_(o.input_latched_), sampled_int_(o.sampled_int_), sampled_nmi_(o.sampled_nmi_),
@@ -19,7 +19,7 @@ Machine::Machine(const Machine& o)
       { bind(); }
 Machine& Machine::operator=(const Machine& o) {
     if (this != &o) {
-        memory_=o.memory_; cpu_=o.cpu_; vdp_=o.vdp_; cycle_=o.cycle_; opcode_fetches_=o.opcode_fetches_;
+        memory_=o.memory_; cpu_=o.cpu_; vdp_=o.vdp_; psg_=o.psg_; cycle_=o.cycle_; opcode_fetches_=o.opcode_fetches_;
         scheduled_nmi_=o.scheduled_nmi_; pads_=o.pads_; pending_pads_=o.pending_pads_; io_control_=o.io_control_;
         open_bus_=o.open_bus_; reset_=o.reset_; pause_=o.pause_; pending_reset_=o.pending_reset_; pending_pause_=o.pending_pause_;
         input_latched_=o.input_latched_; sampled_int_=o.sampled_int_; sampled_nmi_=o.sampled_nmi_;
@@ -31,7 +31,7 @@ Machine& Machine::operator=(const Machine& o) {
 }
 void Machine::bind() { cpu_.bind(*this); }
 bool Machine::equivalent(const Machine& o) const {
-    return memory_==o.memory_ && cpu_.equivalent(o.cpu_) && vdp_==o.vdp_ && cycle_==o.cycle_ &&
+    return memory_==o.memory_ && cpu_.equivalent(o.cpu_) && vdp_==o.vdp_ && psg_==o.psg_ && cycle_==o.cycle_ &&
         opcode_fetches_==o.opcode_fetches_ && scheduled_nmi_==o.scheduled_nmi_ && pads_==o.pads_ &&
         pending_pads_==o.pending_pads_ && io_control_==o.io_control_ && open_bus_==o.open_bus_ &&
         reset_==o.reset_ && pause_==o.pause_ && pending_reset_==o.pending_reset_ && pending_pause_==o.pending_pause_ &&
@@ -60,6 +60,7 @@ void Machine::sync(std::uint64_t target) {
         now=next;
     }
     vdp_.sync(target);
+    psg_.sync(target);
     if (scheduled_nmi_ && *scheduled_nmi_<=target) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
 }
 void Machine::advance(std::uint64_t cycles) {
@@ -152,8 +153,9 @@ std::uint8_t Machine::read_port(std::uint16_t raw,std::uint64_t cycle) {
     return value;
 }
 void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle) {
-    sync(cycle);
     const auto port=static_cast<std::uint8_t>(raw);
+    if (port>=0x40 && port<0x80) psg_.check_write(cycle);
+    sync(cycle);
     if (port<0x40) {
         if (port&1) {
             auto th=[](std::uint8_t control,unsigned direction,unsigned output) {
@@ -162,9 +164,11 @@ void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycl
             if ((!th(io_control_,1,5) && th(value,1,5)) || (!th(io_control_,3,7) && th(value,3,7))) vdp_.latch_h_counter();
             io_control_=value;
         } else memory_.set_memory_control(value);
-    } else if (port>=0x80 && port<0xc0) {
+    } else if (port<0x80) {
+        psg_.write(value,cycle);
+    } else if (port<0xc0) {
         if (port&1) vdp_.write_control(value); else vdp_.write_data(value);
-    } // PSG placeholder: no retained log.
+    }
     last_access_=PortAccess{cycle,port,value,true};
 }
 }

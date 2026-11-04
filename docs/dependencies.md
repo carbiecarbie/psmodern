@@ -157,6 +157,17 @@ is [Emulicious 2026-03-27](https://emulicious.net/downloads/), configured as
 Master System 1, export/NTSC, without BIOS or FM. Part 0's detailed setup and
 observations are in the [milestone plan](milestone-1-plan.md#2-reference-emulator).
 
+The fixed PSG state uses CE's [SmsPsg.cpp](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsPsg.cpp)
+and [SmsTypes.h](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsTypes.h).
+External PSG comparisons use its Lua write callbacks and native
+[`WaveRecord` API](https://github.com/nesdev-org/MesenCE/blob/2.2.1/InteropDLL/RecordApiWrapper.cpp).
+The callback-domain limitation and workaround are documented in
+[development](development.md#reference-comparison), from CE's
+[ScriptingContext.cpp](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/ScriptingContext.cpp)
+and [SmsConsole.cpp](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsConsole.cpp).
+These are reference evidence, not production dependencies. No audio library
+is linked to `psmodern_hw`.
+
 ## Hardware documentation
 
 - [SMS Power development index](https://www.smspower.org/Development/Index),

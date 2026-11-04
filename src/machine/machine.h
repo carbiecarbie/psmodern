@@ -3,6 +3,7 @@
 #include "hw/memory.h"
 #include "hw/cpu.h"
 #include "hw/vdp.h"
+#include "hw/psg.h"
 #include <Z80.h>
 #include <array>
 #include <cstdint>
@@ -49,6 +50,9 @@ public:
     const Memory& memory() const { return memory_; }
     Vdp& vdp() { return vdp_; }
     const Vdp& vdp() const { return vdp_; }
+    const Psg& psg() const { return psg_; }
+    std::vector<PsgWrite> take_psg_writes() { return psg_.take_writes(); }
+    PsgSamples take_samples() { return psg_.take_samples(); }
     const Vdp::Picture& picture() const { return vdp_.picture(); }
     Z80& cpu() { return cpu_.raw(); }
     const Z80& cpu() const { return cpu_.raw(); }
@@ -68,6 +72,7 @@ private:
     Memory memory_;
     Cpu cpu_;
     Vdp vdp_;
+    Psg psg_;
     std::uint64_t cycle_ = initial_state::cpu_cycle;
     std::uint64_t opcode_fetches_ = 0;
     std::optional<std::uint64_t> scheduled_nmi_;

@@ -21,6 +21,13 @@ inline constexpr std::uint8_t ram_marker = 0xab;
 inline constexpr std::uint64_t cpu_cycle = 0;
 inline constexpr std::uint16_t vdp_dot = 1;
 inline constexpr std::uint8_t open_bus = 0, h_latch = 0;
+// SmsPsg constructor and zero-initialized SmsPsgState in MesenCE 2.2.1.
+inline constexpr std::array<std::uint16_t,3> psg_periods{}, psg_timers{};
+inline constexpr std::array<bool,3> psg_outputs{};
+inline constexpr std::array<std::uint8_t,4> psg_attenuations{15,15,15,15};
+inline constexpr std::uint16_t psg_lfsr = 0x8000, psg_noise_timer = 0;
+inline constexpr std::uint8_t psg_latch = 0, psg_noise_control = 0;
+inline constexpr bool psg_noise_clock = false, psg_noise_output = false;
 inline std::array<std::uint8_t,8192> work_ram() {
     std::array<std::uint8_t,8192> ram{};
     ram[0]=ram_marker;

@@ -235,3 +235,147 @@ measured. Each
 completed output is 256 by 192 bytes of 6-bit CRAM colors. At the start of
 frame N, `Machine::picture()` exposes frame N-1. The machine library does
 no rendering I/O.
+
+## PSG
+
+**Hardware documentation.** The PSG follows [Maxim's SN76489 notes](https://www.smspower.org/Development/SN76489),
+sections "SN76489 register writes", "Tone channels", "Noise channel" and
+"Volume/attenuation", for Sega's integrated 16-bit variant. All writes to
+`$40`–`$7F` reach it; reads still return V/H counters. There is no Game Gear
+stereo register or FM unit.
+
+- A latch byte (bit 7 set) selects one of eight registers and replaces its
+  low bits. Registers 0/2/4 are 10-bit tone periods, 1/3/5/7 are 4-bit
+  attenuations, and 6 is 3-bit noise control. A data byte retains the selection:
+  it replaces tone bits 4–9, or the low four/three volume/noise bits. Ignored
+  high bits never spill into another register. Each byte takes effect at once.
+- Each CPU/16 tick decrements a nonzero tone counter. At zero it reloads the
+  current period and flips its output bit. A period write leaves the counter
+  running. Periods 0 and 1 contribute constant +1 to the mixer, while the
+  internal divider continues to run, including the noise divider using tone 2.
+- Noise has its own counter and toggled clock bit; rising edges shift the
+  LFSR right. White noise inserts bit 0 XOR bit 3 into bit 15; periodic noise
+  recirculates bit 0. Output is bit 0 after the shift, following the notes'
+  implementation. Any noise-control write, including a data byte or an
+  unchanged value, resets the LFSR to `8000`. Counter reloads are 16, 32, 64
+  or tone 2's current period: shifts repeat at CPU/512, /1024, /2048 or
+  CPU/(32*Tone2), respectively. A zero period clocks like one here.
+- Attenuations 0–14 step down by 2 dB; 15 disconnects the channel.
+
+**Reference emulator.** The fixed state in `initial_state.h` follows the
+[MesenCE 2.2.1 PSG constructor](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsPsg.cpp)
+and its zero-initialized [state structures](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsTypes.h):
+tone periods/counters/output bits zero, attenuations all 15, selected register
+zero, noise control/counter/clock/output zero and LFSR `8000`. Output queues
+start empty. MesenCE's Game Gear panning state has no SMS counterpart here.
+
+**Inference.** Noise-control writes reset only the LFSR, retaining the counter,
+clock bit and output latch until the next rising edge. Maxim specifies the
+LFSR reset without specifying resets for those other fields; MesenCE retains
+them too. The noise divider reads tone 2's register at its own reload, rather
+than borrowing tone 2's output edge, following Maxim's counter model.
+
+**Inference.** CPU cycle 0 precedes the first PSG tick at 16. Subsequent ticks
+and samples are at absolute multiples of 16, independently of frame or
+instruction boundaries. Maxim fixes the divider ratio, not its power-on
+phase. `Machine::advance` and CPU steps call the same PSG scheduler. A tick
+and its sample precede a write stamped at the same cycle; that write first
+affects the next sample. This total ordering is a deterministic model choice,
+not a measured power-on or bus-edge phase. Actual port writes retain the
+T3 timestamp described under VDP and interrupt timing.
+
+### Write log and samples
+
+The machine owns the PSG, its divider phase and its pending outputs; copying
+or assigning it copies all of them. Equality includes pending writes, samples
+and write-budget accounting. `Psg::write(byte, cycle)` appends the `(cycle,
+byte)` event and consumes it through the register decoder. Both live I/O and
+log replay use this path; `sync(target)` makes the samples between events.
+Replay requires the same starting PSG state, events and target cycle, with
+the same draining needed to stay within the output bound. Repeated syncs or
+different advance sizes do not change any sample.
+
+The log permits **8,192 writes per absolute frame** (`cycle / 59736`), and
+at most **8,192 unread writes** in total. The shortest CPU output instruction
+costs 11 cycles, so even an unrealistically continuous stream cannot reach
+the per-frame bound. It also covers direct test-side port writes. The host
+drains using `Machine::take_psg_writes()`, normally after each frame; draining
+does not restore the current frame's budget. Nothing is discarded at a frame
+boundary. A full log or exhausted budget throws `std::overflow_error` before
+that access advances any device or changes the PSG. All accepted entries
+remain available. If this exception escapes a CPU instruction callback, the
+host must abort that run or restore a snapshot: instruction execution itself
+is not transactional. Unit tests cover both bounds, retained data and drains.
+
+**Inference (integer representation).** Samples are mono signed 16-bit values
+at the exact rational rate **3,579,545/16 Hz** (223,721.5625 Hz), with no
+resampling, filtering, host clock, audio device or file I/O. The integer table
+is `round(8191 * 10^(-a/10))` for attenuation `a=0..14`, then zero:
+
+```text
+8191 6506 5168 4105 3261 2590 2057 1634
+1298 1031  819  651  517  411  326    0
+```
+
+Mixing sums each channel's 0/1 output times its table entry, without division,
+clipping or DC removal: range 0–32764. `Machine::take_samples()` returns the
+first absolute sample cycle and contiguous values spaced 16 cycles apart,
+then empties the pending sample vector. There is no cycle-0 sample. Hosts
+drain samples per frame (3,733 or 3,734 samples at the exact boundary);
+the vector retains all unread samples until drained. This is an internal
+machine output; Part C handles device-rate conversion.
+
+### Reference comparison
+
+**Reference emulator.** MesenCE 2.2.1 flips the mixed tone output at periods
+0/1 instead of holding +1, unlike Maxim's stated rule. Its integer volume
+table also differs, including entry 7=1642, and its `Run` loop advances while
+`masterClock + 16 < target`, rather than the inclusive grid above. These do
+not override the hardware rules or this model's declared phase and mix.
+Its resampled/filtered audio is for listening, not sample equality.
+
+The 1,200-frame no-input comparison uses SMS1 NTSC, no BIOS, FM off, empty
+save/firmware directories, zero-filled RAM and the same initial VDP phase.
+Each capture must use a **new, previously nonexistent home directory** and
+verify that cartridge RAM is all zero before the first instruction. MesenCE
+writes battery RAM when a no-input run stops, so a directory created empty
+for an earlier run is not an empty-save setup for a later run. Reusing it
+changes the game's initialization path and its sound sequence. Capture helpers
+reject an existing output/home directory rather than deleting saved data.
+Compare byte values and order within `floor(cycle/59736)` for each frame;
+keep cycle differences separate. **Reference emulator; hardware documentation.**
+The earlier instruction comparison found six MesenCE duration differences
+against the [Zilog manual's instruction tables](https://www.zilog.com/docs/z80/um0080.pdf):
+`INC (HL)` and `DEC (HL)` take 10 instead of 11 T; `LD (HL),n` takes 12
+instead of 10; indexed `INC/DEC (IX+d)` take 22 instead of 23 and
+`LD (IX+d),n` takes 24 instead of 19. MesenCE also samples INT at instruction
+end and invokes its port-write callback after four I/O cycles; our write is
+at the start of T3. These explain why equal write streams need not have
+equal timestamps. No CPU or PSG timing is adjusted to match the reference.
+
+**Reference emulator (capture API limitation).** In CE 2.2.1,
+[`ScriptingContext::InternalCallMemoryCallback`](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/ScriptingContext.cpp)
+converts non-relative callback domains through
+[`SmsConsole::GetAbsoluteAddress`](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsConsole.cpp),
+which discards the port domain. A direct `smsPort` write callback receives
+nothing. External capture scripts observe the resulting bank-0 `smsPrgRom`
+addresses `$40`–`$7F` instead, with an earlier relative `smsMemory` write
+callback over `$0000`–`$FFFF` excluding actual memory writes at those cycles.
+An external synthetic program validates this method against all 1,611 known
+writes, their order and their cycles: immediate OUT with varying A, OUT (C),D
+with varying B, OUTI/OUTD and OTIR/OTDR, including B=0's 256 repetitions,
+on `$7F`, `$7E` and `$40`. Writes to memory at the alias addresses are excluded.
+An independent instruction-boundary OUT-family trace gives the same events.
+CE's SMS CPU discards the upper port byte before notifying its memory manager;
+varying A/B therefore does not lose writes in this version. This routes the
+original port-write notifications without decoding game instructions or
+changing the emulator. The reference WAV is captured through CE's native
+`WaveRecord` API, using its unmodified audio engine.
+
+**ROM run; reference emulator.** With independently verified zero initial
+cartridge RAM, both ROMs produce 5,873 writes over 1,200 no-input frames,
+at most 36 in one frame. Every frame's bytes and order match MesenCE 2.2.1.
+Matched write timestamps differ by -16 to +27 CPU cycles (PSModern minus CE).
+The first IRQ entry is 462953 in PSModern and 462963 in CE. A reused,
+initialized CE save instead gives its first IRQ at 342682 and 5,877 writes;
+this is a different starting machine value, not a PSG timing discrepancy.

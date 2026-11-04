@@ -51,6 +51,7 @@ int main(int argc,char** argv) {
                 }
                 machine.step();
             }
+            machine.take_psg_writes(); machine.take_samples();
         }
         if (!complete) throw std::runtime_error("VDPTest did not reach the sprite results page");
         unsigned passed=0,failed=0;
