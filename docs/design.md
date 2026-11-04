@@ -4,7 +4,8 @@
 read and the maintainer's decisions on timing, the Brazilian ROM and the
 public repository. The proposals of the draft were approved with it. Amended
 on 2026-11-04 by the maintainer: the annotated disassembly moved to a
-separate private repository (section 6). Changes
+separate private repository (section 6); rewritten routines also reproduce
+the Z80 R register (section 5.2). Changes
 to this design need the maintainer's approval and are recorded here.
 
 ## 1. What it is and why
@@ -172,7 +173,12 @@ verifiable milestones.
   advances per frame or in a wait loop (the random number generator, the
   encounter roll) drifts. Therefore:
   - every rewritten routine reports how many cycles the original would have
-    spent, with the same result for the same input and state;
+    spent, with the same result for the same input and state, and reproduces
+    every other CPU-visible effect of the original, **including the Z80 R
+    register**, which advances on each opcode fetch: the game's random
+    number generator reads it (`00:05C8`), so a routine that matches the
+    cycles but not R changes every later random draw (maintainer decision,
+    2026-11-04);
   - the lockstep comparison also checks the cycle and frame at which each
     routine ends, not only the state;
   - the same input recording is valid on both paths, with no separate
