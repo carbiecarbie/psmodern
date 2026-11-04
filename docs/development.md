@@ -90,57 +90,148 @@ place Pause NMI at the transition into line 261; a held button produces only
 one NMI edge. The frame runner stops at the first complete instruction boundary
 at or after the next frame start and reports the cycle overshoot.
 
+`Machine::run_frame(next_input)` supplies the pad, Reset and Pause state for
+the boundary at which that call ends. This makes frame N's input available
+while frame N-1 is running. A Pause edge reached after an instruction's
+`E-1` sample point is deferred to the next instruction, including a host
+scheduled edge. NMI and INT use the same instruction sample point.
+
 ## VDP and interrupt timing
 
-**Hardware documentation.** The [SMS VDPTest](https://github.com/FluBBaOfWard/SmsVdpTest)
-reports frame IRQ at HCount `F3`, line IRQ at `F3`, V-counter change at `F4`
-and readable frame status at `F5`. Its author reports testing the original
-SMS1 VDP. The later [ZClock table](https://www.smspower.org/forums/10695-SMSVDPTester?start=50)
-clarifies that the test's event offsets are CPU T-states relative to HCount
-zero: respectively -18, -17, -16 and -15. The table maps these to pixel
-offsets -27, -26, -24 and -23. The measurements and their coordinate origins
-are discussed in the linked sources; the IRQ and status tests are separate.
+The scheduler uses dots, 342 per line. CPU cycle 0 is VDP dot 1 and each CPU
+T-state advances three half-dots, so every 228-cycle line has the same phase:
+at line cycle `c` the VDP is at dot `floor(1 + 1.5c)`, and an event at dot `d`
+becomes visible at line cycle `ceil((2*d - 2)/3)`. For an instruction
+occupying CPU cycles `[S,E)`, the machine supplies the core with the INT
+level sampled at `E-1`, after any port access in that instruction. An event
+first visible at `E` is sampled by the following instruction. The core's
+prefix, EI, RETI/RETN and NMI acceptance rules also determine whether an
+interrupt is accepted and the boundary hook is called.
 
-The scheduler uses dots, 342 per line, with dot 0 at HCount 0. The four
-events above are at dots 315, 316, 318 and 319 respectively. CPU cycle 0 is
-VDP dot 1; each CPU T-state advances three half-dots. An event between CPU
-cycle boundaries becomes visible at the next boundary: absolute dot `d` is
-processed at `ceil((2*d - 2)/3)` CPU cycles. This fixed phase describes the
-chosen mapping of the hardware test coordinates and the fixed starting
-state. The MesenCE VDP combines its frame IRQ and readable status event at its
-cycle 315; its counter-latch offset means its cycle coordinates are not
-directly interchangeable with the hardware-test coordinates. In the
-[MesenCE source](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp),
-the V-counter advances at cycle 315, the line counter is clocked at 316 on
-physical lines 261 and 0–191, and the H-counter latch adds three internal
-cycles before conversion. The model follows VDPTest for the reported event
-separation and H-count relation, rather than assuming the reference's phase.
+**Hardware documentation.** The [Zilog Z80 CPU User Manual, UM008011-0816,
+figure 7](https://www.zilog.com/docs/z80/um0080.pdf), shows the I/O machine
+cycle as T1, T2, an automatic wait state and T3; read data is taken in T3,
+before /RD goes inactive. Port reads and writes take effect at the start of
+T3, three T-states after the machine cycle starts. For `IN A,(n)` and
+`OUT (n),A` this is also the INT sample point `E-1`. Charles MacDonald's
+logic-analyser measurements on an NTSC SMS, in the
+[SMS display timing thread](https://www.smspower.org/forums/8161-SMSDisplayTiming)
+(February 2006), put the frame /INT 607 master clocks after pixel 0 of line
+192 and the line /INT at 608, 4 and 3 clocks before the /HSYNC rise. An `IN`
+whose I/O cycle ends at that /CSYNC rise reads the new V counter; one ending
+four CPU cycles earlier reads the old value. With INT sampled in the last
+T-state, the first instruction that takes the frame IRQ and the first `IN`
+that sees the new V counter end at the same cycle, and the line IRQ is taken
+one cycle later. In the same thread (March 2008), FluBBa's IRQ and NMI
+handlers latch H with their first instruction after a HALT. He reports lowest
+values `06` for the frame IRQ, `07` for the line IRQ and `06` for the Pause
+NMI, among four values with `08` repeated.
 
-**Hardware documentation; inference.** The frame IRQ's internal pending flag
-sets on physical line 192 at dot 315; the status bit becomes readable at dot
-319. A status read in between returns bit 7 clear if it was clear already and
-clears the pending IRQ. The test documentation does not establish whether a
-read in this interval cancels the later status bit; the implementation assumes
-it does because the read clears the underlying pending state. No status read
-in that interval occurred in the two 1200-frame no-input runs. Their executed
-sites were `00:0039`, `00:031B`, `00:0321` and `00:0328`.
+**Hardware test.** The [SMS VDPTest](https://github.com/FluBBaOfWard/SmsVdpTest),
+checked by its author on an SMS1 VDP, first synchronizes the CPU to the TH
+latch. It then times the V-counter change, the readable frame bit, sprite
+overflow and collision, and, after HALT, the frame and line IRQs (`82`/`84`
+and `88`/`8A`) against that latch. The model passes all 55 automated SMS1
+results. Each event is fixed by its own test to one CPU cycle.
 
-The line counter is clocked at dot 316: it decrements on physical lines
-261 and 0–191, and reloads R10 on 192–260. This is the same 0–192 decrement
-window described by the [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
-when lines are named by the V-counter value after its transition at dot 318.
-Underflow sets the line pending flag and reloads R10; a write to R10 takes
-effect at the next reload, not immediately. A status read clears both pending
-interrupt flags and the readable sprite and frame flags. INT is the OR of the
-two pending flags gated by their enables, including when an enable is set
-while a flag is already pending. The status byte has no readable line-IRQ
-flag, and the hardware tests do not establish a separate delayed line flag.
+The model therefore has one VDP event at dot 315, line cycle 210. On physical
+line 192 it sets the frame flag, which is pending and readable at once. On
+every line it advances the V counter and records sprite overflow for the next
+line. The frame IRQ's absolute CPU cycle is unchanged from the earlier model:
+43986 cycles into a frame, taken by an instruction ending at line cycle 211 or
+later. The line counter is clocked at dot 317, line cycle 211, one CPU cycle
+after the frame event. It decrements on physical lines 261 and 0–191 and
+reloads R10 on 192–260. This is the 0–192 decrement window of the
+[VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
+when lines are named by the V-counter value after its transition. Underflow
+sets the line pending flag and reloads R10; a write to R10 takes effect at the
+next reload, not immediately. The Pause NMI sample at line 260, cycle 212,
+two cycles after the frame event, reproduces FluBBa's NMI value.
 
-For an instruction occupying CPU cycles `[S,E)`, the machine supplies the
-core with the INT level sampled at `E-1`, after any earlier status read in
-that instruction. An event first visible at `E` is sampled by the following
-instruction. The core's prefix, EI, RETI/RETN and NMI acceptance rules also
-determine whether an interrupt is accepted and the boundary hook is called.
-The NTSC 192-line V-counter sequence is `00–DA, D5–FF`. H-counter reads
-return the held latch; on an export SMS1 without a light gun, a rising TH
-edge via port `$3F` updates it and ordinary reads leave it unchanged.
+A status read clears both pending interrupt flags and the readable sprite and
+frame flags. INT is the OR of the two pending flags gated by their enables,
+including when an enable is set while a flag is already pending. The status
+byte has no readable line-IRQ flag. The NTSC 192-line V-counter sequence is
+`00–DA, D5–FF`. H-counter reads return the held latch. On an export SMS1
+without a light gun, a rising TH edge via port `$3F` updates the latch, and
+ordinary reads leave it unchanged.
+
+**Reference emulator; inference.** The H latch takes the dot three dots after
+the T3 port write that raises TH. The latched value is `p/2` for `p<296`
+and otherwise `(p-343)/2` with signed division toward zero, where `p` is
+that dot. Latches at line cycles 209, 210 and 211 read `F3`, `F4` and `F5`.
+[MesenCE](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
+adds the same three internal dots in `InternalLatchHorizontalCounter`. Its V
+counter, frame flag and sprite overflow share its cycle 315, and its line
+event follows one CPU cycle later. Our own HALT and NOP-loop test program
+gives the same H values in this model, MesenCE 2.2.1 and Emulicious, with
+HALT and NOPs alike. VDPTest, MacDonald and FluBBa fix only the total offset
+between the T3 access and the latched dot. How the three dots divide between
+the I/O chip's write edge and the VDP's TH input is not established.
+
+**Inference.** A model that keeps port accesses at T2 is equivalent. It must
+add six dots to the latch, move the V counter and overflow to dot 312, and
+make the frame bit readable at dot 313, before its pending point at 315. The
+observations above cannot separate the two. T3 follows the Zilog figure and
+keeps the frame flag a single event. These sources also fix the VDP events
+only relative to each other and to the CPU sample points, not to power-on.
+Moving every interrupt four cycles later and keeping the other events would
+satisfy them equally. The power-on phase, VDP dot 1 at CPU cycle 0, follows
+MesenCE as described under the fixed machine start. This keeps the frame IRQ
+at the absolute cycle where the B1b comparison matched MesenCE.
+
+## Mode 4 picture
+
+**Hardware documentation.** The [VDP register map](https://www.smspower.org/Development/VDPRegisters)
+and [MacDonald's VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
+describe the 315-5124 mode 4 background: 32 by 28 name entries, 4-bit planar
+patterns, horizontal and vertical tile flip, palette select, opaque
+background priority, and CRAM color zero as transparency. R2 bits 1-3 select
+the name table with bit 0 controlling the row mask. R7 selects the
+sprite-palette backdrop entry, R1 bit 6
+enables display, and R0 bit 5 blanks the left eight pixels.
+
+**Inference.** The VDP notes say R3 and R4 should be set for mode 4, but do
+not specify the behavior of unset bits. The renderer treats them as address
+masks on the low and high pattern planes, respectively; the byte-array tests
+cover this model, which remains to be confirmed on hardware.
+
+**Hardware documentation.** The same sources specify sprite Y as one less
+than the first covered line, Y=`D0` as the list terminator, up to eight
+sprites on a line, 8 by 8 or 8 by 16 patterns, vertical zoom for all eight
+and horizontal zoom for only the first four, R0 bit 3's eight-pixel
+left shift, R5's attribute table address bits and R6's pattern address bits.
+Sprites use the second CRAM row; an opaque priority background pixel covers
+a sprite without suppressing sprite collision. The first sprite at an
+overlapping opaque pixel owns its color. The [VDPTest source](https://github.com/FluBBaOfWard/SmsVdpTest)
+tests overflow, collision, offscreen-Y and terminator behavior on SMS1.
+The renderer records overflow for the next line at the dot-315 event
+described under VDP and interrupt timing, including when display is
+disabled. It records a collision when the second opaque sprite pixel reaches
+dot `9+x`; transparent pixels never collide. A status read clears both flags.
+**Hardware test.** VDPTest's overflow and collision tests fix both points to
+one CPU cycle relative to the H latch.
+
+**Hardware documentation.** R0 bit 6 holds horizontal scroll at zero for
+the top two tile rows, and bit 7 holds vertical scroll at zero in the right
+eight tile columns. R8 is latched at dot 313 for the following line.
+**Hardware documentation; reference emulator.** The [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
+say an active-display R9 write is stored for the next active-display period;
+[MesenCE](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
+copies R9 into its vertical-scroll latch when the scanline wraps to zero.
+The machine latches R9 at the start of line 0, before that line is drawn, so
+writes during the preceding vertical blank apply to that frame. The picture
+samples VRAM, CRAM and drawing registers once per visible line at dot 7;
+pixel zero is at dot 9. Mid-line writes therefore affect a whole later
+line rather than individual pixels.
+**Inference.** The line-snapshot and R8 dots are the model's approximation to
+the [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
+and [VDPTest](https://github.com/FluBBaOfWard/SmsVdpTest) timing. They keep
+their positions relative to the H latch for port writes at T3, and VDPTest's
+visual scroll test 90 draws the same picture with them. MacDonald's /INT
+timing puts pixel 0 of the video output about 2.5 dots after dot 9. The
+collision flag is assumed to lead the output by that much; this is not
+measured. Each
+completed output is 256 by 192 bytes of 6-bit CRAM colors. At the start of
+frame N, `Machine::picture()` exposes frame N-1. The machine library does
+no rendering I/O.

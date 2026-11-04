@@ -35,13 +35,15 @@ zuint8 Cpu::opcode(void* p, zuint16 a) { return static_cast<Cpu*>(p)->bus_->opco
 zuint8 Cpu::read(void* p, zuint16 a) { return static_cast<Cpu*>(p)->bus_->read(a); }
 void Cpu::write(void* p, zuint16 a, zuint8 v) { static_cast<Cpu*>(p)->bus_->write(a,v); }
 // Hardware documentation: Zilog Z80 CPU User Manual UM008011-0816,
-// Figure 7. The I/O strobe begins in T2, one T-state after M-cycle start.
+// Figure 7: the I/O M-cycle is T1, T2, TW, T3 and read data is taken in T3,
+// before /RD goes inactive. Port accesses take effect at the start of T3,
+// three T-states after M-cycle start; INT is sampled at the same point.
 zuint8 Cpu::input(void* p, zuint16 a) {
     auto& c=*static_cast<Cpu*>(p);
-    return c.bus_->input(a,c.start_cycle_ + c.state_.cycles + z80_in_cycle(&c.state_) + 1);
+    return c.bus_->input(a,c.start_cycle_ + c.state_.cycles + z80_in_cycle(&c.state_) + 3);
 }
 void Cpu::output(void* p, zuint16 a, zuint8 v) {
     auto& c=*static_cast<Cpu*>(p);
-    c.bus_->output(a,v,c.start_cycle_ + c.state_.cycles + z80_out_cycle(&c.state_) + 1);
+    c.bus_->output(a,v,c.start_cycle_ + c.state_.cycles + z80_out_cycle(&c.state_) + 3);
 }
 }

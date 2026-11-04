@@ -30,18 +30,19 @@ void timing() {
     Machine m(program({0x3e,0x42,0xd3,0x7f,0xdb,0xbe,0xdd,0xd3,0x7f}));
     check(m.step()==7,"LD duration");
     check(m.step()==11,"OUT duration");
-    check(m.last_access()==PortAccess{15,0x7f,0x42,true},"OUT strobe");
+    // Port accesses happen at T3 of the I/O M-cycle: M-cycle start plus three.
+    check(m.last_access()==PortAccess{17,0x7f,0x42,true},"OUT at T3");
     check(m.step()==11,"IN duration");
-    check(m.last_access()==PortAccess{26,0xbe,0,false},"IN strobe");
+    check(m.last_access()==PortAccess{28,0xbe,0,false},"IN at T3");
     check(m.step()==4 && m.cpu().resume==Z80_RESUME_XY,"prefix resume");
     check(m.step()==11 && m.cpu().resume==0,"prefixed OUT");
-    check(m.last_access()==PortAccess{41,0x7f,0,true},"prefixed OUT strobe");
+    check(m.last_access()==PortAccess{43,0x7f,0,true},"prefixed OUT at T3");
     Machine block(program({0xed,0x41,0xed,0xa3,0xed,0xa2}));
     block.cpu().bc.uint16_value=0x017f; block.cpu().hl.uint16_value=0xc100;
     block.memory().write(0xc100,0x5a);
-    check(block.step()==12 && block.last_access()==PortAccess{9,0x7f,1,true},"OUT (C) strobe");
-    check(block.step()==16 && block.last_access()==PortAccess{25,0x7f,0x5a,true},"OUTI strobe");
-    check(block.step()==16 && block.last_access()==PortAccess{38,0x7f,0,false},"INI strobe");
+    check(block.step()==12 && block.last_access()==PortAccess{11,0x7f,1,true},"OUT (C) at T3");
+    check(block.step()==16 && block.last_access()==PortAccess{27,0x7f,0x5a,true},"OUTI at T3");
+    check(block.step()==16 && block.last_access()==PortAccess{40,0x7f,0,false},"INI at T3");
 }
 void ports() {
     Machine m(program({0}));
@@ -74,8 +75,6 @@ void vdp_control() {
     check(v.irq(),"initial VBlank IRQ");
     check(v.read_status(0x1b)==0xdb && !v.irq(),"initial status and clear");
     check(v.read_status(0x05)==0x05,"status flags cleared");
-    v.test_sprite_flags(true,true);
-    check((v.read_status(0)&0x60)==0x60 && !(v.read_status(0)&0x60),"sprite status bits are stored and cleared");
     auto command=[&](unsigned address,unsigned code) {
         v.write_control(address&255); v.write_control((code<<6)|(address>>8));
     };
@@ -106,13 +105,23 @@ void vdp_timing() {
     v.write_control(0); v.write_control(0x80); // line IRQ off
     auto next=v.next_irq(); check(next==43986,"frame IRQ query");
     v.sync(*next-1); check(!v.irq(),"frame IRQ not early");
-    v.sync(*next); check(v.irq(),"frame IRQ assertion");
     auto early=v;
-    check(!(early.read_status(0)&0x80) && !early.irq(),"early status clears pending IRQ before bit is visible");
-    early.sync(*next+2); check(!(early.read_status(0)&0x80),"early status cancels delayed frame bit");
-    v.sync(*next+1); check(v.irq(),"IRQ remains set while status is delayed");
-    v.sync(*next+2); check(v.read_status(0)&0x80,"delayed frame status bit");
+    check(!(early.read_status(0)&0x80) && early.v_counter()==0xc0,
+          "frame bit and V counter unchanged one cycle before the frame event");
+    v.sync(*next); check(v.irq() && v.v_counter()==0xc1,"frame IRQ and V counter change together");
+    auto both=v;
+    check((both.read_status(0)&0x80) && !both.irq(),"frame bit readable with the pending IRQ");
+    early.sync(*next); check(early.irq(),"status read before the event does not cancel it");
+    check(v.read_status(0)&0x80,"frame status bit");
     check(!v.irq(),"status drops IRQ");
+    // The 64 zero sprite entries all cover line 1; overflow uses the same point.
+    Vdp overflow; overflow.read_status(0);
+    overflow.sync(209); auto before_overflow=overflow;
+    check(!(before_overflow.read_status(0)&0x40) && before_overflow.v_counter()==0,
+          "overflow and V counter unchanged one cycle before the event");
+    overflow.sync(210);
+    check((overflow.read_status(0)&0x40) && overflow.v_counter()==1,
+          "overflow and V counter change at the frame-event point");
     v.write_control(0); v.write_control(0x81); v.sync(2*Machine::frame_cycles+43986);
     check(!v.irq(),"disabled pending frame");
     v.write_control(0x20); v.write_control(0x81); check(v.irq(),"enable pending frame");
@@ -123,34 +132,44 @@ void vdp_timing() {
     disabled.sync(43986); check(!disabled.irq(),"disabled frame IRQ remains pending");
     disabled.write_control(0x20); disabled.write_control(0x81);
     check(disabled.irq() && disabled.next_irq()==43986,"enable asserts an already pending IRQ");
-    check(!(disabled.read_status(0)&0x80) && !disabled.irq(),"pending IRQ clears before status becomes visible");
+    check((disabled.read_status(0)&0x80) && !disabled.irq(),"status read returns and clears a pending frame bit");
     Vdp counters; counters.sync(218*228-16); check(counters.v_counter()==0xda,"V counter DA");
     counters.sync(219*228-16); check(counters.v_counter()==0xd5,"V counter jump");
     Vdp line; line.read_status(0); line.write_control(0); line.write_control(0x81);
     line.write_control(0); line.write_control(0x8a); // R10 updates on next reload
-    line.sync(261*228+210); line.read_status(0);
-    line.sync(Machine::frame_cycles+210); check(line.irq(),"line counter underflow");
+    line.sync(261*228+211); line.read_status(0);
+    line.sync(Machine::frame_cycles+211); check(line.irq(),"line counter underflow");
     line.read_status(0); check(!line.irq(),"line status clear");
     Vdp reload; reload.read_status(0);
     reload.write_control(1); reload.write_control(0x8a);
-    reload.sync(193*228+209); auto old=reload.line_counter();
+    reload.sync(193*228+210); auto old=reload.line_counter();
     reload.write_control(5); reload.write_control(0x8a);
     check(reload.line_counter()==old,"R10 does not immediately alter counter");
-    reload.sync(193*228+210); check(reload.line_counter()==5,"R10 written before reload event");
+    reload.sync(193*228+211); check(reload.line_counter()==5,"R10 written before reload event");
     reload.write_control(7); reload.write_control(0x8a);
     check(reload.line_counter()==5,"R10 written after reload waits");
-    reload.sync(194*228+209); check(reload.line_counter()==5,"counter unchanged before next reload");
-    reload.sync(194*228+210); check(reload.line_counter()==7,"counter reload uses new R10");
-    Vdp hc; check(hc.h_counter()==0,"H latch power-on"); hc.sync(210); check(hc.h_counter()==0,"H read remains latched");
-    hc.latch_h_counter(); check(hc.h_counter()==0xf3,"H count F3 at frame IRQ point");
-    hc.sync(212); hc.latch_h_counter(); check(hc.h_counter()==0xf5,"H count F5 at visible flag point");
+    reload.sync(194*228+210); check(reload.line_counter()==5,"counter unchanged before next reload");
+    reload.sync(194*228+211); check(reload.line_counter()==7,"counter reload uses new R10");
+    // The line event follows the frame event by one CPU cycle within a line.
+    Vdp order; order.read_status(0);
+    order.write_control(0x10); order.write_control(0x80);
+    order.write_control(0); order.write_control(0x81);
+    order.write_control(0); order.write_control(0x8a);
+    order.sync(200*228); check(order.next_irq()==261*228+211,"line IRQ query one cycle after frame point");
+    order.sync(261*228+210); check(!order.irq(),"line IRQ not at the frame-event cycle");
+    order.sync(261*228+211); check(order.irq(),"line IRQ one cycle after the frame-event cycle");
+    // A latch at CPU cycle c reads dot floor(1+1.5c)+3 within the line.
+    Vdp hc; check(hc.h_counter()==0,"H latch power-on"); hc.sync(209); check(hc.h_counter()==0,"H read remains latched");
+    hc.latch_h_counter(); check(hc.h_counter()==0xf3,"H count F3 one cycle before the frame event");
+    hc.sync(210); hc.latch_h_counter(); check(hc.h_counter()==0xf4,"H count F4 at the frame event");
+    hc.sync(211); hc.latch_h_counter(); check(hc.h_counter()==0xf5,"H count F5 at the line event");
 
     Vdp sequence;
     auto map_v=[](unsigned line) { return static_cast<std::uint8_t>(line<=0xda ? line : line-6); };
     for (unsigned physical=0;physical<262;++physical) {
-        sequence.sync(physical*228+211);
+        sequence.sync(physical*228+209);
         check(sequence.v_counter()==map_v(physical),"V counter before transition");
-        sequence.sync(physical*228+212);
+        sequence.sync(physical*228+210);
         check(sequence.v_counter()==map_v((physical+1)%262),"V counter at transition");
     }
     Vdp all_lines; all_lines.read_status(0);
@@ -159,13 +178,13 @@ void vdp_timing() {
     all_lines.write_control(3); all_lines.write_control(0x8a);
     unsigned counter=0xfc;
     for (unsigned physical=0;physical<262;++physical) {
-        all_lines.sync(physical*228+209);
+        all_lines.sync(physical*228+210);
         check(all_lines.line_counter()==counter,"line counter before event");
         bool pending=false;
         if (physical<192 || physical==261) {
             if (counter==0) { counter=3; pending=true; } else --counter;
         } else counter=3;
-        all_lines.sync(physical*228+210);
+        all_lines.sync(physical*228+211);
         check(all_lines.line_counter()==counter && all_lines.irq()==pending,"line counter at event");
         all_lines.read_status(0);
     }
@@ -210,19 +229,43 @@ void input_frames() {
           "pad and reset latch at frame start");
     check(m.next_nmi()==Machine::frame_cycles+Machine::pause_sample_offset,
           "Pause latches at the boundary and schedules its hardware sample");
-    Machine f(program({0})); auto overshoot=f.run_frame();
+    Machine f(program({0})); auto overshoot=f.run_frame({});
     check(overshoot<4 && f.cycles()==Machine::frame_cycles+overshoot,"frame run and overshoot");
+    Machine framed(program({0}));
+    FrameInput pressed; pressed.pads[0].one=true; pressed.reset=true;
+    check(framed.read_port(0xdc,0)&0x10,"frame zero starts released");
+    framed.run_frame(pressed);
+    check(!(framed.read_port(0xdc,framed.cycles())&0x10) &&
+          !(framed.read_port(0xdd,framed.cycles())&0x10),
+          "run_frame supplies input for its ending boundary");
+    framed.run_frame({});
+    check((framed.read_port(0xdc,framed.cycles())&0x10) &&
+          (framed.read_port(0xdd,framed.cycles())&0x10),
+          "following frame input replaces previous state");
     Machine prefix(program({0xdd,0})); prefix.advance(Machine::frame_cycles-2);
-    check(prefix.run_frame()==6 && prefix.cpu().resume==0 && prefix.cpu().pc.uint16_value==2,
+    check(prefix.run_frame({})==6 && prefix.cpu().resume==0 && prefix.cpu().pc.uint16_value==2,
           "frame run completes an instruction spanning its boundary");
     Machine h(program({0}));
     h.write_port(0x3f,0,0); h.advance(210);
     check(h.read_port(0x7f,h.cycles())==0,"H latch retains old value");
     h.write_port(0x3f,0x20,h.cycles());
-    check(h.read_port(0x41,h.cycles())==0xf3,"TH rising edge latches H counter");
-    h.advance(2); check(h.read_port(0x7f,h.cycles())==0xf3,"H latch remains stable");
+    check(h.read_port(0x41,h.cycles())==0xf4,"TH rising edge latches H counter");
+    h.advance(2); check(h.read_port(0x7f,h.cycles())==0xf4,"H latch remains stable");
     h.write_port(0x3f,0,h.cycles()); h.write_port(0x3f,0x20,h.cycles());
-    check(h.read_port(0x7f,h.cycles())==0xf5,"next TH rising edge updates H counter");
+    check(h.read_port(0x7f,h.cycles())==0xf6,"next TH rising edge updates H counter");
+    // The latch reads three dots after the TH write: cycle 34 is dot 52 and
+    // cycle 35 is dot 53, so a delay of two or four dots would fail one check.
+    Machine edge(program({0}));
+    edge.write_port(0x3f,0,0); edge.write_port(0x3f,0x20,34);
+    check(edge.read_port(0x7f,34)==0x1b,"TH at dot 52 latches dot 55");
+    edge.write_port(0x3f,0,35); edge.write_port(0x3f,0x20,35);
+    check(edge.read_port(0x7f,35)==0x1c,"TH at dot 53 latches dot 56");
+    // LD A,0; OUT (3F),A; LD A,20; OUT (3F),A; IN A,(7F): the second OUT's
+    // T3 is cycle 35 (dot 53), so the latch holds dot 56.
+    Machine out(program({0x3e,0x00,0xd3,0x3f,0x3e,0x20,0xd3,0x3f,0xdb,0x7f}));
+    out.step(); out.step(); out.step(); out.step();
+    check(out.last_access()==PortAccess{35,0x3f,0x20,true},"TH OUT at T3");
+    out.step(); check((out.cpu().af.uint16_value>>8)==0x1c,"H latch three dots after a T3 OUT");
 }
 void cpu() {
     Machine m(program({0xdd,0x21,0x34,0x12,0x76}));
@@ -250,6 +293,14 @@ void cpu() {
     halt.advance(Machine::frame_cycles-halt.cycles()+Machine::pause_sample_offset);
     check(halt.step()==11 && halt.cpu().pc.uint16_value==0x66 && halt.cpu().r==0x20,"NMI exits HALT");
     z80_power(&halt.cpu(),1); check(halt.cpu().r==0,"reset R");
+    Machine halt_irq(program({0x76}));
+    halt_irq.read_port(0xbf,0);
+    halt_irq.advance(0);
+    halt_irq.cpu().iff1=halt_irq.cpu().iff2=1;
+    check(halt_irq.step()==4 && halt_irq.cpu().resume==Z80_RESUME_HALT,"IRQ HALT setup");
+    halt_irq.advance(43986-halt_irq.cycles());
+    check(halt_irq.step()==13 && halt_irq.cpu().pc.uint16_value==0x38,
+          "IRQ exits HALT without an extra idle M1");
 }
 void interrupts() {
     Machine m(program({0xfb,0x00,0x00}));
@@ -295,6 +346,28 @@ void interrupts() {
     ret.step(ret_hook); check(ret_hooks==1 && ret.cpu().pc.uint16_value==0x38,"RETN delay ends before IRQ");
     Machine future(program({0})); future.schedule_nmi(5); future.advance(5);
     check(future.next_nmi()==5 && future.cycles()==5,"advance delivers NMI");
+    Machine nmi_before(program({0}));
+    nmi_before.schedule_nmi(3);
+    check(nmi_before.step()==4 && nmi_before.cpu().pc.uint16_value==1,
+          "NMI at E-1 finishes current instruction");
+    check(nmi_before.step()==11 && nmi_before.cpu().pc.uint16_value==0x66,
+          "NMI at E-1 enters at next boundary");
+    Machine nmi_at(program({0}));
+    nmi_at.schedule_nmi(4);
+    check(nmi_at.step()==4 && nmi_at.cpu().pc.uint16_value==1,
+          "NMI at E finishes current instruction");
+    check(nmi_at.step()==4 && nmi_at.cpu().pc.uint16_value==2,
+          "NMI at E misses the previous sample");
+    check(nmi_at.step()==11 && nmi_at.cpu().pc.uint16_value==0x66,
+          "NMI at E enters after the next instruction");
+    Machine pause_before(program({0})); pause_before.set_pause(true);
+    pause_before.advance(Machine::pause_sample_offset-3);
+    check(pause_before.step()==4 && pause_before.step()==11,
+          "Pause at E-1 enters after current instruction");
+    Machine pause_at(program({0})); pause_at.set_pause(true);
+    pause_at.advance(Machine::pause_sample_offset-4);
+    check(pause_at.step()==4 && pause_at.step()==4 && pause_at.step()==11,
+          "Pause at E enters after the next instruction");
 }
 void copy_run() {
     Machine a(program({0xdd,0x21,0x34,0x12,0x3e,0x66,0xd3,0x7f,0x00}));

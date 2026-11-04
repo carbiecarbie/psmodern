@@ -24,9 +24,8 @@ public:
     const auto& vram() const { return vram_; }
     const auto& cram() const { return cram_; }
     const auto& registers() const { return regs_; }
-#ifdef PSMODERN_TEST_PROBES
-    void test_sprite_flags(bool overflow, bool collision) { overflow_=overflow; collision_=collision; }
-#endif
+    using Picture = std::array<std::uint8_t,256*192>;
+    const Picture& picture() const { return completed_picture_; }
     bool operator==(const Vdp&) const = default;
 private:
     std::array<std::uint8_t, 0x4000> vram_{};
@@ -39,5 +38,11 @@ private:
     bool control_latch_ = false, frame_flag_ = initial_state::vdp_frame_flag, line_flag_ = false;
     bool frame_visible_ = initial_state::vdp_frame_flag;
     bool overflow_ = initial_state::vdp_overflow, collision_ = false;
+    Picture drawing_picture_{}, completed_picture_{};
+    std::uint8_t horizontal_scroll_ = initial_state::vdp_registers[8];
+    std::uint8_t vertical_scroll_ = initial_state::vdp_registers[9];
+    std::uint16_t collision_dot_ = 342;
+    void draw_line(unsigned line);
+    bool sprite_overflow_on_line(unsigned line) const;
 };
 }

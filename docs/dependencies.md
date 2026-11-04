@@ -118,10 +118,36 @@ Each missing file is reported as a CTest skip; a present test must pass.
   is available, but neither the firmware nor the Woodmass test is fetched by CI.
 
 **Hardware documentation:** The [Zilog Z80 CPU User Manual, UM008011-0816,
-figure 7](https://www.zilog.com/docs/z80/um0080.pdf), shows the I/O strobe
-beginning in T2, one T-state after the start of the I/O machine cycle. The
-wrapper timestamps the start of this strobe; the core's helpers give the start
-of the machine cycle.
+figure 7](https://www.zilog.com/docs/z80/um0080.pdf), shows the I/O machine
+cycle as T1, T2, an automatic wait state and T3, with read data taken in T3
+before /RD goes inactive. The wrapper timestamps port accesses at the start of
+T3, three T-states after the start of the I/O machine cycle given by the core's
+helpers. [Development](development.md#vdp-and-interrupt-timing) gives the
+timing evidence.
+
+## SMS VDPTest conformance
+
+[FluBBaOfWard/SmsVdpTest](https://github.com/FluBBaOfWard/SmsVdpTest)
+is pinned to commit `490c00b38c83012dee5a7a582097f080c210a3e7`.
+Its source does not state a license, so neither its source nor the built ROM
+is in this repository. The local build used
+[WLA-DX v10.5](https://github.com/vhelin/wla-dx/releases/tag/v10.5), commit
+`7461036`, kept outside the repository. The source required one build-only
+cross-section branch change at `testmain.asm:1731`, `jr StdOut_Char` to
+`jp StdOut_Char`; the patch is kept with the external build material. The
+resulting 32 KiB `VDPTest.sms` SHA-256 is
+`8fbacb3f4c150453cdfa2a4c270682245d6b29040e770fbad9b28e0d54d4e563`.
+
+Set `PSMODERN_VDP_TEST_DIR` to an external directory containing `VDPTest.sms`
+and WLA-DX's `VDPTest.sym`. The test runner reads the `RunTest60` and
+`WaitForButton` labels from that symbol file, then reads the 60 result bytes
+at work RAM `$C900`–`$C93B` when the test page completes. Result 2 is the
+expected NTSC branch of test 21; zero is success for every other applicable
+automated case. A missing path or file skips the CTest entry. The source
+does not call tests 20 or 37–40 in the SMS1 path. Test 90 is an unscored
+visual check of the horizontal-scroll latch and needs picture inspection.
+Test 200 displays CPU opcode timing, outside B2a's VDP scope. Neither is
+counted in the 55 automated results.
 
 ## Reference emulators
 

@@ -13,20 +13,18 @@ Machine::Machine(const Machine& o)
     : memory_(o.memory_), cpu_(o.cpu_), vdp_(o.vdp_), cycle_(o.cycle_), opcode_fetches_(o.opcode_fetches_),
       scheduled_nmi_(o.scheduled_nmi_), pads_(o.pads_), pending_pads_(o.pending_pads_), io_control_(o.io_control_),
       open_bus_(o.open_bus_), reset_(o.reset_), pause_(o.pause_), pending_reset_(o.pending_reset_), pending_pause_(o.pending_pause_),
-      input_latched_(o.input_latched_), sampled_int_(o.sampled_int_), pause_nmi_level_(o.pause_nmi_level_)
-#ifdef PSMODERN_TEST_PROBES
+      input_latched_(o.input_latched_), sampled_int_(o.sampled_int_), sampled_nmi_(o.sampled_nmi_),
+      pause_nmi_level_(o.pause_nmi_level_)
       , last_access_(o.last_access_)
-#endif
       { bind(); }
 Machine& Machine::operator=(const Machine& o) {
     if (this != &o) {
         memory_=o.memory_; cpu_=o.cpu_; vdp_=o.vdp_; cycle_=o.cycle_; opcode_fetches_=o.opcode_fetches_;
         scheduled_nmi_=o.scheduled_nmi_; pads_=o.pads_; pending_pads_=o.pending_pads_; io_control_=o.io_control_;
         open_bus_=o.open_bus_; reset_=o.reset_; pause_=o.pause_; pending_reset_=o.pending_reset_; pending_pause_=o.pending_pause_;
-        input_latched_=o.input_latched_; sampled_int_=o.sampled_int_; pause_nmi_level_=o.pause_nmi_level_;
-#ifdef PSMODERN_TEST_PROBES
+        input_latched_=o.input_latched_; sampled_int_=o.sampled_int_; sampled_nmi_=o.sampled_nmi_;
+        pause_nmi_level_=o.pause_nmi_level_;
         last_access_=o.last_access_;
-#endif
         bind();
     }
     return *this;
@@ -37,7 +35,8 @@ bool Machine::equivalent(const Machine& o) const {
         opcode_fetches_==o.opcode_fetches_ && scheduled_nmi_==o.scheduled_nmi_ && pads_==o.pads_ &&
         pending_pads_==o.pending_pads_ && io_control_==o.io_control_ && open_bus_==o.open_bus_ &&
         reset_==o.reset_ && pause_==o.pause_ && pending_reset_==o.pending_reset_ && pending_pause_==o.pending_pause_ &&
-        input_latched_==o.input_latched_ && sampled_int_==o.sampled_int_ && pause_nmi_level_==o.pause_nmi_level_;
+        input_latched_==o.input_latched_ && sampled_int_==o.sampled_int_ &&
+        sampled_nmi_==o.sampled_nmi_ && pause_nmi_level_==o.pause_nmi_level_;
 }
 void Machine::latch_input() {
     pads_=pending_pads_; reset_=pending_reset_;
@@ -65,9 +64,11 @@ void Machine::sync(std::uint64_t target) {
 }
 void Machine::advance(std::uint64_t cycles) {
     sync(cycle_+cycles); cycle_+=cycles; sampled_int_=vdp_.irq();
+    sampled_nmi_=(cpu_.raw().request & Z80_REQUEST_NMI)!=0;
     z80_int(&cpu_.raw(),sampled_int_);
 }
-std::uint64_t Machine::run_frame() {
+std::uint64_t Machine::run_frame(const FrameInput& next_input) {
+    pending_pads_=next_input.pads; pending_reset_=next_input.reset; pending_pause_=next_input.pause;
     auto target=(cycle_/frame_cycles+1)*frame_cycles;
     while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step();
     return cycle_-target;
@@ -95,7 +96,9 @@ void Machine::deliver_nmi() {
     if (scheduled_nmi_ && *scheduled_nmi_<=cycle_) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
 }
 std::uint64_t Machine::step(const Hook& hook) {
-    sync(cycle_); deliver_nmi();
+    sync(cycle_);
+    const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
+    if (unsampled_nmi) cpu_.raw().request &= ~Z80_REQUEST_NMI;
     z80_int(&cpu_.raw(), sampled_int_);
     const auto request=cpu_.raw().request;
     // Mirrors the pinned Z80.c RETN bookkeeping (lines 1141-1146) and
@@ -111,8 +114,10 @@ std::uint64_t Machine::step(const Hook& hook) {
         if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
     }
     const auto elapsed=cpu_.step(cycle_);
+    if (unsampled_nmi) cpu_.raw().request |= Z80_REQUEST_NMI;
     // [S,E) samples the line at E-1, after any earlier I/O in that instruction.
     sync(cycle_+elapsed-1); sampled_int_=vdp_.irq();
+    sampled_nmi_=(cpu_.raw().request & Z80_REQUEST_NMI)!=0;
     cycle_+=elapsed; sync(cycle_);
     return elapsed;
 }
@@ -143,9 +148,7 @@ std::uint8_t Machine::read_port(std::uint16_t raw,std::uint64_t cycle) {
         else value=low(b.left)|(low(b.right)<<1)|(low(b.one)<<2)|(pin(2,6,b.two)<<3)|
             (low(reset_)<<4)|0x20|(pin(1,5,false)<<6)|(pin(3,7,false)<<7);
     }
-#ifdef PSMODERN_TEST_PROBES
     last_access_=PortAccess{cycle,port,value,false};
-#endif
     return value;
 }
 void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle) {
@@ -162,8 +165,6 @@ void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycl
     } else if (port>=0x80 && port<0xc0) {
         if (port&1) vdp_.write_control(value); else vdp_.write_data(value);
     } // PSG placeholder: no retained log.
-#ifdef PSMODERN_TEST_PROBES
     last_access_=PortAccess{cycle,port,value,true};
-#endif
 }
 }

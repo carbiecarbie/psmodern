@@ -10,17 +10,19 @@
 #include <optional>
 
 namespace psmodern {
-#ifdef PSMODERN_TEST_PROBES
 struct PortAccess {
     std::uint64_t cycle;
     std::uint8_t port, value;
     bool write;
     bool operator==(const PortAccess&) const = default;
 };
-#endif
 struct Pad {
     bool up=false, down=false, left=false, right=false, one=false, two=false;
     bool operator==(const Pad&) const = default;
+};
+struct FrameInput {
+    std::array<Pad,2> pads{};
+    bool reset=false, pause=false;
 };
 class Machine : private CpuBus {
 public:
@@ -32,7 +34,7 @@ public:
     Machine& operator=(const Machine& other);
     std::uint64_t step(const Hook& hook = {});
     void advance(std::uint64_t cycles);
-    std::uint64_t run_frame();
+    std::uint64_t run_frame(const FrameInput& next_input);
     std::uint64_t cycles() const { return cycle_; }
     std::uint64_t opcode_fetches() const { return opcode_fetches_; }
     void set_pause(bool level) { pending_pause_=level; }
@@ -47,12 +49,11 @@ public:
     const Memory& memory() const { return memory_; }
     Vdp& vdp() { return vdp_; }
     const Vdp& vdp() const { return vdp_; }
+    const Vdp::Picture& picture() const { return vdp_.picture(); }
     Z80& cpu() { return cpu_.raw(); }
     const Z80& cpu() const { return cpu_.raw(); }
-#ifdef PSMODERN_TEST_PROBES
     // Single bounded probe for timing tests; never retains a history.
     const std::optional<PortAccess>& last_access() const { return last_access_; }
-#endif
     bool equivalent(const Machine& other) const;
 private:
     void bind();
@@ -74,9 +75,8 @@ private:
     std::uint8_t io_control_ = initial_state::io_control;
     std::uint8_t open_bus_ = initial_state::open_bus;
     bool reset_ = false, pause_ = false, pending_reset_ = false, pending_pause_ = false;
-    bool input_latched_ = false, sampled_int_ = false, pause_nmi_level_ = false;
-#ifdef PSMODERN_TEST_PROBES
+    bool input_latched_ = false, sampled_int_ = false, sampled_nmi_ = false,
+        pause_nmi_level_ = false;
     std::optional<PortAccess> last_access_;
-#endif
 };
 }
