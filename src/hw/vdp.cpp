@@ -74,7 +74,7 @@ void Vdp::draw_line(unsigned line) {
             address &= plane<2 ? ((regs_[3]<<6)|0x3f) : (((regs_[4]&7)<<11)|0x7ff);
             color|=((vram_[address]>>bit)&1)<<plane;
         }
-        if (color) out[x]=cram_[((name&0x800)?16:0)+color];
+        out[x]=cram_[((name&0x800)?16:0)+color];
         priority[x]=(name&0x1000) && color;
     }
     unsigned sat=(regs_[5]&0x7e)<<7;

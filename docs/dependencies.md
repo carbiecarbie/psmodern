@@ -160,17 +160,17 @@ Master System 1, export/NTSC, without BIOS or FM. Part 0's detailed setup and
 observations are in the [milestone plan](milestone-1-plan.md#2-reference-emulator).
 
 The primary reference is a build of MesenCE tag `2.2.1` (commit
-`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with the six Z80
-instruction-duration corrections in
-[mesence-2.2.1-durations.patch](../tools/mesence/mesence-2.2.1-durations.patch).
-The changes and their [Zilog UM0080 instruction-table](https://map.grauw.nl/resources/cpu/z80.pdf)
+`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with two patches applied in
+order: the six Z80 instruction-duration corrections in
+[mesence-2.2.1-durations.patch](../tools/mesence/mesence-2.2.1-durations.patch),
+then INT sampling at the start of the final T-state with port transfers at
+the start of T3 in
+[mesence-2.2.1-int-boundary.patch](../tools/mesence/mesence-2.2.1-int-boundary.patch).
+The changes and their [Zilog UM0080](https://map.grauw.nl/resources/cpu/z80.pdf)
 basis are described in [development](development.md#psg). Emulicious is the
-independent timing check. The proposed INT sampling change was rejected
-because the TH/H frame and line interrupt probes then disagreed with
-Emulicious and hardware measurements. SMS Reset remains unsupported through
-Lua.
+independent timing check. SMS Reset remains unsupported through Lua.
 
-To rebuild, check out that upstream tag, apply the patch, build the native
+To rebuild, check out that upstream tag, apply both patches in that order, build the native
 core (`InteropDLL/InteropDLL.vcxproj`, `Release|x64`) and publish the UI
 (`UI/UI.csproj`, `win-x64`, framework-dependent single file) following the
 upstream build instructions. This requires the .NET 8 SDK and MSVC toolset
@@ -230,7 +230,7 @@ The recording launcher, comparison tool and Python test helpers use Python 3
 standard library only; validated locally with **Python 3.13.15**. CMake discovers
 Python through `find_package(Python3 COMPONENTS Interpreter)` when tests are
 built. There are no pip dependencies. The reference launcher accepts stock or
-duration-patched Windows **MesenCE 2.2.1** (upstream product version
+patched Windows **MesenCE 2.2.1** (upstream product version
 `2.2.1+20ba206cef5ba207c21203176d02cb9f43dda9fb`) and its adjacent native DLLs.
 It copies these into a new external portable folder per run; none are vendored.
 Pass `--reference-label` to identify the build; `reference.json` records the

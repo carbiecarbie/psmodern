@@ -391,8 +391,9 @@ at the absolute cycle where the B1b comparison matched MesenCE.
 **Hardware documentation.** The [VDP register map](https://www.smspower.org/Development/VDPRegisters)
 and [MacDonald's VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
 describe the 315-5124 mode 4 background: 32 by 28 name entries, 4-bit planar
-patterns, horizontal and vertical tile flip, palette select, opaque
-background priority, and CRAM color zero as transparency. R2 bits 1-3 select
+patterns, horizontal and vertical tile flip, palette select and background
+priority. Pattern color zero draws CRAM entry 0 or 16 from the selected tile
+palette, but is transparent to sprite priority. R2 bits 1-3 select
 the name table with bit 0 controlling the row mask. R7 selects the
 sprite-palette backdrop entry, R1 bit 6
 enables display, and R0 bit 5 blanks the left eight pixels.
@@ -557,7 +558,7 @@ Instruction measurements found six MesenCE duration differences against the
 `INC (HL)` and `DEC (HL)` take 10 instead of 11 T; `LD (HL),n` takes 12
 instead of 10; indexed `INC/DEC (IX+d)` take 22 instead of 23 and
 `LD (IX+d),n` takes 24 instead of 19. The same indexed path serves IY.
-The primary reference's
+The primary reference's first
 [patch](../tools/mesence/mesence-2.2.1-durations.patch) changes only these
 durations in `SmsCpu.cpp`:
 one internal T before indirect INC/DEC writes, no two-T delay in indirect
@@ -565,15 +566,42 @@ immediate LD, and a two-T rather than five-T indexed-address delay for that
 LD. A TH/H-latch probe gives the manual's values in patched CE, Emulicious
 and PSModern, with neighbouring opcodes unchanged from stock CE.
 
-The [Zilog manual's interrupt timing diagram](https://map.grauw.nl/resources/cpu/z80.pdf)
-samples INT on the rising edge of the final T-state. An attempted E-1 patch
-shifted the existing frame and line TH/H interrupt probes one H step later;
-it was rejected because those probes then disagreed with Emulicious and
-hardware measurements. CE therefore still samples INT at
-instruction end. It also invokes its port-write callback after four I/O
-cycles; our write is at the start of T3. These explain why equal write streams
-need not have equal timestamps. No CPU or PSG timing is adjusted to match the
-reference.
+The [Zilog manual's](https://map.grauw.nl/resources/cpu/z80.pdf) interrupt
+timing diagram samples INT on the rising edge of the final T-state, and its
+I/O cycle (T1, T2, an automatic wait state, T3) transfers the port data within
+T3. Stock CE samples INT at instruction end and performs a port access after
+all four I/O T-states. Moving only the INT sample one T earlier also moves
+every port access after an interrupt one T later relative to it: the frame and
+line TH/H interrupt probes then shifted one H step and disagreed with
+Emulicious and hardware measurements. The primary reference's second
+[patch](../tools/mesence/mesence-2.2.1-int-boundary.patch) makes both changes:
+INT is sampled at the start of each instruction's final T-state, and port
+reads and writes happen at the start of T3. Instruction durations are
+unchanged. In [Charles MacDonald's logic-analyzer measurements](https://www.smspower.org/forums/8161-SMSDisplayTiming),
+the first instruction that accepts the frame IRQ and the first `IN` that sees
+the new V counter end on the same cycle; this relation holds with both
+changes, as in stock CE, but not with the INT change alone. A synthetic probe
+that raises the frame IRQ during an instruction's final T-state stores `$0118`
+in patched CE, PSModern and Emulicious (stock CE: `$0115`). The TH/H interrupt
+probes, the duration probe and the VDPTest results are unchanged by this
+patch. The manual samples I/O data partway through T3; the start of T3 is the
+whole-T quantization these results select, not a sub-T measurement. NMI
+timing is unchanged.
+
+**Known reference difference (VRAM write latency).** CE holds a CPU write to
+the VDP data port as pending and commits it to VRAM at the VDP's next access
+slot; PSModern commits it at once. When a frame's last instruction writes the
+data port, a dump at the frame boundary can show the new byte in PSModern one
+frame before CE, for example VRAM `$1CA0` at frame 46 of a no-input run. The
+byte matches again in the next frame. Up to 2,000 frames of both ROMs, with
+and without input, the picture, RAM, CRAM and cartridge RAM are equal against
+the patched reference; only this transient VRAM byte differs, in 1 frame
+without input and 7 frames with input.
+
+Stock CE invokes its port-write callback after four I/O cycles; our write,
+like the patched reference's, is at the start of T3. This explains why equal
+write streams from stock CE need not have equal timestamps. No CPU or PSG
+timing is adjusted to match the reference.
 
 **Reference emulator (capture API limitation).** In CE 2.2.1,
 [`ScriptingContext::InternalCallMemoryCallback`](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/ScriptingContext.cpp)

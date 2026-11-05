@@ -48,15 +48,23 @@ void background() {
     name(flipped,0,0,3);name(flipped,0,1,3,0x200);
     name(flipped,1,0,3,0x400);
     finish(flipped);
-    check(at(flipped,0,0)==0x11 && at(flipped,0,7)==0x3f &&
-          at(flipped,0,8)==0x3f && at(flipped,0,15)==0x11 &&
-          at(flipped,8,0)==0x3f,"tile horizontal and vertical flip");
+    check(at(flipped,0,0)==0x11 && at(flipped,0,7)==0x00 &&
+          at(flipped,0,8)==0x00 && at(flipped,0,15)==0x11 &&
+          at(flipped,8,0)==0x00,"tile horizontal and vertical flip");
     auto blank=setup();name(blank,0,0,1);name(blank,0,1,1);
     reg(blank,0,0x24);finish(blank);
     check(at(blank,0,0)==0x3f && at(blank,0,7)==0x3f && at(blank,0,8)==0x11,
           "left column blank");
     auto off=setup();name(off,0,0,1);reg(off,1,0);finish(off);
     check(at(off,0,0)==0x3f,"display off uses backdrop");
+}
+void background_color_zero() {
+    auto v=setup();
+    bytes(v,0xc000,{0x10},3);
+    name(v,0,2,0,0x800);
+    finish(v);
+    check(at(v,0,12)==0x10 && at(v,0,16)==0x3f,
+          "background color zero uses the selected tile palette");
 }
 void sprites() {
     auto v=setup();name(v,0,0,1,0x1000);
@@ -67,10 +75,15 @@ void sprites() {
     bytes(low,0x3f00,{255,0xd0});bytes(low,0x3f80,{0,2});
     finish(low);
     check(at(low,0,0)==0x2a,"sprite overlays low priority tile");
+    auto zero=setup();name(zero,0,0,0,0x1000);
+    bytes(zero,0xc000,{0x10},3);
+    bytes(zero,0x3f00,{255,0xd0});bytes(zero,0x3f80,{0,2});
+    finish(zero);
+    check(at(zero,0,0)==0x2a,"sprite overlays priority tile with color zero");
     auto shifted=setup();reg(shifted,0,0x0c);
     bytes(shifted,0x3f00,{255,0xd0});bytes(shifted,0x3f80,{8,2});
     finish(shifted);
-    check(at(shifted,0,0)==0x2a && at(shifted,0,8)==0x3f,"R0 sprite shift");
+    check(at(shifted,0,0)==0x2a && at(shifted,0,8)==0x00,"R0 sprite shift");
     auto tall=setup();reg(tall,1,0x42);pixel_tile(tall,3,1);
     bytes(tall,0x3f00,{255,0xd0});bytes(tall,0x3f80,{0,3});
     finish(tall);
@@ -81,7 +94,7 @@ void sprites() {
     finish(zoom3);
     for(unsigned i=0;i<3;++i)
         check(at(zoom3,0,i*24)==0x15 && at(zoom3,0,i*24+1)==0x15 &&
-              at(zoom3,0,i*24+2)==0x3f && at(zoom3,1,i*24)==0x15,
+              at(zoom3,0,i*24+2)==0x00 && at(zoom3,1,i*24)==0x15,
               "three sprites zoom horizontally and vertically");
     auto zoom8=setup();reg(zoom8,1,0x41);pixel_tile(zoom8,3,1,0x80);
     bytes(zoom8,0x3f00,{255,255,255,255,255,255,255,255,0xd0});
@@ -90,12 +103,12 @@ void sprites() {
     for(unsigned i=0;i<8;++i) {
         check(at(zoom8,0,i*24)==0x15 && at(zoom8,1,i*24)==0x15,
               "all eight sprites zoom vertically");
-        check(at(zoom8,0,i*24+1)==(i<4?0x15:0x3f),
+        check(at(zoom8,0,i*24+1)==(i<4?0x15:0x00),
               "only first four sprites zoom horizontally");
     }
     auto term=setup();bytes(term,0x3f00,{0xd0,255});
     bytes(term,0x3f82,{0,2});finish(term);
-    check(at(term,0,0)==0x3f,"D0 ends sprite list");
+    check(at(term,0,0)==0x00,"D0 ends sprite list");
 }
 void sprite_flags() {
     auto v=setup();
@@ -119,7 +132,7 @@ void sprite_flags() {
     auto limit=setup();bytes(limit,0x3f00,{255,255,255,255,255,255,255,255,255,0xd0});
     for(unsigned i=0;i<8;++i) bytes(limit,0x3f80+i*2,{32,2});
     bytes(limit,0x3f90,{0,2});finish(limit);
-    check(at(limit,0,0)==0x3f && at(limit,0,32)==0x2a,
+    check(at(limit,0,0)==0x00 && at(limit,0,32)==0x2a,
           "ninth sprite does not draw");
 }
 void scroll() {
@@ -171,18 +184,18 @@ void register_masks() {
     auto base=setup();name(base,0,0,2);finish(base);
     check(at(base,0,0)==0x22,"unmasked tile pattern");
     auto r3=setup();name(r3,0,0,2);reg(r3,3,0);finish(r3);
-    check(at(r3,0,0)==0x3f,"R3 masks pattern planes zero and one");
+    check(at(r3,0,0)==0x00,"R3 masks pattern planes zero and one");
     auto r4=setup();pixel_tile(r4,64,4);name(r4,0,0,64);
     bytes(r4,0xc004,{0x33},3);reg(r4,4,0);finish(r4);
-    check(at(r4,0,0)==0x3f,"R4 masks pattern planes two and three");
+    check(at(r4,0,0)==0x00,"R4 masks pattern planes two and three");
     auto r4full=setup();pixel_tile(r4full,64,4);name(r4full,0,0,64);
     bytes(r4full,0xc004,{0x33},3);finish(r4full);
     check(at(r4full,0,0)==0x33,"R4 permits upper pattern planes");
     auto r2=setup();name(r2,0,0,1);reg(r2,2,0x0d);finish(r2);
-    check(at(r2,0,0)==0x3f,"R2 name table address mask");
+    check(at(r2,0,0)==0x00,"R2 name table address mask");
     auto r5=setup();reg(r5,5,0x7e);
     bytes(r5,0x3f00,{255,0xd0});bytes(r5,0x3f80,{0,2});finish(r5);
-    check(at(r5,0,0)==0x3f,"R5 sprite attribute address bit");
+    check(at(r5,0,0)==0x00,"R5 sprite attribute address bit");
     auto r6=setup();pixel_tile(r6,0,2);pixel_tile(r6,64,1);reg(r6,6,2);
     bytes(r6,0x3f00,{255,0xd0});bytes(r6,0x3f80,{0,64});finish(r6);
     check(at(r6,0,0)==0x2a,"R6 bit zero masks sprite tile bit six");
@@ -194,10 +207,10 @@ void register_masks() {
     reg(r6high,6,6);bytes(r6high,0x3f00,{255,0xd0});
     bytes(r6high,0x3f80,{0,0});finish(r6high);
     check(at(r6high,0,0)==0x15,"R6 upper sprite pattern bit");
-    auto backdrop=setup();reg(backdrop,7,1);finish(backdrop);
+    auto backdrop=setup();reg(backdrop,7,1);reg(backdrop,1,0);finish(backdrop);
     check(at(backdrop,0,0)==0x15,"R7 selects backdrop CRAM entry");
 }
 }
-int main() { try { background();sprites();sprite_flags();scroll();register_masks();
+int main() { try { background();background_color_zero();sprites();sprite_flags();scroll();register_masks();
     std::cout<<"VDP picture tests passed.\n";return 0;
 } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; } }

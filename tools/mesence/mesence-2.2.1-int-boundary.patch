@@ -1,0 +1,83 @@
+diff --git a/Core/SMS/SmsCpu.cpp b/Core/SMS/SmsCpu.cpp
+index 4921ff3..2cca3b8 100644
+--- a/Core/SMS/SmsCpu.cpp
++++ b/Core/SMS/SmsCpu.cpp
+@@ -33,6 +33,7 @@ SmsCpuState& SmsCpu::GetState()
+ void SmsCpu::Exec()
+ {
+ 	uint8_t opCode = 0;
++	_sampledActiveIrqs = _state.ActiveIrqs;
+ 	_state.FlagsChanged <<= 1;
+ 	if(_state.Halted) {
+ 		_emu->ProcessHaltedCpu<CpuType::Sms>();
+@@ -54,7 +55,8 @@ void SmsCpu::Exec()
+ 		uint16_t originalPc = _state.PC;
+ 		RST(0x66);
+ 		_emu->ProcessInterrupt<CpuType::Sms>(originalPc, _state.PC, true);
+-	} else if(_state.IFF1 && _state.ActiveIrqs && opCode != 0xFB) {
++	} else if(_state.IFF1 && _sampledActiveIrqs && opCode != 0xFB) {
++		//INT is sampled at the rising edge of the last T-state of the instruction (Zilog UM0080)
+ 		//Process IRQs if enabled, but not if the previous op was EI (0xFB)
+ 		_state.Halted = false;
+ 		_state.IFF1 = false;
+@@ -843,7 +845,14 @@ void SmsCpu::ExecCycles(uint8_t cycles)
+ {
+ 	_state.CycleCount += cycles;
+ #ifndef DUMMYCPU
+-	_memoryManager->Exec(cycles * 3);
++	if(cycles > 1) {
++		_memoryManager->Exec((cycles - 1) * 3);
++	}
++	//Sample /INT at the start of the last T-state of this bus cycle
++	_sampledActiveIrqs = _state.ActiveIrqs;
++	_memoryManager->Exec(3);
++#else
++	_sampledActiveIrqs = _state.ActiveIrqs;
+ #endif
+ }
+ 
+@@ -911,24 +920,28 @@ void SmsCpu::Write(uint16_t addr, uint8_t value)
+ 
+ uint8_t SmsCpu::ReadPort(uint8_t port)
+ {
+-	ExecCycles(4);
++	//I/O cycle = T1, T2, TW, T3: the port transfer takes place in T3 (Zilog UM0080)
++	ExecCycles(3);
+ #ifdef DUMMYCPU
+ 	uint8_t value = _memoryManager->DebugReadPort(port);
+ 	LogMemoryOperation(port, value, MemoryOperationType::Read, MemoryType::SmsPort);
+-	return value;
+ #else
+-	return _memoryManager->ReadPort(port);
++	uint8_t value = _memoryManager->ReadPort(port);
+ #endif
++	ExecCycles(1);
++	return value;
+ }
+ 
+ void SmsCpu::WritePort(uint8_t port, uint8_t value)
+ {
+-	ExecCycles(4);
++	//I/O cycle = T1, T2, TW, T3: the port transfer takes place in T3 (Zilog UM0080)
++	ExecCycles(3);
+ #ifdef DUMMYCPU
+ 	LogMemoryOperation(port, value, MemoryOperationType::Write, MemoryType::SmsPort);
+ #else
+ 	_memoryManager->WritePort(port, value);
+ #endif
++	ExecCycles(1);
+ }
+ 
+ template<uint8_t mask>
+diff --git a/Core/SMS/SmsCpu.h b/Core/SMS/SmsCpu.h
+index 690332a..26288f6 100644
+--- a/Core/SMS/SmsCpu.h
++++ b/Core/SMS/SmsCpu.h
+@@ -47,6 +47,7 @@ private:
+ 
+ 	int32_t _cbAddress = -1;
+ 	SmsCpuState _state = {};
++	bool _sampledActiveIrqs = false;
+ 
+ 	Register16 _regAF = Register16(&_state.A, &_state.Flags);
+ 	Register16 _regBC = Register16(&_state.B, &_state.C);
