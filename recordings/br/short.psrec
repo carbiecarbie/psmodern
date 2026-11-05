@@ -1,0 +1,6 @@
+psmodern-recording 1
+rom fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd
+cart-ram 0631457264ff7f8d5fb1edc2c0211992a67c73e6
+input 1 p1=1 p2=- pause=0 reset=0
+input 2 p1=- p2=- pause=0 reset=0
+end 12

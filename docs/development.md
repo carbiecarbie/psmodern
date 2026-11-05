@@ -99,6 +99,141 @@ before adding a frame and their range is cumulative for the run.
 **Evidence.** One host run showed stalls of about 90 ms; two subsequent
 instrumented runs of about 140 seconds each did not reproduce them.
 
+## Input recordings
+
+Recordings are ASCII with LF line endings, including the last line. Version 1
+is canonical: exactly one space between fields, lowercase 40-digit SHA-1s,
+unsigned decimal frame numbers without leading zeroes, no comments or blank
+lines. The first three lines are the format/version, ROM identification digest
+and SHA-1 of the initial 8192-byte cartridge RAM image. For example:
+
+```text
+psmodern-recording 1
+rom 07fcf297be4f4c9d92cd3f119a7ac48467e06838
+cart-ram 0631457264ff7f8d5fb1edc2c0211992a67c73e6
+input 1 p1=1 p2=- pause=0 reset=0
+input 2 p1=- p2=- pause=0 reset=0
+end 12
+```
+
+The implicit initial input is released. Each `input` line replaces both pads,
+Pause and Reset. Pads use `UDLR12` in that order, omitting released buttons;
+`-` means all released. Opposite directions are permitted. Pause and Reset
+are `0` or `1`. Only changes appear, in strictly increasing call order.
+`end` gives the total number of calls; changes must precede that count.
+Zero calls are valid for a session closed immediately. Frame counts fit uint64.
+Unknown keys/buttons, wrong versions, redundant changes, missing headers/end,
+CR, noncanonical spacing/numbers and trailing content fail with a line number.
+Parsing and writing a valid recording preserves every byte.
+
+**Frame mapping.** `input N` is the exact argument supplied to the zero-based
+Nth call of `Machine::run_frame(next_input)`, not an SDL presentation number.
+The argument prepares the latch at the first cycle of line 0 where that call
+ends. On power-on, argument zero also supplies the initial cycle-zero latch.
+Consequently argument zero governs video intervals zero and one; argument N
+for N > 0 governs interval N+1. A change at input 600 is first observable by
+software during interval 601, in manifest frame 602. The final argument is
+still recorded even when no later interval runs. This contract preserves the
+existing app frame driver and is shared by the headless and reference drivers.
+
+## Record mode
+
+Run `psmodern.exe <rom-path> --record <new-file>`. The plain command is unchanged.
+Recording starts at power-on with the app's normal save, whose digest enters
+the header. Preserve a copy of that save before starting if it is nonzero:
+the app can update the normal save during the session, and a hash cannot
+reconstruct its initial contents. F5 is disabled while recording and the title
+says so; console Reset remains available. Every completed emulated call is
+counted, including catch-up calls and calls while minimized.
+
+The destination must not exist and its parent must already exist. On normal
+exit, the complete recording is written to an exclusive temporary file in the
+same folder, flushed, closed and atomically published without replacing an
+existing destination. A crash before publication leaves no destination. A
+failed publication reports an error; a partial destination is never published.
+
+## Replay runner
+
+```text
+psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>]
+```
+
+The runner links no SDL and reads no app save. It checks the ROM and initial
+cartridge RAM SHA-1s before creating output. Missing `--cart-ram` supplies an
+8192-byte zero image; a supplied image must have exactly that size. The output
+folder must not exist. Selection is `all` or comma-separated one-based output
+frame numbers/ranges, such as `1,60-65,1200`, all within the recording.
+
+Manifest frame K is the boundary after call K-1, at the first complete CPU
+instruction boundary at or after K*59736 cycles. The picture is the completed
+256x192 image from the preceding video interval. `manifest.txt` starts with
+`frame picture ram vram cram cart-ram`, followed by a decimal frame and five
+SHA-1s on every line. Selected dumps are `frame-000001.picture.bin`, `.ram.bin`,
+`.vram.bin`, `.cram.bin` and `.cart-ram.bin`: respectively 49152 color bytes,
+8192 work RAM bytes (C000-DFFF), 16384 VRAM bytes, 32 CRAM bytes and 8192
+cartridge RAM bytes. Colors retain six-bit SMS CRAM values, not host RGB.
+`psg-writes.txt` holds the entire run as decimal absolute cycle and two-digit
+hex byte. Both PSG write and sample queues are drained after every call.
+
+## Reference driver
+
+```text
+python tools/reference.py <Mesen.exe> <rom> <recording> --dump all --out <new-folder> [--cart-ram <file>]
+```
+
+Use stock MesenCE 2.2.1. Each run requires a new output folder and creates a
+fresh portable data folder there, copying the supplied executable and adjacent
+DLLs, with an empty configuration and only the requested initial battery save.
+No existing MesenCE data folder is reused. SMS1, export NTSC, zero-filled RAM,
+FM off and both SMS controllers are specified explicitly. No firmware is copied,
+so no BIOS is loaded. Lua sets scanline and V counter to zero before the first
+instruction and verifies the initial 8 KiB cartridge RAM byte for byte.
+
+The script applies input before running, at startFrame and at inputPolled.
+**Reference API limitation.** CE 2.2.1's `setInput` reads port/subport from Lua
+stack positions three/four. The driver uses `setInput(table,0,port,0)` and checks
+both pads with `getInput(port,0)` after every application. Two-argument calls
+would let the released second pad overwrite the first pad.
+
+At startFrame K, Lua saves the previous picture before buffer swap, cropping
+unfiltered RGB rows 24-215 and recovering SMS channel values. It arms a pending
+capture; the next instruction-boundary exec callback saves RAM, VRAM, CRAM and
+cartridge RAM. In this CE version, `Debugger::ProcessInstruction` dispatches
+Lua exec before opcode fetch, independently of opcode/operand read notifications.
+Thus an instruction interrupted by startFrame completes before memory capture,
+matching the runner's stopping rule. `boundaries.txt` records capture cycles.
+The launcher hashes all frames and retains raw dumps only for the selection;
+the manifest and dump names/sizes are shared with the runner.
+
+**Reference limitation.** Stock CE has no SMS console Reset pin. Recordings
+pressing Reset are refused before output creation. Machine unit tests and the
+play-test cover Reset. Stock CE has known CPU timing faults, so a difference
+against it is evidence to investigate, not by itself a PSModern defect.
+
+## Comparison
+
+```text
+python tools/compare_frames.py <left-manifest> <right-manifest> [--stack-range CAF8:CAFB]
+```
+
+Exit status is zero for equality, one for differences and two for invalid input.
+The report includes the first overall difference and the first differing frame
+of every component, so an early RAM mismatch cannot hide a later picture mismatch.
+When both raw dumps exist, it reports the first differing offset; RAM also shows
+the C000-based address and both values. It never reads or prints ROM bytes.
+The additional RAM summary scans all available dumped frames for the first
+mismatch outside explicitly supplied inclusive hexadecimal stack ranges. These
+ranges affect only that extra summary: stack mismatches remain in the main
+report. Without raw RAM dumps it cannot classify individual addresses. Supply
+ranges justified by the run rather than assuming every high RAM address is stack.
+
+The data-free CTest entries cover format/refusal cases, round trips, recording
+changes, atomic publication, runner arguments and synthetic manifests. Each ROM
+has a committed short authored recording under `recordings/us/` or `recordings/br/`;
+`psmodern_rom_test` registers two-run determinism and scripted SDL record tests.
+No test requires MesenCE or captured reference output. Keep all real saves,
+reference binaries, captures and long working recordings outside the repository.
+
 ## Fixed machine start and frame input
 
 **Reference emulator.** The fixed state follows MesenCE 2.2.1 with no BIOS,

@@ -189,8 +189,26 @@ is linked to `psmodern_hw`.
 The GitHub Actions workflow builds on hosted Windows 2025 with MSYS2 UCRT64.
 It installs the exact package files above from the MSYS2 repository after
 verifying SHA-256, configures `build-rel` with `PSMODERN_ROM_TESTS=OFF`,
-builds and runs CTest. Actions use full commit pins, checkout does not retain
+builds and runs CTest. CPython 3.13 x64 is provisioned by `actions/setup-python`
+v6.1.0, pinned to commit `83679a892e2d95755f2dac6acb0bfd1e9ac5d548`.
+The action's absolute `python-path` output is passed to CMake through
+`Python3_EXECUTABLE`, converted with `cygpath -m`; discovery does not depend on
+Python being in MSYS2's minimal PATH. Python remains required for test builds,
+including the `replay_unit` and `replay_tools` CI entries. No pip packages are
+installed. Actions use full commit pins, checkout does not retain
 credentials, the token is read-only, and no secrets or ROMs are used. The
 hosted run covers data-free tests only and does not replace the local complete
 suite. Old package files or the pinned Actions may become unavailable; update
 the package list and hashes together when maintaining the toolchain.
+
+## Replay and reference scripts
+
+The recording launcher, comparison tool and Python test helpers use Python 3
+standard library only; validated locally with **Python 3.13.15**. CMake discovers
+Python through `find_package(Python3 COMPONENTS Interpreter)` when tests are
+built. There are no pip dependencies. The reference launcher requires the stock
+Windows **MesenCE 2.2.1** executable (product version
+`2.2.1+20ba206cef5ba207c21203176d02cb9f43dda9fb`) and its adjacent native DLLs.
+It copies these into a new external portable folder per run; none are vendored.
+See [Reference driver](development.md#reference-driver) for the SetInput API
+workaround, instruction-boundary capture and unsupported SMS Reset pin.

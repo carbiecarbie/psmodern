@@ -2,6 +2,7 @@
 #include "app/sdl_host.h"
 #include "app/frame_driver.h"
 #include "rom/sha1.h"
+#include "replay/recording.h"
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -10,13 +11,19 @@
 namespace {
 using namespace psmodern;
 using namespace psmodern::app;
-int play(const std::filesystem::path& path) {
+int play(const std::filesystem::path& path,const std::optional<std::filesystem::path>& record_path) {
     const auto version=identify_rom(path);
     std::ifstream file(path,std::ios::binary);
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>());
     if (file.bad() || rom->size()!=512*1024 || identify_digest(sha1(*rom))!=version)
         throw std::runtime_error("ROM changed or could not be read completely while loading.");
     FrameDriver driver(rom,SaveStore(production_save_folder(),version));
+    if(record_path && std::filesystem::exists(*record_path))
+        throw std::runtime_error("Recording output already exists: "+record_path->string());
+    if(record_path && !std::filesystem::is_directory(record_path->has_parent_path() ? record_path->parent_path() : std::filesystem::current_path()))
+        throw std::runtime_error("Recording parent folder does not exist.");
+    std::optional<replay::Recorder> recorder;
+    if(record_path) recorder.emplace(sha1(*rom),sha1(driver.machine().memory().cartridge_ram()));
     std::optional<std::string> last_save_error;
     auto report_save=[&](const std::optional<std::string>& error) {
         if (error) {
@@ -26,7 +33,8 @@ int play(const std::filesystem::path& path) {
         last_save_error=error;
     };
     try {
-        const auto title=std::string("PSModern - Phantasy Star (")+rom_name(version)+")";
+        const auto title=std::string("PSModern - Phantasy Star (")+rom_name(version)+")"+
+            (recorder ? " - RECORDING (F5 disabled)" : "");
         auto window=std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)>(
             SDL_CreateWindow(title.c_str(),SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,768,576,SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI),SDL_DestroyWindow);
         sdl_check(bool(window),"Creating window");
@@ -75,13 +83,15 @@ int play(const std::filesystem::path& path) {
                         const bool fullscreen=SDL_GetWindowFlags(window.get())&SDL_WINDOW_FULLSCREEN_DESKTOP;
                         sdl_check(SDL_SetWindowFullscreen(window.get(),fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
                     }
-                    if (event.key.keysym.sym==SDLK_F5) { report_save(driver.power_cycle()); audio.reset(); }
+                    if (event.key.keysym.sym==SDLK_F5 && !recorder) { report_save(driver.power_cycle()); audio.reset(); }
                 }
             }
             if (quit) break;
             const auto count=clock.due(now());
             for (unsigned i=0;i<count;++i) {
-                const auto output=driver.run(sample_input(window.get(),controller));
+                const auto input=sample_input(window.get(),controller);
+                const auto output=driver.run(input);
+                if(recorder) recorder->add(input);
                 ++frames; report_save(output.save_error);
                 audio.submit(output.samples.values,now());
             }
@@ -104,6 +114,10 @@ int play(const std::filesystem::path& path) {
         report();
     } catch (...) { report_save(driver.flush()); throw; }
     const auto error=driver.flush(); report_save(error);
+    if(recorder) {
+        replay::write_atomic_new(*record_path,recorder->recording());
+        std::cerr<<"recorded_frames="<<recorder->recording().frames<<" recording="<<record_path->string()<<'\n';
+    }
     std::cerr<<"save_writes="<<driver.store().writes()<<'\n';
     return error ? 1 : 0;
 }
@@ -111,9 +125,10 @@ int play(const std::filesystem::path& path) {
 int main(int argc,char** argv) {
     SDL_SetMainReady();
     try {
-        if (argc!=2) throw std::runtime_error("Usage: psmodern.exe <rom-path>\nProvide an uncompressed US Rev-A or Brazilian .sms file.");
+        if (argc!=2 && !(argc==4 && std::string_view(argv[2])=="--record"))
+            throw std::runtime_error("Usage: psmodern.exe <rom-path> [--record <new-file>]\nProvide an uncompressed US Rev-A or Brazilian .sms file.");
         sdl_check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"Starting SDL");
-        const auto result=play(argv[1]); SDL_Quit(); return result;
+        const auto result=play(argv[1],argc==4 ? std::optional<std::filesystem::path>(argv[3]) : std::nullopt); SDL_Quit(); return result;
     } catch (const std::exception& e) {
         message(e.what()); SDL_Quit(); return 1;
     }

@@ -22,6 +22,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        id: python
+        with:
+          python-version: '3.13'
+          architecture: x64
+          update-environment: false
       - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
         with:
           msystem: UCRT64
@@ -42,6 +48,8 @@ jobs:
           pacman -Q | grep '^mingw-w64-ucrt-x86_64-'
       - name: Configure, build and test
         shell: msys2 {0}
+        env:
+          PSMODERN_CI_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           set -eu
           dir=$(cygpath -u "$RUNNER_TEMP")/psmodern-z80-tests
@@ -56,7 +64,7 @@ jobs:
           a35b3b269b58371015cf033f28a08ad1ac92cce6dd27b428caf67b7f9ce8f5b7 z80ccf.tap
           67e39cd3bbecedf1e406ea9ce99d55fc48c3b497e235f1c7406d1bc4406b7071 LICENSE.txt
           TESTS
-          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF -DPSMODERN_Z80_TEST_DIR="$(cygpath -m "$dir")"
+          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF -DPSMODERN_Z80_TEST_DIR="$(cygpath -m "$dir")" -DPython3_EXECUTABLE="$(cygpath -m "$PSMODERN_CI_PYTHON")"
           if grep -q NDEBUG build-rel/build.ninja; then
             echo 'Unexpected NDEBUG in build-rel.'; exit 1
           fi
