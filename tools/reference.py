@@ -1,4 +1,4 @@
-"""Replay an authored recording in stock MesenCE 2.2.1 (Python standard library)."""
+"""Replay an authored recording in MesenCE 2.2.1 (Python standard library)."""
 import argparse
 import hashlib
 import json
@@ -48,18 +48,23 @@ def selection(spec,total):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('mesen');p.add_argument('rom');p.add_argument('recording');p.add_argument('--dump',required=True);p.add_argument('--out',required=True);p.add_argument('--cart-ram')
+    p.add_argument('mesen');p.add_argument('rom');p.add_argument('recording');p.add_argument('--dump',required=True);p.add_argument('--out',required=True);p.add_argument('--cart-ram');p.add_argument('--reference-label',default='MesenCE 2.2.1 (unspecified build)')
     a=p.parse_args();hashes,changes,total=load_recording(a.recording);selected=selection(a.dump,total)
     if any(state[3]=='1' for state in changes.values()):
-        raise ValueError('Stock MesenCE 2.2.1 cannot replay the SMS Reset pin; refusing this recording')
+        raise ValueError('MesenCE 2.2.1 cannot replay the SMS Reset pin; refusing this recording')
     if total==0:raise ValueError('Reference run requires at least one frame')
     rom=Path(a.rom).resolve();exe=Path(a.mesen).resolve();out=Path(a.out).resolve()
+    if not a.reference_label.strip():raise ValueError('Reference label must not be empty')
     if hashlib.sha1(rom.read_bytes()).hexdigest()!=hashes[0]:raise ValueError('ROM SHA-1 mismatch')
     cart=Path(a.cart_ram).read_bytes() if a.cart_ram else bytes(8192)
     if len(cart)!=8192 or hashlib.sha1(cart).hexdigest()!=hashes[1]:raise ValueError('Initial cartridge RAM SHA-1 mismatch')
     out.mkdir(parents=True,exist_ok=False)
     home=out/'home';home.mkdir();shutil.copy2(exe,home/exe.name)
-    for library in exe.parent.glob('*.dll'):shutil.copy2(library,home/library.name)
+    libraries=sorted(exe.parent.glob('*.dll'))
+    for library in libraries:shutil.copy2(library,home/library.name)
+    identity={'label':a.reference_label,'executable_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),
+              'dll_sha256':{library.name:hashlib.sha256(library.read_bytes()).hexdigest() for library in libraries}}
+    (out/'reference.json').write_text(json.dumps(identity,indent=2,sort_keys=True)+'\n',encoding='ascii')
     (home/'settings.json').write_text('{}',encoding='ascii')
     (home/'Saves').mkdir();(home/'Saves'/(rom.stem+'.sav')).write_bytes(cart)
     (out/'initial-cart-ram.bin').write_bytes(cart)
@@ -89,7 +94,7 @@ def main():
                 digests.append(hashlib.sha1(data).hexdigest())
                 if n not in selected:path.unlink()
             manifest.write(str(n)+' '+' '.join(digests)+'\n')
-    print(f'Captured {total} frames into {out}')
+    print(f'Captured {total} frames with {a.reference_label} ({identity["executable_sha256"]}) into {out}')
 
 if __name__=='__main__':
     main()

@@ -1,0 +1,58 @@
+diff --git a/Core/SMS/SmsCpu.cpp b/Core/SMS/SmsCpu.cpp
+index cb50155..4921ff3 100644
+--- a/Core/SMS/SmsCpu.cpp
++++ b/Core/SMS/SmsCpu.cpp
+@@ -90,17 +90,17 @@ void SmsCpu::ExecOpCode(uint8_t opCode)
+ 		}
+ 	};
+ 
+-	auto getIndirectHl = [this]() constexpr -> uint16_t {
++	auto getIndirectHl = [this](uint8_t delay = 5) constexpr -> uint16_t {
+ 		switch(prefix) {
+ 			default: return _regHL;
+ 			case 0xDD: {
+ 				uint16_t value = _regIX + (int8_t)ReadCode();
+-				ExecCycles(5);
++				ExecCycles(delay);
+ 				return value;
+ 			}
+ 			case 0xFD: {
+ 				uint16_t value = _regIY + (int8_t)ReadCode();
+-				ExecCycles(5);
++				ExecCycles(delay);
+ 				return value;
+ 			}
+ 		}
+@@ -183,7 +183,7 @@ void SmsCpu::ExecOpCode(uint8_t opCode)
+ 		case 0x33: INC_SP(); break;
+ 		case 0x34: INC_Indirect(getIndirectHl()); break;
+ 		case 0x35: DEC_Indirect(getIndirectHl()); break;
+-		case 0x36: LD_IndirectImm(getIndirectHl()); break;
++		case 0x36: LD_IndirectImm(getIndirectHl(prefix == 0 ? 5 : 2)); break;
+ 		case 0x37: SCF(); break;
+ 		case 0x38: JR((_state.Flags & SmsCpuFlags::Carry) != 0, ReadCode()); break;
+ 		case 0x39: ADD(getHl(), _state.SP); break;
+@@ -1045,7 +1045,6 @@ void SmsCpu::LD_Indirect_A(uint16_t dst)
+ void SmsCpu::LD_IndirectImm(uint16_t dst)
+ {
+ 	uint8_t val = ReadCode();
+-	ExecCycles(2);
+ 	Write(dst, val);
+ }
+ 
+@@ -1098,6 +1097,7 @@ void SmsCpu::INC_Indirect(uint16_t addr)
+ {
+ 	uint8_t val = Read(addr);
+ 	INC(val);
++	ExecCycles(1);
+ 	Write(addr, val);
+ }
+ 
+@@ -1122,6 +1122,7 @@ void SmsCpu::DEC_Indirect(uint16_t addr)
+ {
+ 	uint8_t val = Read(addr);
+ 	DEC(val);
++	ExecCycles(1);
+ 	Write(addr, val);
+ }
+ 

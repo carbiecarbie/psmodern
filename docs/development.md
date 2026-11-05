@@ -178,12 +178,16 @@ hex byte. Both PSG write and sample queues are drained after every call.
 ## Reference driver
 
 ```text
-python tools/reference.py <Mesen.exe> <rom> <recording> --dump all --out <new-folder> [--cart-ram <file>]
+python tools/reference.py <Mesen.exe> <rom> <recording> --dump all --out <new-folder> [--cart-ram <file>] [--reference-label <label>]
 ```
 
-Use stock MesenCE 2.2.1. Each run requires a new output folder and creates a
-fresh portable data folder there, copying the supplied executable and adjacent
-DLLs, with an empty configuration and only the requested initial battery save.
+Use the patched MesenCE 2.2.1 as the primary reference; stock CE remains usable.
+Pass a build-specific `--reference-label` (the default says "unspecified build").
+Each run writes `reference.json` with that label, the executable SHA-256 and
+the SHA-256 of each adjacent DLL. Each run requires a new output folder and
+creates a fresh portable data folder there, copying the supplied executable
+and adjacent DLLs, with an empty configuration and only the requested initial
+battery save.
 No existing MesenCE data folder is reused. SMS1, export NTSC, zero-filled RAM,
 FM off and both SMS controllers are specified explicitly. No firmware is copied,
 so no BIOS is loaded. Lua sets scanline and V counter to zero before the first
@@ -205,10 +209,13 @@ matching the runner's stopping rule. `boundaries.txt` records capture cycles.
 The launcher hashes all frames and retains raw dumps only for the selection;
 the manifest and dump names/sizes are shared with the runner.
 
-**Reference limitation.** Stock CE has no SMS console Reset pin. Recordings
+**Reference limitation.** CE has no SMS console Reset pin reachable from Lua. Recordings
 pressing Reset are refused before output creation. Machine unit tests and the
-play-test cover Reset. Stock CE has known CPU timing faults, so a difference
-against it is evidence to investigate, not by itself a PSModern defect.
+play-test cover Reset. Its `SmsConsole::Reset()` reloads the ROM as a power
+cycle; routing Lua input to a hardware Reset pin would require changes across
+the input and console layers, so the duration patch leaves it out. Stock CE
+has known CPU timing faults, so a difference against it is evidence to
+investigate.
 
 ## Comparison
 
@@ -545,14 +552,28 @@ changes the game's initialization path and its sound sequence. Capture helpers
 reject an existing output/home directory rather than deleting saved data.
 Compare byte values and order within `floor(cycle/59736)` for each frame;
 keep cycle differences separate. **Reference emulator; hardware documentation.**
-The earlier instruction comparison found six MesenCE duration differences
-against the [Zilog manual's instruction tables](https://www.zilog.com/docs/z80/um0080.pdf):
+Instruction measurements found six MesenCE duration differences against the
+[Zilog manual's instruction tables](https://map.grauw.nl/resources/cpu/z80.pdf):
 `INC (HL)` and `DEC (HL)` take 10 instead of 11 T; `LD (HL),n` takes 12
 instead of 10; indexed `INC/DEC (IX+d)` take 22 instead of 23 and
-`LD (IX+d),n` takes 24 instead of 19. MesenCE also samples INT at instruction
-end and invokes its port-write callback after four I/O cycles; our write is
-at the start of T3. These explain why equal write streams need not have
-equal timestamps. No CPU or PSG timing is adjusted to match the reference.
+`LD (IX+d),n` takes 24 instead of 19. The same indexed path serves IY.
+The primary reference's
+[patch](../tools/mesence/mesence-2.2.1-durations.patch) changes only these
+durations in `SmsCpu.cpp`:
+one internal T before indirect INC/DEC writes, no two-T delay in indirect
+immediate LD, and a two-T rather than five-T indexed-address delay for that
+LD. A TH/H-latch probe gives the manual's values in patched CE, Emulicious
+and PSModern, with neighbouring opcodes unchanged from stock CE.
+
+The [Zilog manual's interrupt timing diagram](https://map.grauw.nl/resources/cpu/z80.pdf)
+samples INT on the rising edge of the final T-state. An attempted E-1 patch
+shifted the existing frame and line TH/H interrupt probes one H step later;
+it was rejected because those probes then disagreed with Emulicious and
+hardware measurements. CE therefore still samples INT at
+instruction end. It also invokes its port-write callback after four I/O
+cycles; our write is at the start of T3. These explain why equal write streams
+need not have equal timestamps. No CPU or PSG timing is adjusted to match the
+reference.
 
 **Reference emulator (capture API limitation).** In CE 2.2.1,
 [`ScriptingContext::InternalCallMemoryCallback`](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/ScriptingContext.cpp)

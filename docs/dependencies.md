@@ -159,6 +159,29 @@ is [Emulicious 2026-03-27](https://emulicious.net/downloads/), configured as
 Master System 1, export/NTSC, without BIOS or FM. Part 0's detailed setup and
 observations are in the [milestone plan](milestone-1-plan.md#2-reference-emulator).
 
+The primary reference is a build of MesenCE tag `2.2.1` (commit
+`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with the six Z80
+instruction-duration corrections in
+[mesence-2.2.1-durations.patch](../tools/mesence/mesence-2.2.1-durations.patch).
+The changes and their [Zilog UM0080 instruction-table](https://map.grauw.nl/resources/cpu/z80.pdf)
+basis are described in [development](development.md#psg). Emulicious is the
+independent timing check. The proposed INT sampling change was rejected
+because the TH/H frame and line interrupt probes then disagreed with
+Emulicious and hardware measurements. SMS Reset remains unsupported through
+Lua.
+
+To rebuild, check out that upstream tag, apply the patch, build the native
+core (`InteropDLL/InteropDLL.vcxproj`, `Release|x64`) and publish the UI
+(`UI/UI.csproj`, `win-x64`, framework-dependent single file) following the
+upstream build instructions. This requires the .NET 8 SDK and MSVC toolset
+`v145` or newer. The UI embeds `MesenCore.dll` in `Dependencies.zip`: publish
+the UI again after changing the native core, and force `Rebuild` of both
+projects to avoid stale objects or archives. Replacing an adjacent DLL alone
+does not apply the patch. The upstream UI pre-build command does not quote its
+source path, so use a path without spaces for that build. Keep binaries, build
+output and captures outside this repository. Each run's `reference.json`
+identifies the executable build used.
+
 The fixed PSG state uses CE's [SmsPsg.cpp](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsPsg.cpp)
 and [SmsTypes.h](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsTypes.h).
 External PSG comparisons use its Lua write callbacks and native
@@ -206,9 +229,11 @@ the package list and hashes together when maintaining the toolchain.
 The recording launcher, comparison tool and Python test helpers use Python 3
 standard library only; validated locally with **Python 3.13.15**. CMake discovers
 Python through `find_package(Python3 COMPONENTS Interpreter)` when tests are
-built. There are no pip dependencies. The reference launcher requires the stock
-Windows **MesenCE 2.2.1** executable (product version
+built. There are no pip dependencies. The reference launcher accepts stock or
+duration-patched Windows **MesenCE 2.2.1** (upstream product version
 `2.2.1+20ba206cef5ba207c21203176d02cb9f43dda9fb`) and its adjacent native DLLs.
 It copies these into a new external portable folder per run; none are vendored.
+Pass `--reference-label` to identify the build; `reference.json` records the
+label and executable/DLL SHA-256 digests.
 See [Reference driver](development.md#reference-driver) for the SetInput API
 workaround, instruction-boundary capture and unsupported SMS Reset pin.

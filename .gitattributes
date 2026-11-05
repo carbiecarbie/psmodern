@@ -1,1 +1,2 @@
 * text=auto eol=lf
+tools/mesence/mesence-2.2.1-durations.patch -whitespace
