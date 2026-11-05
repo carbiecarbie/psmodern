@@ -44,6 +44,7 @@ void Machine::latch_input() {
 }
 void Machine::sync(std::uint64_t target) {
     if (target<vdp_.cycle()) throw std::invalid_argument("Machine cannot run backwards");
+    psg_.check_sync(target);
     if (!input_latched_) latch_input();
     auto now=vdp_.cycle();
     while (now<target) {

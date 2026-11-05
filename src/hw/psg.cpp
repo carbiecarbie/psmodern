@@ -5,10 +5,16 @@
 
 namespace psmodern {
 void Psg::check_write(std::uint64_t cycle) const {
-    if (cycle<cycle_) throw std::invalid_argument("PSG cannot run backwards");
+    check_sync(cycle);
     if (writes_.size()==max_writes ||
         (cycle/frame_cycles==write_frame_ && frame_write_count_==max_writes))
         throw std::overflow_error("PSG write log full: drain output and respect the per-frame limit");
+}
+void Psg::check_sync(std::uint64_t target) const {
+    if (target<cycle_) throw std::invalid_argument("PSG cannot run backwards");
+    const auto ticks=target/sample_cycles-cycle_/sample_cycles;
+    if (ticks>max_samples-samples_.values.size())
+        throw std::overflow_error("PSG sample queue full: drain writes and samples every frame");
 }
 void Psg::write(std::uint8_t byte,std::uint64_t cycle) {
     check_write(cycle);
@@ -59,7 +65,7 @@ std::int16_t Psg::sample() const {
     return static_cast<std::int16_t>(mixed); // four channels <= 4*8191 = 32764
 }
 void Psg::sync(std::uint64_t target) {
-    if (target<cycle_) throw std::invalid_argument("PSG cannot run backwards");
+    check_sync(target);
     auto ticks=target/sample_cycles-cycle_/sample_cycles;
     while (ticks--) { tick(); samples_.values.push_back(sample()); }
     cycle_=target;

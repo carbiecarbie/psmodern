@@ -5,7 +5,9 @@
 Validated on Windows x86-64 with MSYS2 UCRT64, GCC/G++ 16.2.0,
 CMake 4.4.2, Ninja 1.13.2, SDL2 2.32.10 and Git for Windows
 2.56.0.windows.4. SDL2 is linked through `SDL2::SDL2`; its DLL and the
-UCRT64 compiler runtime DLLs must be on PATH. `build-rel` uses C++20,
+UCRT64 compiler runtime DLLs are copied next to `psmodern.exe` after the
+build: `SDL2.dll`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll` and
+`libwinpthread-1.dll`. `build-rel` uses C++20,
 Ninja, RelWithDebInfo, `-O2 -g`, and no `NDEBUG`.
 
 The following package versions were obtained from `pacman -Q` on the

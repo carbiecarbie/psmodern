@@ -22,6 +22,7 @@ public:
     static constexpr std::uint64_t frame_cycles = 228*262;
     static constexpr std::uint64_t sample_cycles = 16, cpu_hz = 3579545;
     static constexpr std::size_t max_writes = 8192;
+    static constexpr std::size_t max_samples = 16384;
     // round(8191 * 10^(-attenuation/10)); attenuation 15 is disconnected.
     static constexpr std::array<std::int16_t,16> volume_table{
         8191,6506,5168,4105,3261,2590,2057,1634,1298,1031,819,651,517,411,326,0};
@@ -29,6 +30,7 @@ public:
     void write(std::uint8_t byte, std::uint64_t cycle);
     // Preflight before Machine advances any other device for this access.
     void check_write(std::uint64_t cycle) const;
+    void check_sync(std::uint64_t cycle) const;
     const auto& writes() const { return writes_; }
     std::vector<PsgWrite> take_writes();
     PsgSamples take_samples();

@@ -35,6 +35,70 @@ Keep ROMs, emulator captures, traces, saves and other working material outside
 the repository, under `D:/Projetos/Phantasy Star/`. Never commit ROM-derived
 data.
 
+## Program
+
+Run `psmodern.exe <rom-path>` with the player's uncompressed `.sms` file.
+The program identifies US Rev-A and Brazilian cartridges by SHA-1; other
+files are refused. Errors appear on stderr and in an SDL message box.
+The window title names the identified version. The 256x192 picture uses
+nearest-neighbour integer scaling, centred with black bars in a resizable
+window initially 768x576. Alt+Enter toggles borderless desktop fullscreen.
+
+**Hardware documentation.** The [SMS Power palette documentation](https://www.smspower.org/Development/Palette)
+describes CRAM as `00BBGGRR`: two bits each for red, green and blue. The
+program expands each component to eight bits by multiplying by 85.
+
+## Saves
+
+The machine has no file access. The app loads and stores one 8 KiB image per
+ROM at `%APPDATA%/PSModern/phantasy-star-us-rev-a.sav` or
+`%APPDATA%/PSModern/phantasy-star-brazil.sav`. A missing file supplies zeroes;
+a malformed or unreadable file is refused. A changed image is flushed at the
+end of the frame, on host power cycle and on exit. A clean image is not
+written. On Windows the app writes an exclusive temporary file in the same
+folder, flushes and closes it, then replaces the destination with
+`MoveFileExW` and write-through. A failure is reported and retried next frame.
+
+## Input
+
+The arrows are the directional pad; Z and X are buttons 1 and 2, Enter is
+Pause, Backspace is the console Reset button, and F5 power-cycles the machine
+with its current cartridge RAM. On the first SDL controller, the d-pad and
+left stick control direction, south and east are buttons 1 and 2, Start is
+Pause and Back is Reset. The stick dead zone includes -8000 through +8000
+on each signed 16-bit axis. Keyboard and controller states are ORed for pad 1;
+opposite directions are passed through and pad 2 stays released. The first
+available controller is selected, including after hot-plug. Input is sampled
+once per emulated frame. Alt+Enter does not also press Pause.
+
+## Audio and pacing
+
+**Inference.** The host uses a high-resolution wall clock at the machine rate,
+3,579,545 / 59,736 frames per second, independent of display refresh. It runs
+whole frames, at most three per iteration. When further behind it rebases the
+wall deadline; no machine frame is skipped or duplicated. The SDL renderer
+requests accelerated presentation with vsync and falls back to the previous
+accelerated renderer, then software. Vsync governs presentation only: a
+picture can be dropped when multiple machine frames are due, while the host
+still executes each of those frames. The loop yields with a 1 ms SDL delay
+when waiting for the deadline. Minimising suppresses presentation but not
+emulation or audio.
+
+**Inference.** The resampler averages each output period of the internal
+223,721.5625 Hz mono stream, including fractional endpoints, retaining its
+fractional state across frames. This box filter is the minimal averaging
+filter for downsampling; it attenuates high-frequency aliases but is not an
+ideal brick-wall filter. The preferred device rate is 48 kHz. Queue feedback
+adjusts the resampling ratio by at most ±0.5%, targeting 75 ms. The queue is
+primed with silence; an empty queue triggers a refill and a queue above 150 ms
+is cleared and refilled. A power cycle also resets it. Device removal closes
+the device and retries the default device at most once per second; emulation
+continues without sound while it is unavailable. Queue diagnostics are sampled
+before adding a frame and their range is cumulative for the run.
+
+**Evidence.** One host run showed stalls of about 90 ms; two subsequent
+instrumented runs of about 140 seconds each did not reproduce them.
+
 ## Fixed machine start and frame input
 
 **Reference emulator.** The fixed state follows MesenCE 2.2.1 with no BIOS,
@@ -299,7 +363,7 @@ The log permits **8,192 writes per absolute frame** (`cycle / 59736`), and
 at most **8,192 unread writes** in total. The shortest CPU output instruction
 costs 11 cycles, so even an unrealistically continuous stream cannot reach
 the per-frame bound. It also covers direct test-side port writes. The host
-drains using `Machine::take_psg_writes()`, normally after each frame; draining
+drains using `Machine::take_psg_writes()` once per frame; draining
 does not restore the current frame's budget. Nothing is discarded at a frame
 boundary. A full log or exhausted budget throws `std::overflow_error` before
 that access advances any device or changes the PSG. All accepted entries
@@ -322,8 +386,10 @@ clipping or DC removal: range 0–32764. `Machine::take_samples()` returns the
 first absolute sample cycle and contiguous values spaced 16 cycles apart,
 then empties the pending sample vector. There is no cycle-0 sample. Hosts
 drain samples per frame (3,733 or 3,734 samples at the exact boundary);
-the vector retains all unread samples until drained. This is an internal
-machine output; Part C handles device-rate conversion.
+the vector retains all unread samples until drained. At most 16,384 unread
+samples are allowed (about 4.39 frames); overflow throws before advancing
+the other devices. The host drains both writes and samples once per frame.
+This is an internal machine output; the app handles device-rate conversion.
 
 ### Reference comparison
 

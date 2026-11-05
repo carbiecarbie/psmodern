@@ -197,6 +197,21 @@ void bound() {
     check(full && before==pending,"cross-frame unread output also fails instead of growing or dropping data");
     pending.take_writes(); pending.write(0x90,Psg::frame_cycles);
     check(pending.writes().size()==1,"host drain permits next frame output");
+    Psg samples;
+    samples.sync(Psg::max_samples*Psg::sample_cycles);
+    auto saved=samples; full=false;
+    try { samples.sync(samples.cycle()+16); } catch (const std::overflow_error&) { full=true; }
+    check(full && samples==saved,"sample overflow fails before changing chip or pending data");
+    check(samples.take_samples().values.size()==Psg::max_samples,"every accepted sample retained");
+    samples.sync(samples.cycle()+16);
+    check(samples.take_samples().values.size()==1,"sample drain restores capacity");
+    Machine bounded(program({0})); auto initial=bounded; full=false;
+    try { bounded.advance((Psg::max_samples+1)*Psg::sample_cycles); } catch (const std::overflow_error&) { full=true; }
+    check(full && bounded.equivalent(initial),"sample overflow preflight precedes all machine devices");
+    for (int frame=0;frame<20;++frame) {
+        bounded.run_frame({}); bounded.take_psg_writes();
+        check(!bounded.take_samples().values.empty(),"per-frame drain permits unlimited duration");
+    }
 }
 }
 int main() {
