@@ -6,7 +6,7 @@
 namespace psmodern {
 std::uint8_t Vdp::read_data() {
     control_latch_=false;
-    auto value=buffer_; buffer_=vram_[address_]; address_=(address_+1)&0x3fff;
+    auto value=buffer_; read_pending_=true;
     return value;
 }
 std::uint8_t Vdp::read_status(std::uint8_t open_bus) {
@@ -17,14 +17,12 @@ std::uint8_t Vdp::read_status(std::uint8_t open_bus) {
 }
 void Vdp::write_data(std::uint8_t value) {
     control_latch_=false; buffer_=value;
-    if (code_==3) cram_[address_&31]=value&0x3f;
-    else vram_[address_]=value;
-    address_=(address_+1)&0x3fff;
+    write_pending_=code_==3 ? Write::cram : Write::vram;
 }
 void Vdp::write_control(std::uint8_t value) {
     if (!control_latch_) { address_=(address_&0x3f00)|value; control_latch_=true; return; }
     control_latch_=false; code_=value>>6; address_=(address_&0xff)|((value&0x3f)<<8);
-    if (code_==0) { buffer_=vram_[address_]; address_=(address_+1)&0x3fff; }
+    if (code_==0) read_pending_=true;
     else if (code_==2 && (value&15)<regs_.size()) regs_[value&15]=address_&0xff;
 }
 }
@@ -38,45 +36,91 @@ constexpr std::uint64_t dots_per_line=342;
 // latched H count h was taken at dot 2h-3 (or 2h-2) of the T3 access.
 constexpr std::uint64_t irq_dot=315, scroll_dot=313, line_dot=317, vcounter_dot=315, visible_dot=315;
 constexpr unsigned h_latch_delay=3;
-// The line snapshot precedes pixel zero in VDPTest H-count coordinates.
+// Sprite sampling is unchanged; background names/planes have separate events.
 constexpr std::uint64_t draw_dot=7, pixel_dot=9;
 // CPU cycle 0 is VDP dot 1. One T-state advances three half-dots.
 constexpr std::uint64_t cpu_at_dot(std::uint64_t dot) {
     return (2*dot-2*initial_state::vdp_dot+2)/3;
 }
 }
-void Vdp::draw_line(unsigned line) {
-    const bool visible=line<192;
-    const auto backdrop=cram_[16+(regs_[7]&15)];
-    std::array<std::uint8_t,256> border{};
-    auto* out=visible ? drawing_picture_.data()+line*256 : border.data();
-    std::array<bool,256> priority{}, occupied{};
-    collision_dot_=342;
-    for (unsigned x=0;x<256 && visible;++x) {
-        out[x]=backdrop;
-        if (!(regs_[1]&0x40) || ((regs_[0]&0x20) && x<8)) continue;
-        unsigned scroll=(line<16 && (regs_[0]&0x40)) ? 0 : horizontal_scroll_;
-        unsigned fine=scroll&7;
-        if (x<fine) continue;
-        unsigned column=((x-fine)/8-(scroll>>3))&31;
-        unsigned scroll_y=(x>=192 && (regs_[0]&0x80)) ? 0 : vertical_scroll_;
-        unsigned row_pixel=(line+scroll_y)%((scroll_y<224)?224:256);
-        unsigned row=row_pixel/8, px=(x-fine)&7, py=row_pixel&7;
-        unsigned table=((regs_[2]&0x0e)<<10) | ((row&((regs_[2]&1)?31:15))<<6) | (column<<1);
-        unsigned name=vram_[table] | (vram_[table+1]<<8);
-        if (name&0x200) px=7-px;
-        if (name&0x400) py=7-py;
-        unsigned tile=name&0x1ff;
-        unsigned pattern=(tile*32+py*4)&0x3fff;
-        unsigned bit=7-px, color=0;
-        for (unsigned plane=0;plane<4;++plane) {
-            unsigned address=pattern+plane;
-            address &= plane<2 ? ((regs_[3]<<6)|0x3f) : (((regs_[4]&7)<<11)|0x7ff);
-            color|=((vram_[address]>>bit)&1)<<plane;
-        }
-        out[x]=cram_[((name&0x800)?16:0)+color];
-        priority[x]=(name&0x1000) && color;
+// Reference emulator: CE's shared write latch and command-prefetch request
+// use the live address, with writes taking priority. Data-port read-ahead
+// uses the same arbitration here (Inference from the buffered VRAM bus);
+// CE instead refills immediately on data reads. Fast mixed/overrun access
+// behavior has not been measured on SMS1 hardware.
+void Vdp::cpu_slot() {
+    if (write_pending_!=Write::none) {
+        if (write_pending_==Write::cram) cram_[address_&31]=buffer_&0x3f;
+        else vram_[address_]=buffer_;
+        write_pending_=Write::none;
+    } else if (read_pending_) {
+        buffer_=vram_[address_];
+        read_pending_=false;
+    } else return;
+    address_=(address_+1)&0x3fff;
+}
+bool Vdp::cpu_slot_available(unsigned line, unsigned dot) const {
+    // Event dot is one past the bus slot: a slot at 2 completes at 3.
+    if (!(dot&1)) return false;
+    const unsigned bus=dot-1;
+    if (!(regs_[1]&0x40)) return bus>=256 || bus%4==2;
+    if (line>=192 && line!=261) {
+        // The last blank line starts evaluating sprites for line zero.
+        return !(line==260 && bus>=326) && (bus>=256 || bus%4==2);
     }
+    if (bus<256) return line<192 ? bus%32==2 : (bus%8!=2 || !(bus&24));
+    if (bus<264) return true;
+    return (bus>=288 && bus<=296) || bus==322 || bus==324;
+}
+void Vdp::fetch_background(unsigned line, unsigned dot) {
+    const unsigned bus=dot-1, column=bus/8;
+    switch (bus&7) {
+    case 0: {
+        const unsigned scroll=(line<16 && (regs_[0]&0x40)) ? 0 : horizontal_scroll_;
+        const unsigned x=(column-(scroll>>3))&31;
+        const unsigned sy=(bus>=192 && (regs_[0]&0x80)) ? 0 : vertical_scroll_;
+        const unsigned y=(line+sy)%((sy<224)?224:256);
+        const unsigned table=((regs_[2]&0x0e)<<10) |
+            (((y/8)&((regs_[2]&1)?31:15))<<6) | (x<<1);
+        tile_name_=vram_[table] | (vram_[table+1]<<8);
+        const unsigned row=(tile_name_&0x400) ? 7-(y&7) : y&7;
+        tile_pattern_=(tile_name_&0x1ff)*32+row*4;
+        break;
+    }
+    case 4: {
+        const unsigned address=tile_pattern_&((regs_[3]<<6)|0x3f);
+        tile_planes_[0]=vram_[address]; tile_planes_[1]=vram_[address+1];
+        break;
+    }
+    case 6: {
+        const unsigned address=tile_pattern_&(((regs_[4]&7)<<11)|0x7ff);
+        tile_planes_[2]=vram_[address+2]; tile_planes_[3]=vram_[address+3];
+        for (unsigned px=0;px<8;++px) {
+            const unsigned x=column*8+fine_scroll_+px;
+            if (x>=256) break;
+            const unsigned bit=(tile_name_&0x200) ? px : 7-px;
+            unsigned color=0;
+            for (unsigned plane=0;plane<4;++plane) color|=((tile_planes_[plane]>>bit)&1)<<plane;
+            background_[x]=color | ((tile_name_&0x800)?16:0) |
+                (((tile_name_&0x1000) && color)?32:0);
+        }
+        break;
+    }
+    }
+}
+void Vdp::draw_pixel(unsigned line, unsigned x) {
+    unsigned color=16+(regs_[7]&15);
+    if ((regs_[1]&0x40) && !((regs_[0]&0x20) && x<8)) {
+        const auto bg=background_[x];
+        if (bg!=64) color=bg&31;
+        if (sprites_[x] && !(bg&32)) color=16+sprites_[x];
+    }
+    drawing_picture_[line*256+x]=cram_[color];
+}
+void Vdp::fetch_sprites(unsigned line) {
+    sprites_.fill(0);
+    std::array<bool,256> occupied{};
+    collision_dot_=342;
     unsigned sat=(regs_[5]&0x7e)<<7;
     unsigned count=0;
     const unsigned zoom=(regs_[1]&1)?2:1;
@@ -112,7 +156,7 @@ void Vdp::draw_line(unsigned line) {
             for (unsigned plane=0;plane<4;++plane) color|=((vram_[(pattern+plane)&0x3fff]>>bit)&1)<<plane;
             if (!color) continue;
             if (occupied[x]) collision_dot_=std::min<unsigned>(collision_dot_,pixel_dot+x);
-            else { occupied[x]=true; if (!priority[x] && !((regs_[0]&0x20) && x<8)) out[x]=cram_[16+color]; }
+            else { occupied[x]=true; sprites_[x]=color; }
         }
     }
 }
@@ -130,32 +174,43 @@ bool Vdp::sprite_overflow_on_line(unsigned line) const {
 }
 void Vdp::sync(std::uint64_t target) {
     if (target < cycle_) throw std::invalid_argument("VDP cannot run backwards");
-    const auto old_half=2*initial_state::vdp_dot+3*cycle_, new_half=2*initial_state::vdp_dot+3*target;
-    auto first=(old_half/2)/dots_per_line;
-    auto last=(new_half/2)/dots_per_line;
-    for (auto line=first; line<=last; ++line) {
-        auto scanline=line%262;
-        auto reached=[&](std::uint64_t dot) {
-            auto event=2*(line*dots_per_line+dot);
-            return event>old_half && event<=new_half;
-        };
-        if (scanline==0 && line!=0 && reached(0)) {
-            completed_picture_=drawing_picture_;
-            vertical_scroll_=regs_[9];
+    const auto target_dot=(2*initial_state::vdp_dot+3*target)/2;
+    // Advance in chronological order. No event reads VRAM from the future,
+    // and already fetched names/planes are never redrawn after a CPU write.
+    for (auto absolute=processed_dot_+1; absolute<=target_dot; ++absolute) {
+        const unsigned line=(absolute/dots_per_line)%262, dot=absolute%dots_per_line;
+        if (dot==0) {
+            if (line==0) {
+                completed_picture_=drawing_picture_;
+                vertical_scroll_=regs_[9];
+            }
+            background_.fill(64);
+            fine_scroll_=(line<16 && (regs_[0]&0x40)) ? 0 : horizontal_scroll_&7;
         }
-        if (reached(draw_dot)) draw_line(scanline);
-        if (collision_dot_<342 && reached(collision_dot_)) collision_=true;
-        if (reached(visible_dot) && sprite_overflow_on_line((scanline+1)%262)) overflow_=true;
-        if (reached(scroll_dot)) horizontal_scroll_=regs_[8];
-        if (scanline==192 && reached(irq_dot)) frame_flag_=true;
-        if (reached(line_dot)) {
-            if (scanline<192 || scanline==261) {
+        // At reset dot zero has already passed; initialize its border once.
+        if (absolute==1) {
+            background_.fill(64);
+            fine_scroll_=(regs_[0]&0x40) ? 0 : horizontal_scroll_&7;
+        }
+        if (dot==draw_dot) fetch_sprites(line);
+        if (line<192) {
+            if (dot<256 && (dot&1) && (regs_[1]&0x40)) fetch_background(line,dot);
+            if (dot>=pixel_dot && dot<pixel_dot+256) draw_pixel(line,dot-pixel_dot);
+        }
+        if (dot==collision_dot_) collision_=true;
+        if (dot==visible_dot && sprite_overflow_on_line((line+1)%262)) overflow_=true;
+        if (dot==scroll_dot) horizontal_scroll_=regs_[8];
+        if (line==192 && dot==irq_dot) frame_flag_=true;
+        if (dot==line_dot) {
+            if (line<192 || line==261) {
                 if (line_counter_==0) { line_counter_=regs_[10]; line_flag_=true; }
                 else --line_counter_;
             } else line_counter_=regs_[10];
         }
-        if (scanline==192 && reached(visible_dot) && frame_flag_) frame_visible_=true;
+        if (line==192 && dot==visible_dot && frame_flag_) frame_visible_=true;
+        if ((write_pending_!=Write::none || read_pending_) && cpu_slot_available(line,dot)) cpu_slot();
     }
+    processed_dot_=target_dot;
     cycle_=target;
 }
 std::uint8_t Vdp::v_counter() const {

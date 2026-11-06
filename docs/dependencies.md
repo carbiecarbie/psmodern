@@ -153,25 +153,28 @@ counted in the 55 automated results.
 
 ## Reference emulators
 
-Part 0 used [MesenCE 2.2.1](https://github.com/nesdev-org/MesenCE/releases/tag/2.2.1)
+The reference setup uses [MesenCE 2.2.1](https://github.com/nesdev-org/MesenCE/releases/tag/2.2.1)
 (commit `20ba206c`, Windows) with Lua and `--testRunner`. The second opinion
 is [Emulicious 2026-03-27](https://emulicious.net/downloads/), configured as
-Master System 1, export/NTSC, without BIOS or FM. Part 0's detailed setup and
+Master System 1, export/NTSC, without BIOS or FM. Detailed setup and
 observations are in the [milestone plan](milestone-1-plan.md#2-reference-emulator).
 
 The primary reference is a build of MesenCE tag `2.2.1` (commit
-`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with two patches applied in
+`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with three patches applied in
 order: the six Z80 instruction-duration corrections in
 [mesence-2.2.1-durations.patch](../tools/mesence/mesence-2.2.1-durations.patch),
 then INT sampling at the start of the final T-state with port transfers at
 the start of T3 in
-[mesence-2.2.1-int-boundary.patch](../tools/mesence/mesence-2.2.1-int-boundary.patch).
+[mesence-2.2.1-int-boundary.patch](../tools/mesence/mesence-2.2.1-int-boundary.patch),
+then block I/O flags (including repeat-phase flags) in
+[mesence-2.2.1-block-io.patch](../tools/mesence/mesence-2.2.1-block-io.patch).
 The changes and their [Zilog UM0080](https://map.grauw.nl/resources/cpu/z80.pdf)
-basis are described in [development](development.md#psg). Emulicious is the
+basis, plus the block-flag sources, are described in
+[development](development.md#reference-comparison). Emulicious is the
 independent timing check. SMS Reset remains unsupported through Lua.
 
-To rebuild, check out that upstream tag, apply both patches in that order, build the native
-core (`InteropDLL/InteropDLL.vcxproj`, `Release|x64`) and publish the UI
+To rebuild, check out that upstream tag, apply all three patches in that
+order, build the native core (`InteropDLL/InteropDLL.vcxproj`, `Release|x64`) and publish the UI
 (`UI/UI.csproj`, `win-x64`, framework-dependent single file) following the
 upstream build instructions. This requires the .NET 8 SDK and MSVC toolset
 `v145` or newer. The UI embeds `MesenCore.dll` in `Dependencies.zip`: publish

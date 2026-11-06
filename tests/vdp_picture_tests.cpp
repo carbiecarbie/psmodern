@@ -4,6 +4,19 @@
 #include <iostream>
 #include <stdexcept>
 using psmodern::Vdp;
+namespace psmodern {
+// Seed a power-on fixture without issuing simultaneous CPU port requests.
+struct VdpFixture {
+    static void bytes(Vdp& v,unsigned address,std::initializer_list<unsigned> values,unsigned code) {
+        if (v.cycle()) throw std::runtime_error("Fixture initialization after clock start");
+        for (auto value:values) {
+            if (code==3) v.cram_[address&31]=value&63;
+            else v.vram_[address&0x3fff]=value;
+            ++address;
+        }
+    }
+};
+}
 namespace {
 constexpr std::uint64_t frame=228*262;
 void check(bool value,const char* message) { if(!value) throw std::runtime_error(message); }
@@ -11,8 +24,10 @@ void reg(Vdp& v,unsigned r,unsigned value) {
     v.write_control(value);v.write_control(0x80|r);
 }
 void bytes(Vdp& v,unsigned address,std::initializer_list<unsigned> data,unsigned code=1) {
-    v.write_control(address&255);v.write_control((code<<6)|(address>>8));
-    for(auto value:data) v.write_data(value);
+    psmodern::VdpFixture::bytes(v,address,data,code);
+}
+void timed_byte(Vdp& v,unsigned address,unsigned value) {
+    v.write_control(address&255);v.write_control(0x40|(address>>8));v.write_data(value);
 }
 void pixel_tile(Vdp& v,unsigned tile,unsigned color,std::uint8_t bits=0xff) {
     for(unsigned y=0;y<8;++y) {
@@ -65,6 +80,38 @@ void background_color_zero() {
     finish(v);
     check(at(v,0,12)==0x10 && at(v,0,16)==0x3f,
           "background color zero uses the selected tile palette");
+}
+void timed_background() {
+    // Column 24's name completes at dot 193; the preceding CPU slot
+    // completes at 163. A write at cycle 100 reaches it, at 130 misses it.
+    auto before=setup();before.sync(8*228+100);timed_byte(before,0x3870,1);finish(before);
+    check(at(before,8,192)==0x11,"name written before its fetch affects that column");
+    auto after=setup();after.sync(8*228+130);timed_byte(after,0x3870,1);finish(after);
+    check(at(after,8,192)==0 && at(after,9,192)==0x11,"name written after fetch waits for next line");
+
+    // Column zero fetches planes 0/1 at dot 5, planes 2/3 at dot 7.
+    auto early=setup();name(early,0,0,3);name(early,0,4,3);
+    early.sync(1);timed_byte(early,3*32,0xff);finish(early);
+    check(at(early,0,0)==0x11,"pattern write served before the plane fetch is visible");
+    auto late=setup();name(late,0,0,3);name(late,0,4,3);
+    late.sync(3);timed_byte(late,3*32,0xff);finish(late);
+    check(at(late,0,0)==0 && at(late,0,32)==0x11,"pattern changes affect only later plane fetches");
+
+    auto planes=setup();pixel_tile(planes,64,5);name(planes,0,0,64);
+    bytes(planes,0xc005,{0x33},3);
+    planes.sync(3);reg(planes,4,0);finish(planes);
+    check(at(planes,0,0)==0x11,"R4 change between plane fetches preserves the fetched low planes");
+    auto fetched=setup();pixel_tile(fetched,64,5);name(fetched,0,0,64);
+    bytes(fetched,0xc005,{0x33},3);
+    fetched.sync(4);reg(fetched,4,0);finish(fetched);
+    check(at(fetched,0,0)==0x33,"R4 change after both fetches preserves the whole tile");
+
+    auto base=setup();name(base,0,0,1);name(base,0,1,1);
+    base.sync(1);reg(base,2,0x0d);finish(base);
+    check(at(base,0,0)==0x11 && at(base,0,8)==0,"R2 changes apply to names not yet fetched");
+    auto disabled=setup();name(disabled,0,0,1);name(disabled,0,1,1);
+    disabled.sync(8);reg(disabled,1,0);finish(disabled);
+    check(at(disabled,0,0)==0x11 && at(disabled,0,8)==0x3f,"display off changes later output pixels");
 }
 void sprites() {
     auto v=setup();name(v,0,0,1,0x1000);
@@ -151,12 +198,12 @@ void scroll() {
     auto at313=setup();name(at313,0,0,1);name(at313,0,31,2);
     at313.sync(208);reg(at313,8,8);finish(at313);
     check(at(at313,1,0)==0x11 && at(at313,2,0)==0x22,"R8 written at dot 313 waits one line");
-    // Each line is sampled at dot 7: line 1 cycle 3 is dot 5, cycle 4 is dot 7.
+    // Column zero was fetched before either port write can get a CPU slot.
     auto before7=setup();name(before7,0,0,1);
-    before7.sync(228+3);name(before7,0,0,2);finish(before7);
-    check(at(before7,0,0)==0x11 && at(before7,1,0)==0x22,"write before dot 7 reaches the line");
+    before7.sync(228+3);timed_byte(before7,0x3800,2);finish(before7);
+    check(at(before7,0,0)==0x11 && at(before7,1,0)==0x11 && at(before7,2,0)==0x22,"late column-zero write waits for the next line");
     auto at7=setup();name(at7,0,0,1);
-    at7.sync(228+4);name(at7,0,0,2);finish(at7);
+    at7.sync(228+4);timed_byte(at7,0x3800,2);finish(at7);
     check(at(at7,1,0)==0x11 && at(at7,2,0)==0x22,"write at dot 7 waits for the next line");
     auto v=setup();name(v,0,0,1);name(v,1,0,2);
     name(v,0,24,1);name(v,1,24,2);
@@ -211,6 +258,6 @@ void register_masks() {
     check(at(backdrop,0,0)==0x15,"R7 selects backdrop CRAM entry");
 }
 }
-int main() { try { background();background_color_zero();sprites();sprite_flags();scroll();register_masks();
+int main() { try { background();background_color_zero();timed_background();sprites();sprite_flags();scroll();register_masks();
     std::cout<<"VDP picture tests passed.\n";return 0;
 } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; } }

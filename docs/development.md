@@ -5,11 +5,11 @@ UCRT64 shell, from the repository root:
 
 ```sh
 cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DPSMODERN_ROM_US="D:/Projetos/Phantasy Star/Phantasy Star (USA) (Rev-A).sms" \
-  -DPSMODERN_ROM_BR="D:/Projetos/Phantasy Star/m1-part0/static/roms/Phantasy Star (Brazil).sms"
+  -DPSMODERN_ROM_US="/path/to/us-rom.sms" \
+  -DPSMODERN_ROM_BR="/path/to/br-rom.sms"
 cmake --build build-rel
 ctest --test-dir build-rel --output-on-failure
-./build-rel/psmodern.exe "D:/path/to/game.sms"
+./build-rel/psmodern.exe "/path/to/game.sms"
 ```
 
 `build-rel` uses C++20 and `-O2 -g` with assertions enabled. For other
@@ -17,7 +17,7 @@ locations set `PSMODERN_ROM_US` and `PSMODERN_ROM_BR` to the player's own
 uncompressed files. `PSMODERN_ROM_TESTS` defaults to `ON`: a missing or empty
 ROM path makes its test report CTest's skip code 77; an existing wrong file
 fails. Set the option to `OFF` to omit ROM tests, as CI does. The cache path
-`PSMODERN_REFERENCE_DIR` is reserved for external reference output. Use
+`PSMODERN_REFERENCE_DIR` locates external reference manifests. Use
 `ctest --test-dir build-rel -L fast --output-on-failure` for fast tests.
 See [the complete-suite protocol](../tools/AGENTS.md) before a complete run.
 
@@ -32,7 +32,7 @@ licenses. These tests use the integrated CPU wrapper with a test bus, not
 the game ROM or the upstream standalone harness.
 
 Keep ROMs, emulator captures, traces, saves and other working material outside
-the repository, under `D:/Projetos/Phantasy Star/`. Never commit ROM-derived
+the repository. Never commit ROM-derived
 data.
 
 ## Program
@@ -234,12 +234,31 @@ ranges affect only that extra summary: stack mismatches remain in the main
 report. Without raw RAM dumps it cannot classify individual addresses. Supply
 ranges justified by the run rather than assuming every high RAM address is stack.
 
-The data-free CTest entries cover format/refusal cases, round trips, recording
-changes, atomic publication, runner arguments and synthetic manifests. Each ROM
-has a committed short authored recording under `recordings/us/` or `recordings/br/`;
-`psmodern_rom_test` registers two-run determinism and scripted SDL record tests.
-No test requires MesenCE or captured reference output. Keep all real saves,
-reference binaries, captures and long working recordings outside the repository.
+Each version has its own inputs under `recordings/us/` or `recordings/br/`.
+All three checkpoints start at power-on with zero cartridge RAM.
+
+| Recording | Play covered |
+| --- | --- |
+| `opening` | Start a new game, name save slot 1, visit Alis's home, talk to Suelo and open the town menu. |
+| `first-battle` | Leave Camineet, defeat the first random encounter on Palma and walk on after the reward. |
+| `first-dungeon` | Enter Camineet's warehouse and follow the 3D corridors around three turns to a door. |
+
+To regenerate a checkpoint, use the reference driver above with that region's
+ROM and recording, the patched executable, the label
+`MesenCE 2.2.1 durations+int-boundary+block-io`, `--dump 1` and a fresh output folder.
+Copy only `manifest.txt` to
+`<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/manifest.txt`. The
+`checkpoint` CTest label runs each recording against its own manifest and
+skips a checkpoint when its ROM or manifest is missing. The test checks all
+five hashes at every frame, with no exclusions or transient-byte allowance.
+Wait for the launcher to exit successfully and verify that the manifest's last
+frame equals the recording's `end` frame before copying it. `complete.txt`
+marks emulator capture completion; hashing and manifest publication follow it.
+
+The short recordings exercise two-run determinism and scripted SDL recording.
+The data-free tests cover the format, publication, runner arguments and
+synthetic manifests. Keep drafts, saves, reference binaries, manifests and
+captures outside the repository.
 
 ## Fixed machine start and frame input
 
@@ -267,7 +286,7 @@ The VDP address is `3D6A`, code 1, read buffer 0, command latch clear,
 line-counter reload `FF` and current counter `FC`; VBlank and sprite overflow
 are pending, and line IRQ and collision are clear. The H-counter latch is 0.
 The source is the [MesenCE VDP initializer](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
-and the Part 0 readback described in the [plan](milestone-1-plan.md#2-reference-emulator).
+and the startup readback described in the [plan](milestone-1-plan.md#2-reference-emulator).
 
 **Hardware documentation; maintainer decision.** INT is derived from the frame
 and line pending flags and their R1 bit 5 and R0 bit 4 enables. The
@@ -421,27 +440,58 @@ one CPU cycle relative to the H latch.
 
 **Hardware documentation.** R0 bit 6 holds horizontal scroll at zero for
 the top two tile rows, and bit 7 holds vertical scroll at zero in the right
-eight tile columns. R8 is latched at dot 313 for the following line.
+eight tile columns. **Inference.** R8 keeps the model's dot-313 latch for
+the following line.
 **Hardware documentation; reference emulator.** The [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
 say an active-display R9 write is stored for the next active-display period;
 [MesenCE](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
 copies R9 into its vertical-scroll latch when the scanline wraps to zero.
 The machine latches R9 at the start of line 0, before that line is drawn, so
-writes during the preceding vertical blank apply to that frame. The picture
-samples VRAM, CRAM and drawing registers once per visible line at dot 7;
-pixel zero is at dot 9. Mid-line writes therefore affect a whole later
-line rather than individual pixels.
-**Inference.** The line-snapshot and R8 dots are the model's approximation to
-the [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
-and [VDPTest](https://github.com/FluBBaOfWard/SmsVdpTest) timing. They keep
-their positions relative to the H latch for port writes at T3, and VDPTest's
-visual scroll test 90 draws the same picture with them. MacDonald's /INT
-timing puts pixel 0 of the video output about 2.5 dots after dot 9. The
-collision flag is assumed to lead the output by that much; this is not
-measured. Each
-completed output is 256 by 192 bytes of 6-bit CRAM colors. At the start of
-frame N, `Machine::picture()` exposes frame N-1. The machine library does
-no rendering I/O.
+writes during the preceding vertical blank apply to that frame.
+
+**Hardware documentation.** Sega's [official manual](https://www.smspower.org/Development/SMSOfficialDocs)
+specifies access spacing (29 T during active video, 16 T during vertical blank).
+The [VRAM timing discussion](https://www.smspower.org/forums/18134-TimingOfVRAMAccessSlotsDuringActivePassiveDisplay)
+describes name fetches followed by two pattern-word fetches and interleaved
+CPU slots; its detailed bus trace is from a Mega Drive in mode 4.
+**Reference emulator.** The SMS1 schedule below follows CE 2.2.1. Dots are
+completion coordinates in this machine, one dot after CE's bus-operation index.
+
+| Display state | CPU access completion dots |
+| --- | --- |
+| Active lines 0-191 | `3+32*n` for n=0..7; 257,259,261,263; 289,291,293,295,297; 323,325 |
+| Blank lines 192-259 | `3+4*n` below 256; every odd dot 257-341 |
+| Line 260 | Same as blank, with no slots from 327 onward (sprite preparation) |
+| Line 261 | Every odd dot below 256 except 11,19,27 in each 32-dot block; active-line slots above 256 |
+| Display off | Blank-line schedule on every line |
+
+VRAM and SMS CRAM writes share one pending data latch. A second write replaces
+its value; there is no FIFO or CPU stall. The live address increments only when
+a slot completes, wrapping after `3FFF`; a control command can retarget an
+unserved request. A read command requests a prefetch. Writes have priority,
+then a pending read fills the buffer at the following slot.
+**Hardware documentation; inference.** A data-port read returns the old buffer
+and requests the same slot-served read-ahead. Repeated early reads coalesce;
+a read while a write is pending returns the shared write latch and leaves a
+read request behind it. CE's command prefetch and shared-latch arbitration
+support this model, but CE refills on data reads immediately. **Unknown:**
+hardware behavior of mixed/overrun accesses outside the documented spacing.
+
+**Reference emulator.** Each column fetches its name at dot `1+8*c`, low
+pattern planes at `5+8*c`, and high planes at `7+8*c`. The pipeline retains
+those bytes; later writes affect only later fetches. R2 takes effect on the
+next name fetch, R3/R4 on the corresponding pattern fetch. R8 keeps the
+prior-line dot-313 latch; R9 keeps the frame-start latch. Palette, backdrop
+and display enable are sampled as each pixel leaves at dot `9+x`.
+Sprite selection and pattern sampling remain at dot 7, with collision at
+`9+x` and overflow at dot 315; their timing is unchanged and passes VDPTest.
+**Reference emulator.** Emulicious independently confirms the mid-line name
+changes at BR frame 4477 and US frame 10816. **Unknown:** the precise hardware
+slots at US frames 11031 and 11623; Emulicious does not confirm CE there.
+Matching those frames establishes reference equality, not hardware timing.
+Each completed output is 256 by 192 bytes of 6-bit CRAM colors. At frame N's
+start, `Machine::picture()` exposes frame N-1. The machine library does no
+rendering I/O.
 
 ## PSG
 
@@ -588,15 +638,22 @@ patch. The manual samples I/O data partway through T3; the start of T3 is the
 whole-T quantization these results select, not a sub-T measurement. NMI
 timing is unchanged.
 
-**Known reference difference (VRAM write latency).** CE holds a CPU write to
-the VDP data port as pending and commits it to VRAM at the VDP's next access
-slot; PSModern commits it at once. When a frame's last instruction writes the
-data port, a dump at the frame boundary can show the new byte in PSModern one
-frame before CE, for example VRAM `$1CA0` at frame 46 of a no-input run. The
-byte matches again in the next frame. Up to 2,000 frames of both ROMs, with
-and without input, the picture, RAM, CRAM and cartridge RAM are equal against
-the patched reference; only this transient VRAM byte differs, in 1 frame
-without input and 7 frames with input.
+The third [patch](../tools/mesence/mesence-2.2.1-block-io.patch) corrects
+INI/IND/OUTI/OUTD and their repeating forms. [Sean Young, section 4.3](https://www.smspower.org/uploads/Development/z80-documented.pdf)
+specifies N from the transferred byte, H/C from the I/O sum and P/V from its
+low bits and B. [David Banks' measurements](https://github.com/hoglet67/Z80Decoder/wiki/Undocumented-Flags)
+specify the additional H/P/V and PC-derived flag bits while repeating. The
+basic probe gives F=`40/53/51` in patched CE, PSModern and Emulicious. In 16
+repeated-form cases PSModern and patched CE agree with the formulas during
+and after repetition; Emulicious agrees on completion but omits the extra
+repeat-phase effects. No PSModern CPU change is needed.
+
+**Known reference difference (vertical-border collision).** CE does not draw
+sprite pixels outside the visible picture, so it misses SMS1 collisions in
+the vertical border (VDPTest 46). The game trace shows collisions beginning
+on blank line 225 and persisting to the next status read at line 193; only
+bit 5 differs. PSModern preserves that hardware-tested collision behavior.
+Checkpoint comparison remains strict for every RAM byte and picture pixel.
 
 Stock CE invokes its port-write callback after four I/O cycles; our write,
 like the patched reference's, is at the start of T3. This explains why equal

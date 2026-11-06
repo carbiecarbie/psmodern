@@ -38,4 +38,22 @@ with tempfile.TemporaryDirectory() as folder:
     (a/'frame-000002.ram.bin').write_bytes(bytes(8192));(b/'frame-000002.ram.bin').write_bytes(bytes(5)+b'x'+bytes(8186))
     result=compare(a/'manifest.txt',b/'manifest.txt',[(0xc000,0xc003)])
     assert any('ram: first differing frame 2' in line for line in result) and any('$C005' in line for line in result)
-print('Runner argument refusals and synthetic comparison passed')
+
+    # Exact equality is required for every component, including VRAM.
+    rec.write_text(header.replace(hashlib.sha1(bytes([1])*8192).hexdigest(),
+                                  hashlib.sha1(bytes(8192)).hexdigest())+'end 2\n',encoding='ascii',newline='\n')
+    out=root/'strict'
+    subprocess.run([runner,rom,rec,'--dump','1','--out',out],check=True)
+    rows=(out/'manifest.txt').read_text().splitlines()
+    expected=root/'expected.txt'
+    def checkpoint(lines,code):
+        expected.write_text('\n'.join(lines)+'\n',encoding='ascii')
+        result=subprocess.run([sys.argv[2],rom,rec,expected],capture_output=True,text=True)
+        assert result.returncode==code,(result.stdout,result.stderr)
+    checkpoint(rows,0)
+    for component in range(1,6):
+        changed=rows.copy(); fields=changed[1].split(); fields[component]='f'*40
+        changed[1]=' '.join(fields); checkpoint(changed,1)
+    checkpoint(rows[:-1],1)
+    checkpoint(rows+[rows[-1]],1)
+print('Runner arguments, synthetic comparisons and strict checkpoint checks passed')

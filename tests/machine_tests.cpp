@@ -79,15 +79,18 @@ void vdp_control() {
     auto command=[&](unsigned address,unsigned code) {
         v.write_control(address&255); v.write_control((code<<6)|(address>>8));
     };
-    command(0x3fff,1); v.write_data(0x6a); v.write_data(0xb1);
-    command(0x3fff,0);
-    check(v.read_data()==0x6a && v.read_data()==0xb1,"prefetch and address wrap");
-    command(0x20,1); v.write_data(0x92); check(v.read_data()==0x92,"data write updates buffer");
-    command(0x3fff,3); v.write_data(0xff); v.write_data(0xc3);
+    auto settle=[&] { v.sync(v.cycle()+64); };
+    command(0x3fff,1); v.write_data(0x6a); settle(); v.write_data(0xb1); settle();
+    command(0x3fff,0); settle();
+    check(v.read_data()==0x6a,"prefetch reads the last VRAM address"); settle();
+    check(v.read_data()==0xb1,"prefetch wraps the address"); settle();
+    command(0x20,1); v.write_data(0x92);
+    check(v.read_data()==0x92,"data write updates buffer before slot service"); settle();
+    command(0x3fff,3); v.write_data(0xff); settle(); v.write_data(0xc3); settle();
     check(v.cram()[31]==0x3f && v.cram()[0]==3,"CRAM masking and wrap");
-    v.write_control(0x99); v.read_data(); v.write_control(0x55); v.write_control(0x80);
+    v.write_control(0x99); v.read_data(); settle(); v.write_control(0x55); v.write_control(0x80);
     check(v.registers()[0]==0x55,"data read resets control latch");
-    v.write_control(0x99); v.write_data(0); v.write_control(0x66); v.write_control(0x81);
+    v.write_control(0x99); v.write_data(0); settle(); v.write_control(0x66); v.write_control(0x81);
     check(v.registers()[1]==0x66,"data write resets control latch");
     v.write_control(0x99); v.read_status(0); v.write_control(0x77); v.write_control(0x82);
     check(v.registers()[2]==0x77,"status read resets control latch");
@@ -96,9 +99,9 @@ void vdp_control() {
         v.write_control(0x33); v.write_control(0x80|reg);
         check(v.registers()==regs,"unknown register ignored");
     }
-    command(0x0100,0); v.write_data(0x4b);
+    command(0x0100,0); settle(); v.write_data(0x4b); settle();
     check(v.vram()[0x0101]==0x4b,"code zero writes VRAM after prefetch");
-    command(0x0200,2); v.write_data(0x2c);
+    command(0x0200,2); v.write_data(0x2c); settle();
     check(v.vram()[0x0200]==0x2c,"code two data write targets VRAM");
 }
 void vdp_timing() {

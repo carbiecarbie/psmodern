@@ -1,0 +1,53 @@
+diff --git a/Core/SMS/SmsCpu.cpp b/Core/SMS/SmsCpu.cpp
+index 2cca3b8..22a32b1 100644
+--- a/Core/SMS/SmsCpu.cpp
++++ b/Core/SMS/SmsCpu.cpp
+@@ -738,13 +738,19 @@
+ 		_state.WZ = _regBC - 1;
+ 	}
+ 	SetStandardFlags<0xE8>(_state.B);
+-	SetFlag(SmsCpuFlags::AddSub);
+ 	uint8_t val = Read(_regHL);
+ 	if constexpr(forInc) {
+ 		_regHL.Inc();
+ 	} else {
+ 		_regHL.Dec();
+ 	}
++	//Sean Young, The Undocumented Z80 Documented v0.91, section 4.3:
++	//https://www.smspower.org/uploads/Development/z80-documented.pdf
++	const uint16_t sum = val + _state.L;
++	SetFlagState(SmsCpuFlags::AddSub, val & 0x80);
++	SetFlagState(SmsCpuFlags::Carry, sum > 0xff);
++	SetFlagState(SmsCpuFlags::HalfCarry, sum > 0xff);
++	SetFlagState(SmsCpuFlags::Parity, _parity.CheckParity((sum & 7) ^ _state.B));
+ 	WritePort(_state.C, val);
+ }
+ 
+@@ -785,8 +791,13 @@
+ 	}
+ 	_state.B--;
+ 	SetStandardFlags<0xE8>(_state.B);
+-	SetFlag(SmsCpuFlags::AddSub);
+ 	uint8_t val = ReadPort(_state.C);
++	//Young section 4.3: the C +/- 1 term wraps before adding the input byte.
++	const uint16_t sum = val + uint8_t(_state.C + (forInc ? 1 : -1));
++	SetFlagState(SmsCpuFlags::AddSub, val & 0x80);
++	SetFlagState(SmsCpuFlags::Carry, sum > 0xff);
++	SetFlagState(SmsCpuFlags::HalfCarry, sum > 0xff);
++	SetFlagState(SmsCpuFlags::Parity, _parity.CheckParity((sum & 7) ^ _state.B));
+ 	Write(_regHL, val);
+ 	if constexpr(forInc) {
+ 		_regHL.Inc();
+@@ -822,9 +833,11 @@
+ 
+ void SmsCpu::UpdateInOutRepeatFlags()
+ {
++	//David Banks, measured NMOS INxR/OTxR flags while B is nonzero:
++	//https://github.com/hoglet67/Z80Decoder/wiki/Undocumented-Flags
+ 	SetStandardFlags<0x28>(_state.PC >> 8);
+ 	if(CheckFlag(SmsCpuFlags::Carry)) {
+-		if(CheckFlag(SmsCpuFlags::Sign)) {
++		if(CheckFlag(SmsCpuFlags::AddSub)) {
+ 			SetFlagState(SmsCpuFlags::Parity, _parity.CheckParity((_state.B - 1) & 0x07) == (uint8_t)CheckFlag(SmsCpuFlags::Parity));
+ 			SetFlagState(SmsCpuFlags::HalfCarry, (_state.B & 0x0F) == 0);
+ 		} else {

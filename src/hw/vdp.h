@@ -28,6 +28,7 @@ public:
     const Picture& picture() const { return completed_picture_; }
     bool operator==(const Vdp&) const = default;
 private:
+    friend struct VdpFixture;
     std::array<std::uint8_t, 0x4000> vram_{};
     std::array<std::uint8_t, 32> cram_ = initial_state::cram;
     std::array<std::uint8_t, 11> regs_ = initial_state::vdp_registers;
@@ -42,7 +43,20 @@ private:
     std::uint8_t horizontal_scroll_ = initial_state::vdp_registers[8];
     std::uint8_t vertical_scroll_ = initial_state::vdp_registers[9];
     std::uint16_t collision_dot_ = 342;
-    void draw_line(unsigned line);
+    enum class Write { none, vram, cram };
+    Write write_pending_ = Write::none;
+    bool read_pending_ = false;
+    // Pipeline state belongs to the snapshot, including partially fetched tiles.
+    std::uint64_t processed_dot_ = 0;
+    std::uint16_t tile_name_ = 0, tile_pattern_ = 0;
+    std::array<std::uint8_t, 4> tile_planes_{};
+    std::array<std::uint8_t, 256> background_{}, sprites_{};
+    unsigned fine_scroll_ = 0;
+    void cpu_slot();
+    bool cpu_slot_available(unsigned line, unsigned dot) const;
+    void fetch_background(unsigned line, unsigned dot);
+    void draw_pixel(unsigned line, unsigned x);
+    void fetch_sprites(unsigned line);
     bool sprite_overflow_on_line(unsigned line) const;
 };
 }

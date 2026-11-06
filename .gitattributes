@@ -1,3 +1,4 @@
 * text=auto eol=lf
 tools/mesence/mesence-2.2.1-durations.patch -whitespace
 tools/mesence/mesence-2.2.1-int-boundary.patch -whitespace
+tools/mesence/mesence-2.2.1-block-io.patch -whitespace
