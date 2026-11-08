@@ -20,6 +20,16 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     auto rom = std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(file),
                                              std::istreambuf_iterator<char>());
     Memory::CartridgeRam cart{};
+    const auto image_path = std::filesystem::path(manifest_path).parent_path() / "cart-ram.bin";
+    if (std::filesystem::exists(image_path)) {
+        std::ifstream image(image_path, std::ios::binary);
+        if (!image || !image.read(reinterpret_cast<char*>(cart.data()), cart.size()) ||
+            image.peek() != std::char_traits<char>::eof())
+            throw std::runtime_error("Cartridge RAM image must be exactly 8192 bytes.");
+    } else if (sha1(cart) != recording.cart_ram_sha1) {
+        std::cout << "Skipping: initial cartridge RAM image missing.\n";
+        return 77;
+    }
     if (file.bad() || sha1(*rom) != recording.rom_sha1 || sha1(cart) != recording.cart_ram_sha1)
         throw std::runtime_error("Incorrect ROM or initial cartridge RAM digest.");
     std::ifstream manifest(manifest_path);

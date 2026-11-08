@@ -235,13 +235,24 @@ report. Without raw RAM dumps it cannot classify individual addresses. Supply
 ranges justified by the run rather than assuming every high RAM address is stack.
 
 Each version has its own inputs under `recordings/us/` or `recordings/br/`.
-All three checkpoints start at power-on with zero cartridge RAM.
+The first three checkpoints start at power-on with zero cartridge RAM. The
+other three load slot 1 from a cartridge RAM image after power-on.
 
 | Recording | Play covered |
 | --- | --- |
 | `opening` | Start a new game, name save slot 1, visit Alis's home, talk to Suelo and open the town menu. |
 | `first-battle` | Leave Camineet, defeat the first random encounter on Palma and walk on after the reward. |
 | `first-dungeon` | Enter Camineet's warehouse and follow the 3D corridors around three turns to a door. |
+| `later-town` | Load Paseo, walk to the hospital, talk to its attendant and open the town menu. |
+| `boss` | Load the path to the governor, hand over the Shortcake, receive the letter, sleep and finish the Saccubus battle. |
+| `deep-dungeon` | Load near Maharu Cave, enter, use a Flash and follow corridors around several turns, fighting any encounters. |
+
+The images were made by playing in the reference with SMS1, export NTSC,
+zero-filled power-on RAM, FM off and two SMS controllers, then saving through
+the game's menu. Each Brazilian image was loaded and saved again by the
+Brazilian game in the reference. Keep each initial image at
+`<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/cart-ram.bin`.
+Supply that image with `--cart-ram` when regenerating its manifest.
 
 To regenerate a checkpoint, use the reference driver above with that region's
 ROM and recording, the patched executable, the label
@@ -249,7 +260,8 @@ ROM and recording, the patched executable, the label
 Copy only `manifest.txt` to
 `<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/manifest.txt`. The
 `checkpoint` CTest label runs each recording against its own manifest and
-skips a checkpoint when its ROM or manifest is missing. The test checks all
+skips a checkpoint when its ROM, required image or manifest is missing. It
+checks the initial image against the recording header's SHA-1, then checks all
 five hashes at every frame, with no exclusions or transient-byte allowance.
 Wait for the launcher to exit successfully and verify that the manifest's last
 frame equals the recording's `end` frame before copying it. `complete.txt`

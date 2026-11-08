@@ -56,4 +56,24 @@ with tempfile.TemporaryDirectory() as folder:
         changed[1]=' '.join(fields); checkpoint(changed,1)
     checkpoint(rows[:-1],1)
     checkpoint(rows+[rows[-1]],1)
+
+    # A nonzero initial image is loaded beside the checkpoint manifest.
+    cart.write_bytes(bytes([1])*8192)
+    rec.write_text(header+'end 2\n',encoding='ascii',newline='\n')
+    saved=root/'saved'
+    subprocess.run([runner,rom,rec,'--dump','all','--out',saved,'--cart-ram',cart],check=True)
+    manifest=saved/'manifest.txt'
+    def saved_checkpoint(code,diagnostic=''):
+        result=subprocess.run([sys.argv[2],rom,rec,manifest],capture_output=True,text=True)
+        assert result.returncode==code,(result.stdout,result.stderr)
+        assert diagnostic in result.stdout+result.stderr,(result.stdout,result.stderr)
+    saved_checkpoint(77,'image missing')
+    image=saved/'cart-ram.bin';image.write_bytes(cart.read_bytes())
+    saved_checkpoint(0)
+    image.write_bytes(bytes([2])*8192)
+    saved_checkpoint(1,'Incorrect ROM or initial cartridge RAM digest')
+    image.write_bytes(bytes(8191));saved_checkpoint(1,'exactly 8192 bytes')
+    image.write_bytes(bytes(8193));saved_checkpoint(1,'exactly 8192 bytes')
+    image.write_bytes(cart.read_bytes())
+    manifest.unlink();saved_checkpoint(77,'manifest missing')
 print('Runner arguments, synthetic comparisons and strict checkpoint checks passed')
