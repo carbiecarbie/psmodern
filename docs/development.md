@@ -35,6 +35,9 @@ Keep ROMs, emulator captures, traces, saves and other working material outside
 the repository. Never commit ROM-derived
 data.
 
+For a plain-words introduction to the console parts described below, see
+[how the Master System works](how-it-works/master-system.md).
+
 ## Program
 
 Run `psmodern.exe <rom-path>` with the player's uncompressed `.sms` file.

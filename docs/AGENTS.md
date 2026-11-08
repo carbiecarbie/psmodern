@@ -25,7 +25,7 @@ Created by the task that first needs them, and listed here in that change:
 | Document | Responsibility | Created by |
 | --- | --- | --- |
 | `docs/project-history.md` | One short entry per completed milestone, with its closing commit | Closure of milestone 1 |
-| `docs/how-it-works/` | One chapter per game system, for a reader who does not program, with evidence labels (below) | First studied system (milestone 3) |
+| `docs/how-it-works/` | Chapters for a reader who does not program, with evidence labels (below): `master-system.md` for the console, then one per game system | Milestone 1 (chapter one, `master-system.md`); game-system chapters from milestone 3 |
 | `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates | First entry |
 | `docs/coverage.md` | Generated census of rewritten vs Z80 routines | When the registered-routine mechanism exists |
 | `docs/roadmap.md` | Next milestones and longer-term direction | After the study base (milestone 3) |
