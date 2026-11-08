@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 using namespace psmodern;
 namespace {
@@ -197,7 +198,6 @@ void irq_boundaries() {
     auto prepare=[](Machine& m) {
         m.read_port(0xbf,0); m.write_port(0xbf,0,0); m.write_port(0xbf,0x80,0);
         m.cpu().iff1=m.cpu().iff2=1; m.cpu().sp.uint16_value=0xdff0;
-        m.advance(0);
     };
     Machine before(program({0})); prepare(before); auto when=before.next_irq(); check(when==43986,"query assertion time");
     before.advance(*when-3); int hooks=0;
@@ -217,8 +217,8 @@ void irq_boundaries() {
     advanced.advance(120000);
     check(loop.vdp()==advanced.vdp(),"NOP loop and advance VDP state");
     check(loop.psg()==advanced.psg(),"NOP loop and advance PSG state and samples");
-    Machine no_cpu(program({0})); no_cpu.read_port(0xbf,0); no_cpu.advance(0);
-    check(!no_cpu.cpu().int_line,"advance updates deasserted INT");
+    Machine no_cpu(program({0})); no_cpu.read_port(0xbf,0);const auto before_zero=no_cpu;no_cpu.advance(0);
+    check(no_cpu.equivalent(before_zero),"advance(0) preserves the complete machine state");
     no_cpu.advance(43986); check(no_cpu.vdp().irq() && !no_cpu.cpu().int_line,"advance excludes INT first visible at E");
     no_cpu.advance(1); check(no_cpu.cpu().int_line,"advance samples INT at E-1");
 }
@@ -301,7 +301,7 @@ void cpu() {
     z80_power(&halt.cpu(),1); check(halt.cpu().r==0,"reset R");
     Machine halt_irq(program({0x76}));
     halt_irq.read_port(0xbf,0);
-    halt_irq.advance(0);
+    halt_irq.advance(1); // Sample the cleared line before enabling interrupts.
     halt_irq.cpu().iff1=halt_irq.cpu().iff2=1;
     check(halt_irq.step()==4 && halt_irq.cpu().resume==Z80_RESUME_HALT,"IRQ HALT setup");
     halt_irq.advance(43987-halt_irq.cycles());
@@ -396,9 +396,9 @@ void advance_sampling() {
         Machine instruction(program({0,0,0}));
         instruction.read_port(0xbf,0); instruction.cpu().im=1;
         instruction.cpu().iff1=instruction.cpu().iff2=1;
-        const auto start=nmi?0:43986-offset;
+        const auto start=nmi?1:43986-offset;
         instruction.advance(start);
-        if (nmi) instruction.schedule_nmi(offset);
+        if (nmi) instruction.schedule_nmi(start+offset);
         Machine replacement=instruction;
         check(instruction.step()==4,"sampling fixture executes NOP");
         replacement.advance(4);
@@ -410,6 +410,20 @@ void advance_sampling() {
                   "advance and equal-cycle instruction accept interrupt at same cycle");
         }
     }
+}
+void advance_zero() {
+    Machine normal(program({0,0,0}));
+    normal.read_port(0xbf,0);normal.cpu().im=1;normal.cpu().iff1=normal.cpu().iff2=1;
+    normal.advance(43982);
+    check(normal.step()==4 && normal.cycles()==43986,"NOP ends on IRQ rising edge");
+    Machine zero=normal;zero.advance(0);
+    check(normal.step()==4 && zero.step()==4 && zero.cycles()==normal.cycles() &&
+          zero.cpu().pc.uint16_value==normal.cpu().pc.uint16_value,
+          "advance(0) cannot resample IRQ at the instruction end");
+    check(normal.step()==13 && zero.step()==13 && normal.equivalent(zero),"IRQ is accepted at the same following boundary");
+    Machine nmi(program({0}));nmi.set_pause(true);nmi.schedule_nmi(0);
+    const auto unchanged=nmi;nmi.advance(0);
+    check(nmi.equivalent(unchanged),"advance(0) cannot deliver NMI or latch input");
 }
 void hook_mappings() {
     Machine m(program({0}));
@@ -429,5 +443,5 @@ void hook_mappings() {
     expect(0xc000,Memory::Kind::ram,0);
 }
 }
-int main(int argc,char**) { try { if(argc==2) {advance_sampling();return 0;} startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); advance_sampling(); std::cout << "Machine tests passed.\n"; return 0; }
+int main(int argc,char** argv) { try { if(argc==2) {if(std::string_view(argv[1])=="advance_zero") advance_zero();else advance_sampling();return 0;} startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
 catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

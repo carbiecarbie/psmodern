@@ -3,11 +3,14 @@
 #include "rom/sha1.h"
 #include "rom/sha256.h"
 #include <cstdint>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -39,10 +42,57 @@ void run(const std::filesystem::path& dir) {
     refused(dir / "missing.sms", "Cannot open");
     refused(dir / "short.sms", "Wrong ROM size");
     refused(dir / "unknown.sms", "Unknown ROM dump");
-    std::filesystem::remove_all(dir);
+}
+std::filesystem::path unique_folder(const std::filesystem::path& parent) {
+    std::filesystem::create_directories(parent);
+    const auto stamp=std::chrono::steady_clock::now().time_since_epoch().count();
+    for (unsigned attempt=0;attempt<32;++attempt) {
+        auto path=parent/("run-"+std::to_string(stamp)+"-"+std::to_string(attempt));
+        if (std::filesystem::create_directory(path)) return path;
+    }
+    throw std::runtime_error("Cannot create a unique temporary test folder");
+}
+void cleanup(const std::filesystem::path& path) {
+    for (unsigned attempt=0;attempt<6;++attempt) {
+        std::error_code error;
+        std::filesystem::remove_all(path,error);
+        if (!error) return;
+        if (attempt==5) throw std::filesystem::filesystem_error("Temporary test folder cleanup failed",path,error);
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    }
+}
+// The handle-lock regression releases this gate only after the test body has
+// finished and the parent owns a lock on this run's directory.
+void wait_for_cleanup_gate(const std::filesystem::path& directory,const std::filesystem::path& gate) {
+    auto ready=gate;ready+=".ready";
+    auto staged=ready;staged+=".tmp";
+    {
+        std::ofstream out(staged,std::ios::binary);
+        out<<directory.filename().string();
+        if (!out) throw std::runtime_error("Cannot publish cleanup gate readiness");
+    }
+    std::filesystem::rename(staged,ready);
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while (!std::filesystem::exists(gate)) {
+        if (std::chrono::steady_clock::now()>=deadline) throw std::runtime_error("Cleanup gate timed out");
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 }
 }
 int main(int argc, char** argv) {
-    try { if (argc != 2) throw std::runtime_error("Missing test directory"); run(argv[1]); std::cout << "ROM and SHA-1 tests passed.\n"; return 0; }
-    catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
+    std::filesystem::path directory;
+    try {
+        if (argc!=2 && !(argc==4 && std::string_view(argv[2])=="--cleanup-gate"))
+            throw std::runtime_error("Expected test directory [--cleanup-gate file]");
+        directory=unique_folder(argv[1]);run(directory);
+        if (argc==4) wait_for_cleanup_gate(directory,argv[3]);
+        cleanup(directory);
+        std::cout << "ROM and SHA-1 tests passed.\n";return 0;
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << '\n'; // Always retain the original test failure.
+        if (!directory.empty()) {
+            try {cleanup(directory);} catch (const std::exception& error) {std::cerr<<error.what()<<'\n';}
+        }
+        return 1;
+    }
 }

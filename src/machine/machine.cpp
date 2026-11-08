@@ -65,10 +65,10 @@ void Machine::sync(std::uint64_t target) {
     if (scheduled_nmi_ && *scheduled_nmi_<=target) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
 }
 void Machine::advance(std::uint64_t cycles) {
+    if (!cycles) return;
     psg_.check_sync(cycle_+cycles); // Preflight the whole interval before either sync.
     // Replacement intervals [S,E) sample at E-1, just like Machine::step.
-    // A zero-length call only refreshes the current boundary (no interval).
-    sync(cycle_+cycles-(cycles?1:0)); sampled_int_=vdp_.irq();
+    sync(cycle_+cycles-1); sampled_int_=vdp_.irq();
     sampled_nmi_=(cpu_.raw().request & Z80_REQUEST_NMI)!=0;
     z80_int(&cpu_.raw(),sampled_int_);
     cycle_+=cycles; sync(cycle_);

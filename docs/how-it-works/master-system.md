@@ -149,12 +149,11 @@ raise the collision flag. Reading status clears it, but a later overlap can
 raise it again, even on the same line
 ([collision documentation](https://www.smspower.org/Development/CollisionDetection)).
 
-**Hardware documentation; inference.** Writing a palette color while the
-picture is being drawn can briefly put that color on screen, even where no
-tile uses it ([observations](https://www.smspower.org/forums/14997-HorizontalScrollPaletteChangeMidFrame)).
-PSModern models one dot at the write's completion position. Its precise position
-is an inference, and an authored probe shows that MesenCE does not draw this
-dot with rendering enabled; agreement cannot be claimed from its source alone.
+**Maintainer decision.** PSModern adds no dot when a palette color is written
+while the picture is being drawn, matching the reference build. The palette
+still receives the color. **Community source.** [Forum observations](https://www.smspower.org/forums/14997-HorizontalScrollPaletteChangeMidFrame)
+report such dots on some consoles, including an SMS II. **Unknown:** what color
+they have and whether SMS1 hardware behaves this way.
 
 ### Interrupts: "the picture is done"
 

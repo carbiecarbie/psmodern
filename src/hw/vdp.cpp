@@ -248,15 +248,7 @@ void Vdp::sync(std::uint64_t target) {
             } else line_counter_=regs_[10];
         }
         if (line==192 && dot==visible_dot && frame_flag_) frame_visible_=true;
-        if ((write_pending_!=Write::none || read_pending_) && cpu_slot_available(line,dot)) {
-            const bool cram_dot=write_pending_==Write::cram;
-            cpu_slot();
-            // Hardware documentation describes CRAM dots; the one-pixel
-            // completion coordinate is an inference. CE's active path loses
-            // this dot (its forced-blank path retains it); see development.md.
-            if (cram_dot && line<192 && dot>=pixel_dot && dot<pixel_dot+256)
-                drawing_picture_[line*256+dot-pixel_dot]=buffer_&63;
-        }
+        if ((write_pending_!=Write::none || read_pending_) && cpu_slot_available(line,dot)) cpu_slot();
     }
     processed_dot_=target_dot;
     cycle_=target;

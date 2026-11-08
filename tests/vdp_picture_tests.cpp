@@ -329,11 +329,22 @@ void regression(unsigned finding) {
     } else if (finding==6) {
         auto v=setup();v.sync(228+60);v.write_control(15);v.write_control(0xc0);v.write_data(63);
         finish(v);
-        check(std::count(v.picture().begin()+256,v.picture().begin()+512,63)==1,"active CRAM write emits exactly one written-color dot");
+        check(v.cram()[15]==63,"active CRAM write still reaches the palette");
+        check(std::count(v.picture().begin()+256,v.picture().begin()+512,63)==0,"active CRAM write does not emit a dot");
+    } else if (finding==7) {
+        // Y is one less than the first covered line. Preserve CE's overflow
+        // for target line 192 as well as the visible-line-191 control.
+        for (unsigned y:{190u,191u}) {
+            auto v=setup();
+            for (unsigned i=0;i<9;++i) {bytes(v,0x3f00+i,{y});bytes(v,0x3f80+i*2,{i*16,2});}
+            bytes(v,0x3f09,{0xd0});
+            v.sync(y*228+209);check(!(v.read_status(0)&0x40),"overflow waits for prior-line dot 315");
+            v.sync(y*228+210);check(v.read_status(0)&0x40,"nine sprites overflow for target line 191 or 192");
+        }
     } else throw std::runtime_error("Unknown regression");
 }
 }
 int main(int argc,char** argv) { try { if(argc==2) {regression(std::stoul(argv[1]));return 0;} background();background_color_zero();timed_background();sprites();sprite_flags();scroll();register_masks();
-    for(unsigned finding=1;finding<=6;++finding) regression(finding);
+    for(unsigned finding=1;finding<=7;++finding) regression(finding);
     std::cout<<"VDP picture tests passed.\n";return 0;
 } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; } }

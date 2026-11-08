@@ -14,6 +14,7 @@ def check(condition,detail='Test check failed'):
     if not condition:raise RuntimeError(detail)
 
 runner=Path(sys.argv[1])
+reference_sha256=sys.argv[4] if len(sys.argv)>4 else '1ba3e21c1008ffd71fd94fd9c3ab9bd23bb65c750e5c7f3e9d0260c4d93984b5'
 with tempfile.TemporaryDirectory() as folder:
     root=Path(folder);rom=root/'synthetic.sms';rom.write_bytes(bytes(512*1024))
     rec=root/'test.psrec';header='psmodern-recording 1\nrom '+hashlib.sha1(rom.read_bytes()).hexdigest()+'\ncart-ram '+hashlib.sha1(bytes([1])*8192).hexdigest()+'\n'
@@ -57,7 +58,7 @@ with tempfile.TemporaryDirectory() as folder:
     def expected_rows(cart):
         hashes=[hashlib.sha1(data).hexdigest() for data in
                 (bytes(49152),b'\xab'+bytes(8191),bytes(16384),cram,cart)]
-        identity={'label':'Authored data-free fixture','executable_sha256':'1'*64,
+        identity={'label':'Authored data-free fixture','executable_sha256':reference_sha256,
                   'recording_sha256':hashlib.sha256(rec.read_bytes()).hexdigest()}
         return [HEADER]+provenance(identity).splitlines()+[str(n)+' '+' '.join(hashes) for n in (1,2)]
     rows=expected_rows(bytes(8192))
@@ -68,6 +69,7 @@ with tempfile.TemporaryDirectory() as folder:
         check(result.returncode==code, (result.stdout,result.stderr))
     checkpoint(runner_rows,1)
     checkpoint(rows,0)
+    wrong=rows.copy();wrong[2]='build-sha256 '+('0'*64 if reference_sha256!='0'*64 else 'f'*64);checkpoint(wrong,1)
     for missing in range(1,5):checkpoint(rows[:missing]+rows[missing+1:],1)
     wrong=rows.copy();wrong[1]='reference psmodern 1';checkpoint(wrong,1)
     wrong=rows.copy();wrong[4]='recording-sha256 '+'f'*64;checkpoint(wrong,1)

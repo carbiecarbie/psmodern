@@ -63,7 +63,9 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
             if (value.size()!=64 || value.find_first_not_of("0123456789abcdef")!=value.npos)
                 throw std::runtime_error("Invalid reference provenance digest.");
         };
-        digest(field("build-sha256"));
+        const auto build=field("build-sha256");digest(build);
+        if (build!=PSMODERN_REFERENCE_SHA256)
+            throw std::runtime_error("Reference build SHA-256 mismatch.");
         const auto encoded_label=field("build-label");
         std::string label,extra;
         std::istringstream label_stream(encoded_label);

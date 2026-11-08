@@ -193,7 +193,11 @@ the SHA-256 of each adjacent DLL and of the recording. The reference manifest
 also carries `reference mesence 1`, `build-sha256`, `build-label` (a JSON string)
 and `recording-sha256` immediately after its column header. These identify the
 producer, build and exact recording; the runner's plain manifest is not a
-reference. This is provenance, not authentication against forged metadata.
+reference. `PSMODERN_REFERENCE_SHA256` pins the accepted executable build; its
+default is `1ba3e21c1008ffd71fd94fd9c3ab9bd23bb65c750e5c7f3e9d0260c4d93984b5`.
+If the reference is rebuilt, verify the new executable's SHA-256, configure
+with `-DPSMODERN_REFERENCE_SHA256=<new-lowercase-sha256>`, rebuild the checkpoint
+test and regenerate the reference manifests with that build.
 Each run requires a new output folder and
 creates a fresh portable data folder in a temporary sibling, copying the supplied executable
 and adjacent DLLs, with an empty configuration and only the requested initial
@@ -286,7 +290,8 @@ Copy `manifest.txt` and `reference.json` into
 skips a checkpoint when its ROM, recording, required image or manifest is missing.
 Before skipping it validates every available input: recording format and nonzero
 frame count, ROM digest, image size/digest, manifest header and provenance.
-A present incorrect file fails. Missing provenance, an unlabelled build, a
+A present incorrect file fails. Missing provenance, a build digest different
+from `PSMODERN_REFERENCE_SHA256`, an unlabelled build, a
 different recording digest or a runner-produced manifest fails. It
 checks the initial image against the recording header's SHA-1, then checks all
 five hashes at every frame, with no exclusions or transient-byte allowance.
@@ -380,8 +385,8 @@ first visible at `E` is sampled by the following instruction. The core's
 prefix, EI, RETI/RETN and NMI acceptance rules also determine whether an
 interrupt is accepted and the boundary hook is called.
 `Machine::advance(n)` uses the same `E-1` point for INT and NMI when `n>0`;
-a replacement accounts for its own PC/R effects separately. `advance(0)` only
-refreshes the current boundary and does not create an instruction interval.
+a replacement accounts for its own PC/R effects separately. `advance(0)` is a
+no-op: it neither advances devices nor resamples INT or NMI.
 
 **Hardware documentation.** The [Zilog Z80 CPU User Manual, UM008011-0816,
 figure 7](https://www.zilog.com/docs/z80/um0080.pdf), shows the I/O machine
@@ -411,8 +416,10 @@ results. Each event is fixed by its own test to one CPU cycle.
 
 The model therefore has one VDP event at dot 315, line cycle 210. On physical
 line 192 it sets the frame flag, which is pending and readable at once. On
-every line it advances the V counter; sprite overflow is recorded only when
-the next line is visible. The frame IRQ asserts at CPU cycle
+every line it advances the V counter. **Inference (from community source).**
+Following CE, sprite overflow is recorded on physical lines 0–191 and 261,
+including line 191's evaluation for target line 192. **Unknown:** whether an
+SMS1 raises overflow for that non-visible target line. The frame IRQ asserts at CPU cycle
 43986 of a frame, taken by an instruction ending at line cycle 211 or
 later. The line counter is clocked at dot 317, line cycle 211, one CPU cycle
 after the frame event. It decrements on physical lines 261 and 0–191 and
@@ -486,9 +493,12 @@ R0 bit 3's eight-pixel
 left shift, R5's attribute table address bits and R6's pattern address bits.
 The [SMS1 zoom measurements](https://www.smspower.org/forums/19069-ZoomedSpritesOnSMS1)
 and [sprite documentation](https://www.smspower.org/Development/Sprites) clarify
-that four or fewer selected sprites get no horizontal zoom. R6 bit 2 supplies
-address bit 13 independently; bits 1 and 0 AND-mask tile-index bits 7 and 6
-(address bits 12 and 11). CE does not implement these two SMS1 masks.
+that four or fewer selected sprites get no horizontal zoom.
+**Inference.** The R6 mask descriptions conflict: MacDonald's notes give
+tile-index bits 8 and 6, while the SMS Power register map gives bits 7 and 6.
+PSModern follows SMS Power: R6 bit 2 supplies address bit 13 independently,
+and bits 1 and 0 AND-mask tile-index bits 7 and 6 (address bits 12 and 11).
+CE does not implement these two SMS1 masks.
 **Inference (from community source).** As in CE, sprite bank, tile and latched
 row address fields combine with OR. A height change between Y evaluation and
 index fetch can overlap tile/row bits, but must not carry into the bank bit.
@@ -561,20 +571,17 @@ at 265,267,277,279,299,301,311,313. Their low plane words complete at
 269,273,281,285,303,307,315,319, and high words two dots later. The next line
 uses those retained bytes; later VRAM writes cannot change them. Blank/display-off
 lines evaluate two Y entries every four dots below 256. Overflow is exposed at
-dot 315 only for a visible target line. Collision remains at `9+x`, including
-the hardware-tested vertical-border behavior that CE omits. These events pass VDPTest.
+dot 315 on physical lines 0–191 and 261, including target line 192 from line 191
+(**Inference (from community source)**; SMS1 hardware behavior for that target
+is **Unknown**). Collision remains at `9+x`, including
+the hardware-tested vertical-border behavior that CE omits. VDPTest passes its
+automated cases; its offscreen-Y case does not cover target line 192.
 
-**Hardware documentation; inference.** Active-display CRAM writes can leave
-the written color on the screen, as the [hardware observations](https://www.smspower.org/forums/14997-HorizontalScrollPaletteChangeMidFrame)
-describe. The model emits one pixel of that color at the current output position
-when the transfer completes, even if no tile selects the changed entry. The
-single-pixel completion coordinate is a model inference. **Inference (from an
-authored reference probe and community source):**
-an authored probe on the identified reference build shows no dot with rendering
-enabled. Its source's `DrawPixel` has a CRAM-dot override, but the normal active
-path serves the write after drawing and clears the override that dot; the
-forced-blank path serves it before drawing. PSModern therefore differs from CE
-for rendering-enabled CRAM dots; source code alone did not establish agreement.
+**Maintainer decision.** PSModern does not draw an extra dot for an active-display
+CRAM write, matching the reference build; the palette write still completes at
+its CPU access slot. **Community source.** [Forum observations](https://www.smspower.org/forums/14997-HorizontalScrollPaletteChangeMidFrame)
+report dots on some consoles, including an SMS II. **Unknown:** their color and
+the behavior of SMS1 hardware.
 **Reference emulator.** Emulicious independently confirms the mid-line name
 changes at BR frame 4477 and US frame 10816. **Unknown:** the precise hardware
 slots at US frames 11031 and 11623; Emulicious does not confirm CE there.
