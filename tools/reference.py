@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 from compare_frames import COMPONENTS, SIZES, HEADER
 
 def load_recording(path):
@@ -46,6 +47,12 @@ def selection(spec,total):
         result.update(range(a,b+1))
     return result
 
+def provenance(identity):
+    return ('reference mesence 1\n'
+            'build-sha256 '+identity['executable_sha256']+'\n'
+            'build-label '+json.dumps(identity['label'],ensure_ascii=True)+'\n'
+            'recording-sha256 '+identity['recording_sha256']+'\n')
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('mesen');p.add_argument('rom');p.add_argument('recording');p.add_argument('--dump',required=True);p.add_argument('--out',required=True);p.add_argument('--cart-ram');p.add_argument('--reference-label',default='MesenCE 2.2.1 (unspecified build)')
@@ -58,43 +65,60 @@ def main():
     if hashlib.sha1(rom.read_bytes()).hexdigest()!=hashes[0]:raise ValueError('ROM SHA-1 mismatch')
     cart=Path(a.cart_ram).read_bytes() if a.cart_ram else bytes(8192)
     if len(cart)!=8192 or hashlib.sha1(cart).hexdigest()!=hashes[1]:raise ValueError('Initial cartridge RAM SHA-1 mismatch')
-    out.mkdir(parents=True,exist_ok=False)
-    home=out/'home';home.mkdir();shutil.copy2(exe,home/exe.name)
-    libraries=sorted(exe.parent.glob('*.dll'))
-    for library in libraries:shutil.copy2(library,home/library.name)
-    identity={'label':a.reference_label,'executable_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),
-              'dll_sha256':{library.name:hashlib.sha256(library.read_bytes()).hexdigest() for library in libraries}}
-    (out/'reference.json').write_text(json.dumps(identity,indent=2,sort_keys=True)+'\n',encoding='ascii')
-    (home/'settings.json').write_text('{}',encoding='ascii')
-    (home/'Saves').mkdir();(home/'Saves'/(rom.stem+'.sav')).write_bytes(cart)
-    (out/'initial-cart-ram.bin').write_bytes(cart)
-    def quote(s):return json.dumps(str(s).replace('\\','/'))
-    state=('-', '-', '0', '0');inputs=[]
-    names=dict(zip('UDLR12',('up','down','left','right','one','two')))
-    for n in range(total):
-        state=changes.get(n,state);pads=[]
-        for pad in state[:2]:
-            fields=[name+'='+('true' if key in pad else 'false') for key,name in names.items()]
-            fields+=['pause='+('true' if state[2]=='1' else 'false'),'reset='+('true' if state[3]=='1' else 'false')]
-            pads.append('{'+','.join(fields)+'}')
-        inputs.append('{'+','.join(pads)+'}')
-    config=out/'config.lua';config.write_text('return {out='+quote(out.as_posix()+'/')+',cart='+quote(out/'initial-cart-ram.bin')+',frames='+str(total)+',inputs={'+','.join(inputs)+'}}',encoding='ascii')
-    script=out/'capture.lua';script.write_text(Path(__file__).with_suffix('.lua').read_text().replace('CONFIG_PATH',config.as_posix()),encoding='ascii')
-    command=[str(home/exe.name),'--testRunner','--timeout=600','--debug.ScriptWindow.ScriptTimeout=1200','--debug.ScriptWindow.AllowIoOsAccess=true','--sms.Region=Ntsc','--sms.Revision=Sms1','--sms.RamPowerOnState=AllZeros','--sms.EnableFmAudio=false','--sms.Port1.Type=SmsController','--sms.Port2.Type=SmsController',str(rom),str(script)]
-    env=dict(os.environ,TEMP=str(out),TMP=str(out),DOTNET_BUNDLE_EXTRACT_BASE_DIR=str(out/'bundle'))
-    with (out/'console.log').open('w') as log:subprocess.run(command,cwd=home,env=env,stdout=log,stderr=log,check=True,timeout=660)
-    if not (out/'complete.txt').exists():raise ValueError('Reference capture did not complete; inspect console.log')
-    with (out/'manifest.txt').open('w',encoding='ascii',newline='\n') as manifest:
-        manifest.write(HEADER+'\n')
-        for n in range(1,total+1):
-            digests=[]
-            for component,size in zip(COMPONENTS,SIZES):
-                path=out/f'frame-{n:06d}.{component}.bin';data=path.read_bytes()
-                if len(data)!=size:raise ValueError('Wrong capture size')
-                digests.append(hashlib.sha1(data).hexdigest())
-                if n not in selected:path.unlink()
-            manifest.write(str(n)+' '+' '.join(digests)+'\n')
-    print(f'Captured {total} frames with {a.reference_label} ({identity["executable_sha256"]}) into {out}')
+    if out.exists():raise ValueError('Output folder already exists')
+    out.parent.mkdir(parents=True,exist_ok=True)
+    destination=out
+    # All Lua I/O paths are relative to the portable home. Its narrow fopen
+    # never has to encode the Unicode host path. Publish only a complete run.
+    with tempfile.TemporaryDirectory(prefix='.reference-',dir=out.parent) as staging:
+        out=Path(staging)
+        home=out/'home';home.mkdir();shutil.copy2(exe,home/exe.name)
+        libraries=sorted(exe.parent.glob('*.dll'))
+        for library in libraries:shutil.copy2(library,home/library.name)
+        identity={'label':a.reference_label,'executable_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),
+                  'recording_sha256':hashlib.sha256(Path(a.recording).read_bytes()).hexdigest(),
+                  'producer':'mesence', 'dll_sha256':{library.name:hashlib.sha256(library.read_bytes()).hexdigest() for library in libraries}}
+        (out/'reference.json').write_text(json.dumps(identity,indent=2,sort_keys=True)+'\n',encoding='ascii')
+        # CE's CLI silently ignores numeric settings without a MinMax attribute
+        # (including ScriptTimeout). Set the intended limit through its config.
+        settings={'Debug':{'ScriptWindow':{'ScriptTimeout':1200,'AllowIoOsAccess':True}}}
+        (home/'settings.json').write_text(json.dumps(settings),encoding='ascii')
+        (home/'Saves').mkdir();(home/'Saves'/(rom.stem+'.sav')).write_bytes(cart)
+        (out/'initial-cart-ram.bin').write_bytes(cart)
+        def quote(s):return json.dumps(str(s).replace('\\','/'))
+        state=('-', '-', '0', '0');inputs=[]
+        names=dict(zip('UDLR12',('up','down','left','right','one','two')))
+        for n in range(total):
+            state=changes.get(n,state);pads=[]
+            for pad in state[:2]:
+                fields=[name+'='+('true' if key in pad else 'false') for key,name in names.items()]
+                fields+=['pause='+('true' if state[2]=='1' else 'false'),'reset='+('true' if state[3]=='1' else 'false')]
+                pads.append('{'+','.join(fields)+'}')
+            inputs.append('{'+','.join(pads)+'}')
+        config=out/'config.lua';config.write_text('return {out='+quote('../')+',cart='+quote('../initial-cart-ram.bin')+',frames='+str(total)+',inputs={'+','.join(inputs)+'}}',encoding='ascii')
+        script=out/'capture.lua';script.write_text(Path(__file__).with_suffix('.lua').read_text().replace('CONFIG_PATH','../config.lua'),encoding='ascii')
+        command=[str(home/exe.name),'--testRunner','--timeout=600','--debug.ScriptWindow.AllowIoOsAccess=true','--sms.Region=Ntsc','--sms.Revision=Sms1','--sms.RamPowerOnState=AllZeros','--sms.EnableFmAudio=false','--sms.Port1.Type=SmsController','--sms.Port2.Type=SmsController',str(rom),str(script)]
+        env=dict(os.environ,TEMP=str(out),TMP=str(out),DOTNET_BUNDLE_EXTRACT_BASE_DIR=str(out/'bundle'))
+        with (out/'console.log').open('w') as log:
+            result=subprocess.run(command,cwd=home,env=env,stdout=log,stderr=log,check=False,timeout=660)
+        if (out/'capture-error.txt').exists():
+            raise ValueError('Reference callback failed: '+(out/'capture-error.txt').read_text(encoding='utf-8',errors='replace'))
+        result.check_returncode()
+        if not (out/'complete.txt').exists():raise ValueError('Reference capture did not complete; inspect console.log')
+        with (out/'manifest.txt').open('w',encoding='ascii',newline='\n') as manifest:
+            manifest.write(HEADER+'\n'+provenance(identity))
+            for n in range(1,total+1):
+                digests=[]
+                for component,size in zip(COMPONENTS,SIZES):
+                    path=out/f'frame-{n:06d}.{component}.bin';data=path.read_bytes()
+                    if len(data)!=size:raise ValueError('Wrong capture size')
+                    digests.append(hashlib.sha1(data).hexdigest())
+                    if n not in selected:path.unlink()
+                manifest.write(str(n)+' '+' '.join(digests)+'\n')
+        if destination.exists():raise ValueError('Output folder already exists')
+        out.rename(destination)
+    out=destination
+    print(f'Captured {total} frames with {a.reference_label!a} ({identity["executable_sha256"]}) into {str(out)!a}')
 
 if __name__=='__main__':
     main()

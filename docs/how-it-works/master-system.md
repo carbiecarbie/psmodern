@@ -7,10 +7,11 @@ plain words, how they work together during one frame, and why exact timing
 matters for this game.
 
 Each statement starts with a bold evidence label, as defined in
-[the documentation rules](../AGENTS.md#evidence-labels). As in
-[the development notes](../development.md), "Reference emulator" also covers
-values read from the source code of MesenCE 2.2.1, the emulator PSModern is
-compared with.
+[the documentation rules](../AGENTS.md#evidence-labels). "Reference emulator"
+means an observation made while running an identified game ROM in an emulator.
+A rule read only in MesenCE's source code is an inference from community source,
+not that kind of observation. The [development notes](../development.md)
+separate these sources where exact timing is not measured on hardware.
 
 ## Words used here
 
@@ -99,6 +100,17 @@ a separate 32-byte memory, CRAM (color RAM). Each slot holds one of 64
 colors, two bits each of red, green and blue
 ([palette page](https://www.smspower.org/Development/Palette)). The
 background can scroll sideways and up and down.
+In this 192-line mode it scrolls around a 224-line name table: even scroll
+values `$E0` to `$FF` wrap around to the first 32 lines.
+
+**Hardware documentation.** The first SMS has an unusual sprite enlargement
+rule: all selected sprites become twice as tall, but the last four keep their
+normal width. With four or fewer on a line, none becomes wider. The
+[sprite documentation](https://www.smspower.org/Development/Sprites) and
+[measurements](https://www.smspower.org/forums/19069-ZoomedSpritesOnSMS1)
+describe this. Register R6 chooses a bank of sprite tiles independently of two
+bits that can restrict the tile number. PSModern models those SMS1 restrictions;
+MesenCE does not model the two R6 masks.
 
 **Maintainer decision.** PSModern rebuilds only the 192-line display mode
 this game uses, and records each finished picture as 256 by 192 colors.
@@ -122,11 +134,27 @@ clock runs one and a half times as fast as the processor, so a line lasts
 
 **Hardware documentation.** On each picture line the VDP reads from VRAM,
 column by column, which tile goes there and then that tile's dots, and sends
-the dots out in order; it also picks the sprites that cross the line, at
-most eight. MacDonald's notes and the
+the dots out in order. It prepares at most eight sprites before the line that
+will display them, retaining their positions, tile numbers and drawing data.
+Changing those bytes after the fetch affects a later line. MacDonald's notes,
+the [sprite description](https://www.smspower.org/Development/Sprites) and the
 [VRAM timing discussion](https://www.smspower.org/forums/18134-TimingOfVRAMAccessSlotsDuringActivePassiveDisplay)
-describe this order. The exact moment of each read within a line follows
-MesenCE (**Reference emulator**).
+describe this order. **Inference (from community source).** The exact moment
+of each read follows MesenCE's source code; the development notes give the
+separate background and sprite schedules. These precise dots are not hardware
+measurements.
+
+**Hardware documentation.** Each pair of overlapping opaque sprite dots can
+raise the collision flag. Reading status clears it, but a later overlap can
+raise it again, even on the same line
+([collision documentation](https://www.smspower.org/Development/CollisionDetection)).
+
+**Hardware documentation; inference.** Writing a palette color while the
+picture is being drawn can briefly put that color on screen, even where no
+tile uses it ([observations](https://www.smspower.org/forums/14997-HorizontalScrollPaletteChangeMidFrame)).
+PSModern models one dot at the write's completion position. Its precise position
+is an inference, and an authored probe shows that MesenCE does not draw this
+dot with rendering enabled; agreement cannot be claimed from its source alone.
 
 ### Interrupts: "the picture is done"
 
@@ -150,7 +178,8 @@ to the processor.
 where the video chip stands when the console is switched on, so a starting
 point has to be chosen.
 
-**Reference emulator.** PSModern chooses MesenCE's: at the first cycle the
+**Inference (from community source).** PSModern chooses MesenCE's initial
+phase: at the first cycle the
 video chip is at line 0, dot 1. Counted that way, the frame interrupt comes
 210 cycles into line 192: 192 x 228 + 210 = 43,986 cycles into the frame.
 
@@ -168,7 +197,7 @@ documentation gives the safe spacing between two accesses: 29 cycles during
 the picture, 16 outside it. So games usually make large picture changes
 right after the frame interrupt.
 
-**Reference emulator.** PSModern lets a waiting byte through at fixed
+**Inference (from community source).** PSModern lets a waiting byte through at fixed
 "slots": 19 on each picture line and up to 107 on the other lines. This
 SMS1 schedule follows MesenCE. The VRAM timing discussion shows a similar
 pattern, but its detailed trace is from a Mega Drive, a later Sega console.
@@ -263,7 +292,7 @@ into line 261, near the end of the frame; FluBBa's measurements in the same
 discussion match a check two cycles after the chip moves on to the next
 line.
 
-**Reference emulator.** Counted from MesenCE's starting point, PSModern
+**Hardware documentation; inference.** Counted from the selected starting phase, PSModern
 checks the Pause button 212 cycles into line 260: 260 x 228 + 212 = 59,492
 cycles into the frame.
 
@@ -311,14 +340,15 @@ of R that ran; two other places that looked like one are graphics data.
 **Inference (high confidence).** So each random number depends on R at that
 moment, which depends on how many instructions, interrupts and idle steps
 the processor has gone through since it started. If one instruction took
-one cycle more, the frame interrupt would cut the game's work at a
+one cycle more, the frame interrupt could cut the game's work at a
 different place; if one extra instruction were fetched, R would be one
-higher. Either way that draw gives a different number, and since the shift
-remains, later draws change too.
+higher. This can change a draw and later draws too. It need not: if no
+relevant event falls between the two timings, the same number of fetches can
+reach the read of R, preserving that draw.
 
 **Inference (medium confidence).** Random encounters, such as whether a
 fight starts and which monsters appear, are expected to use this code, so a
-small timing error early on would make later encounters differ from the
+small timing error early on could make later encounters differ from the
 original.
 
 **Unknown.** Which routines call the random-number code, including the one
@@ -333,7 +363,7 @@ routines one by one with new code, each replacement is checked to spend the
 same cycles and leave R exactly as the original would
 ([design, section 5.2](../design.md#52-verification-the-heart-of-the-project)).
 
-**Reference emulator.** The reference is not perfect either: the project
+**Hardware documentation; inference.** The reference is not perfect either: the project
 corrected three groups of faults in its copy of MesenCE, each shown against
 the Zilog manual and other published measurements. MesenCE also misses
 sprite collisions in the border, which VDPTest shows on a real SMS1; that
@@ -356,7 +386,8 @@ Sega's copyrighted BIOS.
 BIOS it would be another fixed sequence, not a more correct one, and on a
 real console the player's own timing changes it anyway.
 
-**Reference emulator.** The fixed state copies the values MesenCE 2.2.1
+**Inference (from community source).** The fixed state copies the initializer
+values MesenCE 2.2.1
 uses when it starts without a BIOS, standing in for what a BIOS leaves
 behind; they are not the chips' own power-on values.
 
@@ -382,13 +413,13 @@ either way.
 **ROM static.** Both versions keep interrupts off from their first
 instruction, and write the video chip's settings at `00:03AA` before they
 first let interrupts in at `00:00AE`. MesenCE recalculates its signal at
-that write (**Reference emulator**), so the two agree in time.
+that write (**Inference from community source**), so the two agree in time.
 
 ### The US and Brazilian cartridges
 
 **ROM static.** To the console the two cartridges look alike. Both are
-512 KiB programs whose opening bytes (the "header") declare an export
-Master System game, both begin the same way, and the code at every address
+512 KiB programs with a header signature at `$7FF0`. The header identifies an
+export Master System game; both begin the same way, and the code at every address
 this chapter cites is identical in both.
 
 **Reference emulator.** In the recorded sessions both versions used the

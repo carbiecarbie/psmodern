@@ -21,6 +21,18 @@ constexpr int stick_dead_zone=8000; // SDL's signed 16-bit axis range; about 24.
 Buttons controller(Buttons digital,int x,int y);
 FrameInput combine(const Buttons& keyboard,const Buttons& controller);
 
+class EnterKey {
+public:
+    bool event(bool down,bool alt,bool repeat) {
+        if (!down) {consumed_=false;return false;}
+        if (!repeat && alt) {consumed_=true;return true;}
+        return false;
+    }
+    bool pause(bool down) const {return down && !consumed_;}
+private:
+    bool consumed_=false;
+};
+
 class Resampler {
 public:
     explicit Resampler(int device_hz);

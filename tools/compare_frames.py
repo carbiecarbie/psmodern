@@ -11,6 +11,12 @@ def read_manifest(path):
     lines = Path(path).read_text(encoding='ascii').splitlines()
     if not lines or lines[0] != HEADER:
         raise ValueError('Invalid manifest header')
+    if len(lines)>1 and lines[1]=='reference mesence 1':
+        if (len(lines)<5 or not re.fullmatch('build-sha256 [0-9a-f]{64}',lines[2]) or
+            not lines[3].startswith('build-label ') or not lines[3][12:].strip() or
+            not re.fullmatch('recording-sha256 [0-9a-f]{64}',lines[4])):
+            raise ValueError('Invalid reference provenance')
+        lines=lines[:1]+lines[5:]
     rows = []
     for n, line in enumerate(lines[1:], 1):
         fields = line.split(' ')

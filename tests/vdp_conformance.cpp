@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "machine/machine.h"
+#include "rom/sha256.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -24,12 +25,21 @@ unsigned symbol(const std::filesystem::path& file,const std::string& name) {
 int main(int argc,char** argv) {
     if (argc!=2) return 1;
     const std::filesystem::path dir(argv[1]);
-    if (dir.empty() || !std::filesystem::exists(dir/"VDPTest.sms") ||
-        !std::filesystem::exists(dir/"VDPTest.sym")) {
-        std::cout<<"VDPTest cache empty; skipping.\n";
-        return 77;
-    }
+    const bool have_rom=!dir.empty() && std::filesystem::exists(dir/"VDPTest.sms");
+    const bool have_symbols=!dir.empty() && std::filesystem::exists(dir/"VDPTest.sym");
     try {
+        // Both artifacts identify the build documented in dependencies.md.
+        auto verify=[&](const char* name,const char* expected) {
+            std::ifstream input(dir/name,std::ios::binary);
+            const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>()};
+            if (!input || input.bad() || sha256(bytes)!=expected)
+                throw std::runtime_error(std::string("Incorrect pinned VDPTest SHA-256: ")+name);
+        };
+        if (have_rom) verify("VDPTest.sms","8fbacb3f4c150453cdfa2a4c270682245d6b29040e770fbad9b28e0d54d4e563");
+        if (have_symbols) verify("VDPTest.sym","5ea322a0a3132cd305916e7da48f646ba80fe0dd68fd73325ee29d984add0782");
+        if (!have_rom || !have_symbols) {
+            std::cout<<"VDPTest cache empty; skipping.\n";return 77;
+        }
         const auto last_test=symbol(dir/"VDPTest.sym","RunTest60");
         const auto results_page=symbol(dir/"VDPTest.sym","WaitForButton");
         std::ifstream in(dir/"VDPTest.sms",std::ios::binary);

@@ -42,7 +42,16 @@ private:
     Picture drawing_picture_{}, completed_picture_{};
     std::uint8_t horizontal_scroll_ = initial_state::vdp_registers[8];
     std::uint8_t vertical_scroll_ = initial_state::vdp_registers[9];
-    std::uint16_t collision_dot_ = 342;
+    std::array<bool,256> collisions_{};
+    struct Sprite {
+        unsigned index=0, row=0, pattern=0;
+        int x=0;
+        std::array<std::uint8_t,4> planes{};
+        bool operator==(const Sprite&) const = default;
+    };
+    std::array<Sprite,8> preparing_sprites_{}, prepared_sprites_{};
+    unsigned evaluation_index_=0, evaluation_count_=0, prepared_count_=0;
+    bool evaluation_done_=false, overflow_pending_=false;
     enum class Write { none, vram, cram };
     Write write_pending_ = Write::none;
     bool read_pending_ = false;
@@ -56,7 +65,8 @@ private:
     bool cpu_slot_available(unsigned line, unsigned dot) const;
     void fetch_background(unsigned line, unsigned dot);
     void draw_pixel(unsigned line, unsigned x);
-    void fetch_sprites(unsigned line);
-    bool sprite_overflow_on_line(unsigned line) const;
+    void evaluate_sprite(unsigned target_line);
+    void fetch_sprites(unsigned dot);
+    void prepare_sprite_pixels();
 };
 }

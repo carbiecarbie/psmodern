@@ -16,7 +16,7 @@ static int scripted_poll(SDL_Event* e) {
     if(sampled>=4&&!sent_f5){sent_f5=true;e->type=SDL_KEYDOWN;e->key.repeat=0;e->key.keysym.sym=SDLK_F5;return 1;}
     return 0;
 }
-static psmodern::FrameInput scripted_input(SDL_Window* w,const psmodern::app::Controller&) {
+static psmodern::FrameInput scripted_input(SDL_Window* w,const psmodern::app::Controller&,const psmodern::app::EnterKey&) {
     if(std::string(SDL_GetWindowTitle(w)).find("F5 disabled")==std::string::npos)throw std::runtime_error("Missing recording title");
     psmodern::FrameInput input{};input.pads[0].one=sampled>=4&&sampled<8;input.pads[1].up=sampled==12;input.pause=sampled==20;
     ++sampled;shadow->run_frame(input);shadow->take_psg_writes();shadow->take_samples();

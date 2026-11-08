@@ -139,6 +139,9 @@ cross-section branch change at `testmain.asm:1731`, `jr StdOut_Char` to
 `jp StdOut_Char`; the patch is kept with the external build material. The
 resulting 32 KiB `VDPTest.sms` SHA-256 is
 `8fbacb3f4c150453cdfa2a4c270682245d6b29040e770fbad9b28e0d54d4e563`.
+The corresponding `VDPTest.sym` SHA-256 is
+`5ea322a0a3132cd305916e7da48f646ba80fe0dd68fd73325ee29d984add0782`.
+The conformance test refuses a different binary or symbol file before execution.
 
 Set `PSMODERN_VDP_TEST_DIR` to an external directory containing `VDPTest.sms`
 and WLA-DX's `VDPTest.sym`. The test runner reads the `RunTest60` and
@@ -148,7 +151,7 @@ expected NTSC branch of test 21; zero is success for every other applicable
 automated case. A missing path or file skips the CTest entry. The source
 does not call tests 20 or 37–40 in the SMS1 path. Test 90 is an unscored
 visual check of the horizontal-scroll latch and needs picture inspection.
-Test 200 displays CPU opcode timing, outside B2a's VDP scope. Neither is
+Test 200 displays CPU opcode timing, outside the VDP conformance scope. Neither is
 counted in the 55 automated results.
 
 ## Reference emulators

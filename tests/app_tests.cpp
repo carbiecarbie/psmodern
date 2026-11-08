@@ -44,6 +44,14 @@ void scaling() {
     check(viewport(0,0).scale==1,"zero drawable size");
 }
 void inputs() {
+    EnterKey enter;
+    check(enter.event(true,true,false),"Alt+Enter toggles fullscreen");
+    check(!enter.pause(true),"fullscreen Enter is consumed while Alt is held");
+    check(!enter.event(true,false,true) && !enter.pause(true),"releasing Alt and repeating Enter cannot press Pause");
+    check(!enter.event(true,true,true) && !enter.pause(true),"pressing Alt again cannot release consumed Enter");
+    enter.event(false,false,false);
+    check(!enter.pause(false),"Enter release clears shortcut latch");
+    check(!enter.event(true,false,false) && enter.pause(true),"fresh Enter press pauses");
     for (unsigned i=0;i<8;++i) {
         Keys keys{}; keys[i]=true;
         auto f=combine(keyboard(keys),{});

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "hw/vdp.h"
+#include <algorithm>
 #include <initializer_list>
 #include <iostream>
 #include <stdexcept>
@@ -117,45 +118,45 @@ void sprites() {
     auto v=setup();name(v,0,0,1,0x1000);
     bytes(v,0x3f00,{255,0xd0});bytes(v,0x3f80,{0,2});
     finish(v);
-    check(at(v,0,0)==0x11,"opaque priority tile covers sprite");
+    check(at(v,1,0)==0x11,"opaque priority tile covers sprite");
     auto low=setup();name(low,0,0,1);
     bytes(low,0x3f00,{255,0xd0});bytes(low,0x3f80,{0,2});
     finish(low);
-    check(at(low,0,0)==0x2a,"sprite overlays low priority tile");
+    check(at(low,1,0)==0x2a,"sprite overlays low priority tile");
     auto zero=setup();name(zero,0,0,0,0x1000);
     bytes(zero,0xc000,{0x10},3);
     bytes(zero,0x3f00,{255,0xd0});bytes(zero,0x3f80,{0,2});
     finish(zero);
-    check(at(zero,0,0)==0x2a,"sprite overlays priority tile with color zero");
+    check(at(zero,1,0)==0x2a,"sprite overlays priority tile with color zero");
     auto shifted=setup();reg(shifted,0,0x0c);
     bytes(shifted,0x3f00,{255,0xd0});bytes(shifted,0x3f80,{8,2});
     finish(shifted);
-    check(at(shifted,0,0)==0x2a && at(shifted,0,8)==0x00,"R0 sprite shift");
+    check(at(shifted,1,0)==0x2a && at(shifted,1,8)==0x00,"R0 sprite shift");
     auto tall=setup();reg(tall,1,0x42);pixel_tile(tall,3,1);
     bytes(tall,0x3f00,{255,0xd0});bytes(tall,0x3f80,{0,3});
     finish(tall);
-    check(at(tall,0,0)==0x2a && at(tall,8,0)==0x15,"8x16 uses even tile and next tile");
+    check(at(tall,1,0)==0x2a && at(tall,9,0)==0x15,"8x16 uses even tile and next tile");
     auto zoom3=setup();reg(zoom3,1,0x41);pixel_tile(zoom3,3,1,0x80);
     bytes(zoom3,0x3f00,{255,255,255,0xd0});
     for(unsigned i=0;i<3;++i) bytes(zoom3,0x3f80+i*2,{i*24,3});
     finish(zoom3);
     for(unsigned i=0;i<3;++i)
-        check(at(zoom3,0,i*24)==0x15 && at(zoom3,0,i*24+1)==0x15 &&
-              at(zoom3,0,i*24+2)==0x00 && at(zoom3,1,i*24)==0x15,
-              "three sprites zoom horizontally and vertically");
+        check(at(zoom3,1,i*24)==0x15 && at(zoom3,1,i*24+1)==0x00 &&
+              at(zoom3,1,i*24+2)==0x00 && at(zoom3,2,i*24)==0x15,
+              "three sprites zoom vertically only");
     auto zoom8=setup();reg(zoom8,1,0x41);pixel_tile(zoom8,3,1,0x80);
     bytes(zoom8,0x3f00,{255,255,255,255,255,255,255,255,0xd0});
     for(unsigned i=0;i<8;++i) bytes(zoom8,0x3f80+i*2,{i*24,3});
     finish(zoom8);
     for(unsigned i=0;i<8;++i) {
-        check(at(zoom8,0,i*24)==0x15 && at(zoom8,1,i*24)==0x15,
+        check(at(zoom8,1,i*24)==0x15 && at(zoom8,2,i*24)==0x15,
               "all eight sprites zoom vertically");
-        check(at(zoom8,0,i*24+1)==(i<4?0x15:0x00),
+        check(at(zoom8,1,i*24+1)==(i<4?0x15:0x00),
               "only first four sprites zoom horizontally");
     }
     auto term=setup();bytes(term,0x3f00,{0xd0,255});
     bytes(term,0x3f82,{0,2});finish(term);
-    check(at(term,0,0)==0x00,"D0 ends sprite list");
+    check(at(term,1,0)==0x00,"D0 ends sprite list");
 }
 void sprite_flags() {
     auto v=setup();
@@ -179,7 +180,7 @@ void sprite_flags() {
     auto limit=setup();bytes(limit,0x3f00,{255,255,255,255,255,255,255,255,255,0xd0});
     for(unsigned i=0;i<8;++i) bytes(limit,0x3f80+i*2,{32,2});
     bytes(limit,0x3f90,{0,2});finish(limit);
-    check(at(limit,0,0)==0x00 && at(limit,0,32)==0x2a,
+    check(at(limit,1,0)==0x00 && at(limit,1,32)==0x2a,
           "ninth sprite does not draw");
 }
 void scroll() {
@@ -242,22 +243,97 @@ void register_masks() {
     check(at(r2,0,0)==0x00,"R2 name table address mask");
     auto r5=setup();reg(r5,5,0x7e);
     bytes(r5,0x3f00,{255,0xd0});bytes(r5,0x3f80,{0,2});finish(r5);
-    check(at(r5,0,0)==0x00,"R5 sprite attribute address bit");
+    check(at(r5,1,0)==0x00,"R5 sprite attribute address bit");
     auto r6=setup();pixel_tile(r6,0,2);pixel_tile(r6,64,1);reg(r6,6,2);
     bytes(r6,0x3f00,{255,0xd0});bytes(r6,0x3f80,{0,64});finish(r6);
-    check(at(r6,0,0)==0x2a,"R6 bit zero masks sprite tile bit six");
+    check(at(r6,1,0)==0x2a,"R6 bit zero masks sprite tile bit six");
     auto r6wide=setup();pixel_tile(r6wide,0,2);pixel_tile(r6wide,64,1);
     reg(r6wide,6,3);bytes(r6wide,0x3f00,{255,0xd0});
     bytes(r6wide,0x3f80,{0,64});finish(r6wide);
-    check(at(r6wide,0,0)==0x15,"R6 bit zero permits sprite tile bit six");
+    check(at(r6wide,1,0)==0x15,"R6 bit zero permits sprite tile bit six");
     auto r6high=setup();pixel_tile(r6high,0,2);pixel_tile(r6high,256,1);
     reg(r6high,6,6);bytes(r6high,0x3f00,{255,0xd0});
     bytes(r6high,0x3f80,{0,0});finish(r6high);
-    check(at(r6high,0,0)==0x15,"R6 upper sprite pattern bit");
+    check(at(r6high,1,0)==0x15,"R6 upper sprite pattern bit");
     auto backdrop=setup();reg(backdrop,7,1);reg(backdrop,1,0);finish(backdrop);
     check(at(backdrop,0,0)==0x15,"R7 selects backdrop CRAM entry");
 }
+// Authored patterns isolate the review regressions from game checkpoints.
+void regression(unsigned finding) {
+    if (finding==1) {
+        for (unsigned scroll=0;scroll<256;++scroll) {
+            auto v=setup();
+            for (unsigned row=0;row<28;++row) {
+                pixel_tile(v,32+row,1); name(v,row,0,32+row);
+                for (unsigned y=0;y<8;++y) bytes(v,(32+row)*32+y*4,{(row&1)?0u:255u,(row&1)?255u:0u});
+            }
+            reg(v,9,scroll); v.sync(2*frame);
+            for (unsigned y=0;y<192;++y)
+                check(at(v,y,0)==((((y+scroll)%224)/8&1)?0x22:0x11),"192-line R9 always wraps at 224");
+        }
+    } else if (finding==2) {
+        for (unsigned bank=0;bank<2;++bank) for (unsigned mask=0;mask<4;++mask) {
+            auto v=setup();
+            for (unsigned tile=0;tile<512;++tile) pixel_tile(v,tile,0);
+            const unsigned expected=bank*256+((mask&2)?128:0)+((mask&1)?64:0);
+            pixel_tile(v,expected,1);
+            reg(v,6,bank*4+mask); bytes(v,0x3f00,{0,0xd0});bytes(v,0x3f80,{16,192});
+            finish(v);check(at(v,1,16)==0x15,"R6 masks tile bits 7/6 without masking bank bit");
+        }
+        auto latched=setup();reg(latched,1,0x42);
+        pixel_tile(latched,255,1);pixel_tile(latched,256,2);
+        bytes(latched,0x3f00,{241,0xd0});bytes(latched,0x3f80,{16,255});
+        latched.sync(100);reg(latched,1,0x40);finish(latched);
+        check(at(latched,1,16)==0x15,"latched tall row and later odd index cannot carry into the R6 bank bit");
+    } else if (finding==3) {
+        for (unsigned n=1;n<=8;++n) {
+            auto v=setup();reg(v,1,0x41);pixel_tile(v,3,1,0x80);
+            for (unsigned i=0;i<n;++i) {bytes(v,0x3f00+i,{0});bytes(v,0x3f80+i*2,{16+i*24,3});}
+            bytes(v,0x3f00+n,{0xd0});finish(v);
+            for (unsigned i=0;i<n;++i) {
+                check(at(v,1,16+i*24)==0x15 && at(v,2,16+i*24)==0x15,"all selected sprites zoom vertically");
+                check(at(v,1,17+i*24)==((i+4<n)?0x15:0),"SMS1 horizontally zooms first max(0,N-4)");
+            }
+        }
+    } else if (finding==4) {
+        for (bool before:{true,false}) {
+            auto v=setup();bytes(v,0x3f00,{0,0xd0});bytes(v,0x3f80,{32,2});
+            // CPU slot 263 precedes entry zero's X/index fetch at 265;
+            // a request at dot 265 instead waits until slot 289.
+            v.sync(before?174:176);timed_byte(v,0x3f80,96);finish(v);
+            check(at(v,1,before?96:32)==0x2a && at(v,1,before?32:96)==0,
+                  "sprite X changes only when its prior-line fetch has not passed");
+        }
+        for (bool before:{true,false}) {
+            auto v=setup();bytes(v,0x3f00,{0,0xd0});bytes(v,0x3f80,{32,2});
+            v.sync(before?1:8);timed_byte(v,0x3f00,0xd0);finish(v);
+            check(at(v,1,32)==(before?0:0x2a),"sprite Y selection retains a late-overwritten entry");
+        }
+        for (unsigned field=0;field<4;++field) {
+            auto v=setup();bytes(v,0x3f00,{0,0xd0});bytes(v,0x3f80,{32,2});
+            v.sync(228);
+            const unsigned address=field==0?0x3f00:field==1?0x3f80:field==2?0x3f81:2*32+1;
+            timed_byte(v,address,field==0?0xd0:field==1?96:0);
+            finish(v);check(at(v,1,32)==0x2a,"sprite Y/X/index/pattern fetched before its display line");
+        }
+        auto wrap=setup();pixel_tile(wrap,3,0);bytes(wrap,3*32,{0x80});
+        for (unsigned i=0;i<40;++i) bytes(wrap,0x3f00+i,{100});
+        bytes(wrap,0x3f28,{255,0xd0});bytes(wrap,0x3fd0,{32,3});
+        wrap.sync(2*frame);
+        check(at(wrap,0,32)==0x15,"line 260 starts the Y scan feeding next-frame line zero");
+    } else if (finding==5) {
+        auto v=setup();bytes(v,0x3f00,{0,0,0,0,0xd0});
+        bytes(v,0x3f80,{32,2,32,2,160,2,160,2});
+        v.sync(228+32);check(v.read_status(0)&32,"first collision sets status");
+        v.sync(228+114);check(v.read_status(0)&32,"later collision reasserts cleared status");
+    } else if (finding==6) {
+        auto v=setup();v.sync(228+60);v.write_control(15);v.write_control(0xc0);v.write_data(63);
+        finish(v);
+        check(std::count(v.picture().begin()+256,v.picture().begin()+512,63)==1,"active CRAM write emits exactly one written-color dot");
+    } else throw std::runtime_error("Unknown regression");
 }
-int main() { try { background();background_color_zero();timed_background();sprites();sprite_flags();scroll();register_masks();
+}
+int main(int argc,char** argv) { try { if(argc==2) {regression(std::stoul(argv[1]));return 0;} background();background_color_zero();timed_background();sprites();sprite_flags();scroll();register_masks();
+    for(unsigned finding=1;finding<=6;++finding) regression(finding);
     std::cout<<"VDP picture tests passed.\n";return 0;
 } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; } }

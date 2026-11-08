@@ -16,7 +16,7 @@ public:
 private:
     SDL_GameController* controller_=nullptr;
 };
-FrameInput sample_input(SDL_Window* window,const Controller& controller);
+FrameInput sample_input(SDL_Window* window,const Controller& controller,const EnterKey& enter);
 class Audio {
 public:
     Audio();

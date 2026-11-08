@@ -219,7 +219,8 @@ void irq_boundaries() {
     check(loop.psg()==advanced.psg(),"NOP loop and advance PSG state and samples");
     Machine no_cpu(program({0})); no_cpu.read_port(0xbf,0); no_cpu.advance(0);
     check(!no_cpu.cpu().int_line,"advance updates deasserted INT");
-    no_cpu.advance(43986); check(no_cpu.vdp().irq() && no_cpu.cpu().int_line,"advance updates asserted INT");
+    no_cpu.advance(43986); check(no_cpu.vdp().irq() && !no_cpu.cpu().int_line,"advance excludes INT first visible at E");
+    no_cpu.advance(1); check(no_cpu.cpu().int_line,"advance samples INT at E-1");
 }
 void input_frames() {
     Machine m(program({0})); m.set_pad(0,{true});
@@ -295,7 +296,7 @@ void cpu() {
     check(halt.step()==4 && halt.cpu().resume==Z80_RESUME_HALT,"HALT");
     check(halt.step()==4 && halt.cpu().r==0x1f,"HALT increments R");
     halt.cpu().sp.uint16_value=0xdff0; halt.set_pause(true);
-    halt.advance(Machine::frame_cycles-halt.cycles()+Machine::pause_sample_offset);
+    halt.advance(Machine::frame_cycles-halt.cycles()+Machine::pause_sample_offset+1);
     check(halt.step()==11 && halt.cpu().pc.uint16_value==0x66 && halt.cpu().r==0x20,"NMI exits HALT");
     z80_power(&halt.cpu(),1); check(halt.cpu().r==0,"reset R");
     Machine halt_irq(program({0x76}));
@@ -303,7 +304,7 @@ void cpu() {
     halt_irq.advance(0);
     halt_irq.cpu().iff1=halt_irq.cpu().iff2=1;
     check(halt_irq.step()==4 && halt_irq.cpu().resume==Z80_RESUME_HALT,"IRQ HALT setup");
-    halt_irq.advance(43986-halt_irq.cycles());
+    halt_irq.advance(43987-halt_irq.cycles());
     check(halt_irq.step()==13 && halt_irq.cpu().pc.uint16_value==0x38,
           "IRQ exits HALT without an extra idle M1");
 }
@@ -335,8 +336,8 @@ void interrupts() {
     check(n.next_nmi()==Machine::pause_sample_offset,"query includes pending frame-zero Pause");
     n.advance(0);
     check(n.next_nmi()==Machine::pause_sample_offset,"future Pause NMI query");
-    n.advance(Machine::pause_sample_offset);
-    check(n.next_nmi()==Machine::pause_sample_offset,"pending NMI query");
+    n.advance(Machine::pause_sample_offset+1);
+    check(n.next_nmi()==Machine::pause_sample_offset+1,"pending NMI query");
     check(n.step()==11 && n.cpu().pc.uint16_value==0x66,"NMI acceptance");
     n.set_pause(true); check(!n.next_nmi(),"pause is edge triggered");
     n.set_pause(false); n.advance(Machine::frame_cycles-n.cycles()+Machine::pause_sample_offset);
@@ -388,6 +389,28 @@ void copy_run() {
     check(a.equivalent(b) && a.equivalent(c),"matching drains restore copied machine value");
     b.memory().write(0xc050,0x33); check(a.memory().read(0xc050)!=0x33,"copy RAM independent");
 }
+void advance_sampling() {
+    // Same NOP interval, with INT/NMI appearing at E-1, E or E+1.
+    // A replacement need only account for its own PC/R effects separately.
+    for (bool nmi:{false,true}) for (unsigned offset=3;offset<=5;++offset) {
+        Machine instruction(program({0,0,0}));
+        instruction.read_port(0xbf,0); instruction.cpu().im=1;
+        instruction.cpu().iff1=instruction.cpu().iff2=1;
+        const auto start=nmi?0:43986-offset;
+        instruction.advance(start);
+        if (nmi) instruction.schedule_nmi(offset);
+        Machine replacement=instruction;
+        check(instruction.step()==4,"sampling fixture executes NOP");
+        replacement.advance(4);
+        replacement.cpu().pc=instruction.cpu().pc; replacement.cpu().r=instruction.cpu().r;
+        for (unsigned step=0;step<3;++step) {
+            const auto elapsed=instruction.step();
+            check(replacement.step()==elapsed && replacement.cycles()==instruction.cycles() &&
+                  replacement.cpu().pc.uint16_value==instruction.cpu().pc.uint16_value,
+                  "advance and equal-cycle instruction accept interrupt at same cycle");
+        }
+    }
+}
 void hook_mappings() {
     Machine m(program({0}));
     auto expect=[&](std::uint16_t address, Memory::Kind kind, unsigned bank) {
@@ -406,5 +429,5 @@ void hook_mappings() {
     expect(0xc000,Memory::Kind::ram,0);
 }
 }
-int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); std::cout << "Machine tests passed.\n"; return 0; }
+int main(int argc,char**) { try { if(argc==2) {advance_sampling();return 0;} startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); advance_sampling(); std::cout << "Machine tests passed.\n"; return 0; }
 catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

@@ -38,14 +38,14 @@ Buttons Controller::sample() const {
                       SDL_GameControllerGetAxis(controller_,SDL_CONTROLLER_AXIS_LEFTX),
                       SDL_GameControllerGetAxis(controller_,SDL_CONTROLLER_AXIS_LEFTY));
 }
-FrameInput sample_input(SDL_Window* window,const Controller& c) {
+FrameInput sample_input(SDL_Window* window,const Controller& c,const EnterKey& enter) {
     SDL_PumpEvents(); // Exactly one snapshot for this emulated frame.
     Keys keys{};
     if (SDL_GetKeyboardFocus()==window) {
         const auto* k=SDL_GetKeyboardState(nullptr);
         keys={k[SDL_SCANCODE_UP]!=0,k[SDL_SCANCODE_DOWN]!=0,k[SDL_SCANCODE_LEFT]!=0,k[SDL_SCANCODE_RIGHT]!=0,
               k[SDL_SCANCODE_Z]!=0,k[SDL_SCANCODE_X]!=0,
-              k[SDL_SCANCODE_RETURN] && !(k[SDL_SCANCODE_LALT]||k[SDL_SCANCODE_RALT]),k[SDL_SCANCODE_BACKSPACE]!=0};
+              enter.pause(k[SDL_SCANCODE_RETURN]) && !(k[SDL_SCANCODE_LALT]||k[SDL_SCANCODE_RALT]),k[SDL_SCANCODE_BACKSPACE]!=0};
     }
     return combine(keyboard(keys),c.sample());
 }

@@ -10,6 +10,8 @@ std::uint8_t Vdp::read_data() {
     return value;
 }
 std::uint8_t Vdp::read_status(std::uint8_t open_bus) {
+    // Inference from community source: MesenCE ReadPort supplies open-bus low
+    // bits in mode 4. This is not a hardware measurement or a ROM observation.
     auto value=static_cast<std::uint8_t>((frame_visible_ ? 0x80 : 0) | (overflow_ ? 0x40 : 0) |
         (collision_ ? 0x20 : 0) | (open_bus & 0x1f));
     frame_flag_=frame_visible_=line_flag_=overflow_=collision_=control_latch_=false;
@@ -36,14 +38,13 @@ constexpr std::uint64_t dots_per_line=342;
 // latched H count h was taken at dot 2h-3 (or 2h-2) of the T3 access.
 constexpr std::uint64_t irq_dot=315, scroll_dot=313, line_dot=317, vcounter_dot=315, visible_dot=315;
 constexpr unsigned h_latch_delay=3;
-// Sprite sampling is unchanged; background names/planes have separate events.
-constexpr std::uint64_t draw_dot=7, pixel_dot=9;
+constexpr std::uint64_t pixel_dot=9;
 // CPU cycle 0 is VDP dot 1. One T-state advances three half-dots.
 constexpr std::uint64_t cpu_at_dot(std::uint64_t dot) {
     return (2*dot-2*initial_state::vdp_dot+2)/3;
 }
 }
-// Reference emulator: CE's shared write latch and command-prefetch request
+// Inference from community source: CE's shared write latch and command-prefetch request
 // use the live address, with writes taking priority. Data-port read-ahead
 // uses the same arbitration here (Inference from the buffered VRAM bus);
 // CE instead refills immediately on data reads. Fast mixed/overrun access
@@ -79,7 +80,8 @@ void Vdp::fetch_background(unsigned line, unsigned dot) {
         const unsigned scroll=(line<16 && (regs_[0]&0x40)) ? 0 : horizontal_scroll_;
         const unsigned x=(column-(scroll>>3))&31;
         const unsigned sy=(bus>=192 && (regs_[0]&0x80)) ? 0 : vertical_scroll_;
-        const unsigned y=(line+sy)%((sy<224)?224:256);
+        // Hardware documentation: the 192-line name table always wraps at 224.
+        const unsigned y=(line+sy)%224;
         const unsigned table=((regs_[2]&0x0e)<<10) |
             (((y/8)&((regs_[2]&1)?31:15))<<6) | (x<<1);
         tile_name_=vram_[table] | (vram_[table+1]<<8);
@@ -117,60 +119,75 @@ void Vdp::draw_pixel(unsigned line, unsigned x) {
     }
     drawing_picture_[line*256+x]=cram_[color];
 }
-void Vdp::fetch_sprites(unsigned line) {
-    sprites_.fill(0);
-    std::array<bool,256> occupied{};
-    collision_dot_=342;
-    unsigned sat=(regs_[5]&0x7e)<<7;
-    unsigned count=0;
+void Vdp::evaluate_sprite(unsigned target_line) {
+    if (evaluation_done_ || evaluation_index_==64) return;
+    const unsigned sat=(regs_[5]&0x7e)<<7;
+    const unsigned i=evaluation_index_++;
+    const unsigned y=vram_[sat+i];
+    if (y==0xd0) { evaluation_done_=true; return; }
     const unsigned zoom=(regs_[1]&1)?2:1;
     const unsigned height=((regs_[1]&2)?16:8)*zoom;
-    std::array<unsigned,8> sprite_index{}, sprite_row{};
-    for (unsigned i=0;i<64;++i) {
-        unsigned y=vram_[(sat+i)&0x3fff];
-        if (y==0xd0) break;
-        unsigned start=(y+1)&255;
-        unsigned dy=(line-start)&255;
-        if (dy>=height) continue;
-        if (count==8) break;
-        sprite_index[count]=i; sprite_row[count]=dy; ++count;
-    }
-    if (!(regs_[1]&0x40)) return;
-    for (unsigned entry=0;entry<count;++entry) {
-        unsigned i=sprite_index[entry], dy=sprite_row[entry];
-        unsigned attributes=(sat+((regs_[5]&1)?0x80:0)+i*2)&0x3fff;
-        int sx=vram_[attributes]-((regs_[0]&8)?8:0);
+    const unsigned row=(target_line-((y+1)&255))&255;
+    if (row>=height) return;
+    if (evaluation_count_==8) { overflow_pending_=true; return; }
+    auto& sprite=preparing_sprites_[evaluation_count_++];
+    sprite.index=i; sprite.row=row/zoom;
+}
+void Vdp::fetch_sprites(unsigned dot) {
+    // Inference from community source (MesenCE LoadSpriteTilesSms): exact bus
+    // dots are reference scheduling, not measured SMS1 timings. Our events are
+    // one dot after its bus indices. Selection spans the previous hblank and
+    // this line; X/index and both pattern words finish before next-line output.
+    const unsigned bus=dot-1;
+    unsigned pair, phase;
+    if (bus<288) { pair=(bus-264)/12; phase=(bus-264)%12; }
+    else if (bus>=298 && bus<322) { pair=2+(bus-298)/12; phase=(bus-298)%12; }
+    else return;
+    if (phase&1) return;
+    unsigned entry=pair*2+((phase==2 || phase>=8)?1:0);
+    if (entry>=evaluation_count_) return;
+    auto& sprite=preparing_sprites_[entry];
+    if (phase==0 || phase==2) {
+        const unsigned sat=(regs_[5]&0x7e)<<7;
+        const unsigned attributes=(sat+((regs_[5]&1)?0x80:0)+sprite.index*2)&0x3fff;
+        sprite.x=vram_[attributes];
         unsigned tile=vram_[(attributes+1)&0x3fff];
         if (regs_[1]&2) tile&=~1u;
-        tile|=(regs_[6]&4)<<6;
+        // Hardware documentation: R6.1/.0 mask tile bits 7/6; R6.2 is
+        // independent address bit 13. MesenCE does not implement these masks.
         if (!(regs_[6]&1)) tile&=~0x40u;
-        if (!(regs_[6]&2)) tile&=~0x100u;
-        unsigned py=dy/zoom;
-        tile+=py/8;
-        unsigned pattern=(tile*32+(py&7)*4)&0x3fff;
-        unsigned xzoom=(zoom==2 && entry<4)?2:1;
+        if (!(regs_[6]&2)) tile&=~0x80u;
+        // Address fields are wired OR. A height change after Y evaluation can
+        // overlap row/tile bits; addition would carry into the independent bank.
+        sprite.pattern=((regs_[6]&4)<<11) | (tile<<5) | (sprite.row<<2);
+    } else {
+        const unsigned plane=(phase==6 || phase==10)?2:0;
+        sprite.planes[plane]=vram_[(sprite.pattern+plane)&0x3fff];
+        sprite.planes[plane+1]=vram_[(sprite.pattern+plane+1)&0x3fff];
+        if (plane==2 && (regs_[0]&8)) sprite.x-=8;
+    }
+}
+void Vdp::prepare_sprite_pixels() {
+    sprites_.fill(0);
+    std::array<bool,256> occupied{};
+    collisions_.fill(false);
+    const unsigned zoom=(regs_[1]&1)?2:1;
+    if (!(regs_[1]&0x40)) return;
+    for (unsigned entry=0;entry<prepared_count_;++entry) {
+        const auto& sprite=prepared_sprites_[entry];
+        // Hardware documentation: the final four selected sprites have no
+        // horizontal zoom on SMS1, including when fewer than eight are found.
+        unsigned xzoom=(zoom==2 && entry+4<prepared_count_)?2:1;
         for (unsigned dx=0;dx<8*xzoom;++dx) {
-            int x=sx+static_cast<int>(dx);
+            int x=sprite.x+static_cast<int>(dx);
             if (x<0 || x>=256) continue;
             unsigned bit=7-dx/xzoom, color=0;
-            for (unsigned plane=0;plane<4;++plane) color|=((vram_[(pattern+plane)&0x3fff]>>bit)&1)<<plane;
+            for (unsigned plane=0;plane<4;++plane) color|=((sprite.planes[plane]>>bit)&1)<<plane;
             if (!color) continue;
-            if (occupied[x]) collision_dot_=std::min<unsigned>(collision_dot_,pixel_dot+x);
+            if (occupied[x]) collisions_[x]=true;
             else { occupied[x]=true; sprites_[x]=color; }
         }
     }
-}
-bool Vdp::sprite_overflow_on_line(unsigned line) const {
-    if (line>=192) return false;
-    unsigned sat=(regs_[5]&0x7e)<<7;
-    unsigned height=((regs_[1]&2)?16:8)*((regs_[1]&1)?2:1);
-    unsigned count=0;
-    for (unsigned i=0;i<64;++i) {
-        unsigned y=vram_[(sat+i)&0x3fff];
-        if (y==0xd0) break;
-        if (((line-((y+1)&255))&255)<height && ++count>8) return true;
-    }
-    return false;
 }
 void Vdp::sync(std::uint64_t target) {
     if (target < cycle_) throw std::invalid_argument("VDP cannot run backwards");
@@ -180,6 +197,7 @@ void Vdp::sync(std::uint64_t target) {
     for (auto absolute=processed_dot_+1; absolute<=target_dot; ++absolute) {
         const unsigned line=(absolute/dots_per_line)%262, dot=absolute%dots_per_line;
         if (dot==0) {
+            prepare_sprite_pixels();
             if (line==0) {
                 completed_picture_=drawing_picture_;
                 vertical_scroll_=regs_[9];
@@ -192,13 +210,35 @@ void Vdp::sync(std::uint64_t target) {
             background_.fill(64);
             fine_scroll_=(regs_[0]&0x40) ? 0 : horizontal_scroll_&7;
         }
-        if (dot==draw_dot) fetch_sprites(line);
+        // Prior-line sprite pipeline. The Y scan begins at the preceding
+        // hblank's tail, continues in this line, then loads X/index/planes.
+        const bool active=line<192 || line==261;
+        if (dot<256 && (dot&1)) {
+            const unsigned bus=dot-1;
+            if (active && (regs_[1]&0x40)) {
+                if ((bus&7)==2 && (bus&24)) {evaluate_sprite((line+1)%262);evaluate_sprite((line+1)%262);}
+            } else if ((bus&3)==0) {
+                if (bus==0) {evaluation_index_=evaluation_count_=0;evaluation_done_=false;}
+                evaluate_sprite((line+1)%262);evaluate_sprite((line+1)%262);
+            }
+        }
+        if (dot>=265 && dot<=321 && (dot&1) && (regs_[1]&0x40)) fetch_sprites(dot);
+        if (dot==321) {prepared_sprites_=preparing_sprites_;prepared_count_=(regs_[1]&0x40)?evaluation_count_:0;}
+        if ((active || line==260) && dot>=327 && dot<=341 && (dot&1) && (regs_[1]&0x40)) {
+            if (dot==327) {evaluation_index_=evaluation_count_=0;evaluation_done_=false;}
+            evaluate_sprite((line+2)%262);evaluate_sprite((line+2)%262);
+        }
         if (line<192) {
             if (dot<256 && (dot&1) && (regs_[1]&0x40)) fetch_background(line,dot);
             if (dot>=pixel_dot && dot<pixel_dot+256) draw_pixel(line,dot-pixel_dot);
         }
-        if (dot==collision_dot_) collision_=true;
-        if (dot==visible_dot && sprite_overflow_on_line((line+1)%262)) overflow_=true;
+        // Hardware documentation: every overlapping opaque pixel reasserts
+        // collision, even after an earlier status read in this line.
+        if (dot>=pixel_dot && dot<pixel_dot+256 && collisions_[dot-pixel_dot]) collision_=true;
+        if (dot==visible_dot) {
+            if (overflow_pending_ && (line<192 || line==261)) overflow_=true;
+            overflow_pending_=false;
+        }
         if (dot==scroll_dot) horizontal_scroll_=regs_[8];
         if (line==192 && dot==irq_dot) frame_flag_=true;
         if (dot==line_dot) {
@@ -208,7 +248,15 @@ void Vdp::sync(std::uint64_t target) {
             } else line_counter_=regs_[10];
         }
         if (line==192 && dot==visible_dot && frame_flag_) frame_visible_=true;
-        if ((write_pending_!=Write::none || read_pending_) && cpu_slot_available(line,dot)) cpu_slot();
+        if ((write_pending_!=Write::none || read_pending_) && cpu_slot_available(line,dot)) {
+            const bool cram_dot=write_pending_==Write::cram;
+            cpu_slot();
+            // Hardware documentation describes CRAM dots; the one-pixel
+            // completion coordinate is an inference. CE's active path loses
+            // this dot (its forced-blank path retains it); see development.md.
+            if (cram_dot && line<192 && dot>=pixel_dot && dot<pixel_dot+256)
+                drawing_picture_[line*256+dot-pixel_dot]=buffer_&63;
+        }
     }
     processed_dot_=target_dot;
     cycle_=target;

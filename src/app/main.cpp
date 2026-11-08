@@ -58,7 +58,7 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
         sdl_check(bool(texture),"Creating picture texture");
         sdl_check(SDL_SetTextureScaleMode(texture.get(),SDL_ScaleModeNearest)==0,"Setting nearest-neighbour scaling");
         std::array<std::uint32_t,256*192> pixels{};
-        Controller controller; controller.refresh(); Audio audio;
+        Controller controller; controller.refresh(); Audio audio; EnterKey enter;
         const double frequency=static_cast<double>(SDL_GetPerformanceFrequency());
         auto now=[&]() { return SDL_GetPerformanceCounter()/frequency; };
         audio.submit({},now()); // Open and prime the device before starting the frame clock.
@@ -78,18 +78,19 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
                 if (event.type==SDL_QUIT) quit=true;
                 if (event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) controller.refresh();
                 if (event.type==SDL_AUDIODEVICEREMOVED && !event.adevice.iscapture) audio.removed(event.adevice.which);
+                if ((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && event.key.keysym.sym==SDLK_RETURN &&
+                    enter.event(event.type==SDL_KEYDOWN,event.key.keysym.mod&KMOD_ALT,event.key.repeat)) {
+                    const bool fullscreen=SDL_GetWindowFlags(window.get())&SDL_WINDOW_FULLSCREEN_DESKTOP;
+                    sdl_check(SDL_SetWindowFullscreen(window.get(),fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
+                }
                 if (event.type==SDL_KEYDOWN && !event.key.repeat) {
-                    if (event.key.keysym.sym==SDLK_RETURN && (event.key.keysym.mod&KMOD_ALT)) {
-                        const bool fullscreen=SDL_GetWindowFlags(window.get())&SDL_WINDOW_FULLSCREEN_DESKTOP;
-                        sdl_check(SDL_SetWindowFullscreen(window.get(),fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
-                    }
                     if (event.key.keysym.sym==SDLK_F5 && !recorder) { report_save(driver.power_cycle()); audio.reset(); }
                 }
             }
             if (quit) break;
             const auto count=clock.due(now());
             for (unsigned i=0;i<count;++i) {
-                const auto input=sample_input(window.get(),controller);
+                const auto input=sample_input(window.get(),controller,enter);
                 const auto output=driver.run(input);
                 if(recorder) recorder->add(input);
                 ++frames; report_save(output.save_error);

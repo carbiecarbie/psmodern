@@ -73,6 +73,8 @@ on each signed 16-bit axis. Keyboard and controller states are ORed for pad 1;
 opposite directions are passed through and pad 2 stays released. The first
 available controller is selected, including after hot-plug. Input is sampled
 once per emulated frame. Alt+Enter does not also press Pause.
+The Enter press used for fullscreen stays consumed until Enter is released,
+even if Alt is released or pressed again first.
 
 ## Audio and pacing
 
@@ -187,10 +189,22 @@ python tools/reference.py <Mesen.exe> <rom> <recording> --dump all --out <new-fo
 Use the patched MesenCE 2.2.1 as the primary reference; stock CE remains usable.
 Pass a build-specific `--reference-label` (the default says "unspecified build").
 Each run writes `reference.json` with that label, the executable SHA-256 and
-the SHA-256 of each adjacent DLL. Each run requires a new output folder and
-creates a fresh portable data folder there, copying the supplied executable
+the SHA-256 of each adjacent DLL and of the recording. The reference manifest
+also carries `reference mesence 1`, `build-sha256`, `build-label` (a JSON string)
+and `recording-sha256` immediately after its column header. These identify the
+producer, build and exact recording; the runner's plain manifest is not a
+reference. This is provenance, not authentication against forged metadata.
+Each run requires a new output folder and
+creates a fresh portable data folder in a temporary sibling, copying the supplied executable
 and adjacent DLLs, with an empty configuration and only the requested initial
 battery save.
+Lua uses relative paths from that portable home, including for non-ASCII output
+paths. Only a completed capture and manifest are published as the requested
+folder; failed preparation, process execution or hashing removes the staging folder.
+Callback failures stop the reference immediately and are reported by the launcher;
+CE otherwise logs Lua errors and can continue with incomplete frame files. The
+Lua timeout is set in the fresh configuration, because CE's command-line numeric
+setting parser ignores `ScriptTimeout` without reporting an error.
 No existing MesenCE data folder is reused. SMS1, export NTSC, zero-filled RAM,
 FM off and both SMS controllers are specified explicitly. No firmware is copied,
 so no BIOS is loaded. Lua sets scanline and V counter to zero before the first
@@ -204,11 +218,17 @@ would let the released second pad overwrite the first pad.
 
 At startFrame K, Lua saves the previous picture before buffer swap, cropping
 unfiltered RGB rows 24-215 and recovering SMS channel values. It arms a pending
-capture; the next instruction-boundary exec callback saves RAM, VRAM, CRAM and
-cartridge RAM. In this CE version, `Debugger::ProcessInstruction` dispatches
-Lua exec before opcode fetch, independently of opcode/operand read notifications.
-Thus an instruction interrupted by startFrame completes before memory capture,
-matching the runner's stopping rule. `boundaries.txt` records capture cycles.
+capture. The next exec callback saves RAM, VRAM, CRAM and cartridge RAM if no
+interrupt entry intervened. CE dispatches its IRQ/NMI event after entry, before
+that exec callback. In that case the driver subtracts the entry duration and
+exports the instruction-end memory, undoing entry-time writes in the exported
+copy only. If the frame began during the entry itself, the next exec remains
+the stopping point. CPU and palette write notifications supply the journal;
+CE does not notify Lua of VRAM stores, so the driver journals pending VRAM
+transfers with CE's SMS1 slot schedule and live-address latch. The authored
+regressions include a NOP ending at the frame boundary and a queued VRAM store
+completed during the following IRQ entry. Both match the runner before PC is
+pushed. `boundaries.txt` records the captured instruction-end cycles.
 The launcher hashes all frames and retains raw dumps only for the selection;
 the manifest and dump names/sizes are shared with the runner.
 
@@ -260,10 +280,14 @@ Supply that image with `--cart-ram` when regenerating its manifest.
 To regenerate a checkpoint, use the reference driver above with that region's
 ROM and recording, the patched executable, the label
 `MesenCE 2.2.1 durations+int-boundary+block-io`, `--dump 1` and a fresh output folder.
-Copy only `manifest.txt` to
-`<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/manifest.txt`. The
+Copy `manifest.txt` and `reference.json` into
+`<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/`. The
 `checkpoint` CTest label runs each recording against its own manifest and
-skips a checkpoint when its ROM, required image or manifest is missing. It
+skips a checkpoint when its ROM, recording, required image or manifest is missing.
+Before skipping it validates every available input: recording format and nonzero
+frame count, ROM digest, image size/digest, manifest header and provenance.
+A present incorrect file fails. Missing provenance, an unlabelled build, a
+different recording digest or a runner-produced manifest fails. It
 checks the initial image against the recording header's SHA-1, then checks all
 five hashes at every frame, with no exclusions or transient-byte allowance.
 Wait for the launcher to exit successfully and verify that the manifest's last
@@ -274,10 +298,15 @@ The short recordings exercise two-run determinism and scripted SDL recording.
 The data-free tests cover the format, publication, runner arguments and
 synthetic manifests. Keep drafts, saves, reference binaries, manifests and
 captures outside the repository.
+`PSMODERN_REFERENCE_EXECUTABLE` enables the authored reference-driver CTest
+regressions against a local MesenCE build; an absent executable skips that test.
+Python tests use explicit checks and nonzero exits, including with `-O` or
+`PYTHONOPTIMIZE` set.
 
 ## Fixed machine start and frame input
 
-**Reference emulator.** The fixed state follows MesenCE 2.2.1 with no BIOS,
+**Inference (from community source).** The fixed state follows the MesenCE 2.2.1
+initializers with no BIOS,
 SMS1 export/NTSC, FM off and zero-filled RAM, except for its initial IRQ line
 as described below. At CPU cycle 0 the VDP starts at scanline 0, VDP cycle 1.
 The CPU starts with PC=`0000`, AF=`AB42`, BC=`0002`, DE=`A51B`, HL=`0000`,
@@ -301,7 +330,10 @@ The VDP address is `3D6A`, code 1, read buffer 0, command latch clear,
 line-counter reload `FF` and current counter `FC`; VBlank and sprite overflow
 are pending, and line IRQ and collision are clear. The H-counter latch is 0.
 The source is the [MesenCE VDP initializer](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
-and the startup readback described in the [plan](milestone-1-plan.md#2-reference-emulator).
+with a startup readback described in the [plan](milestone-1-plan.md#2-reference-emulator).
+Only values actually read back while running the identified ROM have the label
+**Reference emulator**; initializer-only values remain an inference from community
+source. These are selected starting values, not measured chip power-on values.
 
 **Hardware documentation; maintainer decision.** INT is derived from the frame
 and line pending flags and their R1 bit 5 and R0 bit 4 enables. The
@@ -347,6 +379,9 @@ level sampled at `E-1`, after any port access in that instruction. An event
 first visible at `E` is sampled by the following instruction. The core's
 prefix, EI, RETI/RETN and NMI acceptance rules also determine whether an
 interrupt is accepted and the boundary hook is called.
+`Machine::advance(n)` uses the same `E-1` point for INT and NMI when `n>0`;
+a replacement accounts for its own PC/R effects separately. `advance(0)` only
+refreshes the current boundary and does not create an instruction interval.
 
 **Hardware documentation.** The [Zilog Z80 CPU User Manual, UM008011-0816,
 figure 7](https://www.zilog.com/docs/z80/um0080.pdf), shows the I/O machine
@@ -376,9 +411,9 @@ results. Each event is fixed by its own test to one CPU cycle.
 
 The model therefore has one VDP event at dot 315, line cycle 210. On physical
 line 192 it sets the frame flag, which is pending and readable at once. On
-every line it advances the V counter and records sprite overflow for the next
-line. The frame IRQ's absolute CPU cycle is unchanged from the earlier model:
-43986 cycles into a frame, taken by an instruction ending at line cycle 211 or
+every line it advances the V counter; sprite overflow is recorded only when
+the next line is visible. The frame IRQ asserts at CPU cycle
+43986 of a frame, taken by an instruction ending at line cycle 211 or
 later. The line counter is clocked at dot 317, line cycle 211, one CPU cycle
 after the frame event. It decrements on physical lines 261 and 0–191 and
 reloads R10 on 192–260. This is the 0–192 decrement window of the
@@ -395,8 +430,11 @@ byte has no readable line-IRQ flag. The NTSC 192-line V-counter sequence is
 `00–DA, D5–FF`. H-counter reads return the held latch. On an export SMS1
 without a light gun, a rising TH edge via port `$3F` updates the latch, and
 ordinary reads leave it unchanged.
+**Inference (from community source).** The five low status bits return the
+current CPU open bus, following MesenCE's `ReadPort` implementation. This value
+is not established here by a hardware measurement or an identified-ROM run.
 
-**Reference emulator; inference.** The H latch takes the dot three dots after
+**Inference (from community source and authored probes).** The H latch takes the dot three dots after
 the T3 port write that raises TH. The latched value is `p/2` for `p<296`
 and otherwise `(p-343)/2` with signed division toward zero, where `p` is
 that dot. Latches at line cycles 209, 210 and 211 read `F3`, `F4` and `F5`.
@@ -417,8 +455,8 @@ keeps the frame flag a single event. These sources also fix the VDP events
 only relative to each other and to the CPU sample points, not to power-on.
 Moving every interrupt four cycles later and keeping the other events would
 satisfy them equally. The power-on phase, VDP dot 1 at CPU cycle 0, follows
-MesenCE as described under the fixed machine start. This keeps the frame IRQ
-at the absolute cycle where the B1b comparison matched MesenCE.
+MesenCE as described under the fixed machine start. That selected phase places
+the frame IRQ at absolute CPU cycle 43986.
 
 ## Mode 4 picture
 
@@ -431,6 +469,9 @@ palette, but is transparent to sprite priority. R2 bits 1-3 select
 the name table with bit 0 controlling the row mask. R7 selects the
 sprite-palette backdrop entry, R1 bit 6
 enables display, and R0 bit 5 blanks the left eight pixels.
+Vertical name-table rows wrap at 224 for every R9 value in this 192-line mode:
+`E0`-`FF` select the same initial rows as `00`-`1F`, as described in the
+[vertical-scroll experiment](https://www.smspower.org/forums/16020-VerticalScrollingQuestion).
 
 **Inference.** The VDP notes say R3 and R4 should be set for mode 4, but do
 not specify the behavior of unset bits. The renderer treats them as address
@@ -440,8 +481,17 @@ cover this model, which remains to be confirmed on hardware.
 **Hardware documentation.** The same sources specify sprite Y as one less
 than the first covered line, Y=`D0` as the list terminator, up to eight
 sprites on a line, 8 by 8 or 8 by 16 patterns, vertical zoom for all eight
-and horizontal zoom for only the first four, R0 bit 3's eight-pixel
+and horizontal zoom for only the first `max(0,N-4)` of the N selected sprites,
+R0 bit 3's eight-pixel
 left shift, R5's attribute table address bits and R6's pattern address bits.
+The [SMS1 zoom measurements](https://www.smspower.org/forums/19069-ZoomedSpritesOnSMS1)
+and [sprite documentation](https://www.smspower.org/Development/Sprites) clarify
+that four or fewer selected sprites get no horizontal zoom. R6 bit 2 supplies
+address bit 13 independently; bits 1 and 0 AND-mask tile-index bits 7 and 6
+(address bits 12 and 11). CE does not implement these two SMS1 masks.
+**Inference (from community source).** As in CE, sprite bank, tile and latched
+row address fields combine with OR. A height change between Y evaluation and
+index fetch can overlap tile/row bits, but must not carry into the bank bit.
 Sprites use the second CRAM row; an opaque priority background pixel covers
 a sprite without suppressing sprite collision. The first sprite at an
 overlapping opaque pixel owns its color. The [VDPTest source](https://github.com/FluBBaOfWard/SmsVdpTest)
@@ -449,7 +499,8 @@ tests overflow, collision, offscreen-Y and terminator behavior on SMS1.
 The renderer records overflow for the next line at the dot-315 event
 described under VDP and interrupt timing, including when display is
 disabled. It records a collision when the second opaque sprite pixel reaches
-dot `9+x`; transparent pixels never collide. A status read clears both flags.
+dot `9+x`; every later overlapping pixel can set the collision flag again
+after a status read. Transparent pixels never collide. A status read clears both flags.
 **Hardware test.** VDPTest's overflow and collision tests fix both points to
 one CPU cycle relative to the H latch.
 
@@ -457,7 +508,7 @@ one CPU cycle relative to the H latch.
 the top two tile rows, and bit 7 holds vertical scroll at zero in the right
 eight tile columns. **Inference.** R8 keeps the model's dot-313 latch for
 the following line.
-**Hardware documentation; reference emulator.** The [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
+**Hardware documentation; inference (from community source).** The [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
 say an active-display R9 write is stored for the next active-display period;
 [MesenCE](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
 copies R9 into its vertical-scroll latch when the scanline wraps to zero.
@@ -469,7 +520,8 @@ specifies access spacing (29 T during active video, 16 T during vertical blank).
 The [VRAM timing discussion](https://www.smspower.org/forums/18134-TimingOfVRAMAccessSlotsDuringActivePassiveDisplay)
 describes name fetches followed by two pattern-word fetches and interleaved
 CPU slots; its detailed bus trace is from a Mega Drive in mode 4.
-**Reference emulator.** The SMS1 schedule below follows CE 2.2.1. Dots are
+**Inference (from community source).** The SMS1 schedule below follows the
+CE 2.2.1 source; it is not a measurement on hardware. Dots are
 completion coordinates in this machine, one dot after CE's bus-operation index.
 
 | Display state | CPU access completion dots |
@@ -492,14 +544,37 @@ read request behind it. CE's command prefetch and shared-latch arbitration
 support this model, but CE refills on data reads immediately. **Unknown:**
 hardware behavior of mixed/overrun accesses outside the documented spacing.
 
-**Reference emulator.** Each column fetches its name at dot `1+8*c`, low
+**Inference (from community source).** Each column fetches its name at dot `1+8*c`, low
 pattern planes at `5+8*c`, and high planes at `7+8*c`. The pipeline retains
 those bytes; later writes affect only later fetches. R2 takes effect on the
 next name fetch, R3/R4 on the corresponding pattern fetch. R8 keeps the
 prior-line dot-313 latch; R9 keeps the frame-start latch. Palette, backdrop
 and display enable are sampled as each pixel leaves at dot `9+x`.
-Sprite selection and pattern sampling remain at dot 7, with collision at
-`9+x` and overflow at dot 315; their timing is unchanged and passes VDPTest.
+**Hardware documentation.** The [sprite description](https://www.smspower.org/Development/Sprites)
+places sprite preparation before the line that displays it.
+**Inference (from community source).** Exact fetch dots follow CE's
+`ProcessSpriteEvaluation` and `LoadSpriteTilesSms`, not physical measurements.
+Y scanning starts at completion dots 327,329,...,341 in the earlier hblank
+(two entries per event), continuing at 11,19,27 in each 32-dot group of the
+line before display. During that line, X/index fetches for entries 0-7 complete
+at 265,267,277,279,299,301,311,313. Their low plane words complete at
+269,273,281,285,303,307,315,319, and high words two dots later. The next line
+uses those retained bytes; later VRAM writes cannot change them. Blank/display-off
+lines evaluate two Y entries every four dots below 256. Overflow is exposed at
+dot 315 only for a visible target line. Collision remains at `9+x`, including
+the hardware-tested vertical-border behavior that CE omits. These events pass VDPTest.
+
+**Hardware documentation; inference.** Active-display CRAM writes can leave
+the written color on the screen, as the [hardware observations](https://www.smspower.org/forums/14997-HorizontalScrollPaletteChangeMidFrame)
+describe. The model emits one pixel of that color at the current output position
+when the transfer completes, even if no tile selects the changed entry. The
+single-pixel completion coordinate is a model inference. **Inference (from an
+authored reference probe and community source):**
+an authored probe on the identified reference build shows no dot with rendering
+enabled. Its source's `DrawPixel` has a CRAM-dot override, but the normal active
+path serves the write after drawing and clears the override that dot; the
+forced-blank path serves it before drawing. PSModern therefore differs from CE
+for rendering-enabled CRAM dots; source code alone did not establish agreement.
 **Reference emulator.** Emulicious independently confirms the mid-line name
 changes at BR frame 4477 and US frame 10816. **Unknown:** the precise hardware
 slots at US frames 11031 and 11623; Emulicious does not confirm CE there.
@@ -534,7 +609,7 @@ stereo register or FM unit.
   CPU/(32*Tone2), respectively. A zero period clocks like one here.
 - Attenuations 0–14 step down by 2 dB; 15 disconnects the channel.
 
-**Reference emulator.** The fixed state in `initial_state.h` follows the
+**Inference (from community source).** The fixed state in `initial_state.h` follows the
 [MesenCE 2.2.1 PSG constructor](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsPsg.cpp)
 and its zero-initialized [state structures](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsTypes.h):
 tone periods/counters/output bits zero, attenuations all 15, selected register
@@ -601,7 +676,7 @@ This is an internal machine output; the app handles device-rate conversion.
 
 ### Reference comparison
 
-**Reference emulator.** MesenCE 2.2.1 flips the mixed tone output at periods
+**Inference (from community source).** MesenCE 2.2.1 flips the mixed tone output at periods
 0/1 instead of holding +1, unlike Maxim's stated rule. Its integer volume
 table also differs, including entry 7=1642, and its `Run` loop advances while
 `masterClock + 16 < target`, rather than the inclusive grid above. These do
@@ -617,7 +692,7 @@ for an earlier run is not an empty-save setup for a later run. Reusing it
 changes the game's initialization path and its sound sequence. Capture helpers
 reject an existing output/home directory rather than deleting saved data.
 Compare byte values and order within `floor(cycle/59736)` for each frame;
-keep cycle differences separate. **Reference emulator; hardware documentation.**
+keep cycle differences separate. **Hardware documentation; inference (from authored probes).**
 Instruction measurements found six MesenCE duration differences against the
 [Zilog manual's instruction tables](https://map.grauw.nl/resources/cpu/z80.pdf):
 `INC (HL)` and `DEC (HL)` take 10 instead of 11 T; `LD (HL),n` takes 12
@@ -675,7 +750,7 @@ like the patched reference's, is at the start of T3. This explains why equal
 write streams from stock CE need not have equal timestamps. No CPU or PSG
 timing is adjusted to match the reference.
 
-**Reference emulator (capture API limitation).** In CE 2.2.1,
+**Inference (from community source; capture API limitation).** In CE 2.2.1,
 [`ScriptingContext::InternalCallMemoryCallback`](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/ScriptingContext.cpp)
 converts non-relative callback domains through
 [`SmsConsole::GetAbsoluteAddress`](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsConsole.cpp),
