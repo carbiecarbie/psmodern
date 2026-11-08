@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "replay/recording.h"
+#include "replay/checkpoint.h"
 #include "rom/sha1.h"
 #include "rom/sha256.h"
 #include <algorithm>
@@ -48,9 +49,9 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     }
     std::ifstream manifest(manifest_path);
     std::string line;
-    std::vector<std::array<std::string,5>> reference;
+    std::vector<std::array<std::string,7>> reference;
     if (have_manifest) {
-        if (!std::getline(manifest,line) || line!="frame picture ram vram cram cart-ram")
+        if (!std::getline(manifest,line) || line!="frame picture ram vram cram cart-ram cpu psg")
             throw std::runtime_error("Invalid manifest header.");
         if (!std::getline(manifest,line) || line!="reference mesence 1")
             throw std::runtime_error("Missing or invalid reference provenance (runner manifests are not references).");
@@ -81,7 +82,7 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
             std::string number;
             row>>number;
             if (number!=std::to_string(reference.size()+1)) throw std::runtime_error("Invalid frame number.");
-            std::array<std::string,5> expected;
+            std::array<std::string,7> expected;
             for (auto& hash:expected)
                 if (!(row>>hash) || hash.size()!=40 || hash.find_first_not_of("0123456789abcdef")!=hash.npos)
                     throw std::runtime_error("Invalid reference hash.");
@@ -100,17 +101,19 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     Machine machine(rom, cart);
     FrameInput input{};
     std::size_t change = 0;
-    constexpr std::array names{"picture", "ram", "vram", "cram", "cart-ram"};
-    std::array<std::uint64_t, 5> failures{};
+    constexpr std::array names{"picture", "ram", "vram", "cram", "cart-ram", "cpu", "psg"};
+    std::array<std::uint64_t, 7> failures{};
+    replay::FrameWrites frame_writes;
     for (std::uint64_t frame = 1; frame <= recording.frames; ++frame) {
         if (change < recording.changes.size() && recording.changes[change].frame == frame - 1)
             input = recording.changes[change++].input;
         machine.run_frame(input);
-        machine.take_psg_writes();
+        auto psg=frame_writes.take(frame,machine.take_psg_writes());
         machine.take_samples();
         const auto& vram = machine.vdp().vram();
         std::array actual{sha1(machine.picture()), sha1(machine.memory().ram()), sha1(vram),
-                          sha1(machine.vdp().cram()), sha1(machine.memory().cartridge_ram())};
+                          sha1(machine.vdp().cram()), sha1(machine.memory().cartridge_ram()),
+                          sha1(replay::cpu_bytes(machine.cpu())), sha1(psg)};
         const auto& expected=reference[frame-1];
 
         for (std::size_t i = 0; i < actual.size(); ++i) {

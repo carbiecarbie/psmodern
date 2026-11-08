@@ -12,6 +12,7 @@
 #else
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/file.h>
 #endif
 
 namespace psmodern::app {
@@ -35,7 +36,43 @@ std::filesystem::path production_save_folder() {
 }
 SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer)
     :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)) {}
+struct SaveStore::Lock {
+#ifdef _WIN32
+    HANDLE handle=INVALID_HANDLE_VALUE;
+    ~Lock() { if (handle!=INVALID_HANDLE_VALUE) CloseHandle(handle); }
+#else
+    int fd=-1;
+    ~Lock() { if (fd>=0) close(fd); }
+#endif
+};
+SaveStore::~SaveStore()=default;
+SaveStore::SaveStore(SaveStore&&) noexcept=default;
+SaveStore& SaveStore::operator=(SaveStore&&) noexcept=default;
+void SaveStore::ensure_lock() const {
+    if (lock_) return;
+    std::filesystem::create_directories(path_.parent_path());
+    auto lock_path=path_;lock_path += ".lock";
+    auto lock=std::make_unique<Lock>();
+#ifdef _WIN32
+    lock->handle=CreateFileW(lock_path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if (lock->handle==INVALID_HANDLE_VALUE) {
+        auto error=GetLastError();
+        if (error==ERROR_SHARING_VIOLATION || error==ERROR_LOCK_VIOLATION)
+            throw std::runtime_error("Save is already open: "+path_.string());
+        throw std::system_error(error,std::system_category(),"Opening save lock");
+    }
+#else
+    lock->fd=open(lock_path.c_str(),O_CREAT|O_RDWR|O_CLOEXEC,0600);
+    if (lock->fd<0) throw std::system_error(errno,std::generic_category(),"Opening save lock");
+    if (flock(lock->fd,LOCK_EX|LOCK_NB)) {
+        if (errno==EWOULDBLOCK) throw std::runtime_error("Save is already open: "+path_.string());
+        throw std::system_error(errno,std::generic_category(),"Locking save");
+    }
+#endif
+    lock_=std::move(lock);
+}
 Memory::CartridgeRam SaveStore::load() const {
+    ensure_lock();
     Memory::CartridgeRam image{};
     const auto status=std::filesystem::status(path_);
     if (status.type()==std::filesystem::file_type::not_found) return image;
@@ -46,10 +83,10 @@ Memory::CartridgeRam SaveStore::load() const {
         throw std::runtime_error("Cannot read complete save; it will not be overwritten: "+path_.string());
     return image;
 }
-void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image) {
+static void publish_save(const std::filesystem::path& path,const Memory::CartridgeRam& image,bool validate_destination) {
     std::filesystem::create_directories(path.parent_path());
     // Refuse a newly malformed destination too (e.g. external replacement).
-    if (std::filesystem::exists(path) && (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path)!=image.size()))
+    if (validate_destination && std::filesystem::exists(path) && (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path)!=image.size()))
         throw std::runtime_error("Refusing to replace malformed save: "+path.string());
 #ifdef _WIN32
     std::filesystem::path temp;
@@ -93,11 +130,22 @@ void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& i
     } catch (...) { if (fd>=0) close(fd); unlink(temp.c_str()); throw; }
 #endif
 }
+void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image) {
+    publish_save(path,image,true);
+}
 std::optional<std::string> SaveStore::flush(Memory& memory) {
     if (!retry_ && !memory.cartridge_ram_dirty()) return {};
     retry_=true;
     try {
+        ensure_lock();
+        if (!backup_done_ && std::filesystem::exists(path_)) {
+            const auto original=load();
+            auto backup=path_;backup += ".bak";
+            publish_save(backup,original,false);
+            backup_done_=true;
+        }
         writer_(path_,memory.cartridge_ram());
+        backup_done_=true;
         memory.clear_cartridge_ram_dirty(); retry_=false; ++writes_; return {};
     } catch (const std::exception& e) {
         return "Save write failed; retrying next frame: "+path_.string()+": "+e.what();

@@ -78,7 +78,7 @@ void saves() {
     change(memory,42); check(!store.flush(memory) && !memory.cartridge_ram_dirty() && store.writes()==1,"dirty flush");
     check(store.load()[0]==42 && std::filesystem::file_size(store.path())==8192,"load exact image");
     change(memory,64); check(!store.flush(memory) && store.load()[0]==64,"atomic replacement");
-    for (const auto& item:std::filesystem::directory_iterator(t.path)) check(item.path()==store.path(),"no temporary remains");
+    for (const auto& item:std::filesystem::directory_iterator(t.path)) check(item.path()==store.path() || item.path().extension()==".lock","no temporary remains");
     change(memory,64); check(!store.flush(memory) && store.writes()==2,"same byte stays clean");
     for (unsigned size:{0u,8191u,8193u}) {
         auto folder=t.path/std::to_string(size); std::filesystem::create_directory(folder);
@@ -108,6 +108,30 @@ void saves() {
     check(blocked.flush(dirty).has_value(),"real folder creation failure");
     std::filesystem::remove(blocker);
     check(!blocked.flush(dirty) && blocked.load()[0]==11,"real I/O failure retried");
+}
+void backups() {
+    Temporary t; SaveStore store(t.path,RomVersion::us_rev_a);
+    Memory::CartridgeRam foreign{}; foreign.fill(0xa5);
+    atomic_save(store.path(),foreign);
+    auto original=store.load(); Memory memory(program(),original);
+    auto backup=store.path(); backup += ".bak";
+    { std::ofstream older(backup,std::ios::binary); older << "old"; }
+    change(memory,42); check(!store.flush(memory),"save with existing foreign image");
+    std::ifstream f(backup,std::ios::binary);
+    Memory::CartridgeRam copy{};
+    check(bool(f.read(reinterpret_cast<char*>(copy.data()),copy.size())) && copy==foreign,
+          "first write preserves exact foreign image in backup");
+    change(memory,43); check(!store.flush(memory),"second write succeeds");
+    std::ifstream again(backup,std::ios::binary);again.read(reinterpret_cast<char*>(copy.data()),copy.size());
+    check(copy==foreign,"later writes do not replace session backup");
+    auto other=t.path/"failed-backup"; std::filesystem::create_directories(other);
+    SaveStore blocked(other,RomVersion::us_rev_a);atomic_save(blocked.path(),foreign);
+    auto blocked_backup=blocked.path();blocked_backup += ".bak";std::filesystem::create_directory(blocked_backup);
+    Memory dirty(program(),blocked.load());change(dirty,42);
+    check(blocked.flush(dirty).has_value() && dirty.cartridge_ram_dirty() && blocked.load()==foreign,
+          "failed backup reports error and preserves save and dirty state");
+    std::filesystem::remove(blocked_backup);
+    check(!blocked.flush(dirty) && blocked.load()[0]==42,"backup failure is retried");
 }
 void driver() {
     Temporary t; unsigned attempts=0; bool fail=true;
@@ -184,7 +208,7 @@ void pacing() {
 }
 }
 int main() {
-    try { colours(); scaling(); inputs(); saves(); driver(); resampling(); pacing();
+    try { colours(); scaling(); inputs(); saves(); backups(); driver(); resampling(); pacing();
         std::cout<<"App: 7 test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

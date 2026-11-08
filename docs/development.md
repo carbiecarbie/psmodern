@@ -62,6 +62,12 @@ written. On Windows the app writes an exclusive temporary file in the same
 folder, flushes and closes it, then replaces the destination with
 `MoveFileExW` and write-through. A failure is reported and retried next frame.
 
+**Maintainer decision.** Before the first save write of a session, an existing
+image is copied atomically to `<save name>.bak`, replacing an older backup.
+A failed backup prevents the save write and is reported and retried. A session
+holds an operating-system lock for its save; another instance using that save
+is refused. The lock is released when the process exits, including after a crash.
+
 ## Input
 
 The arrows are the directional pad; Z and X are buttons 1 and 2, Enter is
@@ -73,6 +79,8 @@ on each signed 16-bit axis. Keyboard and controller states are ORed for pad 1;
 opposite directions are passed through and pad 2 stays released. The first
 available controller is selected, including after hot-plug. Input is sampled
 once per emulated frame. Alt+Enter does not also press Pause.
+**Maintainer decision.** The basic controller mapping is always enabled, like
+the keyboard; full controller support with remapping and shortcuts is optional.
 The Enter press used for fullscreen stays consumed until Enter is released,
 even if Alt is released or pressed again first.
 
@@ -140,6 +148,9 @@ for N > 0 governs interval N+1. A change at input 600 is first observable by
 software during interval 601, in manifest frame 602. The final argument is
 still recorded even when no later interval runs. This contract preserves the
 existing app frame driver and is shared by the headless and reference drivers.
+**Maintainer decision.** Keep this one-frame mapping: the reference uses the
+same mapping, existing recordings depend on it, and one frame is not noticeable
+when playing.
 
 ## Record mode
 
@@ -172,11 +183,18 @@ frame numbers/ranges, such as `1,60-65,1200`, all within the recording.
 Manifest frame K is the boundary after call K-1, at the first complete CPU
 instruction boundary at or after K*59736 cycles. The picture is the completed
 256x192 image from the preceding video interval. `manifest.txt` starts with
-`frame picture ram vram cram cart-ram`, followed by a decimal frame and five
-SHA-1s on every line. Selected dumps are `frame-000001.picture.bin`, `.ram.bin`,
-`.vram.bin`, `.cram.bin` and `.cart-ram.bin`: respectively 49152 color bytes,
-8192 work RAM bytes (C000-DFFF), 16384 VRAM bytes, 32 CRAM bytes and 8192
-cartridge RAM bytes. Colors retain six-bit SMS CRAM values, not host RGB.
+`frame picture ram vram cram cart-ram cpu psg`, followed by a decimal frame
+and seven SHA-1s on every line. Selected dumps are `frame-000001.picture.bin`,
+`.ram.bin`, `.vram.bin`, `.cram.bin`, `.cart-ram.bin`, `.cpu.bin` and
+`.psg.bin`. The first five contain 49152 color bytes, 8192 work RAM bytes
+(C000-DFFF), 16384 VRAM bytes, 32 CRAM bytes and 8192 cartridge RAM bytes,
+respectively. Colors retain six-bit SMS CRAM values, not host RGB.
+**Maintainer decision.** CPU captures contain AF, BC, DE, HL and their alternate
+pairs, IX, IY, SP and PC as big-endian pairs, then I, R (including bit 7),
+IFF1, IFF2, interrupt mode and HALT as bytes. PSG captures contain ordered
+three-byte events: a big-endian cycle offset within the video interval and the
+written byte. Writes belong to the interval containing their absolute cycle,
+even when an instruction crosses a frame boundary.
 `psg-writes.txt` holds the entire run as decimal absolute cycle and two-digit
 hex byte. Both PSG write and sample queues are drained after every call.
 
@@ -226,13 +244,22 @@ capture. The next exec callback saves RAM, VRAM, CRAM and cartridge RAM if no
 interrupt entry intervened. CE dispatches its IRQ/NMI event after entry, before
 that exec callback. In that case the driver subtracts the entry duration and
 exports the instruction-end memory, undoing entry-time writes in the exported
-copy only. If the frame began during the entry itself, the next exec remains
-the stopping point. CPU and palette write notifications supply the journal;
-CE does not notify Lua of VRAM stores, so the driver journals pending VRAM
-transfers with CE's SMS1 slot schedule and live-address latch. The authored
+copy only. The exported CPU state similarly reverses entry changes: the pushed
+PC and prior SP and R are recovered, and the frame-start state supplies the
+interrupt flip-flops and HALT state where entry cleared them. When the CPU is
+already halted at the frame event, CE has no fetch callback, so the driver
+captures its unchanged halted state at that event and uses the cycle count of
+the halted step. If the frame began during the entry itself, the next exec
+remains the stopping point. CPU and palette write notifications supply the journal;
+CE does not deliver VRAM stores to Lua under their VRAM domain, so the driver
+journals pending VRAM transfers with CE's SMS1 slot schedule and live-address latch. The authored
 regressions include a NOP ending at the frame boundary and a queued VRAM store
 completed during the following IRQ entry. Both match the runner before PC is
 pushed. `boundaries.txt` records the captured instruction-end cycles.
+**Maintainer decision.** The checkpoint compares the CPU and the ordered PSG
+writes as well as the picture and memories. CE exposes the CPU registers through
+its Lua state API. Its PSG port-write notifications include the exact CPU cycle;
+the callback-domain workaround described below identifies those notifications.
 The launcher hashes all frames and retains raw dumps only for the selection;
 the manifest and dump names/sizes are shared with the runner.
 
@@ -242,7 +269,9 @@ play-test cover Reset. Its `SmsConsole::Reset()` reloads the ROM as a power
 cycle; routing Lua input to a hardware Reset pin would require changes across
 the input and console layers, so the duration patch leaves it out. Stock CE
 has known CPU timing faults, so a difference against it is evidence to
-investigate.
+investigate. **Inference (from authored probes).** CE's R count while halted differs from
+PSModern's, as an authored HALT comparison demonstrates; the full register
+comparison reports that difference rather than suppressing it.
 
 ## Comparison
 
@@ -294,7 +323,7 @@ A present incorrect file fails. Missing provenance, a build digest different
 from `PSMODERN_REFERENCE_SHA256`, an unlabelled build, a
 different recording digest or a runner-produced manifest fails. It
 checks the initial image against the recording header's SHA-1, then checks all
-five hashes at every frame, with no exclusions or transient-byte allowance.
+seven hashes at every frame, with no exclusions or transient-byte allowance.
 Wait for the launcher to exit successfully and verify that the manifest's last
 frame equals the recording's `end` frame before copying it. `complete.txt`
 marks emulator capture completion; hashing and manifest publication follow it.

@@ -48,6 +48,8 @@ local frame=0
 local pending=nil
 local writes={}
 local queued_vdp=nil
+local psg_writes={}
+local boundary_state=nil
 -- CE does not notify Lua of VRAM stores in WriteVram (CRAM stores do notify).
 -- Journal the shared pending CPU write using CE's SMS1 slot schedule. This
 -- matters when its transfer completes during IRQ entry, after the wanted E.
@@ -82,6 +84,31 @@ local function capture(cycle,undo_after)
     flush_vdp(emu.getCpuCycleCount(emu.cpuType.sms))
     local prefix=pending;pending=nil
     boundaries:write(string.format("%d %d\n",frame,cycle))
+    local state=emu.getState()
+    -- An interrupt event is delivered after entry. Restore the changed
+    -- registers in the exported snapshot, using the interrupt stack and the
+    -- values observed at frame start; the emulator itself is not modified.
+    if undo_after then
+        local sp=state["cpu.sp"]
+        state["cpu.pc"]=emu.read(sp,emu.memType.smsMemory)|(emu.read((sp+1)&65535,emu.memType.smsMemory)<<8)
+        state["cpu.sp"]=(sp+2)&65535
+        state["cpu.r"]=(state["cpu.r"]&128)|((state["cpu.r"]-1)&127)
+        state["cpu.halted"]=boundary_state["cpu.halted"]
+        state["cpu.iff1"]=undo_after.nmi and boundary_state["cpu.iff1"] or true
+        if not undo_after.nmi then state["cpu.iff2"]=boundary_state["cpu.iff2"] end
+        undo_after=undo_after.cycle
+    end
+    local fields={"a","flags","b","c","d","e","h","l","altA","altFlags","altB","altC","altD","altE","altH","altL","ixh","ixl","iyh","iyl"}
+    local output={}
+    for _,key in ipairs(fields) do local v=assert(state["cpu."..key],"CPU register unavailable: "..key); output[#output+1]=string.char(v) end
+    for _,key in ipairs({"sp","pc"}) do local v=assert(state["cpu."..key],"CPU register unavailable: "..key); output[#output+1]=string.char(v>>8,v&255) end
+    for _,key in ipairs({"i","r","iff1","iff2","im","halted"}) do
+        local v=state["cpu."..key]; assert(v~=nil,"CPU register unavailable: "..key)
+        if type(v)=="boolean" then v=v and 1 or 0 end
+        output[#output+1]=string.char(v)
+    end
+    put(prefix.."cpu.bin",table.concat(output))
+    put(prefix.."psg.bin",table.concat(psg_writes[frame-1] or {}));psg_writes[frame-1]=nil
     for _,d in ipairs({{"ram","smsWorkRam",8192},{"vram","smsVideoRam",16384},{"cram","smsPaletteRam",32},{"cart-ram","smsCartRam",8192}}) do
         local data=bytes(d[2],d[3])
         -- CE dispatches IRQ/NMI events after entry. Undo writes belonging to
@@ -140,6 +167,20 @@ emu.addMemoryCallback(function(port,value)
         queued_vdp={cycle=next_slot(cycle,enabled),domain=domain,address=index,old=emu.read(index,domain)}
     end
 end,emu.callbackType.write,0x80,0xbf,emu.cpuType.sms,emu.memType.smsPrgRom)
+emu.addMemoryCallback(function(port,value)
+    local cycle=emu.getCpuCycleCount(emu.cpuType.sms)
+    if cycle==memory_write_cycle then return end
+    -- Absolute callbacks also alias VDP memory writes to ROM addresses.
+    -- Those fire inside VDP Exec, before its current dot is incremented;
+    -- a CPU port write fires only after ExecCycles has synchronized the VDP.
+    local state=emu.getState()
+    local dot=state["vdp.scanline"]*342+state["vdp.cycle"]
+    if dot~=(1+(3*cycle)//2)%(342*262) then return end
+    local index=cycle//59736
+    local offset=cycle%59736
+    psg_writes[index]=psg_writes[index] or {}
+    psg_writes[index][#psg_writes[index]+1]=string.char(offset>>8,offset&255,value)
+end,emu.callbackType.write,0x40,0x7f,emu.cpuType.sms,emu.memType.smsPrgRom)
 for _,domain in ipairs({emu.memType.smsVideoRam,emu.memType.smsPaletteRam}) do
     emu.addMemoryCallback(function(address) remember(address,domain) end,emu.callbackType.write,0,domain==emu.memType.smsVideoRam and 16383 or 31,emu.cpuType.sms,domain)
 end
@@ -150,12 +191,13 @@ local function interrupt(nmi)
     local ending=emu.getCpuCycleCount(emu.cpuType.sms)-duration
     -- A frame reached during entry itself belongs to the completed entry,
     -- not to the instruction that ended before the frame boundary.
-    if ending>=frame*59736 then capture(ending,ending) end
+    if ending>=frame*59736 then capture(ending,{cycle=ending,nmi=nmi}) end
 end
 emu.addEventCallback(function() interrupt(false) end,emu.eventType.irq)
 emu.addEventCallback(function() interrupt(true) end,emu.eventType.nmi)
 emu.addEventCallback(function()
     frame=frame+1
+    boundary_state=emu.getState()
     local rgb=emu.getScreenBuffer();local t={}
     for i=24*256+1,216*256 do local v=rgb[i];t[#t+1]=string.char(((v>>22)&3)|(((v>>14)&3)<<2)|(((v>>6)&3)<<4)) end
     local prefix=string.format("frame-%06d.",frame)
@@ -165,4 +207,8 @@ emu.addEventCallback(function()
     -- Drop transfers known to have completed before the frame began.
     if queued_vdp and queued_vdp.cycle<frame*59736 then queued_vdp=nil end
     held=cfg.inputs[frame];input()
+    -- A halted CPU has no opcode-fetch callbacks. Its visible registers do
+    -- not change during CE's halted four-cycle step; CycleCount already
+    -- names that step's end when the VDP reaches this boundary.
+    if boundary_state["cpu.halted"] then capture(emu.getCpuCycleCount(emu.cpuType.sms)) end
 end,emu.eventType.startFrame)

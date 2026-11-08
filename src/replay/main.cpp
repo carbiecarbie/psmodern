@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "replay/recording.h"
+#include "replay/checkpoint.h"
 #include "rom/sha1.h"
 #include <charconv>
 #include <filesystem>
@@ -59,22 +60,24 @@ int run(int argc,char** argv) {
     Machine machine(rom,cart);
     std::ofstream manifest(out/"manifest.txt",std::ios::binary),log(out/"psg-writes.txt",std::ios::binary);
     if(!manifest||!log)throw std::runtime_error("Cannot open replay outputs.");
-    manifest<<"frame picture ram vram cram cart-ram\n";
-    std::size_t change=0;FrameInput input{};
+    manifest<<"frame picture ram vram cram cart-ram cpu psg\n";
+    std::size_t change=0;FrameInput input{}; replay::FrameWrites frame_writes;
     for(std::uint64_t n=0;n<recording.frames;++n) {
         if(change<recording.changes.size()&&recording.changes[change].frame==n)input=recording.changes[change++].input;
         machine.run_frame(input);
         auto writes=machine.take_psg_writes();auto samples=machine.take_samples();(void)samples;
+        auto psg=frame_writes.take(n+1,writes); auto cpu=replay::cpu_bytes(machine.cpu());
         for(const auto& w:writes)log<<w.cycle<<' '<<hexbyte(w.byte)<<'\n';
         const auto& picture=machine.picture();const auto& ram=machine.memory().ram();
         const auto& vram=machine.vdp().vram();const auto& cram=machine.vdp().cram();
         const auto& cart_ram=machine.memory().cartridge_ram();
-        manifest<<n+1<<' '<<sha1(picture)<<' '<<sha1(ram)<<' '<<sha1(vram)<<' '<<sha1(cram)<<' '<<sha1(cart_ram)<<'\n';
+        manifest<<n+1<<' '<<sha1(picture)<<' '<<sha1(ram)<<' '<<sha1(vram)<<' '<<sha1(cram)<<' '<<sha1(cart_ram)<<' '<<sha1(cpu)<<' '<<sha1(psg)<<'\n';
         if(selected.contains(n+1)) {
             std::ostringstream prefix;prefix<<"frame-"<<std::setw(6)<<std::setfill('0')<<n+1<<'.';
             binary(out/(prefix.str()+"picture.bin"),picture);binary(out/(prefix.str()+"ram.bin"),ram);
             binary(out/(prefix.str()+"vram.bin"),vram);binary(out/(prefix.str()+"cram.bin"),cram);
             binary(out/(prefix.str()+"cart-ram.bin"),cart_ram);
+            binary(out/(prefix.str()+"cpu.bin"),cpu); binary(out/(prefix.str()+"psg.bin"),psg);
         }
     }
     manifest.close();log.close();if(!manifest||!log)throw std::runtime_error("Cannot close replay outputs.");

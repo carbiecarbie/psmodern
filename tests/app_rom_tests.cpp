@@ -18,6 +18,7 @@ int main(int argc,char** argv) {
         check(std::filesystem::create_directory(folder),"new temporary save folder");
         std::ifstream f(argv[1],std::ios::binary);
         auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>());
+        {
         app::FrameDriver driver(rom,app::SaveStore(folder,version)); Machine direct(rom);
         unsigned dirty_frames=0;
         for (unsigned n=0;n<1200;++n) {
@@ -37,6 +38,7 @@ int main(int argc,char** argv) {
         const auto before=driver.store().writes(); check(!driver.flush() && driver.store().writes()==before,"clean exit wrote save");
         std::cout<<"1200 frames: identical Machine state, picture, writes and samples; both queues drained every frame; "
                  <<dirty_frames<<" dirty writes, "<<1200-dirty_frames<<" unchanged frames without writes.\n";
+        } // Release the OS save lock before removing the fixture.
         std::filesystem::remove_all(folder); return 0;
     } catch (const std::exception& e) {
         std::cerr<<e.what()<<'\n'; std::error_code ec; std::filesystem::remove_all(folder,ec); return 1;

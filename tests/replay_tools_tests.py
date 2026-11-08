@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory() as folder:
     rec.write_text(header.replace(hashlib.sha1(bytes([1])*8192).hexdigest(),hashlib.sha1(bytes(8192)).hexdigest())+'end 2\n',encoding='ascii',newline='\n')
     (root/'out').mkdir();rejects(args,'already exists')
     a=root/'a';b=root/'b';a.mkdir();b.mkdir()
-    row='1 '+' '.join(['0'*40]*5)+'\n'
+    row='1 '+' '.join(['0'*40]*7)+'\n'
     for p in (a,b):(p/'manifest.txt').write_text(HEADER+'\n'+row,encoding='ascii')
     check(compare(a/'manifest.txt',b/'manifest.txt')==[], 'Explicit test check failed')
     (b/'manifest.txt').write_text(HEADER+'\n'+row.replace('0'*40,'1'*40,1),encoding='ascii')
@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as folder:
     result=compare(a/'manifest.txt',b/'manifest.txt');check('frame 1: picture' in result[0] and any('0x0011' in line for line in result), 'Explicit test check failed')
     # A later RAM divergence must be reported even after the first picture difference.
     (a/'manifest.txt').write_text(HEADER+'\n'+row+row.replace('1 ','2 ',1),encoding='ascii')
-    second='2 '+'0'*40+' '+'1'*40+' '+' '.join(['0'*40]*3)+'\n'
+    second='2 '+'0'*40+' '+'1'*40+' '+' '.join(['0'*40]*5)+'\n'
     (b/'manifest.txt').write_text(HEADER+'\n'+row.replace('0'*40,'1'*40,1)+second,encoding='ascii')
     (a/'frame-000002.ram.bin').write_bytes(bytes(8192));(b/'frame-000002.ram.bin').write_bytes(bytes(5)+b'x'+bytes(8186))
     result=compare(a/'manifest.txt',b/'manifest.txt',[(0xc000,0xc003)])
@@ -60,7 +60,12 @@ with tempfile.TemporaryDirectory() as folder:
                 (bytes(49152),b'\xab'+bytes(8191),bytes(16384),cram,cart)]
         identity={'label':'Authored data-free fixture','executable_sha256':reference_sha256,
                   'recording_sha256':hashlib.sha256(rec.read_bytes()).hexdigest()}
-        return [HEADER]+provenance(identity).splitlines()+[str(n)+' '+' '.join(hashes) for n in (1,2)]
+        def cpu(n):
+            # NOPs cost four cycles and preserve all registers except PC and R.
+            pairs=(0xab42,2,0xa51b,0,0,0x0200,0xc700,0xc75f,0,0,0xdff0,14934*n)
+            return b''.join(v.to_bytes(2,'big') for v in pairs)+bytes((0,(29+14934*n)&127,0,0,1,0))
+        return [HEADER]+provenance(identity).splitlines()+[
+            str(n)+' '+' '.join(hashes+[hashlib.sha1(cpu(n)).hexdigest(),hashlib.sha1(b'').hexdigest()]) for n in (1,2)]
     rows=expected_rows(bytes(8192))
     expected=root/'expected.txt'
     def checkpoint(lines,code):
@@ -75,7 +80,7 @@ with tempfile.TemporaryDirectory() as folder:
     wrong=rows.copy();wrong[4]='recording-sha256 '+'f'*64;checkpoint(wrong,1)
     wrong=rows.copy();wrong[2]='build-sha256 invalid';checkpoint(wrong,1)
     wrong=rows.copy();wrong[3]='build-label ""';checkpoint(wrong,1)
-    for component in range(1,6):
+    for component in range(1,8):
         changed=rows.copy(); fields=changed[5].split(); fields[component]='f'*40
         changed[5]=' '.join(fields); checkpoint(changed,1)
     checkpoint(rows[:-1],1)
@@ -142,7 +147,7 @@ with tempfile.TemporaryDirectory() as folder:
         check(settings['Debug']['ScriptWindow']['ScriptTimeout']==1200,'Numeric Lua timeout must be set through configuration')
         for n in (1,2):
             for component,size in zip(reference.COMPONENTS,reference.SIZES):
-                (work/f'frame-{n:06d}.{component}.bin').write_bytes(bytes(size))
+                (work/f'frame-{n:06d}.{component}.bin').write_bytes(bytes(size or 0))
         (work/'complete.txt').write_text('2')
         return subprocess.CompletedProcess(command,0)
     def callback_error(command,**kwargs):

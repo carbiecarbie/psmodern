@@ -3,8 +3,8 @@ import argparse
 from pathlib import Path
 import re
 
-COMPONENTS = ('picture', 'ram', 'vram', 'cram', 'cart-ram')
-SIZES = (49152, 8192, 16384, 32, 8192)
+COMPONENTS = ('picture', 'ram', 'vram', 'cram', 'cart-ram', 'cpu', 'psg')
+SIZES = (49152, 8192, 16384, 32, 8192, 30, None)
 HEADER = 'frame ' + ' '.join(COMPONENTS)
 
 def read_manifest(path):
@@ -20,7 +20,7 @@ def read_manifest(path):
     rows = []
     for n, line in enumerate(lines[1:], 1):
         fields = line.split(' ')
-        if len(fields) != 6 or fields[0] != str(n) or any(not re.fullmatch('[0-9a-f]{40}', x) for x in fields[1:]):
+        if len(fields) != len(COMPONENTS)+1 or fields[0] != str(n) or any(not re.fullmatch('[0-9a-f]{40}', x) for x in fields[1:]):
             raise ValueError(f'Invalid manifest line {n+1}')
         rows.append(fields[1:])
     return rows
@@ -32,7 +32,7 @@ def compare(left, right, stack_ranges=()):
     for n in range(max(len(a), len(b))):
         if n >= min(len(a), len(b)):
             result.append(f'First difference: frame {n+1}: missing frame');break
-        different = [i for i in range(5) if a[n][i] != b[n][i]]
+        different = [i for i in range(len(COMPONENTS)) if a[n][i] != b[n][i]]
         if different:
             if not result:result.append(f'First difference: frame {n+1}: ' + ', '.join(COMPONENTS[i] for i in different))
             for i in different:
@@ -43,9 +43,10 @@ def compare(left, right, stack_ranges=()):
                 x, y = left.parent/name, right.parent/name
                 if x.exists() and y.exists():
                     xb, yb = x.read_bytes(), y.read_bytes()
-                    if len(xb) != SIZES[i] or len(yb) != SIZES[i]:
+                    if SIZES[i] is not None and (len(xb) != SIZES[i] or len(yb) != SIZES[i]):
                         raise ValueError(f'Invalid dump size: {name}')
-                    offset = next((j for j in range(len(xb)) if xb[j] != yb[j]), None)
+                    offset = next((j for j in range(min(len(xb),len(yb))) if xb[j] != yb[j]), None)
+                    if offset is None and len(xb)!=len(yb): offset=min(len(xb),len(yb))
                     if offset is None and first:
                         result.append(f'{COMPONENTS[i]}: dumps equal despite different manifest hashes')
                     elif offset is not None and first:

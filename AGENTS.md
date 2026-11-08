@@ -17,7 +17,7 @@ workings are explained in plain words (see Documentation).
 
 Optional features (adjustable experience and encounters, automap, widescreen
 on the world map and in towns, a new interface, language selection,
-controller support) are opt-in and off by default. They never change original
+full controller support (remapping, shortcuts)) are opt-in and off by default. They never change original
 mode. Any other deviation from the original needs the maintainer's explicit
 approval and is documented where it lives.
 

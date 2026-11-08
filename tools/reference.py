@@ -111,7 +111,7 @@ def main():
                 digests=[]
                 for component,size in zip(COMPONENTS,SIZES):
                     path=out/f'frame-{n:06d}.{component}.bin';data=path.read_bytes()
-                    if len(data)!=size:raise ValueError('Wrong capture size')
+                    if size is not None and len(data)!=size:raise ValueError('Wrong capture size')
                     digests.append(hashlib.sha1(data).hexdigest())
                     if n not in selected:path.unlink()
                 manifest.write(str(n)+' '+' '.join(digests)+'\n')

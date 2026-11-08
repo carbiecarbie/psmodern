@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "replay/recording.h"
+#include "replay/checkpoint.h"
 #include "rom/sha1.h"
 #include <chrono>
 #include <fstream>
@@ -11,6 +12,15 @@ void check(bool ok) {if(!ok)throw std::runtime_error("Replay assertion failed");
 int main() {
     auto folder=std::filesystem::temp_directory_path()/("psmodern-replay-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
+        FrameWrites frame_writes;
+        check(frame_writes.take(1,{{59735,0x90},{59736,0x9f},{59740,0xaa}})==
+              std::vector<std::uint8_t>({0xe9,0x57,0x90}));
+        check(frame_writes.take(2,{})==std::vector<std::uint8_t>({0,0,0x9f,0,4,0xaa}));
+        Z80 cpu{};cpu.af.uint16_value=0x1234;cpu.af_.uint16_value=0x5678;
+        cpu.pc.uint16_value=0xabcd;cpu.r=0x81;cpu.iff2=1;cpu.halt_line=1;
+        auto bytes=cpu_bytes(cpu);
+        check(bytes[0]==0x12 && bytes[1]==0x34 && bytes[8]==0x56 && bytes[9]==0x78 &&
+              bytes[22]==0xab && bytes[23]==0xcd && bytes[25]==0x81 && bytes[27]==1 && bytes[29]==1);
         Recorder rec(std::string(40,'a'),sha1(Memory::CartridgeRam{}));
         FrameInput input{};rec.add(input);input.pads[0].one=true;input.pads[1].up=true;input.pause=true;input.reset=true;
         rec.add(input);rec.add(input);rec.add({});
