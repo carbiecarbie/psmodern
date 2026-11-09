@@ -213,24 +213,41 @@ verifiable milestones.
 
 ### 5.5 Languages
 
-The Brazilian ROM is **a full original-mode target** (maintainer decision):
-original mode in Portuguese behaves exactly like Tec Toy's cartridge, running
-the Brazilian ROM's own code.
+The Brazilian ROM is **an original-mode target** (maintainer decision):
+original mode in Portuguese behaves exactly like Tec Toy's cartridge.
 
+**How the two ROMs differ** (ROM static, compared 2026-11-09). Their code is
+the same except one operand at `01:4181`, which picks a blank tile on the
+save-name screen. Rules, enemies, items, shops, encounter tables, maps, music
+and the save layout are the same. The rest of the differences are text, item
+names, menu, title and opening graphics, and the cartridge header. The text still
+changes how the game plays: its control codes decide where some
+conversations stop, wait for a button or run into the next message, and its
+length changes how long the text takes to print. The game's random draws
+depend on that timing, so the same input gives different random draws in the
+two versions (ROM run).
+
+**US first, Brazilian checked automatically** (maintainer decision,
+2026-11-09):
+
+- The US ROM is the main development target. Rewritten routines, new
+  recordings and maintainer play-tests use it.
+- The Brazilian recordings stay in the checkpoint and lockstep tests, and a
+  rewritten routine must pass them too. A new Brazilian recording is added
+  only when a Brazilian difference needs one: the operand above, or a text
+  path only the Brazilian script reaches.
+- Because the code is shared, one rewritten routine serves both versions. It
+  must not assume the US text: Portuguese comes from the Brazilian ROM's own
+  text, item names, menus and control codes, never from replacing only the
+  words.
 - The game must start with the Brazilian ROM alone, the US ROM alone, or
   both. With both, the player picks the language in the options.
-- The Brazilian version may have pointers, tables and even code that differ
-  from the US one. One of the first tasks of the study milestone is to
-  **compare the two ROMs** and list where their code differs.
-- Where the code of both versions is the same, a rewritten routine serves
-  both. Where it differs, the routine is checked against both ROMs, with
-  recordings of both.
 - Text is **not extracted into files in the repository**: it is read from
   the player's ROM at startup (see 7). In enhanced mode, the new interface
   and windows must accept texts of different lengths in the two languages.
 - Changing the language takes effect at the next game start, not mid-game.
-  Whether a save works across languages depends on whether the two versions'
-  save formats differ, which the ROM comparison will show.
+  The save layout is the same in both versions, and US saves load in the
+  Brazilian game (Reference emulator), so a save works in both languages.
 
 ## 6. Knowledge as a deliverable
 
@@ -300,7 +317,7 @@ study base (stage 3) shows how the code is organized.
    routine. The game also starts from the Brazilian ROM.
 3. **Study base:** set up `psmodern-re`, choose the starting disassembly
    (pscave or sung3r) and strip the ROM data out of it (see 6). Disassemble
-   the code the game runs in banks 3-31. Compare the US and Brazilian ROMs. First RAM map. First
+   the code the game runs in banks 3-31. First RAM map. First
    `how-it-works` documents.
 4. **First win:** rewrite the encounter roll and experience gain. Ship the
    encounter option (adjustable/off) and the experience option.

@@ -96,8 +96,9 @@ No routine is rewritten yet; that starts after the verification stage.
 
 - **No options and no rewritten routines yet.**
 - **Windows only** for the save location.
-- **The Brazilian version was not play-tested** by the maintainer. Its six
-  checkpoints and the save code it shares with the US version cover it.
+- **The Brazilian version is checked by its recordings, not by play.**
+  Development and play-tests use the US version (design 5.5); the Brazilian
+  version's six checkpoints run in the tests.
 - **Some details of the first Master System's video chip are unmeasured.**
   PSModern follows the reference there, and [development](development.md)
   labels them Unknown. The game reaches two of them, video memory accesses

@@ -59,8 +59,10 @@ below automatically, so read each one whose trigger applies before acting.
 - **Timing is behavior.** Every rewritten routine accounts for the cycles the
   original would have spent, and the lockstep comparison checks them. A
   routine that matches the state but not the cycles is not done.
-- **Both versions.** Where the Brazilian ROM's code differs from the US one,
-  a rewritten routine is checked against both ROMs.
+- **US first, Brazilian checked.** Develop, record and play-test with the US
+  ROM. The two ROMs share their code (design 5.5), so a rewritten routine
+  serves both and must also pass the Brazilian recordings. Never assume the
+  US text: the Brazilian text has its own control codes and timing.
 - **Rewrite whole routines.** Replace a routine at its entry point with the
   same inputs, outputs, side effects and cycle cost. Early rewrites may keep
   the original RAM layout and look "Z80-shaped"; cleaning them up is later,
