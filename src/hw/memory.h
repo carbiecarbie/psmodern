@@ -31,6 +31,7 @@ public:
     bool operator==(const Memory&) const = default;
 
 private:
+    friend class Machine;
     std::shared_ptr<const Rom> rom_;
     std::array<std::uint8_t, 8192> ram_=initial_state::work_ram();
     CartridgeRam cartridge_ram_{};

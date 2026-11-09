@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <Z80.h>
+#include "hw/differences.h"
 #include <cstdint>
 
 namespace psmodern {
@@ -23,6 +24,7 @@ public:
     const Z80& raw() const { return state_; }
     std::uint64_t step(std::uint64_t start_cycle);
     bool equivalent(const Cpu& other) const;
+    void differences(const Cpu& other, DifferenceList& out) const;
 private:
     static zuint8 opcode(void*, zuint16);
     static zuint8 read(void*, zuint16);

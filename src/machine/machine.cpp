@@ -32,13 +32,12 @@ Machine& Machine::operator=(const Machine& o) {
 }
 void Machine::bind() { cpu_.bind(*this); }
 bool Machine::equivalent(const Machine& o) const {
-    return memory_==o.memory_ && cpu_.equivalent(o.cpu_) && vdp_==o.vdp_ && psg_==o.psg_ && cycle_==o.cycle_ &&
-        opcode_fetches_==o.opcode_fetches_ && scheduled_nmi_==o.scheduled_nmi_ && pads_==o.pads_ &&
-        pending_pads_==o.pending_pads_ && io_control_==o.io_control_ && open_bus_==o.open_bus_ &&
-        reset_==o.reset_ && pause_==o.pause_ && pending_reset_==o.pending_reset_ && pending_pause_==o.pending_pause_ &&
-        input_latched_==o.input_latched_ && sampled_int_==o.sampled_int_ &&
-        sampled_nmi_==o.sampled_nmi_ && pause_nmi_level_==o.pause_nmi_level_;
+    return differences(o).empty();
 }
+std::uint8_t Machine::peek(std::uint16_t address) const {
+    return memory_.mapping(address).kind==Memory::Kind::unmapped ? open_bus_ : memory_.read(address);
+}
+
 void Machine::latch_input() {
     pads_=pending_pads_; reset_=pending_reset_;
     pause_=pending_pause_; input_latched_=true;
@@ -121,6 +120,12 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     auto reason=[&](RoutineFallback why, bool applies) {
         if (applies) { fallback=true; ++counters.reasons[static_cast<unsigned>(why)]; }
     };
+    reason(RoutineFallback::halted,cpu_.raw().halt_line!=0);
+    reason(RoutineFallback::interrupt_delay,(cpu_.raw().request & Z80_REQUEST_REJECT_NMI)!=0);
+    const auto sp=cpu_.raw().sp.uint16_value;
+    reason(RoutineFallback::unmapped_stack,memory_.mapping(sp).kind==Memory::Kind::unmapped ||
+        memory_.mapping(static_cast<std::uint16_t>(sp+1)).kind==Memory::Kind::unmapped);
+    reason(RoutineFallback::ei_delay,cpu_.raw().data.uint8_array[0]==0xfb);
     const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;
     const auto nmi=next_nmi();
     reason(RoutineFallback::irq,irq && *irq<end);
@@ -128,33 +133,48 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     reason(RoutineFallback::frame,frame_cycles-cycle_%frame_cycles<bound);
     if (fallback) { ++counters.fallback_calls; return false; }
     ++counters.cpp_calls;
-    RoutineContext context(*this,bound);
-    routine->body(context);
-    context.check_bound();
-    if (!context.finished_) throw std::runtime_error("Registered routine omitted its original return");
+    auto body=[&] {
+        RoutineContext context(*this,bound);
+        routine->body(context);
+        context.check_bound();
+        if (!context.finished_) throw std::runtime_error("Registered routine omitted its original return");
+    };
+    if (routines.verifier) routines.verifier->run(*this,{mapping.bank,pc},bound,counters.cpp_calls+counters.fallback_calls,body);
+    else body();
     return true;
 }
-std::uint64_t Machine::step(const Hook& hook, RoutineRegistry* routines) {
-    sync(cycle_);
+bool Machine::interrupt_accepted_at_boundary() const {
+    if (cpu_.raw().resume && cpu_.raw().resume!=Z80_RESUME_HALT) return false;
     const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
-    z80_int(&cpu_.raw(), sampled_int_);
-    const auto request=cpu_.raw().request & ~(unsampled_nmi ? Z80_REQUEST_NMI : 0);
+    auto request=cpu_.raw().request & ~(unsampled_nmi ? Z80_REQUEST_NMI : 0);
+    // z80_int at Z80.c:2380-2383 clears a deasserted line, and only
+    // creates a request for an asserted line when IFF1 is set.
+    if (!sampled_int_) request &= ~Z80_REQUEST_INT;
+    else if (cpu_.raw().iff1) request |= Z80_REQUEST_INT;
     // Mirrors the pinned Z80.c RETN bookkeeping (lines 1141-1146) and
-    // request/RETN acceptance checks (lines 2558-2612). Re-verify on a pin change.
+    // request/RETN acceptance checks (2505-2507,2560-2618). Resumed index
+    // work precedes that loop; halted work can reenter it (2443-2492).
     const bool reject_nmi=(request & Z80_REQUEST_REJECT_NMI)!=0;
     const bool nmi=!reject_nmi && (request & Z80_REQUEST_NMI);
     const bool reti_delay=cpu_.raw().data.uint8_array[0]==0xed &&
         (cpu_.raw().data.uint8_array[1]&0xc7)==0x45 && !(cpu_.raw().data.uint8_array[2]&1);
     const bool irq=!reject_nmi && !nmi && (request & Z80_REQUEST_INT) &&
         cpu_.raw().data.uint8_array[0]!=0xfb && !reti_delay;
+    return nmi || irq;
+}
+std::uint64_t Machine::step(const Hook& hook, RoutineRegistry* routines) {
+    sync(cycle_);
+    const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
+    z80_int(&cpu_.raw(), sampled_int_);
+    const bool accepted=interrupt_accepted_at_boundary();
     // Check while an entry-cycle NMI is still visible. Only the native path
     // hides an edge which missed the preceding instruction's E-1 sample.
-    if (cpu_.raw().resume==0 && !nmi && !irq && routines && !routines->empty()) {
+    if (cpu_.raw().resume==0 && !accepted && routines && !routines->empty()) {
         const auto entry=cycle_;
         if (run_routine(*routines)) return cycle_-entry;
     }
     if (unsampled_nmi) cpu_.raw().request &= ~Z80_REQUEST_NMI;
-    if (cpu_.raw().resume==0 && !nmi && !irq && hook) {
+    if (cpu_.raw().resume==0 && !accepted && hook) {
         const auto pc=cpu_.raw().pc.uint16_value;
         if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
     }

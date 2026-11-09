@@ -15,7 +15,8 @@ struct RoutineEntry {
     std::uint16_t address;
     auto operator<=>(const RoutineEntry&) const = default;
 };
-enum class RoutineFallback : unsigned { disabled, irq, nmi, frame, count };
+enum class RoutineFallback : unsigned { disabled, irq, nmi, frame, ei_delay, interrupt_delay,
+    halted, unmapped_stack, count };
 struct RoutineCounters {
     std::uint64_t cpp_calls=0, fallback_calls=0;
     std::array<std::uint64_t,static_cast<unsigned>(RoutineFallback::count)> reasons{};
@@ -60,12 +61,20 @@ struct RegisteredRoutine {
     RoutineCounters counters;
 };
 
+class RoutineVerifier {
+public:
+    virtual ~RoutineVerifier()=default;
+    virtual void run(Machine&, RoutineEntry, std::uint64_t bound, std::uint64_t call,
+                     const std::function<void()>& body)=0;
+};
+
 // Host-owned instrumentation: deliberately absent from Machine and its copies.
 class RoutineRegistry {
 public:
     void add(RoutineEntry entry, RegisteredRoutine::Bound bound, RegisteredRoutine::Body body);
     bool empty() const { return routines_.empty(); }
     bool enabled=true;
+    RoutineVerifier* verifier=nullptr;
     RegisteredRoutine* find(RoutineEntry entry);
     const RegisteredRoutine* find(RoutineEntry entry) const;
 private:

@@ -17,6 +17,9 @@ void Cpu::bind(CpuBus& bus) {
 }
 std::uint64_t Cpu::step(std::uint64_t start_cycle) { start_cycle_=start_cycle; return z80_run(&state_,1); }
 bool Cpu::equivalent(const Cpu& other) const {
+    DifferenceList out; differences(other,out); return out.fields.empty();
+}
+void Cpu::differences(const Cpu& other, DifferenceList& out) const {
     const auto& a=state_; const auto& b=other.state_;
     // Z80.c:2962 replaces data[0] before dispatch; 2073/2080/2489 replace
     // data[1] before prefix use, 2113 replaces data[3], and 1142 writes
@@ -27,19 +30,41 @@ bool Cpu::equivalent(const Cpu& other) const {
     const bool data_live=a.resume || b.resume || prefix(a.data.uint8_array[0]) || prefix(b.data.uint8_array[0]);
     // xy is a temporary: Z80.c:2094,2488,2834 load the selected index before
     // use; 2144-2148 only save/restore its old, otherwise unused value.
-    return a.cycles==b.cycles && a.cycle_limit==b.cycle_limit &&
-        a.data.uint8_array[0]==b.data.uint8_array[0] && (!data_live || a.data.uint32_value==b.data.uint32_value) &&
-        a.ix_iy[0].uint16_value==b.ix_iy[0].uint16_value && a.ix_iy[1].uint16_value==b.ix_iy[1].uint16_value &&
-        a.pc.uint16_value==b.pc.uint16_value && a.sp.uint16_value==b.sp.uint16_value &&
-        a.memptr.uint16_value==b.memptr.uint16_value &&
-        a.af.uint16_value==b.af.uint16_value && a.af_.uint16_value==b.af_.uint16_value &&
-        a.bc.uint16_value==b.bc.uint16_value && a.bc_.uint16_value==b.bc_.uint16_value &&
-        a.de.uint16_value==b.de.uint16_value && a.de_.uint16_value==b.de_.uint16_value &&
-        a.hl.uint16_value==b.hl.uint16_value && a.hl_.uint16_value==b.hl_.uint16_value &&
-        a.r==b.r && a.r7==b.r7 && a.i==b.i && a.im==b.im && a.request==b.request &&
-        a.resume==b.resume && a.iff1==b.iff1 && a.iff2==b.iff2 && a.q==b.q &&
-        a.options==b.options && a.int_line==b.int_line && a.halt_line==b.halt_line && start_cycle_==other.start_cycle_;
+    out.add("cpu.data[0]",a.data.uint8_array[0],b.data.uint8_array[0],true);
+    if (data_live) for (unsigned i=1;i<4;++i)
+        out.add("cpu.data["+std::to_string(i)+"]",a.data.uint8_array[i],b.data.uint8_array[i],true);
+    out.add("cpu.cycles",a.cycles,b.cycles);
+    out.add("cpu.cycle_limit",a.cycle_limit,b.cycle_limit);
+    out.add("cpu.ix_iy[0]",a.ix_iy[0].uint16_value,b.ix_iy[0].uint16_value,true);
+    out.add("cpu.ix_iy[1]",a.ix_iy[1].uint16_value,b.ix_iy[1].uint16_value,true);
+    out.add("cpu.pc",a.pc.uint16_value,b.pc.uint16_value);
+    out.add("cpu.sp",a.sp.uint16_value,b.sp.uint16_value);
+    out.add("cpu.memptr",a.memptr.uint16_value,b.memptr.uint16_value);
+    out.add("cpu.a",a.af.uint8_values.at_1,b.af.uint8_values.at_1,true);
+    out.add("cpu.f",a.af.uint8_values.at_0,b.af.uint8_values.at_0);
+    out.add("cpu.a_",a.af_.uint8_values.at_1,b.af_.uint8_values.at_1,true);
+    out.add("cpu.f_",a.af_.uint8_values.at_0,b.af_.uint8_values.at_0);
+    out.add("cpu.bc",a.bc.uint16_value,b.bc.uint16_value,true);
+    out.add("cpu.bc_",a.bc_.uint16_value,b.bc_.uint16_value,true);
+    out.add("cpu.de",a.de.uint16_value,b.de.uint16_value,true);
+    out.add("cpu.de_",a.de_.uint16_value,b.de_.uint16_value,true);
+    out.add("cpu.hl",a.hl.uint16_value,b.hl.uint16_value,true);
+    out.add("cpu.hl_",a.hl_.uint16_value,b.hl_.uint16_value,true);
+    out.add("cpu.r",a.r,b.r,true);
+    out.add("cpu.r7",a.r7,b.r7,true);
+    out.add("cpu.i",a.i,b.i,true);
+    out.add("cpu.im",a.im,b.im);
+    out.add("cpu.request",a.request,b.request);
+    out.add("cpu.resume",a.resume,b.resume);
+    out.add("cpu.iff1",a.iff1,b.iff1);
+    out.add("cpu.iff2",a.iff2,b.iff2);
+    out.add("cpu.q",a.q,b.q);
+    out.add("cpu.options",a.options,b.options);
+    out.add("cpu.int_line",a.int_line,b.int_line);
+    out.add("cpu.halt_line",a.halt_line,b.halt_line);
+    out.add("cpu.start_cycle",start_cycle_,other.start_cycle_);
 }
+
 zuint8 Cpu::opcode(void* p, zuint16 a) { return static_cast<Cpu*>(p)->bus_->opcode(a); }
 zuint8 Cpu::read(void* p, zuint16 a) { return static_cast<Cpu*>(p)->bus_->read(a); }
 void Cpu::write(void* p, zuint16 a, zuint8 v) { static_cast<Cpu*>(p)->bus_->write(a,v); }

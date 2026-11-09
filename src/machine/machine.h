@@ -62,6 +62,10 @@ public:
     // Single bounded probe for timing tests; never retains a history.
     const std::optional<PortAccess>& last_access() const { return last_access_; }
     bool equivalent(const Machine& other) const;
+    // Values are ordered as original (*this), replacement (other).
+    std::vector<FieldDifference> differences(const Machine& other) const;
+    std::uint8_t peek(std::uint16_t address) const;
+    bool interrupt_accepted_at_boundary() const;
 private:
     friend class RoutineContext;
     bool run_routine(RoutineRegistry& routines);

@@ -208,13 +208,28 @@ with `--cart-ram`. No game routine is registered yet.
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
 entries by mapped ROM bank and CPU address; cartridge RAM, work RAM and
-unmapped accesses never dispatch. The registry, enable flag and counters are
+unmapped entry accesses never dispatch. The registry, enable flag and counters are
 outside the machine snapshot and `Machine::equivalent`.
 
 Each entry supplies a bound function of the const entry machine and a body
 taking `RoutineContext`. The bound includes the original returning
-instruction. At a complete instruction boundary, before accepting any
-interrupt, dispatch checks the half-open interval `[entry, entry+bound)`.
+instruction. Dispatch skips a registered entry only when the core actually
+accepts an interrupt at that boundary; this starts no call and changes no
+routine counter. With INT asserted and IFF1 clear, C++ can run. During the
+one-instruction EI delay, the entry reaches the window check and falls back
+with the `ei_delay` reason. A later return from an interrupt handler can
+then dispatch the call normally.
+
+The acceptance predicate follows the pinned
+`third_party/redcode-z80/sources/Z80.c`: lines 2380-2383 gate creation of the
+INT request on IFF1 and clear it when the line is deasserted; lines 2443-2492
+handle resumed work; lines 2505-2507 enter request processing; lines
+2560-2582 give the NMI-rejection marker precedence over NMI acceptance;
+lines 2605-2618 apply the prior-instruction delay conditions for INT.
+The request used here is the preceding instruction's E-1 sample, including
+the existing handling of an NMI first visible at entry.
+
+Otherwise dispatch checks the half-open interval `[entry, entry+bound)`.
 An enabled maskable interrupt source, any NMI request (including one first
 visible at entry), or a frame boundary in that interval forces the original
 path. The maskable check requires IFF1; the window is deliberately checked
@@ -241,10 +256,65 @@ play too. VDP guards decode the actual latch, including a half-command at
 entry. Other VDP commands and I/O control remain available.
 
 Per-entry counters record C++ calls, fallback calls and reasons: disabled,
-IRQ, NMI and frame. Several window reasons may apply to one fallback;
+IRQ, NMI, frame, `ei_delay`, `interrupt_delay` (the core's NMI-rejection
+marker), `halted` and `unmapped_stack`. An unmapped stack byte
+has no stable entry return address, so that call stays native. A halted core
+at a complete boundary also stays native, with its reason counted. Resumed
+prefix/HALT work is inside an already-started instruction and cannot start
+a new registered call, even when PC still points at its prefix. It bypasses
+dispatch without counting the same call again. Several window reasons may
+apply to one fallback;
 interrupt acceptance itself does not start a routine call. Existing hooks
 retain their native-path redirection behavior and are not called for a
 successful replacement.
+
+The runner has two independent verification options, both off by default:
+
+- `--lockstep-calls` copies the machine at each admitted C++ call. A const
+  `Machine::peek` reads the stack return address without bus callbacks or
+  open-bus updates. The copy runs with routines off until the first complete
+  instruction boundary with entry SP plus two and that PC. No further
+  instruction starts at or beyond the declared bound; a native instruction
+  that ends past it, or a call still unfinished at it, reports
+  `understated bound`. An accepted interrupt or a frame boundary inside the
+  window reports `window-check failure`. A boundary exactly at the final
+  return cycle is outside the window. The real C++ call then runs once and
+  its complete machine state is compared. The first failure exits nonzero.
+- `--compare-recording` runs a second machine from the same recording and
+  initial cartridge RAM with routines off. It compares the seven manifest
+  components (`picture`, `ram`, `vram`, `cram`, `cart-ram`, `cpu`, `psg`) at
+  every frame, stopping at the first differing frame and component. It
+  requires routines enabled and can be combined with `--lockstep-calls`.
+
+Both options preserve the real machine, timing, manifest and output files.
+With call verification off, there are no verification copies or extra
+per-instruction checks; the verifier pointer is checked only at C++ calls.
+For example:
+
+```sh
+psmodern_replay game.sms input.psrec --dump 1 --out replay-output --lockstep-calls --compare-recording
+```
+
+`Machine::differences(other)` returns the field name, original/replacement
+values and ROM-sensitivity flag for every difference; `equivalent` is
+exactly an empty difference list. Array and queue elements have indexed
+field names. CPU equivalence uses the same field comparisons. The derived
+VDP IRQ cache, host bindings/instrumentation and diagnostic `last_access`
+probe retain their existing exclusions.
+
+A call report begins with `Divergence: recording <name>, frame <number>,
+cycle <entry-cycle>, routine <bank:address>, call <number>`. Frames are
+one-based; cycles are absolute. The call number is the per-entry sum of
+C++ and fallback calls, including the failing call. Each following line
+names a differing field and gives `original=<value>, replacement=<value>`.
+Fields that can carry ROM bytes instead say `different (values redacted)`;
+their values are not serialized even into the difference list. These
+include open bus, core opcode/data bytes, registers holding read results
+(including I and R/R7), byte control/scroll latches, memory/picture/pipeline
+bytes and sound data. Flags are reported
+separately from the accumulator. Reports contain no ROM data or decoded
+instructions. A recording report is `Recording divergence: recording
+<name>, frame <number>, component <name>` and prints no component contents.
 
 Two narrowly defined scratch exclusions apply to CPU equivalence. After
 an unprefixed instruction with no suspended operation, `data[1..3]` are
@@ -259,6 +329,11 @@ value around another index load. It is excluded. `scratch_overwrite` in
 `tests/routine_tests.cpp` perturbs these fields, executes each prefix
 family, checks overwrites and verifies subsequent equivalence. MEMPTR, Q,
 R/R7, bookkeeping and every other previously compared field remain checked.
+
+`lockstep_*` tests cover clean calls and recordings, dispatch, window failures,
+field comparison and deliberate faults in cycles, R, fetch count, flags,
+MEMPTR, Q, RAM, VDP/PSG timing, the control latch, open bus and the bound.
+These tests use authored programs and need no game ROM.
 
 `routine_unit` covers synthetic replacements, E-1 window edges, guards,
 mapping, counters and scratch overwrites; `routine_irq_query` compares the

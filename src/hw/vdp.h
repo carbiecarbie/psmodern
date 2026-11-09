@@ -34,6 +34,7 @@ public:
     const Picture& picture() const { return completed_picture_; }
     bool operator==(const Vdp&) const = default;
 private:
+    friend class Machine;
     friend struct VdpFixture;
     std::array<std::uint8_t, 0x4000> vram_{};
     std::array<std::uint8_t, 32> cram_ = initial_state::cram;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "replay/recording.h"
-#include "replay/checkpoint.h"
+#include "replay/verification.h"
 #include "rom/sha1.h"
 #include <charconv>
 #include <filesystem>
@@ -39,16 +39,20 @@ template<class Bytes>void binary(const std::filesystem::path& path,const Bytes& 
 }
 std::string hexbyte(std::uint8_t b) {std::ostringstream s;s<<std::hex<<std::setw(2)<<std::setfill('0')<<unsigned(b);return s.str();}
 int run(int argc,char** argv) {
-    if(argc<7)throw std::runtime_error("Usage: psmodern_replay <rom> <recording> --dump <frames|ranges|all> --out <new-folder> [--cart-ram <file>] [--no-routines]");
+    if(argc<7)throw std::runtime_error("Usage: psmodern_replay <rom> <recording> --dump <frames|ranges|all> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording]");
     if(std::string_view(argv[3])!="--dump"||std::string_view(argv[5])!="--out")throw std::runtime_error("Invalid replay arguments.");
     RoutineRegistry routines;
     std::optional<std::filesystem::path> cart_path;
+    bool lockstep_calls=false, compare_recording=false;
     for(int i=7;i<argc;++i) {
         const std::string_view arg=argv[i];
         if(arg=="--no-routines" && routines.enabled) routines.enabled=false;
+        else if(arg=="--lockstep-calls" && !lockstep_calls) lockstep_calls=true;
+        else if(arg=="--compare-recording" && !compare_recording) compare_recording=true;
         else if(arg=="--cart-ram" && !cart_path && i+1<argc) cart_path=argv[++i];
         else throw std::runtime_error("Invalid replay arguments.");
     }
+    if(compare_recording && !routines.enabled) throw std::runtime_error("--compare-recording requires routines enabled.");
     const auto recording=replay::read(argv[2]);const auto selected=dumps(argv[4],recording.frames);
     std::ifstream rom_file(argv[1],std::ios::binary);
     if(!rom_file)throw std::runtime_error("Cannot open ROM.");
@@ -65,6 +69,11 @@ int run(int argc,char** argv) {
     if(std::filesystem::exists(out))throw std::runtime_error("Output folder already exists: "+out.string());
     if(!std::filesystem::create_directories(out))throw std::runtime_error("Cannot create output folder.");
     Machine machine(rom,cart);
+    replay::CallVerifier verifier(std::filesystem::path(argv[2]).filename().string());
+    if(lockstep_calls) routines.verifier=&verifier;
+    std::optional<Machine> original;
+    if(compare_recording) original.emplace(rom,cart);
+    replay::FrameWrites original_frame_writes;
     std::ofstream manifest(out/"manifest.txt",std::ios::binary),log(out/"psg-writes.txt",std::ios::binary);
     if(!manifest||!log)throw std::runtime_error("Cannot open replay outputs.");
     manifest<<"frame picture ram vram cram cart-ram cpu psg\n";
@@ -78,7 +87,17 @@ int run(int argc,char** argv) {
         const auto& picture=machine.picture();const auto& ram=machine.memory().ram();
         const auto& vram=machine.vdp().vram();const auto& cram=machine.vdp().cram();
         const auto& cart_ram=machine.memory().cartridge_ram();
-        manifest<<n+1<<' '<<sha1(picture)<<' '<<sha1(ram)<<' '<<sha1(vram)<<' '<<sha1(cram)<<' '<<sha1(cart_ram)<<' '<<sha1(cpu)<<' '<<sha1(psg)<<'\n';
+        const auto components=replay::manifest(machine,psg);
+        if(original) {
+            original->run_frame(input);
+            auto original_writes=original->take_psg_writes();
+            original->take_samples();
+            replay::compare_manifests(std::filesystem::path(argv[2]).filename().string(),n+1,
+                replay::manifest(*original,original_frame_writes.take(n+1,std::move(original_writes))),components);
+        }
+        manifest<<n+1;
+        for(const auto& component:components) manifest<<' '<<component;
+        manifest<<'\n';
         if(selected.contains(n+1)) {
             std::ostringstream prefix;prefix<<"frame-"<<std::setw(6)<<std::setfill('0')<<n+1<<'.';
             binary(out/(prefix.str()+"picture.bin"),picture);binary(out/(prefix.str()+"ram.bin"),ram);
