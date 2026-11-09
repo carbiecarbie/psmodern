@@ -23,3 +23,14 @@ The Brazilian recordings pass automatically. The maintainer accepted the
 milestone after playing the US version.
 [Plan](milestone-2-plan.md). Last implementation commit: `70c3454`; closed
 by the commit that added this entry.
+
+## Milestone 3 - Study base (2026-11-09)
+
+A private, data-free disassembly rebuilds the player's ROM exactly, with a
+catalog of routines and RAM fields that every public citation is checked
+against. The encounter checks, the experience award and the sound driver
+are found and explained in three new chapters. The design was corrected
+from the study and the roadmap written. The maintainer accepted the
+milestone after reading the chapters and the roadmap.
+[Plan](milestone-3-plan.md). Last implementation commit: `24410ee`; closed
+by the commit that added this entry.

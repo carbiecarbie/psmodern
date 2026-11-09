@@ -1,16 +1,18 @@
 # PSModern - Project Status
 
-**Milestone 2 (verification) is complete,** accepted on 2026-11-09.
+**Milestone 3 (study base) is complete,** accepted on 2026-11-09.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 original mode, in both the US and the Brazilian version. Controller polling
 is the first routine rewritten in C++; the rest of the original program
-runs on the virtual Z80.
-Milestone 1 was accepted on 2026-11-08.
+runs on the virtual Z80. Milestones 1 and 2 were accepted on 2026-11-08 and
+2026-11-09.
 
-Replacements can now be checked against the original, call by call and
-frame by frame, with exact state and timing. The next stage in
-[design](design.md) section 8 builds the study base for further rewrites.
-The maintainer starts each milestone explicitly.
+Replacements can be checked against the original, call by call and frame by
+frame, with exact state and timing. A private study base now explains how
+the encounter checks, experience and the sound driver work. The
+[roadmap](roadmap.md) orders the next milestones; the next one rewrites the
+encounter checks and experience and adds their options. The maintainer
+starts each milestone explicitly.
 
 ## What can be played
 
@@ -71,6 +73,16 @@ Some properties matter for the next milestones:
 How the console works, in plain words, is in
 [how the Master System works](how-it-works/master-system.md). Building,
 testing, recordings and the reference are in [development](development.md).
+The game-system chapters cover [controller reading](how-it-works/controls.md),
+[random numbers and encounters](how-it-works/random-numbers.md),
+[party records and experience](how-it-works/party.md), and
+[the sound driver](how-it-works/sound.md).
+
+The annotated disassembly is private (design section 6): it rebuilds the
+player's ROM exactly without holding any ROM data, and its catalog names
+the routines and RAM fields studied so far. This repository cites original
+code only as `bank:address`, and each citation is checked against that
+catalog.
 
 ## Rewritten and original systems
 
@@ -108,6 +120,9 @@ does; these recordings do not establish coverage of every possible route.
   registered-routine mechanism currently excludes routines that change
   interrupt sources or mapping, adjust the stack, have interior entries or
   exit without returning. The [coverage census](coverage.md) tracks progress.
+- **Study coverage is route-bound.** The study observed the six US
+  recordings; routes they never reach, such as the ending, rare battle and
+  sound paths, and most work-RAM fields are still Unknown.
 - **Windows only** for the save location.
 - **The Brazilian version is checked by its recordings, not by play.**
   Development and play-tests use the US version (design 5.5); the Brazilian
