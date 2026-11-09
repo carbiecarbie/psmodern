@@ -195,5 +195,7 @@ conversation re-read on every model call.
 
 English is canonical for identifiers, comments, diagnostics, command-line
 output, tests, documentation and commit messages (maintainer decision,
-2026-11-04). Chat reports and play-test guides for the maintainer are in
+2026-11-04). So are working notes and reports kept outside the repository,
+unless the maintainer asks for Portuguese (maintainer decision, 2026-11-08).
+Chat with the maintainer and play-test guides for the maintainer are in
 Portuguese. Original game text stays ROM-driven.
