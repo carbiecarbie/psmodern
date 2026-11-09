@@ -99,6 +99,7 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     }
 
     Machine machine(rom, cart);
+    RoutineRegistry routines;
     FrameInput input{};
     std::size_t change = 0;
     constexpr std::array names{"picture", "ram", "vram", "cram", "cart-ram", "cpu", "psg"};
@@ -107,7 +108,7 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     for (std::uint64_t frame = 1; frame <= recording.frames; ++frame) {
         if (change < recording.changes.size() && recording.changes[change].frame == frame - 1)
             input = recording.changes[change++].input;
-        machine.run_frame(input);
+        machine.run_frame(input,routines);
         auto psg=frame_writes.take(frame,machine.take_psg_writes());
         machine.take_samples();
         const auto& vram = machine.vdp().vram();

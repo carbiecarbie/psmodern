@@ -18,11 +18,20 @@ void Cpu::bind(CpuBus& bus) {
 std::uint64_t Cpu::step(std::uint64_t start_cycle) { start_cycle_=start_cycle; return z80_run(&state_,1); }
 bool Cpu::equivalent(const Cpu& other) const {
     const auto& a=state_; const auto& b=other.state_;
+    // Z80.c:2962 replaces data[0] before dispatch; 2073/2080/2489 replace
+    // data[1] before prefix use, 2113 replaces data[3], and 1142 writes
+    // data[2] before its interrupt-delay use (2614-2616). After an unprefixed
+    // instruction these three bytes are dead. Keep all bytes at prefixes
+    // and resumptions. See routine_tests.cpp scratch_overwrite.
+    auto prefix=[](std::uint8_t op) { return op==0xcb || op==0xed || (op&0xdf)==0xdd; };
+    const bool data_live=a.resume || b.resume || prefix(a.data.uint8_array[0]) || prefix(b.data.uint8_array[0]);
+    // xy is a temporary: Z80.c:2094,2488,2834 load the selected index before
+    // use; 2144-2148 only save/restore its old, otherwise unused value.
     return a.cycles==b.cycles && a.cycle_limit==b.cycle_limit &&
-        a.data.uint32_value==b.data.uint32_value &&
+        a.data.uint8_array[0]==b.data.uint8_array[0] && (!data_live || a.data.uint32_value==b.data.uint32_value) &&
         a.ix_iy[0].uint16_value==b.ix_iy[0].uint16_value && a.ix_iy[1].uint16_value==b.ix_iy[1].uint16_value &&
         a.pc.uint16_value==b.pc.uint16_value && a.sp.uint16_value==b.sp.uint16_value &&
-        a.xy.uint16_value==b.xy.uint16_value && a.memptr.uint16_value==b.memptr.uint16_value &&
+        a.memptr.uint16_value==b.memptr.uint16_value &&
         a.af.uint16_value==b.af.uint16_value && a.af_.uint16_value==b.af_.uint16_value &&
         a.bc.uint16_value==b.bc.uint16_value && a.bc_.uint16_value==b.bc_.uint16_value &&
         a.de.uint16_value==b.de.uint16_value && a.de_.uint16_value==b.de_.uint16_value &&

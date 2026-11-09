@@ -15,6 +15,7 @@ std::uint8_t Vdp::read_status(std::uint8_t open_bus) {
     auto value=static_cast<std::uint8_t>((frame_visible_ ? 0x80 : 0) | (overflow_ ? 0x40 : 0) |
         (collision_ ? 0x20 : 0) | (open_bus & 0x1f));
     frame_flag_=frame_visible_=line_flag_=overflow_=collision_=control_latch_=false;
+    irq_cache_.valid=false;
     return value;
 }
 void Vdp::write_data(std::uint8_t value) {
@@ -25,7 +26,10 @@ void Vdp::write_control(std::uint8_t value) {
     if (!control_latch_) { address_=(address_&0x3f00)|value; control_latch_=true; return; }
     control_latch_=false; code_=value>>6; address_=(address_&0xff)|((value&0x3f)<<8);
     if (code_==0) read_pending_=true;
-    else if (code_==2 && (value&15)<regs_.size()) regs_[value&15]=address_&0xff;
+    else if (code_==2 && (value&15)<regs_.size()) {
+        regs_[value&15]=address_&0xff;
+        if ((value&15)==0 || (value&15)==1 || (value&15)==10) irq_cache_.valid=false;
+    }
 }
 }
 
@@ -240,8 +244,9 @@ void Vdp::sync(std::uint64_t target) {
             overflow_pending_=false;
         }
         if (dot==scroll_dot) horizontal_scroll_=regs_[8];
-        if (line==192 && dot==irq_dot) frame_flag_=true;
+        if (line==192 && dot==irq_dot) { frame_flag_=true; irq_cache_.valid=false; }
         if (dot==line_dot) {
+            irq_cache_.valid=false;
             if (line<192 || line==261) {
                 if (line_counter_==0) { line_counter_=regs_[10]; line_flag_=true; }
                 else --line_counter_;
@@ -279,5 +284,38 @@ std::optional<std::uint64_t> Vdp::next_irq() const {
         }
     }
     return {};
+}
+std::optional<std::uint64_t> Vdp::next_irq_conservative() const {
+    if (irq()) return cycle_;
+    if (irq_cache_.valid) return irq_cache_.event;
+    std::optional<std::uint64_t> next;
+    constexpr std::uint64_t frame=262*228;
+    if (regs_[1]&0x20) {
+        auto event=(cycle_/frame)*frame+192*228+210;
+        if (event<=cycle_) event+=frame;
+        next=event;
+    }
+    if (regs_[0]&0x10) {
+        // Next counter clock. Active stretches are physical 261,0..191
+        // (193 clocks); the intervening blank lines reload R10 each clock.
+        auto line=cycle_/228;
+        if (line*228+211<=cycle_) ++line;
+        const auto physical=line%262;
+        const auto available=physical<192 ? 192-physical : (physical==261 ? 193 : 0);
+        std::optional<std::uint64_t> underflow;
+        if (available && line_counter_<available) underflow=line+line_counter_;
+        else {
+            auto start=line+(261-physical);
+            if (physical==261) start+=262;
+            // Blank lines replace any remaining count before this stretch.
+            if (regs_[10]<193) underflow=start+regs_[10];
+        }
+        if (underflow) {
+            const auto event=*underflow*228+211;
+            if (!next || event<*next) next=event;
+        }
+    }
+    irq_cache_={true,next};
+    return next;
 }
 }

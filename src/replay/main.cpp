@@ -39,17 +39,24 @@ template<class Bytes>void binary(const std::filesystem::path& path,const Bytes& 
 }
 std::string hexbyte(std::uint8_t b) {std::ostringstream s;s<<std::hex<<std::setw(2)<<std::setfill('0')<<unsigned(b);return s.str();}
 int run(int argc,char** argv) {
-    if(argc!=7 && argc!=9)throw std::runtime_error("Usage: psmodern_replay <rom> <recording> --dump <frames|ranges|all> --out <new-folder> [--cart-ram <file>]");
-    if(std::string_view(argv[3])!="--dump"||std::string_view(argv[5])!="--out"||
-       (argc==9&&std::string_view(argv[7])!="--cart-ram"))throw std::runtime_error("Invalid replay arguments.");
+    if(argc<7)throw std::runtime_error("Usage: psmodern_replay <rom> <recording> --dump <frames|ranges|all> --out <new-folder> [--cart-ram <file>] [--no-routines]");
+    if(std::string_view(argv[3])!="--dump"||std::string_view(argv[5])!="--out")throw std::runtime_error("Invalid replay arguments.");
+    RoutineRegistry routines;
+    std::optional<std::filesystem::path> cart_path;
+    for(int i=7;i<argc;++i) {
+        const std::string_view arg=argv[i];
+        if(arg=="--no-routines" && routines.enabled) routines.enabled=false;
+        else if(arg=="--cart-ram" && !cart_path && i+1<argc) cart_path=argv[++i];
+        else throw std::runtime_error("Invalid replay arguments.");
+    }
     const auto recording=replay::read(argv[2]);const auto selected=dumps(argv[4],recording.frames);
     std::ifstream rom_file(argv[1],std::ios::binary);
     if(!rom_file)throw std::runtime_error("Cannot open ROM.");
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(rom_file),std::istreambuf_iterator<char>());
     if(rom_file.bad()||rom->size()!=512*1024||sha1(*rom)!=recording.rom_sha1)throw std::runtime_error("ROM SHA-1 mismatch or invalid ROM size.");
     Memory::CartridgeRam cart{};
-    if(argc==9) {
-        std::ifstream f(argv[8],std::ios::binary);
+    if(cart_path) {
+        std::ifstream f(*cart_path,std::ios::binary);
         if(!f||!f.read(reinterpret_cast<char*>(cart.data()),cart.size())||f.peek()!=std::char_traits<char>::eof())
             throw std::runtime_error("Cartridge RAM image must be exactly 8192 bytes.");
     }
@@ -64,7 +71,7 @@ int run(int argc,char** argv) {
     std::size_t change=0;FrameInput input{}; replay::FrameWrites frame_writes;
     for(std::uint64_t n=0;n<recording.frames;++n) {
         if(change<recording.changes.size()&&recording.changes[change].frame==n)input=recording.changes[change++].input;
-        machine.run_frame(input);
+        machine.run_frame(input,routines);
         auto writes=machine.take_psg_writes();auto samples=machine.take_samples();(void)samples;
         auto psg=frame_writes.take(n+1,writes); auto cpu=replay::cpu_bytes(machine.cpu());
         for(const auto& w:writes)log<<w.cycle<<' '<<hexbyte(w.byte)<<'\n';

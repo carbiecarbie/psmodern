@@ -153,6 +153,26 @@ void driver() {
     check(!d.run({}).save_error && attempts==3 && d.store().load()[0]==7,"retry survives new machine's clean flag");
     check(!d.power_cycle() && attempts==3,"clean power cycle does not write");
     Machine fixed(rom,d.store().load()); check(d.machine().equivalent(fixed),"power cycle returns to fixed complete state");
+    // The host owns the registry across power cycles. Both switch settings
+    // execute the same authored program, with one call at power-on.
+    for (bool enabled:{false,true}) {
+        Temporary folder;
+        auto code=program(); (*code)[0]=0xc9;
+        FrameDriver routine_driver(code,SaveStore(folder.path,RomVersion::us_rev_a),enabled);
+        auto prepare=[&] {
+            auto& m=routine_driver.machine(); m.cpu().sp.uint16_value=0xc100;
+            m.memory().write(0xc100,0);m.memory().write(0xc101,2);
+        };
+        routine_driver.routines().add({0,0},[](const Machine&){return 10;},[](RoutineContext& c){c.finish_return(0);});
+        prepare(); auto original=routine_driver.machine();
+        routine_driver.run({}); original.run_frame({}); original.take_psg_writes(); original.take_samples();
+        check(original.equivalent(routine_driver.machine()),"frame driver passes registry and preserves the original program");
+        const auto& counts=routine_driver.routines().find({0,0})->counters;
+        check(counts.cpp_calls==enabled && counts.fallback_calls==!enabled,"frame driver respects routine switch");
+        check(!routine_driver.power_cycle() && routine_driver.routines().enabled==enabled,"routine option survives power cycle");
+        prepare(); routine_driver.run({});
+        check(counts.cpp_calls==2*enabled && counts.fallback_calls==2*!enabled,"host registry counters survive power cycle");
+    }
 }
 void resampling() {
     const auto n=static_cast<std::size_t>(Psg::cpu_hz/Psg::sample_cycles);

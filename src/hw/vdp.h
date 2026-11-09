@@ -18,6 +18,12 @@ public:
     std::uint8_t h_counter() const { return h_latch_; }
     void latch_h_counter();
     std::optional<std::uint64_t> next_irq() const;
+    std::optional<std::uint64_t> next_irq_conservative() const;
+    // Decode only a completed register command, without changing the latch.
+    std::optional<unsigned> control_write_register(std::uint8_t value) const {
+        if (control_latch_ && (value>>6)==2 && (value&15)<regs_.size()) return value&15;
+        return {};
+    }
     std::uint64_t cycle() const { return cycle_; }
     std::uint8_t line_counter() const { return line_counter_; }
     std::uint16_t dot() const { return static_cast<std::uint16_t>(((2*initial_state::vdp_dot + cycle_*3)/2)%342); }
@@ -38,6 +44,14 @@ private:
         line_counter_ = initial_state::vdp_line_counter, h_latch_ = initial_state::h_latch;
     bool control_latch_ = false, frame_flag_ = initial_state::vdp_frame_flag, line_flag_ = false;
     bool frame_visible_ = initial_state::vdp_frame_flag;
+    // Derived host cache, never part of hardware equivalence. The forecast
+    // remains valid between events; source changes invalidate it explicitly.
+    struct IrqCache {
+        bool valid=false;
+        std::optional<std::uint64_t> event;
+        bool operator==(const IrqCache&) const { return true; }
+    };
+    mutable IrqCache irq_cache_;
     bool overflow_ = initial_state::vdp_overflow, collision_ = false;
     Picture drawing_picture_{}, completed_picture_{};
     std::uint8_t horizontal_scroll_ = initial_state::vdp_registers[8];

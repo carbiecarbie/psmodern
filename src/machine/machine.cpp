@@ -2,6 +2,7 @@
 #include "machine/machine.h"
 #include <algorithm>
 #include <stdexcept>
+#include <limits>
 
 namespace psmodern {
 Machine::Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram)
@@ -73,10 +74,10 @@ void Machine::advance(std::uint64_t cycles) {
     z80_int(&cpu_.raw(),sampled_int_);
     cycle_+=cycles; sync(cycle_);
 }
-std::uint64_t Machine::run_frame(const FrameInput& next_input) {
+std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines) {
     pending_pads_=next_input.pads; pending_reset_=next_input.reset; pending_pause_=next_input.pause;
     auto target=(cycle_/frame_cycles+1)*frame_cycles;
-    while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step();
+    while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step({},routines);
     return cycle_-target;
 }
 void Machine::schedule_nmi(std::uint64_t cycle) {
@@ -101,12 +102,43 @@ std::optional<std::uint64_t> Machine::next_nmi() const {
 void Machine::deliver_nmi() {
     if (scheduled_nmi_ && *scheduled_nmi_<=cycle_) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
 }
-std::uint64_t Machine::step(const Hook& hook) {
+bool Machine::run_routine(RoutineRegistry& routines) {
+    const auto pc=cpu_.raw().pc.uint16_value;
+    const auto mapping=memory_.mapping(pc);
+    if (mapping.kind!=Memory::Kind::rom) return false;
+    auto* routine=routines.find({mapping.bank,pc});
+    if (!routine) return false;
+    auto& counters=routine->counters;
+    if (!routines.enabled) {
+        ++counters.fallback_calls; ++counters.reasons[static_cast<unsigned>(RoutineFallback::disabled)];
+        return false;
+    }
+    const auto bound=routine->bound(*this);
+    if (!bound || bound>std::numeric_limits<std::uint64_t>::max()-cycle_)
+        throw std::runtime_error("Invalid registered routine cycle bound");
+    const auto end=cycle_+bound;
+    bool fallback=false;
+    auto reason=[&](RoutineFallback why, bool applies) {
+        if (applies) { fallback=true; ++counters.reasons[static_cast<unsigned>(why)]; }
+    };
+    const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;
+    const auto nmi=next_nmi();
+    reason(RoutineFallback::irq,irq && *irq<end);
+    reason(RoutineFallback::nmi,nmi && *nmi<end);
+    reason(RoutineFallback::frame,frame_cycles-cycle_%frame_cycles<bound);
+    if (fallback) { ++counters.fallback_calls; return false; }
+    ++counters.cpp_calls;
+    RoutineContext context(*this,bound);
+    routine->body(context);
+    context.check_bound();
+    if (!context.finished_) throw std::runtime_error("Registered routine omitted its original return");
+    return true;
+}
+std::uint64_t Machine::step(const Hook& hook, RoutineRegistry* routines) {
     sync(cycle_);
     const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
-    if (unsampled_nmi) cpu_.raw().request &= ~Z80_REQUEST_NMI;
     z80_int(&cpu_.raw(), sampled_int_);
-    const auto request=cpu_.raw().request;
+    const auto request=cpu_.raw().request & ~(unsampled_nmi ? Z80_REQUEST_NMI : 0);
     // Mirrors the pinned Z80.c RETN bookkeeping (lines 1141-1146) and
     // request/RETN acceptance checks (lines 2558-2612). Re-verify on a pin change.
     const bool reject_nmi=(request & Z80_REQUEST_REJECT_NMI)!=0;
@@ -115,6 +147,13 @@ std::uint64_t Machine::step(const Hook& hook) {
         (cpu_.raw().data.uint8_array[1]&0xc7)==0x45 && !(cpu_.raw().data.uint8_array[2]&1);
     const bool irq=!reject_nmi && !nmi && (request & Z80_REQUEST_INT) &&
         cpu_.raw().data.uint8_array[0]!=0xfb && !reti_delay;
+    // Check while an entry-cycle NMI is still visible. Only the native path
+    // hides an edge which missed the preceding instruction's E-1 sample.
+    if (cpu_.raw().resume==0 && !nmi && !irq && routines && !routines->empty()) {
+        const auto entry=cycle_;
+        if (run_routine(*routines)) return cycle_-entry;
+    }
+    if (unsampled_nmi) cpu_.raw().request &= ~Z80_REQUEST_NMI;
     if (cpu_.raw().resume==0 && !nmi && !irq && hook) {
         const auto pc=cpu_.raw().pc.uint16_value;
         if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;

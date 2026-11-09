@@ -2,10 +2,12 @@
 #include "app/frame_driver.h"
 
 namespace psmodern::app {
-FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store)
-    :rom_(std::move(rom)),store_(std::move(store)),machine_(std::make_unique<Machine>(rom_,store_.load())) {}
+FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,bool routines_enabled)
+    :rom_(std::move(rom)),store_(std::move(store)),machine_(std::make_unique<Machine>(rom_,store_.load())) {
+    routines_.enabled=routines_enabled;
+}
 FrameOutput FrameDriver::run(const FrameInput& input) {
-    machine_->run_frame(input);
+    machine_->run_frame(input,routines_);
     auto writes=machine_->take_psg_writes();
     auto samples=machine_->take_samples();
     return {std::move(writes),std::move(samples),flush()};

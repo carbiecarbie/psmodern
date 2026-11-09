@@ -171,7 +171,7 @@ failed publication reports an error; a partial destination is never published.
 ## Replay runner
 
 ```text
-psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>]
+psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines]
 ```
 
 The runner links no SDL and reads no app save. It checks the ROM and initial
@@ -197,6 +197,73 @@ written byte. Writes belong to the interval containing their absolute cycle,
 even when an instruction crosses a frame boundary.
 `psg-writes.txt` holds the entire run as decimal absolute cycle and two-digit
 hex byte. Both PSG write and sample queues are drained after every call.
+
+## Registered routines
+
+Routines are enabled by default. `psmodern.exe <rom-path> --no-routines`
+and `psmodern_replay ... --no-routines` disable every replacement. The app
+option can be combined with `--record`; the runner option can be combined
+with `--cart-ram`. No game routine is registered yet.
+
+`RoutineRegistry` is owned by the frame driver or runner and passed to
+`Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
+entries by mapped ROM bank and CPU address; cartridge RAM, work RAM and
+unmapped accesses never dispatch. The registry, enable flag and counters are
+outside the machine snapshot and `Machine::equivalent`.
+
+Each entry supplies a bound function of the const entry machine and a body
+taking `RoutineContext`. The bound includes the original returning
+instruction. At a complete instruction boundary, before accepting any
+interrupt, dispatch checks the half-open interval `[entry, entry+bound)`.
+An enabled maskable interrupt source, any NMI request (including one first
+visible at entry), or a frame boundary in that interval forces the original
+path. The maskable check requires IFF1; the window is deliberately checked
+even beyond the body's actual end. The VDP query uses arithmetic on the
+counter and source registers, with an invalidated cache, instead of copying
+and simulating the VDP. It is conservative relative to `Vdp::next_irq`.
+
+The context advances devices through `Machine::advance`. Port offsets are
+relative to the call's entry, and must be the original instruction's T3
+offset. Advancing to an offset spends those cycles; advance the remaining
+cycles afterward. Bus reads/writes must follow the original order relative
+to ports: `read`/`write` update the CPU open bus, and `fetch_opcode` also
+accounts for one fetch and R. `account_fetches` can account for a known
+fetch count separately from bus accesses; it preserves R bit 7. Authors
+must reproduce all architectural register and flag effects.
+
+End with `finish_return(address)` at the path's own returning instruction.
+The core executes that instruction, including any ignored index prefixes,
+and must restore the caller's stack and PC. Conditional returns must take
+their returning path. The step ends there. Missing returns, cost overruns
+(including the core return), writes to mapper addresses or memory-control
+ports, and VDP register 0, 1 or 10 commands are runtime errors in normal
+play too. VDP guards decode the actual latch, including a half-command at
+entry. Other VDP commands and I/O control remain available.
+
+Per-entry counters record C++ calls, fallback calls and reasons: disabled,
+IRQ, NMI and frame. Several window reasons may apply to one fallback;
+interrupt acceptance itself does not start a routine call. Existing hooks
+retain their native-path redirection behavior and are not called for a
+successful replacement.
+
+Two narrowly defined scratch exclusions apply to CPU equivalence. After
+an unprefixed instruction with no suspended operation, `data[1..3]` are
+stale: the pinned `third_party/redcode-z80/sources/Z80.c:2962` replaces the
+first byte before dispatch, lines 2073, 2080 and 2489 replace the second
+before prefix dispatch, line 2113 replaces the fourth before using it, and
+line 1142 replaces the third before its interrupt-delay use at lines 2614–2616.
+All four bytes remain compared at prefixes and resumptions; the first is
+always compared. `xy` is a temporary loaded before use at lines 2094, 2488
+and 2834; lines 2144–2148 merely save and restore an otherwise unused old
+value around another index load. It is excluded. `scratch_overwrite` in
+`tests/routine_tests.cpp` perturbs these fields, executes each prefix
+family, checks overwrites and verifies subsequent equivalence. MEMPTR, Q,
+R/R7, bookkeeping and every other previously compared field remain checked.
+
+`routine_unit` covers synthetic replacements, E-1 window edges, guards,
+mapping, counters and scratch overwrites; `routine_irq_query` compares the
+cheap query against the exact query across counter, register, pending-flag
+and scanline states. Neither test needs a ROM.
 
 ## Reference driver
 

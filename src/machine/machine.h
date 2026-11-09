@@ -4,6 +4,7 @@
 #include "hw/cpu.h"
 #include "hw/vdp.h"
 #include "hw/psg.h"
+#include "machine/routines.h"
 #include <Z80.h>
 #include <array>
 #include <cstdint>
@@ -33,9 +34,11 @@ public:
     explicit Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram = {});
     Machine(const Machine& other);
     Machine& operator=(const Machine& other);
-    std::uint64_t step(const Hook& hook = {});
+    std::uint64_t step(const Hook& hook = {}, RoutineRegistry* routines = nullptr);
+    std::uint64_t step(RoutineRegistry& routines, const Hook& hook = {}) { return step(hook,&routines); }
     void advance(std::uint64_t cycles);
-    std::uint64_t run_frame(const FrameInput& next_input);
+    std::uint64_t run_frame(const FrameInput& next_input, RoutineRegistry* routines = nullptr);
+    std::uint64_t run_frame(const FrameInput& input, RoutineRegistry& routines) { return run_frame(input,&routines); }
     std::uint64_t cycles() const { return cycle_; }
     std::uint64_t opcode_fetches() const { return opcode_fetches_; }
     void set_pause(bool level) { pending_pause_=level; }
@@ -60,6 +63,8 @@ public:
     const std::optional<PortAccess>& last_access() const { return last_access_; }
     bool equivalent(const Machine& other) const;
 private:
+    friend class RoutineContext;
+    bool run_routine(RoutineRegistry& routines);
     void bind();
     void sync(std::uint64_t target);
     void latch_input();
