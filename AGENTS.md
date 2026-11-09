@@ -30,8 +30,7 @@ below automatically, so read each one whose trigger applies before acting.
 | --- | --- |
 | `docs/AGENTS.md` | Creating or editing `README.md`, any `AGENTS.md` or anything under `docs/`: design, milestone plans, milestone closure, project status, how-it-works chapters |
 | `tools/AGENTS.md` | Running or delegating the complete CTest suite, or rerunning failures |
-
-The play-test guide (`docs/playtests.md`) is added when first needed.
+| `docs/playtests.md` | Preparing a maintainer play-test |
 
 ## Source of truth
 

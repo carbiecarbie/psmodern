@@ -364,7 +364,7 @@ The VDP address is `3D6A`, code 1, read buffer 0, command latch clear,
 line-counter reload `FF` and current counter `FC`; VBlank and sprite overflow
 are pending, and line IRQ and collision are clear. The H-counter latch is 0.
 The source is the [MesenCE VDP initializer](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp)
-with a startup readback described in the [plan](milestone-1-plan.md#2-reference-emulator).
+with a startup readback described in the [plan](milestone-1-plan.md#reference-emulator).
 Only values actually read back while running the identified ROM have the label
 **Reference emulator**; initializer-only values remain an inference from community
 source. These are selected starting values, not measured chip power-on values.

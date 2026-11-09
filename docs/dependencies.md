@@ -159,8 +159,9 @@ counted in the 55 automated results.
 The reference setup uses [MesenCE 2.2.1](https://github.com/nesdev-org/MesenCE/releases/tag/2.2.1)
 (commit `20ba206c`, Windows) with Lua and `--testRunner`. The second opinion
 is [Emulicious 2026-03-27](https://emulicious.net/downloads/), configured as
-Master System 1, export/NTSC, without BIOS or FM. Detailed setup and
-observations are in the [milestone plan](milestone-1-plan.md#2-reference-emulator).
+Master System 1, export/NTSC, without BIOS or FM. The driver setup and the
+fixed start are in [development](development.md#reference-driver) and
+[development](development.md#fixed-machine-start-and-frame-input).
 
 The primary reference is a build of MesenCE tag `2.2.1` (commit
 `20ba206cef5ba207c21203176d02cb9f43dda9fb`) with three patches applied in

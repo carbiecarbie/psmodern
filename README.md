@@ -1,10 +1,10 @@
 # PSModern
 
 > [!IMPORTANT]
-> PSModern is an unofficial fan project in its earliest stage: it does not run
-> anything yet. It ships no game data: you will need your own Phantasy Star
-> cartridge dump for the Sega Master System (US Rev-A, or the Brazilian Tec
-> Toy release).
+> PSModern is an unofficial fan project in an early stage: the original game
+> runs, but nothing is rewritten yet and there are no options. It ships no
+> game data: you will need your own Phantasy Star cartridge dump for the
+> Sega Master System (US Rev-A, or the Brazilian Tec Toy release).
 
 PSModern is an open-source reimplementation of **Phantasy Star** (Sega Master
 System, 1987/88) in C++, for modern computers. The goal is to match the
@@ -32,8 +32,9 @@ ctest --test-dir build-rel --output-on-failure
 ./build-rel/psmodern.exe "path/to/your-game.sms"
 ```
 
-The current executable identifies a supported ROM and exits; it does not run
-the game yet. See [development](docs/development.md) for ROM test paths.
+The game runs in original mode, with its picture, sound, controls and saves.
+See [project status](docs/project-status.md) for the controls and
+[development](docs/development.md) for ROM test paths.
 
 ## License
 

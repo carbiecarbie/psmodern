@@ -1,426 +1,116 @@
 # Milestone 1 plan - Foundation: the original game runs
 
-**Tier A. Status: planned (2026-11-04); amended after the independent plan
-review (2026-11-04); both maintainer decisions approved (2026-11-04);
-awaiting the maintainer's start.** First stage of [design](design.md) section 8.
+**Tier A. Status: completed and accepted (2026-11-08).** Planned and
+reviewed on 2026-11-04 (`e9ee50b`, `689a680`); implemented from `8224972` to
+`4585634`; closed by the commit that condensed this plan. First stage of
+[design](design.md) section 8.
 
 ## Goal
 
 The player starts `psmodern.exe` with their own ROM, and Phantasy Star runs
 in original mode with the picture, sound, controls and saves of the
-cartridge, from power-on through the whole game. In practice it is an
-emulator dedicated to this game: the whole ROM runs on the virtual Z80, and
-nothing is rewritten yet. It is also the base every later milestone builds
-on, so it must already be exact, deterministic and observable.
+cartridge. The whole ROM runs on a virtual Master System; nothing is
+rewritten yet. The machine must be exact, deterministic and observable,
+because every later milestone checks its rewritten routines against it.
 
-## Moves against the design's order of stages
+## Scope delivered
 
-The design's stages are a suggested order. This milestone takes three items
-from later stages, because each is cheap here or needed by what milestone 1
-builds:
+- **The console:** a Z80 (`redcode/Z80` at `dcc3f28d`), the mapper and its RAM
+  mirror, 8 KiB of battery-backed cartridge RAM, partially decoded ports,
+  the 315-5124 VDP in mode 4 at 192 lines, the SN76489 PSG, two pads, Pause
+  and Reset. One 64-bit cycle counter drives everything, and the whole
+  machine copies as one value.
+  - Ports decode partially: `$00`-`$3F` memory and I/O control, `$40`-`$7F`
+    V/H counters (read) and PSG (write), `$80`-`$BF` VDP, `$C0`-`$FF` pads.
+  - The mapper keeps `$0000`-`$03FF` on bank 0 and masks bank numbers to the
+    ROM's 32 banks. Writes to `$FFFC`-`$FFFF` also land in RAM. Enabled
+    cartridge RAM replaces slot 2.
+- **The program:** an SDL window with integer scaling and fullscreen, sound,
+  keyboard and a basic game controller, save files, and refusal of unknown
+  ROMs. Both the US Rev-A and the Brazilian cartridge run.
+- **Verification:** input recordings, a headless replay runner, and a driver
+  that replays the same recordings in a patched MesenCE. Tests compare the
+  two frame by frame.
+- **Hooks for milestone 2,** tested but unused: next IRQ/NMI query, advancing
+  the machine without instructions, and an instruction-boundary fetch hook.
+- **The first how-it-works chapter,** about the console:
+  [master-system.md](how-it-works/master-system.md).
 
-- **The Brazilian boot** (stage 2): it needs nothing beyond ROM
-  identification, and the play-test covers both versions at once.
-- **Input recordings and the reference comparison** (stage 2): without them
-  milestone 1 cannot show that the machine is exact. Milestone 2 keeps the
-  same recording format and adds the lockstep run, cycle-level comparison and
-  registered routines.
-- **The first how-it-works chapter** (stage 3): `master-system.md`, about the
-  console rather than a game system, because it explains what this milestone
-  builds.
+## Key decisions
 
-## Maintainer decisions (approved 2026-11-04)
+- **Start without the BIOS** (maintainer decision, 2026-11-04). The cartridge
+  starts from a fixed, documented state; it fixes the random sequence just
+  as a BIOS would, without asking the player for a BIOS dump.
+- **Rewritten routines keep R** (maintainer decision, 2026-11-04; design
+  section 5.2). They must reproduce the cycles and every CPU-visible effect,
+  including the Z80 R register.
+- **The reference is a patched MesenCE 2.2.1,** with Emulicious as the
+  independent judge (maintainer decision, 2026-11-05). Three patches fix CE
+  faults, each resting on sources independent of PSModern: wrong opcode
+  durations, interrupt sampling at the instruction boundary, and block I/O
+  flags. The accepted build is pinned by SHA-256.
+- **VDP memory access follows the reference's slot grid** where SMS1
+  hardware is not measured; the background is fetched per tile column.
+  Disputed cases stay labeled Unknown in [development](development.md).
+- **After the implementation review** (maintainer decisions, 2026-11-08):
+  - no CRAM dot during the active display, like the reference;
+  - checkpoints also compare the CPU state and the sound writes;
+  - a `.bak` copy of the save before the first write of each session;
+  - only one running copy per save file;
+  - input reaches the game one frame after it is sampled, as in the
+    reference;
+  - the basic controller is always on; only full controller support
+    (remapping, shortcuts) is optional.
 
-1. **Start without the BIOS.** Every real export console (US Master System,
-   Tec Toy) runs its BIOS before handing over to the cartridge. PSModern
-   starts the cartridge directly, from a fixed, documented state, as
-   emulators do without a BIOS. The game's random numbers read the Z80 R
-   register (below), so the start state fixes the sequence: with a BIOS it
-   would be another fixed sequence, not a "more correct" one, and on a real
-   console the player's own timing changes it anyway. Using a BIOS would mean
-   asking the player for a copyrighted BIOS dump too. **Approved: start
-   without the BIOS.**
-2. **Design amendment, section 5.2:** a rewritten routine must reproduce the
-   cycles **and every other CPU-visible effect of the original, including the
-   Z80 R register**, which advances on each opcode fetch. A routine that
-   matches the cycles but not R silently changes every later random draw.
-   **Approved**; recorded in [design](design.md) section 5.2.
+## Reference emulator
 
-## Evidence already settled
+MesenCE 2.2.1 (`20ba206c`) runs both ROMs headless with Lua and
+`--testRunner`, from empty firmware and save folders. It is set to SMS1
+(315-5124), NTSC, zero-filled RAM, FM off and two pads. Before the first
+instruction the driver sets the VDP to line 0. A readback at that point
+gave line 0, VDP cycle 1 and CPU cycle 0, with PC=`0000`, AF=`AB42`,
+BC=`0002`, DE=`A51B`, HL=IX=IY=`0000`, SP=`DFF0`, alternate
+AF/BC/DE/HL=`0000`/`0200`/`C700`/`C75F`, I=`00`, R=`1D`, both IFFs clear and
+IM 1. Other start values come from CE's initializers. Each run starts from zero or from a given
+cartridge RAM image, checked before the first instruction. The driver and
+the fixed start are in [development](development.md#reference-driver).
 
-All ROM static, US Rev-A, the same bytes in the Brazilian ROM where checked.
+## What the game uses
 
-- **The random number generator reads R:** `00:05C8` is `LD A,R` /
-  `XOR L` / `LD ($C20C),HL`. Two more `LD A,R` byte matches exist in banks
-  20 and 22 (`0x52717`, `0x5B4E0`), not yet confirmed as code.
-- **The game reads the Reset button:** the interrupt handler at `00:010F`
-  reads port `$DD` bit 4 and, on a press, jumps to `00:0084`. So Reset is a
-  button the game polls, not a CPU reset.
-- **Mapper registers are read back from RAM:** the handler at `00:0102`-`0109`
-  reads `$FFFC` and `$FFFF`.
-- **Both headers give region code 4** (Master System export). The reset
-  vector is `DI` / `IM 1` / `LD SP,$CB00` / `JR $0084`.
-- No direct FM detection read (`IN A,($F2)`) was found; a read through
-  `IN r,(C)` is still possible (Part 0).
+ROM static, reference emulator and ROM run observations, identical in both
+versions at every cited address.
 
-## Design decisions
+- **The random draw reads R** at `00:05C8`. It is the only confirmed read of
+  R; other byte matches are graphics data.
+- **The game polls the Reset button** in its interrupt handler at `00:010F`
+  and restarts at `00:0084`, the same place power-on reaches.
+- **Mode 4 at 192 lines only,** with the frame interrupt; no line interrupt,
+  no V/H counter reads, no FM, no IM 0/2 and no code run from RAM on the
+  observed routes. The game never executes HALT in the twelve checkpoints.
+  Whole-game absence is not established: 228 US / 227 Brazilian HALT byte
+  matches and six IM 0/2 matches have no established instruction boundary.
+- **Cartridge RAM:** enabled at `00:07DC`; an 8 KiB image per version.
 
-- **Same toolchain as MMModern:** MSYS2 UCRT64, GCC, CMake with Ninja, SDL2,
-  CTest, GitHub Actions on Windows. The versions on the maintainer's machine
-  are pinned and recorded in a new `docs/dependencies.md`. C++20.
-- **Layout:** `src/hw/` (Z80 wrapper, mapper and memory, I/O ports, VDP, PSG,
-  controller), `src/machine/` (the console as one object and its frame loop),
-  `src/rom/` (identification), `src/replay/` (input recordings, headless
-  runner), `src/app/` (SDL window, audio, input, save files, command line),
-  `third_party/<z80 core>/` with its license, `tests/`.
-- **Console model:** Master System 1, export region, VDP 315-5124, no FM
-  unit, two standard pads, Reset button present. The Tec Toy release runs on
-  the same model; Brazil's PAL-M consoles keep 262 lines of 228 cycles, so
-  machine state is the same. Both ROMs use the NTSC clock (3,579,545 Hz); a
-  possible 0.1% PAL-M clock difference would only affect host pacing and
-  pitch, and is out of scope.
-- **Exact hardware scope**, nothing beyond it:
-  - **Ports with partial decoding and mirrors:** `$00`-`$3F` even/odd =
-    `$3E`/`$3F`; `$40`-`$7F` = V/H counters (read) and PSG (write);
-    `$80`-`$BF` = VDP data/control; `$C0`-`$FF` = `$DC`/`$DD`. Port `$3F`
-    TH/TR output read back as an export console.
-  - **Mapper:** `$0000`-`$03FF` always bank 0; bank numbers masked to the
-    ROM's 32 banks; writes to `$FFFC`-`$FFFF` also land in RAM, and reads
-    return RAM; cartridge RAM, when enabled, replaces slot 2 for reads and
-    writes. The cartridge RAM size is settled in Part 0; the save file is the
-    chip image at that size.
-  - **RAM:** 8 KiB at `$C000`, mirrored at `$E000`.
-  - **VDP:** mode 4 at 192 lines only (other modes, 224/240 lines out):
-    control port latch, read buffer, CRAM, frame and line interrupts at their
-    exact cycle, line counter reload, status flags and their clearing, sprite
-    limit, overflow and collision, scroll locks, left column blank, V and H
-    counters, the 315-5124 register masks.
-  - **PSG:** SN76489 as Sega built it (16-bit noise register).
-  - **Z80:** exact R (bit 7 kept, prefixes counted, HALT counted), I, IFF1/2,
-    IM, EI delay, HALT, IM 1 and NMI acceptance; IM 0/2 only if Part 0 finds
-    them used.
-  - **Pause** as NMI.
-- **One cycle counter drives everything.** A single 64-bit Z80 cycle counter;
-  the VDP and PSG are event-scheduled from it and can advance N cycles
-  without the CPU. I/O accesses inside an instruction happen at their real
-  cycle offset (an `OUT` lands on its last machine cycle). Memory accesses
-  need only instruction granularity: on the Master System no memory-mapped
-  device observes timing inside an instruction, and the mapper registers take
-  effect before the next opcode fetch either way (Inference from the
-  hardware documentation; settled in the Part 0 review).
-- **Hooks milestone 2 needs, built and tested now** (nothing uses them yet):
-  - a query for the cycle of the next IRQ and the next NMI;
-  - advancing the machine by N cycles without executing instructions;
-  - an instruction-boundary fetch hook that reports PC and what is mapped
-    there (bank 0 below `$0400`, the slot's ROM bank, cartridge RAM or RAM),
-    and can continue execution at another address.
-- **One machine, one value.** The whole console state is copyable as a
-  complete snapshot. The ROM is shared through an immutable pointer, and any
-  core callback or context pointers are rebound after a copy. A test copies a
-  running machine, runs both copies and compares them.
-- **Deterministic by construction.** Nothing from the host reaches the
-  machine. Input enters at a defined point: the button state for frame N is
-  latched at the start of frame N, defined as the first cycle of line 0; the
-  reference driver uses the same boundary.
-- **Fixed initial state** (decision 1): every Z80 register
-  including R, I, IFF1/2, IM, AF and SP; the VDP registers and the line and
-  cycle at the first instruction; the RAM fill; mapper registers; port
-  `$3E`; the cartridge RAM fill when no save exists. Documented in
-  `docs/development.md` and matched by the reference emulator's
-  configuration (no BIOS, power-on randomization off, FM off, export region,
-  the same console model).
-- **Machine outputs**, the same in the app and in tests:
-  - the picture, drawn line by line at the cycle each line is shown, with
-    horizontal scroll latched per line and vertical scroll per frame, as
-    256x192 CRAM values (6-bit colors);
-  - the sound, as a log of PSG writes stamped with their cycle, plus samples
-    at a fixed internal rate made from that log. Resampling to the device rate
-    happens only in `src/app/`.
-- **Program:** the original renderer only, integer-scaled in a resizable
-  window, Alt+Enter for borderless fullscreen. Keyboard and SDL game
-  controllers mapped to the pad, Pause and Reset (port `$DD` bit 4), plus a
-  host power-cycle. Remapping and aspect correction are later work.
-- **Saves:** the machine never touches the file system; the app passes the
-  save path in. The app keeps the cartridge RAM in
-  `%APPDATA%\PSModern\`, one file per ROM version, flushed at the end of any
-  frame in which it changed and at exit, by writing a temporary file and
-  renaming it. The image loaded at start is part of the initial state.
-- **Command line:** `psmodern.exe <rom-path>`; `.sms` files only (the player
-  unzips the Brazilian ROM). Identified by SHA-1
-  ([design](design.md) section 3); anything else is refused with a clear
-  message.
-- **Input recordings**, the format milestone 2 keeps: a small text file with
-  the ROM's SHA-1, the initial cartridge RAM's hash, and one line per change
-  of the button state, with its frame number. Authored with a record mode in
-  the app (`--record <file>`); replayed headless by a runner
-  (`psmodern_replay <rom> <recording> --dump <frames> --out <folder>`), and in
-  the reference emulator by a script driver kept in `tools/`. Each ROM has its
-  own recordings, because text lengths change the timing.
-- **Nothing derived from the ROM in Git:** frame, RAM and VRAM dumps,
-  reference outputs and save images made for tests stay under
-  `D:\Projetos\Phantasy Star\`; the repository holds recordings, scripts and
-  hashes only.
-- **Tests without and with the ROM.** CMake option `PSMODERN_ROM_TESTS`
-  (`ON` by default) with `PSMODERN_ROM_US`, `PSMODERN_ROM_BR` and
-  `PSMODERN_REFERENCE_DIR` paths. ROM-dependent tests go through one helper,
-  `psmodern_rom_test()`. When the option is `ON` and a path is missing, those
-  tests skip with CTest's skip code, never fail. CI sets it `OFF`.
+## Results
 
-## Parts
-
-### Part 0 - Checks before code (read-only)
-
-Results are recorded in this plan before Part A starts.
-
-1. **Z80 core.** Requirements: GPL-3.0-or-later compatible license; passes
-   ZEXDOC, ZEXALL and a flags/MEMPTR suite; exact cycle counts, R and
-   interrupt timing; I/O accesses at their cycle offset inside an
-   instruction; the boundary hook above. Candidates: `floooh/chips` `z80.h`
-   (zlib, cycle-stepped, `z80_prefetch`) and `redcode/Z80` (LGPL-3.0,
-   instruction-stepped, passes the Rak, Woodmass and Cringle suites).
-2. **Reference emulator.** A primary one that runs headless from a script,
-   feeds input per frame, and dumps frames as 6-bit colors, RAM and VRAM; and a
-   second one to settle disputes. Check whether Mesen 2 (archived, GPL-3.0)
-   or its continuation (named on the Mesen 2 repository as MesenCE) offers
-   SMS, Lua and a headless runner; otherwise Emulicious for manual and
-   tracing use. Record versions and the configuration matching the fixed
-   initial state.
-3. **What the game touches**, in both ROMs, by reference traces and ROM
-   static reads: every `LD A,R`, `LD A,I` and `HALT`; FM port use, including
-   through `IN r,(C)`; IM 0/2; line interrupts; V/H counter reads; reads of
-   RAM before it is written; VDP modes used; code running from RAM or
-   cartridge RAM; the cartridge RAM size. Each answer adjusts Part B.
-4. **Hardware documentation** followed (SMS Power development
-   documentation, Charles MacDonald's VDP notes, the SN76489 notes), listed
-   in `docs/dependencies.md`.
-
-## Part 0 results
-
-### 1. Z80 core
-
-**Decision (coordinator review, maintainer approved 2026-11-04): use
-`redcode/Z80` at `dcc3f28d`.** It passes the same Cringle, Rak and Woodmass
-suites, reports the cycle of I/O accesses inside an instruction, builds as a
-CMake subproject, is LGPL-3.0-or-later (compatible with GPL-3.0-or-later) and
-is long established. Per-access memory timing, RZ80's advantage below, is not
-needed on the Master System (see "One cycle counter drives everything"), and
-RZ80 is a young project with an open provenance question. Part B rebinds the
-copied CPU's callback and context pointers, handles the prefix-resume states
-when redirecting PC, and verifies HALT's R counting and the I/O offsets on the
-integrated pin. The comparison made in Part 0 follows.
-
-**Inference.** Part 0 proposed the RZ80 C model at `6b1ffcea`. It exposes memory and I/O
-pins every half T-state and has published passes for all the required suites.
-**Community source.** The results below are upstream measurements.
-
-- **RZ80.** ZEXDOC and ZEXALL each passed 67/67, Rak's flags, CCF and MEMPTR each
-  passed 160/160, and 50/50 instruction timings matched a hardware capture.
-  Immediate OUT takes 4+3+4 T-states, with the write strobe at T2 of the final
-  cycle. Service each strobe once. INT and latched NMI are sampled at the final
-  T-state. A first, non-prefixed M1 before the read is the redirect point for
-  `z80_set_pc`. Exclude interrupt acknowledges and HALT fetches. The pointer-free
-  live `z80_t` holds pins, pending writes and sequencer state. Copy it with the
-  wrapper's pending bus state. The architectural register view uses shared scratch.
-  Build the C99 core as a CMake library. Original C is MIT. Upstream identifies
-  possible LGPL-derived block-flag logic. Check that provenance and preserve
-  applicable redcode notices before vendoring. Both licenses are GPLv3-compatible.
-  [Results](https://github.com/rejunity/z80-from-schematics/tree/6b1ffceab57561881e9cae429182dc3d4fc28038#status),
-  [API](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/cmodel/z80.h),
-  [timing](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/docs/timing.md),
-  [license](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/LICENSE) and
-  [provenance](https://github.com/rejunity/z80-from-schematics/blob/6b1ffceab57561881e9cae429182dc3d4fc28038/THIRD_PARTY_NOTICES.md#core-provenance-to-verify).
-- **floooh/chips** `9e88298c` (zlib). One implementation unit, one tick per
-  T-state, memory and OUT strobes on their machine cycles. `z80_opdone` exposes
-  the overlapping M1/T2 fetch and `z80_prefetch` redirects. Copy the pointer-free
-  CPU and caller's pins. Published runs passed ZEXDOC, ZEXALL and Rak 1.2a
-  MEMPTR, but failed 8/160 flags and 67/160 CCF cases. A fix on this pin is
-  unverified. [Core](https://github.com/floooh/chips/blob/9e88298ce56319953ac7a43213a1120359f7a3a6/chips/z80.h),
-  [license](https://github.com/floooh/chips/blob/9e88298ce56319953ac7a43213a1120359f7a3a6/LICENSE) and
-  [suite transcripts](https://github.com/floooh/chips/issues/98).
-- **redcode/Z80** `dcc3f28d` (LGPL-3.0-or-later). CMake subproject with Zeta.
-  Upstream reports Cringle (ZEXDOC/ZEXALL), Rak and Woodmass flags/MEMPTR
-  passes. It returns instruction totals and exposes I/O offsets
-  (`z80_out_cycle` returns 7 for immediate OUT). Memory callbacks lack an
-  equivalent per-access clock. Stop after a complete instruction to replace
-  PC, accounting for prefix-resume states. A copied CPU retains callback and
-  context pointers. Rebind the context. [API](https://github.com/redcode/Z80/blob/dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9/API/Z80.h),
-  [published results](https://github.com/redcode/Z80/tree/dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9#accuracy)
-  and [license](https://github.com/redcode/Z80/blob/dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9/COPYING.LESSER).
-
-All three implement R=0 on CPU reset, preserve bit 7, count prefix M1 fetches
-and advance R every four T-states during HALT. The final indexed-CB opcode is
-a memory read. All retain I and IFF1/2, defer INT for one instruction after EI,
-leave HALT on acceptance, and model IM 1 (13 T) and NMI (11 T). Part B must
-verify strobe timing, redirect without an extra cycle or fetch, mid-cycle
-copy/resume and conformance on the integrated pin.
-
-### 2. Reference emulator
-
-**Reference emulator.** MesenCE 2.2.1 (`20ba206c`, Windows) ran both SMS ROMs
-with Lua and `--testRunner`. The archived Mesen 2.1.1 also has these interfaces.
-Use Emulicious 2026-03-27 as second opinion, with Master System 1, export/NTSC,
-no BIOS and FM off. [Archived runner](https://github.com/SourMesen/Mesen2/blob/2.1.1/UI/Utilities/TestRunner.cs),
-[CE release](https://github.com/nesdev-org/MesenCE/releases/tag/2.2.1) and [Emulicious distribution](https://emulicious.net/downloads/).
-
-- **Startup.** Empty firmware/save folders, SMS `Revision=Sms1` (315-5124),
-  `Region=Ntsc`, `RamPowerOnState=AllZeros`, `EnableFmAudio=false`, two SMS pads.
-  CE still randomizes the starting line. Before the first instruction Lua set
-  `vdp.scanline` and `vdp.vcounter` to zero. Readback gave line 0, VDP cycle 1,
-  CPU cycle 0. PC=0, AF=AB42, BC=0002, DE=A51B, HL=IX=IY=0, SP=DFF0.
-  Alternate AF/BC/DE/HL=0000/0200/C700/C75F, I=0, R=1D, both IFFs clear, IM 1.
-  CE's halted path spends four clocks without advancing R. Use the CPU
-  suites and second emulator to settle HALT timing. [CE CPU](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsCpu.cpp).
-- **Memory.** Mapper control zero, slots 0/1/2. Cartridge, work RAM and I/O
-  enabled. Work RAM is zero except for the `$3E` marker `$AB` at `$C000`.
-  Fresh save RAM and VRAM are zero. CE supplies its post-BIOS CRAM and VDP
-  defaults, including mode 4/192, display and both IRQ enables on, VBlank
-  pending, address `$3D6A`, code 1 and line counter/latch `$FF/$FC`.
-  [Memory initialization](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsMemoryManager.cpp)
-  and [VDP initialization](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsVdp.cpp).
-- **Capture.** Apply frame input at `startFrame` (line 0, cycle 0), reapply it
-  at `inputPolled`. At line 0 the previous picture is available before buffer
-  swap. Crop unfiltered RGB rows 24–215 and recover the two bits per channel
-  in SMS order. Two runs per ROM matched at the final boundary in all four
-  dumps (49,152 color bytes, 8,192 RAM, 16,384 VRAM, 32 CRAM).
-  [Lua API](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/LuaApi.cpp)
-  and [SMS display filter](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsDefaultVideoFilter.h).
-
-### 3. Hardware used by the two cartridges
-
-**Reference emulator.** Each fresh-save recording covered power-on, title, new
-game, a walk in Camineet, a named save and a battle (final frame 6754 US,
-6401 Brazilian). All cited ROM addresses are identical in both versions.
-
-- **ROM static + Reference emulator.** The random draw at `00:05C8` executed
-  the only confirmed `LD A,R`. Matches at `14:A717` and `16:B4E0` are literal
-  graphics selected by `00:3E8E` and `00:3E06` and consumed by `00:03FA`.
-  The sole `LD A,I` match, `0A:8DE7`, is graphics selected at `01:6048`
-  for the same decoder. No HALT executed. Reset selects IM 1 at `00:0001`,
-  IRQ entry is `00:0038`, and no IM 0/2 selection executed.
-- **ROM static + Unknown.** Of 484 HALT byte matches per ROM, 244 are in
-  referenced data (e.g. `03:8BF5`) and 12 US / 13 Brazilian are inside
-  other instructions. The extra confirmed Brazilian operand is at `00:158E`.
-  The remaining 228 US / 227 Brazilian lack an established instruction
-  boundary. Known script records index a 182-entry table at `01:4773`.
-  The map selector at `00:0BD3` has no established whole-game bound. Of 11 IM 0/2
-  byte matches, five are graphics and six remain
-  unclassified (`17:B789`, `17:BFB1`, `1E:8ACA`, `1F:8C9F`, `1F:9388`,
-  `1F:9BD5`). The sessions do not establish whole-game absence.
-- **Reference emulator + ROM static.** Port counters recorded reads only at
-  `$BE/$BF/$DC/$DD`, writes only at `$7F/$BE/$BF`, including indirect and
-  block I/O. Sound output at `0C:8028` targets the PSG. `00:3AB0` reads VDP
-  data, `00:0039` status, `00:0339` the pad and `00:010F` Reset. No FM
-  (`$F0–$F2`) or V/H counter access, including mirrors, was observed.
-- **Reference emulator + ROM static.** The game sets R0/R1 to `$06/$A0` at
-  `00:03AA`. Writes at `00:000C` also used R0=`$26` or R1=`$E0`. All select
-  mode 4/192 with VBlank IRQ enabled and line IRQ disabled. Part B gains
-  no FM, IM 0/2 or additional display mode on this evidence. Keep the
-  planned counters and line IRQ timing.
-- **Reference emulator + ROM static.** `00:009F` and `00:00A0` clear the
-  full 8 KiB. Tracking each physical RAM byte across both mirrors found no
-  read before first write. **Inference.** An early Pause NMI could read RAM
-  at `00:0067` before the clear. All 5,196 US and 5,759 Brazilian distinct
-  fetch sites mapped to ROM banks 00, 01 or 0C, including the bank switch
-  at `00:02F0`. No work-RAM or cartridge-RAM code ran on these routes.
-- **Reference emulator + ROM static.** Boot writes `$80` at `00:008B`.
-  `00:07DC` enables cartridge RAM with
-  `$FFFC=$08` (bit 3 on, bank bit 2 clear). `00:07EE` reads fresh save RAM
-  before writing. Initialization at `00:0851` reads through `$9FFA` and
-  writes through `$9FFB`. Slot one wrote `$8400–$87FF` at `00:1D1D` and its
-  flag at `00:1D15`. **Inference.** Use an 8 KiB Part B save image for each ROM.
-  The observed extent is 8,188 bytes in the lower bank. **Hardware documentation.**
-  The US board carries an MB8464A. The Brazilian chip marking is **Unknown**.
-  [US cartridge PCB inventory](https://gendev.spritesmind.net/mirrors/www.nepereny.com/misc2/games/sms_phantasy_star.htm).
-
-### 4. Hardware documentation
-
-**Hardware documentation.** See the list in [dependencies](dependencies.md#hardware-documentation).
-
-**Settled in the coordinator review (2026-11-04): no palette-slot numbers.**
-Part D compares the picture as 6-bit colors, and CRAM, VRAM and RAM are
-compared separately. Two slots holding the same color look the same to the
-player, so a slot difference with an identical color is not a difference in
-original mode.
-
-### Part A - Repository, build and CI
-
-- CMake project, the layout above, a minimal `psmodern.exe` that identifies
-  a ROM and exits, identification tests with synthetic files.
-- `docs/dependencies.md`, `.github/workflows/ci.yml` (clean Windows machine,
-  `PSMODERN_ROM_TESTS=OFF`, actions pinned by commit SHA, read-only token),
-  `docs/development.md`, `tools/AGENTS.md` (complete-suite protocol adapted
-  from MMModern).
-
-### Part B - The machine
-
-- Z80 core integration, memory and mapper, cartridge RAM, ports, VDP, PSG,
-  controller, Pause and Reset, the cycle counter and scheduler, the
-  milestone-2 hooks, the snapshot, the fixed initial state.
-- Unit tests with the project's own small Z80 test programs: every mapper
-  and RAM item above; port mirrors; VDP latch, read buffer, CRAM, interrupt
-  timing to the cycle, line counter, status flags, sprite overflow and
-  collision, per-line horizontal scroll; R after prefixes, HALT and reset;
-  PSG tone and noise; the hooks; snapshot copy-run-compare.
-- Z80 conformance: the core's own suites, in CI where their licenses allow,
-  otherwise locally from files outside the repository.
-
-### Part C - The program and recordings
-
-- SDL window, scaling, fullscreen, audio, keyboard and controller, save
-  files, refusal messages, frame pacing.
-- Record mode, the recording format, the headless runner and the reference
-  driver.
-
-### Part D - The ROM runs, compared with the reference
-
-- **From power-on, frame by frame:** each ROM, on recordings that reach the
-  title screen and a new game in Camineet, compared with the reference every
-  frame (the picture as 6-bit colors cropped to 256x192, RAM, VRAM, CRAM),
-  reporting the
-  first frame that differs.
-- **Checkpoints across the game:** the first battle and the first dungeon by
-  recording; late-game points (a later town, a 3D dungeon deep in the game, a
-  boss) started from cartridge RAM save images made in the reference and kept
-  outside the repository.
-- A difference is a defect of the machine unless shown to be the
-  reference's, with hardware documentation, the second emulator or a ROM
-  static read, and recorded.
-- **Determinism:** the same recording twice gives identical state, picture
-  and sound log.
-- **`docs/how-it-works/master-system.md`:** the console in plain words (the
-  Z80, VDP, PSG, mapper, cartridge RAM, how a frame happens, why R matters for
-  the game's randomness), with evidence labels; `docs/AGENTS.md` updated in
-  the same change.
-
-## Risks
-
-- **VDP and interrupt timing details.** Exact unit tests per behavior, then
-  frame-by-frame comparison from power-on.
-- **R and initial-state drift.** One cycle or one fetch of difference at boot
-  changes the random sequence and every later checkpoint. Exact R tests, the
-  fixed initial state, and the reference configured identically.
-- **The reference emulator is not exact either.** A second emulator, hardware
-  documentation and ROM static reads settle disputes; each case is recorded.
-- **The reference cannot be scripted headless.** Then frame-by-frame
-  comparison falls back to the reference's trace and manual dumps at fewer
-  points; Part 0 says which, and the plan is amended.
-- **Audio crackle or drift** from host pacing; confined to `src/app/`.
-- **Scope creep into a general emulator.** The hardware list above is the
-  whole scope; no debugger UI, no other games.
-- **Toolchain drift** from MMModern. Reuse the same pinned packages.
-
-## Tests and acceptance
-
-- CI green with `PSMODERN_ROM_TESTS=OFF`; the complete local suite green with
-  both ROMs and the reference outputs.
-- Both ROMs match the reference frame by frame from power-on on the opening
-  recordings, and at every later checkpoint, or each difference is explained
-  as the reference's and recorded.
-- Independent review of this plan (done 2026-11-04) and of the implementation
-  after Part D (Tier A).
-- Maintainer play-test, one session after Part D, guide in Portuguese: the
-  picture and sound feel right, keyboard and controller work, Pause and Reset
-  behave, a save made in the game survives quitting and restarting, in both
-  versions. Each item says why it needs a play-test.
-- At closure: condense this plan, write `docs/project-status.md` and create
-  `docs/project-history.md`.
+- **Frame by frame:** twelve checkpoint recordings, six per version, match
+  the reference on every frame: 124,920 frames. Each frame compares seven
+  things: the picture, RAM, VRAM, CRAM, cartridge RAM, the CPU state and the
+  sound writes.
+  - Three checkpoints start at power-on: the opening, the first battle and
+    the first dungeon.
+  - Three start from saves made in the reference by the maintainer: a later
+    town, a boss fight and a deep dungeon. The Brazilian images were written
+    back by the Brazilian game.
+  - Each checkpoint recording ran twice with byte-identical output. The
+    suite repeats the short recordings and a 1,200-frame run.
+- **Conformance:** the Z80 suites by Cringle, Rak and Woodmass pass on the
+  integrated core. The pinned VDPTest passes its 55 automated SMS1 results.
+- **Reviews:** independent reviews of the plan (2026-11-04) and of the
+  implementation (2026-11-08). Fixes and maintainer decisions closed the
+  implementation review's findings; a second review accepted the fixes.
+- **Play-test** (2026-11-08): the maintainer played the US version and
+  found picture, sound, keyboard, controller, Pause, Reset, saves, power
+  cycle and the second-copy refusal correct. By maintainer decision, the
+  Brazilian version was not play-tested. Its checkpoints and the shared save
+  code cover it.
