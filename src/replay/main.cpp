@@ -2,6 +2,8 @@
 #include "replay/recording.h"
 #include "replay/verification.h"
 #include "rom/sha1.h"
+#include "game/routines.h"
+#include "replay/census.h"
 #include <charconv>
 #include <filesystem>
 #include <fstream>
@@ -58,6 +60,7 @@ int run(int argc,char** argv) {
     if(!rom_file)throw std::runtime_error("Cannot open ROM.");
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(rom_file),std::istreambuf_iterator<char>());
     if(rom_file.bad()||rom->size()!=512*1024||sha1(*rom)!=recording.rom_sha1)throw std::runtime_error("ROM SHA-1 mismatch or invalid ROM size.");
+    game::register_routines(routines,recording.rom_sha1);
     Memory::CartridgeRam cart{};
     if(cart_path) {
         std::ifstream f(*cart_path,std::ios::binary);
@@ -107,6 +110,9 @@ int run(int argc,char** argv) {
         }
     }
     manifest.close();log.close();if(!manifest||!log)throw std::runtime_error("Cannot close replay outputs.");
+    std::ofstream census(out/"routine-census.tsv",std::ios::binary);
+    replay::write_census(census,routines);
+    census.close();if(!census)throw std::runtime_error("Cannot write routine census.");
     std::cout<<"Replayed "<<recording.frames<<" frames into "<<out.string()<<'\n';return 0;
 }
 }

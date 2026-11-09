@@ -2,7 +2,8 @@
 
 > [!IMPORTANT]
 > PSModern is an unofficial fan project in an early stage: the original game
-> runs, but nothing is rewritten yet and there are no options. It ships no
+> runs, controller polling is the first routine rewritten in C++, and there
+> are no options yet. It ships no
 > game data: you will need your own Phantasy Star cartridge dump for the
 > Sega Master System (US Rev-A, or the Brazilian Tec Toy release).
 

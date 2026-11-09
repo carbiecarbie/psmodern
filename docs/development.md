@@ -203,7 +203,29 @@ hex byte. Both PSG write and sample queues are drained after every call.
 Routines are enabled by default. `psmodern.exe <rom-path> --no-routines`
 and `psmodern_replay ... --no-routines` disable every replacement. The app
 option can be combined with `--record`; the runner option can be combined
-with `--cart-ram`. No game routine is registered yet.
+with `--cart-ram`. The first game routine is controller polling at `00:0339`,
+shared by the US Rev-A and Brazilian images. Its fixed bound is 70 cycles.
+Registration is gated by the verified ROM SHA-1: authored runner fixtures
+keep an empty registry. The game layer lives in `src/game/`; the
+[controller chapter](how-it-works/controls.md) explains this first routine.
+
+Every replay writes `routine-census.tsv` beside its manifest, with C++ calls,
+fallback calls and each fallback reason per registered entry. An empty
+registry writes just the header. Counts contain no ROM bytes.
+
+The twelve checkpoint tests now check every admitted C++ call, compare
+routines on/off frame by frame, and compare the resulting frames with the
+pinned milestone 1 reference. Every checkpoint requires at least 90% C++
+calls. The tests write counts to `build-rel/routine-census/{us,br}/`.
+Generate [the coverage chapter](coverage.md) after all twelve pass:
+
+```sh
+python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
+```
+
+The ROM-only controller tests compare all 65,536 pairs of previous/new
+controller bytes in each version, including the whole machine, read timing,
+R and fetch count. The ROM-free catalog and coverage-generator tests run in CI.
 
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys

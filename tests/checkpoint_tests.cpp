@@ -3,6 +3,9 @@
 #include "replay/checkpoint.h"
 #include "rom/sha1.h"
 #include "rom/sha256.h"
+#include "game/routines.h"
+#include "replay/census.h"
+#include "replay/verification.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -20,7 +23,7 @@ std::vector<std::uint8_t> read_bytes(const std::filesystem::path& path) {
     if (in.bad()) throw std::runtime_error("Cannot read checkpoint input.");
     return bytes;
 }
-int compare(const char* rom_path, const char* recording_path, const char* manifest_path) {
+int compare(const char* rom_path, const char* recording_path, const char* manifest_path,const char* census_path) {
     // Validate every available input before reporting missing dependencies.
     const bool have_recording=std::filesystem::exists(recording_path);
     const bool have_rom=std::filesystem::exists(rom_path);
@@ -100,17 +103,30 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
 
     Machine machine(rom, cart);
     RoutineRegistry routines;
+    game::register_routines(routines,recording.rom_sha1);
+    replay::CallVerifier verifier(std::filesystem::path(recording_path).filename().string());
+    routines.verifier=&verifier;
+    Machine original(rom,cart);
+    RoutineRegistry disabled;
+    game::register_routines(disabled,recording.rom_sha1);
+    disabled.enabled=false;
     FrameInput input{};
     std::size_t change = 0;
     constexpr std::array names{"picture", "ram", "vram", "cram", "cart-ram", "cpu", "psg"};
     std::array<std::uint64_t, 7> failures{};
     replay::FrameWrites frame_writes;
+    replay::FrameWrites original_writes;
     for (std::uint64_t frame = 1; frame <= recording.frames; ++frame) {
         if (change < recording.changes.size() && recording.changes[change].frame == frame - 1)
             input = recording.changes[change++].input;
         machine.run_frame(input,routines);
         auto psg=frame_writes.take(frame,machine.take_psg_writes());
         machine.take_samples();
+        original.run_frame(input,disabled);
+        auto native_psg=original_writes.take(frame,original.take_psg_writes());
+        original.take_samples();
+        replay::compare_manifests(std::filesystem::path(recording_path).filename().string(),frame,
+            replay::manifest(original,native_psg),replay::manifest(machine,psg));
         const auto& vram = machine.vdp().vram();
         std::array actual{sha1(machine.picture()), sha1(machine.memory().ram()), sha1(vram),
                           sha1(machine.vdp().cram()), sha1(machine.memory().cartridge_ram()),
@@ -125,14 +141,27 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     }
     for (std::size_t i = 0; i < names.size(); ++i)
         if (failures[i]) std::cout << names[i] << ": " << failures[i] << " differing frames\n";
+    for(const auto& [entry,routine]:routines.entries()) {
+        const auto cpp=routine.counters.cpp_calls, fallback=routine.counters.fallback_calls;
+        if(cpp==0 || static_cast<double>(cpp)/(cpp+fallback)<0.9)
+            throw std::runtime_error("Checkpoint did not reach 90% C++ calls.");
+        std::cout<<"Routine C++ calls: "<<cpp<<", fallbacks: "<<fallback<<'\n';
+    }
+    if(census_path) {
+        const std::filesystem::path path(census_path);
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream census(path,std::ios::binary);
+        replay::write_census(census,routines);
+        census.close();if(!census)throw std::runtime_error("Cannot write checkpoint census.");
+    }
     return std::any_of(failures.begin(), failures.end(), [](auto n) { return n != 0; });
 }
 }
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 4) throw std::runtime_error("Expected ROM, recording and manifest.");
-        return compare(argv[1], argv[2], argv[3]);
+        if (argc != 4 && argc != 5) throw std::runtime_error("Expected ROM, recording, manifest and optional census path.");
+        return compare(argv[1], argv[2], argv[3],argc==5 ? argv[4] : nullptr);
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
         return 1;

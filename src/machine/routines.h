@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <string_view>
 
 namespace psmodern {
 class Machine;
@@ -17,6 +18,8 @@ struct RoutineEntry {
 };
 enum class RoutineFallback : unsigned { disabled, irq, nmi, frame, ei_delay, interrupt_delay,
     halted, unmapped_stack, count };
+inline constexpr std::array<std::string_view,static_cast<unsigned>(RoutineFallback::count)>
+    routine_fallback_names{"disabled","irq","nmi","frame","ei_delay","interrupt_delay","halted","unmapped_stack"};
 struct RoutineCounters {
     std::uint64_t cpp_calls=0, fallback_calls=0;
     std::array<std::uint64_t,static_cast<unsigned>(RoutineFallback::count)> reasons{};
@@ -77,6 +80,7 @@ public:
     RoutineVerifier* verifier=nullptr;
     RegisteredRoutine* find(RoutineEntry entry);
     const RegisteredRoutine* find(RoutineEntry entry) const;
+    const auto& entries() const { return routines_; }
 private:
     std::map<RoutineEntry,RegisteredRoutine> routines_;
 };

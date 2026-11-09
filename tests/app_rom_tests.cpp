@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
+#include "game/routines.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -36,6 +37,8 @@ int main(int argc,char** argv) {
             check(driver.machine().equivalent(direct),"complete machine state differs");
         }
         const auto before=driver.store().writes(); check(!driver.flush() && driver.store().writes()==before,"clean exit wrote save");
+        check(driver.routines().find(game::controller_poll_entry)->counters.cpp_calls>100,
+            "default frame driver did not run the game routine");
         std::cout<<"1200 frames: identical Machine state, picture, writes and samples; both queues drained every frame; "
                  <<dirty_frames<<" dirty writes, "<<1200-dirty_frames<<" unchanged frames without writes.\n";
         } // Release the OS save lock before removing the fixture.
