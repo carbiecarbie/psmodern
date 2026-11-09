@@ -37,6 +37,10 @@ data.
 
 For a plain-words introduction to the console parts described below, see
 [how the Master System works](how-it-works/master-system.md).
+The game-system chapters explain [controller reading](how-it-works/controls.md),
+[random numbers and encounters](how-it-works/random-numbers.md),
+[party records and experience](how-it-works/party.md), and
+[the sound driver](how-it-works/sound.md).
 
 ## Program
 

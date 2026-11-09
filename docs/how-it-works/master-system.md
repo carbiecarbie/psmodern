@@ -345,13 +345,14 @@ higher. This can change a draw and later draws too. It need not: if no
 relevant event falls between the two timings, the same number of fetches can
 reach the read of R, preserving that draw.
 
-**Inference (medium confidence).** Random encounters, such as whether a
-fight starts and which monsters appear, are expected to use this code, so a
-small timing error early on could make later encounters differ from the
-original.
+**ROM static; ROM run.** The callers now partly establish that connection:
+the map and dungeon encounter checks, encounter-pool selection and enemy
+group-size draws use this routine. The
+[random-number chapter](random-numbers.md) explains those stages and the
+other established uses, with the limits of the six US recordings.
 
-**Unknown.** Which routines call the random-number code, including the one
-that rolls encounters, is not yet established.
+**Unknown.** Indirect callers and paths outside those recordings remain
+outside measured coverage.
 
 **Maintainer decision.** For this reason PSModern is compared with the
 reference emulator frame by frame from power-on, on input recordings of
