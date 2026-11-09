@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
 #include "app/host.h"
+#include "temporary_cleanup.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -26,7 +27,7 @@ struct Temporary {
     std::filesystem::path path=std::filesystem::temp_directory_path()/
         ("psmodern-app-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Temporary() { check(std::filesystem::create_directory(path),"unique temporary folder"); }
-    ~Temporary() { std::error_code ec; std::filesystem::remove_all(path,ec); }
+    ~Temporary() { test::remove_temporary_folder(path); }
 };
 auto program() { return std::make_shared<Memory::Rom>(512*1024,0); }
 void change(Memory& m,std::uint8_t value) { m.write(0xfffc,8); m.write(0x8000,value); }

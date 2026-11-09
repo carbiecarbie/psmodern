@@ -7,6 +7,10 @@
 using namespace psmodern;
 namespace psmodern {
 struct VdpFixture {
+    static void change_cache(Vdp& v) {
+        v.irq_cache_.valid=!v.irq_cache_.valid;
+        v.irq_cache_.event=123;
+    }
     static void raw_latches(Vdp& v) {
         v.horizontal_scroll_^=0x6d; v.vertical_scroll_^=0x37;
         v.preparing_sprites_[0].x=0x73; v.prepared_sprites_[0].x=0x31;
@@ -176,8 +180,37 @@ void windows() {
     check(text.find("window-check failure: interrupt accepted")!=std::string::npos && irq.equivalent(before),"Shadow independently detects native interrupt acceptance");
 }
 void fields() {
+    // An authored component models adding a field without updating its list.
+    // Exercise the same backstop used by all three real components.
+    struct Component {
+        int listed=0, unlisted=0;
+        bool operator==(const Component&) const = default;
+    };
+    for (const std::string name:{"memory","vdp","psg"}) {
+        Component original, replacement;
+        DifferenceList list;
+        list.backstop(name,original,replacement);
+        check(list.fields.empty(),"Equal components must not trigger the backstop");
+        replacement.unlisted=0x73;
+        list.add(name+".listed",original.listed,replacement.listed);
+        list.add("other.listed",0,1);
+        list.backstop(name,original,replacement);
+        check(list.fields.size()==2,"Another component must not suppress an unlisted field");
+        const auto& d=list.fields.back();
+        check(d.field==name+" (unlisted field)" && d.can_carry_rom &&
+            d.original.empty() && d.replacement.empty(),"Unlisted fields must be named with both values redacted");
+        list.fields.clear();
+        replacement.listed=1;
+        list.add(name+".listed",original.listed,replacement.listed);
+        list.backstop(name,original,replacement);
+        check(list.fields.size()==1 && list.fields[0].field==name+".listed",
+            "A listed difference must not gain a duplicate backstop report");
+    }
     Machine a(program({0})); entry(a); Machine b=a;
     const auto before=a;
+    VdpFixture::change_cache(b.vdp());
+    check(before.differences(b).empty() && before.equivalent(b),"Derived IRQ cache remains excluded from equivalence");
+    b=before;
     check(a.peek(0xc101)==2 && a.equivalent(before) && a.last_access()==before.last_access(),"Peeking a stack byte is side-effect free");
     a.memory().set_memory_control(0x10); const auto unmapped=a;
     check(a.peek(0xc101)==a.peek(0xc100) && a.equivalent(unmapped) && a.last_access()==unmapped.last_access(),"Unmapped peek leaves open bus untouched");

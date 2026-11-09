@@ -114,6 +114,9 @@ std::vector<FieldDifference> Machine::differences(const Machine& o) const {
     }
     out.add("psg.samples.first_cycle",psg_.samples_.first_cycle,o.psg_.samples_.first_cycle);
     out.add("psg.samples.values",psg_.samples_.values,o.psg_.samples_.values,true);
+    out.backstop("memory",memory_,o.memory_);
+    out.backstop("vdp",vdp_,o.vdp_);
+    out.backstop("psg",psg_,o.psg_);
     return std::move(out.fields);
 }
 }

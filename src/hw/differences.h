@@ -15,6 +15,13 @@ struct FieldDifference {
 class DifferenceList {
 public:
     std::vector<FieldDifference> fields;
+    // Defaulted component equality catches future fields omitted from the list.
+    // A listed difference already makes the component unequal; avoid duplicates.
+    template<class T> void backstop(const std::string& component, const T& a, const T& b) {
+        const auto prefix=component+".";
+        for (const auto& field:fields) if (field.field.starts_with(prefix)) return;
+        if (!(a==b)) fields.push_back({component+" (unlisted field)","","",true});
+    }
     template<class T> void add(const std::string& name, T a, T b, bool rom=false) {
         if (a==b) return;
         fields.push_back({name,rom ? "" : value(a),rom ? "" : value(b),rom});

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
 #include "game/routines.h"
+#include "temporary_cleanup.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -42,8 +43,8 @@ int main(int argc,char** argv) {
         std::cout<<"1200 frames: identical Machine state, picture, writes and samples; both queues drained every frame; "
                  <<dirty_frames<<" dirty writes, "<<1200-dirty_frames<<" unchanged frames without writes.\n";
         } // Release the OS save lock before removing the fixture.
-        std::filesystem::remove_all(folder); return 0;
+        test::remove_temporary_folder(folder); return 0;
     } catch (const std::exception& e) {
-        std::cerr<<e.what()<<'\n'; std::error_code ec; std::filesystem::remove_all(folder,ec); return 1;
+        std::cerr<<e.what()<<'\n'; test::remove_temporary_folder(folder); return 1;
     }
 }

@@ -2,6 +2,7 @@
 #include "replay/recording.h"
 #include "replay/checkpoint.h"
 #include "rom/sha1.h"
+#include "temporary_cleanup.h"
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -37,6 +38,6 @@ int main() {
         write_atomic_new(path,rec.recording());check(write(read(path))==text);
         bool refused=false;try{write_atomic_new(path,rec.recording());}catch(...){refused=true;}check(refused&&write(read(path))==text);
         refused=false;try{write_atomic_new(folder/"absent"/"x",rec.recording());}catch(...){refused=true;}check(refused&&!std::filesystem::exists(folder/"absent"/"x"));
-        std::filesystem::remove_all(folder);std::cout<<"Format refusals, canonical round trip, change detection and atomic publication passed\n";return 0;
-    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+        test::remove_temporary_folder(folder);std::cout<<"Format refusals, canonical round trip, change detection and atomic publication passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';test::remove_temporary_folder(folder);return 1;}
 }
