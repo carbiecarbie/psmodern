@@ -1,15 +1,16 @@
 # PSModern - Project Status
 
-**Milestone 1 (foundation) is complete,** accepted on 2026-11-08. Phantasy
-Star runs from the player's own ROM on a virtual Master System, in original
-mode, in both the US and the Brazilian version. Nothing of the game is
-rewritten yet: the whole original program runs on the virtual Z80.
+**Milestone 2 (verification) is complete,** accepted on 2026-11-09.
+Phantasy Star runs from the player's own ROM on a virtual Master System, in
+original mode, in both the US and the Brazilian version. Controller polling
+is the first routine rewritten in C++; the rest of the original program
+runs on the virtual Z80.
+Milestone 1 was accepted on 2026-11-08.
 
-The next stage in [design](design.md) section 8 prepares the first
-rewritten routines: a way to run a C++ routine in place of the original and
-check, cycle for cycle, that the game behaves exactly the same, tested first
-on a trivial routine. The maintainer starts each
-milestone explicitly.
+Replacements can now be checked against the original, call by call and
+frame by frame, with exact state and timing. The next stage in
+[design](design.md) section 8 builds the study base for further rewrites.
+The maintainer starts each milestone explicitly.
 
 ## What can be played
 
@@ -51,8 +52,9 @@ layer.
 | --- | --- | --- |
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
+| Game | `src/game/` | Registered C++ routines, starting with controller polling |
 | Program | `src/app/` | SDL window, sound, input, save files, frame pacing |
-| Recordings | `src/replay/` | Input recordings, the headless replay runner |
+| Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
 | Tests | `tests/` | Unit, conformance, ROM and checkpoint tests |
 
@@ -62,9 +64,9 @@ Some properties matter for the next milestones:
   The same recording always gives the same frames, byte for byte.
 - **Copyable.** The whole machine copies as one value, so a run can be
   forked and compared.
-- **Ready for rewritten routines.** The machine can already stop at any
-  point of the original code, run something else instead and keep the
-  timing exact. This is tested but not used yet.
+- **Verified replacements.** Registered C++ routines replace the original
+  only where interrupts and frame boundaries permit exact timing. Other
+  calls stay on the Z80. A developer switch disables replacements.
 
 How the console works, in plain words, is in
 [how the Master System works](how-it-works/master-system.md). Building,
@@ -74,9 +76,13 @@ testing, recordings and the reference are in [development](development.md).
 
 | Game system | State |
 | --- | --- |
-| Everything (map, dungeons, battle, menus, text, sound driver, saves) | Original Z80 code |
+| Controller polling (`00:0339`) | C++ by default; original Z80 fallback when needed |
+| Map, dungeons, battle, menus, text, sound driver, saves and remaining control handling | Original Z80 code |
 
-No routine is rewritten yet; that starts after the verification stage.
+The first routine ran in C++ on all 93,555 calls in the twelve checkpoints,
+with no fallback. The generated [coverage census](coverage.md) gives the
+counts by recording. [Controls](how-it-works/controls.md) explains what it
+does; these recordings do not establish coverage of every possible route.
 
 ## How it is verified
 
@@ -85,6 +91,10 @@ No routine is rewritten yet; that starts after the verification stage.
   dungeon, a later town, a boss fight and a deep dungeon. All 124,920 frames
   match in the picture, RAM, video memory, palette, cartridge RAM, CPU state
   and sound writes.
+- **Each C++ call** is checked against a copy running the original, including
+  hidden machine state, cycles, R and opcode fetches. Routines on and off
+  also produce identical manifests on every frame of the twelve recordings.
+  All previous/current button combinations are checked for both ROMs.
 - **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
   the VDPTest results for the SMS1 video chip.
 - **CI** on a clean Windows machine runs every test that needs no ROM or
@@ -94,7 +104,10 @@ No routine is rewritten yet; that starts after the verification stage.
 
 ## Known gaps
 
-- **No options and no rewritten routines yet.**
+- **No optional features yet; only controller polling is rewritten.** The
+  registered-routine mechanism currently excludes routines that change
+  interrupt sources or mapping, adjust the stack, have interior entries or
+  exit without returning. The [coverage census](coverage.md) tracks progress.
 - **Windows only** for the save location.
 - **The Brazilian version is checked by its recordings, not by play.**
   Development and play-tests use the US version (design 5.5); the Brazilian

@@ -12,3 +12,14 @@ led to fixes and to six maintainer decisions. The maintainer accepted the
 milestone after playing the US version.
 [Plan](milestone-1-plan.md). Last implementation commit: `4585634`; closed
 by the commit that added this entry.
+
+## Milestone 2 - Verification (2026-11-09)
+
+Controller polling is the first C++ replacement, with the same controls and
+timing as the original. Per-call and frame comparisons pass all twelve
+checkpoints; all 93,555 observed calls run in C++. Speed meets the limit,
+independent Tier A reviews passed, and the maintainer's US play-test passed.
+The Brazilian recordings pass automatically. The maintainer accepted the
+milestone after playing the US version.
+[Plan](milestone-2-plan.md). Last implementation commit: `70c3454`; closed
+by the commit that added this entry.

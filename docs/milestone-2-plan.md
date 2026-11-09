@@ -1,159 +1,73 @@
 # Milestone 2 plan - Verification: rewritten routines and the lockstep run
 
-**Tier A. Status: planned, reviewed and approved (2026-11-09).** Second stage of [design](design.md)
-section 8. Milestone 1 already delivered the stage's input recordings, the
-frame-by-frame comparison with the reference emulator and the Brazilian
-start; this milestone delivers the rest.
+**Tier A. Status: completed and accepted (2026-11-09).** Planned, reviewed
+and approved in `43b05b9`; implemented from `60a6f9e` to `70c3454`; closed
+by the commit that condensed this plan. Second stage of [design](design.md)
+section 8, completing the verification base begun in milestone 1.
 
 ## Goal
 
-A routine of the original program can be replaced by C++ code, and the
-project can prove, call by call and frame by frame, that the game behaves
-exactly as before: same state, same cycles, same R register, same sound and
-picture. The mechanism is proven on test programs and then on one trivial
-routine of the real game, in both versions. The player sees no difference.
+A routine of the original program can run as C++ instead, with proof that
+the player gets the same behavior, picture, sound and timing. The first
+replacement reads the controls; the rest of the game still runs on the Z80.
 
-## Scope
+## Scope delivered
 
-- **Registered routines.** A table of C++ routines keyed by entry
-  `bank:address`, matching ROM mappings only (never cartridge RAM or code in
-  RAM). The registry and its call counters live outside the machine state:
-  they are not copied with it and not compared.
-- **The step path.** `run_frame` takes the registry. At an instruction
-  boundary where no interrupt is being accepted, a registered entry runs the
-  C++ routine in place of `Cpu::step`; no Z80 instruction runs after it in
-  the same step. The routine ends by letting the core execute the original's
-  own return instruction, so the core's internal fields after a return (its
-  address and flag registers, the last opcode, the step bookkeeping) come out
-  exact.
-- **Cycle accounting.** A routine spends the exact cycles of the path it
-  takes, through `Machine::advance`, and makes each port access at the cycle
-  offset of the original instruction. Bus reads and writes go through the
-  machine bus in the original order relative to port accesses, so the open
-  bus value matches. R (keeping bit 7) and the opcode fetch count advance by
-  the path's opcode fetches.
-- **Interrupt window rule** (see Key decisions). Each routine declares a
-  worst-case cost, which may depend on its entry state. The C++ version runs
-  only when, in `[entry, entry+bound)`, no maskable interrupt can be accepted
-  (IFF1 set and an IRQ due), no NMI can be accepted (including an NMI
-  request first visible at the entry cycle), and no frame boundary falls.
-  Otherwise the original Z80 code runs for that call. Each outcome and each
-  fallback reason is counted.
-- **Guards.** Every C++ call checks its actual cost against the declared
-  bound, also in normal play, and stops with an error if it is exceeded. The
-  routine context rejects writes to VDP registers 0, 1 and 10 and to the
-  mapper, so a routine cannot change interrupt sources or its own mapping.
-- **Cheap interrupt query.** The window check uses a conservative event-time
-  query (never later than the exact one), computed from the VDP registers
-  and line counter and cached until they change, not a simulation of the
-  VDP. Tests check it against the exact query.
-- **Lockstep run** in the replay runner:
-  - **Per call:** at every C++ call, a copy of the machine with routines off
-    runs the original from the same entry until the first instruction
-    boundary where SP is back at its entry value plus two and PC equals the
-    return address that was on the stack. The copy is capped at the declared
-    bound. The two machines are then compared with `Machine::equivalent`.
-    The first difference stops the run.
-  - **Per recording:** the same recording runs with routines off and on, and
-    the seven-component manifests are compared frame by frame. The milestone
-    1 reference manifests must still match with routines on.
-- **Equivalence after a call.** Fields of the core that are overwritten
-  before they are ever read (the stale prefix bytes after an unprefixed
-  instruction, the last index value) may leave `Cpu::equivalent` only with a
-  written argument from the pinned core's source and a test proving the
-  overwrite. Everything else is compared.
-- **Divergence report:** recording, frame, cycle, the routine's `bank:address`
-  and call number, then each differing field with both values. Fields that
-  can carry ROM bytes (the open bus, the core's opcode bytes, port-read
-  results) are named as different without values.
-- **Switches.** Routines are on by default in the program and the runner
-  (maintainer decision, see Key decisions). A developer option turns every
-  routine off; the runner also gets the lockstep options. Exact names go in
-  [development](development.md).
-- **First game routine,** chosen by the criteria below, rewritten from
-  understanding, verified in both versions, with its explanation.
-- **Census.** `docs/coverage.md` is created, generated by a tool: each
-  registered routine with its C++ and fallback calls, by reason, on the
-  twelve checkpoints.
-
-Out of scope: routines that enable or disable interrupts, write VDP
-registers 0, 1 or 10 or the mapper, are entered other than at their start,
-exit other than by their return, or adjust the stack; the frame budget model
-of stage 11; any game feature.
+- **Registered routines:** C++ replacements selected by ROM `bank:address`,
+  with call and fallback counters outside the copyable machine state.
+- **Exact timing:** each replacement accounts for the original cycles,
+  opcode fetches, R register and bus accesses. The original return executes
+  on the core to preserve its internal state. Cost overruns and forbidden
+  mapper or interrupt-source writes stop the run.
+- **Per-call verification:** a copy runs the original routine from the same
+  entry, then compares the whole machine. A difference identifies the
+  recording, frame, cycle, routine, call and fields, without exposing values
+  that could contain ROM data. Defaulted component equality also catches
+  fields missing from the diagnostic list.
+- **Per-recording verification:** routines on and off produce the same
+  seven-component manifests on every frame, and still match milestone 1's
+  reference recordings. [Coverage](coverage.md) is generated from the
+  twelve checkpoint censuses.
+- **First routine:** controller polling at `00:0339`, shared by both ROMs,
+  records held and newly pressed buttons. Its plain-language explanation
+  is in [controls](how-it-works/controls.md).
 
 ## Key decisions
 
-- **Interrupt window rule** (maintainer decision, 2026-11-09). A
-  C++ routine runs as one indivisible step, but the original can be
-  interrupted between any two instructions, and the handler reads RAM and
-  pushes a return address. A frame boundary inside the call would also make
-  the frame snapshot fall mid-routine on one path and after it on the other.
-  Running the original in these cases keeps every run exact without
-  splitting routines. Cost: a few calls run on the Z80, shown by the census.
-  Rejected: resuming a C++ routine around an interrupt (complex, unneeded for
-  short routines); running it on a copy and discarding it (too slow).
-- **Routines on by default** (maintainer decision, 2026-11-09).
-  The rewritten routine is part of original mode; the checks above prove it
-  exact. The developer option exists to rule a routine out when diagnosing.
-- **Full machine equivalence,** not only the seven manifest components:
-  hidden state can change a later frame without showing in the current one.
-- **Choice of the first routine** (ROM static, then ROM run): a leaf routine,
-  entered only at its start, ending by its return, outside the exclusions
-  above, called many times in the checkpoints of both versions, at the same
-  address in both. Port access is welcome, not required: the test programs
-  cover port timing. The candidate is named with its evidence first.
-- **Knowledge.** The routine's explanation starts the how-it-works chapter of
-  its game system (the [docs/AGENTS.md](AGENTS.md) table is updated to say
-  game-system chapters start here). Its name in `psmodern-re` waits for
-  milestone 3, which creates that repository.
+- **Interrupt window rule** (Maintainer decision, 2026-11-09): a replacement
+  runs only if its declared worst-case window cannot accept an interrupt or
+  cross a frame boundary. Otherwise the original handles that call. This
+  keeps timing exact without splitting or speculatively running routines.
+- **Routines on by default** (Maintainer decision, 2026-11-09): verified
+  replacements are part of original mode. A developer switch disables them
+  for diagnosis; this does not enable any optional game feature.
+- **Full machine equivalence:** hidden state is compared too. The existing
+  core exclusions cover only values overwritten before use; the derived VDP
+  IRQ cache is excluded. The diagnostic backstop preserves those exclusions.
+- **Narrow first scope:** replacements cannot change interrupt sources or
+  mapping, adjust the stack, have interior entries or exit without returning.
+  Naming in the private disassembly waits for milestone 3.
 
-## Parts
+## Results
 
-1. **A - Mechanism.** Registry, the step path, the routine context, the
-   window rule, guards, the cheap interrupt query, the developer switch. CI
-   tests on the project's own test programs: register, flag, RAM and port
-   results with exact cycles; R and fetch count; an IRQ sampled at E-1 of
-   the last cycle inside the bound and at the first cycle after it; an IRQ
-   inside the bound but after the actual end (falls back); a Pause NMI just
-   inside and outside; an NMI first visible at the entry cycle; a call that
-   would cross a frame boundary; rejected register and mapper writes;
-   fallback counting.
-2. **B - Lockstep.** Per-call and per-recording comparison, the report,
-   runner options. Fault tests in CI, each caught at the right call with the
-   right field named: one cycle short, R off by one, fetch count off by 128
-   with R equal, a wrong flag, wrong MEMPTR or Q, a wrong RAM byte, a VDP or
-   PSG write one cycle late, a half-written VDP control latch, a wrong open
-   bus (reported without its value), an understated bound.
-3. **C - First routine.** Choose, rewrite, explain and verify it on all
-   twelve checkpoints. Generate the census. Measure speed.
-4. **Review and play-test.** Independent implementation review (Tier A),
-   fixes, then the maintainer's play-test and closure.
-
-## Risks
-
-- **A routine that always falls back is never tested.** Acceptance sets a
-  minimum share of C++ calls.
-- **Hidden state escapes the compare.** Mitigated by full equivalence, the
-  fault tests and the narrow, argued exclusions. New machine state must join
-  `Machine::equivalent`.
-- **Speed.** The hook runs at every instruction boundary and the window check
-  at every registered call; both must stay cheap. Part C measures them.
-- **The per-call compare is slow** (one machine copy per call). It is a
-  ROM-only test; part C records its time and it must fit the suite's ROM
-  test limits.
-- **Brazilian differences.** The first routine must be at the same address
-  in both versions; the six Brazilian checkpoints run in every comparison.
-
-## Acceptance
-
-- The complete suite passes, with ROMs and without, including every new CI
-  test and fault test.
-- With routines on, all twelve checkpoints match the milestone 1 reference
-  manifests on every frame, the two paths give identical manifests, and the
-  per-call compare finds no difference. The first routine runs in C++ on at
-  least 90% of its calls on the checkpoints, as the census shows.
-- With routines off, the runner reproduces milestone 1 exactly.
-- The headless runner with routines on is at most 10% slower than with
-  routines off, and the program holds 60 frames per second.
-- Independent implementation review passed; the maintainer plays the US
-  version for a short session to confirm nothing changed in feel or speed.
+- **No change to play:** all twelve checkpoints, six per version, match the
+  reference on all 124,920 frames, with no per-call divergence. Controller
+  polling runs in C++ on all 93,555 observed calls: 100% in each checkpoint,
+  above the 90% requirement, with no fallback. This is recording coverage,
+  not a census of every possible route through the game.
+- **Controls checked exhaustively:** all 65,536 previous/current button
+  combinations per ROM match the original, including exact machine state
+  and timing. Authored programs also exercise interrupt fallbacks, guards
+  and deliberately faulty replacements. ROM-free tests cover the diagnostic
+  backstop and preserve redaction and equivalence exclusions.
+- **Speed:** median headless time changed by +0.466% for US and -1.455% for
+  Brazilian, within the 10% slowdown limit. These small differences do not
+  establish a speedup. The production loop measured about 59.92 fps without
+  a clock rebase.
+- **Validation and reviews:** the complete ROM-enabled suite passes.
+  The ROM-free build passed the verification tests too. Independent Tier A
+  reviews of the plan and implementation passed, including the final
+  diagnostic and test-cleanup fixes.
+- **Play-test** (2026-11-09): the maintainer's US session passed. The
+  Brazilian version remains checked automatically by its six recordings;
+  development and play-tests use US.
