@@ -38,8 +38,9 @@ below automatically, so read each one whose trigger applies before acting.
 - Actual Git state, the working tree and current code/tests establish
   implemented behavior. Inspect them before changing interfaces or relying on
   prose.
-- `docs/design.md` sets direction; the active milestone plan sets scope.
-  Older plans are background, not current authority.
+- `docs/design.md` sets direction; `docs/roadmap.md` orders the milestones;
+  the active milestone plan sets scope. Older plans are background, not
+  current authority.
 - Agents without local access must use a verified commit SHA as their
   baseline and report when it cannot be retrieved; do not invent local state.
 
@@ -89,8 +90,9 @@ below automatically, so read each one whose trigger applies before acting.
 ## Milestone workflow
 
 Each milestone is classified in its plan as Tier A or Tier B. Acceptance for
-both is tests plus a maintainer play-test. Plan formats are in
-`docs/AGENTS.md`.
+both is tests plus a maintainer play-test or, for a milestone that changes
+nothing playable, the maintainer reading its deliverables, as its plan
+states. Plan formats are in `docs/AGENTS.md`.
 - **Tier A - core** (virtual hardware, the Z80 scaffold and the
   registered-routine mechanism, the verification harness, cycle accounting
   and timing, saves, the random number generator, architecture, removing the
@@ -105,8 +107,8 @@ both is tests plus a maintainer play-test. Plan formats are in
 
 Steps:
 
-1. Read `docs/project-status.md` and the milestone plan; inspect relevant
-   code and tests.
+1. Read `docs/project-status.md`, `docs/roadmap.md` and the milestone plan;
+   inspect relevant code and tests.
 2. Implement within the milestone scope. Planning and implementation may be
    one task for Tier B. If the scope proves wrong, stop and say so instead of
    silently widening or narrowing it.
@@ -115,17 +117,18 @@ Steps:
    rewritten routines.
 4. Build and run the complete test suite. Do not declare completion with
    failing tests.
-5. The maintainer plays the result and accepts it. Only after that
-   acceptance, record it in the plan's status line (see `docs/AGENTS.md`).
+5. The maintainer plays the result (or reads the deliverables, as above) and
+   accepts it. Only after that acceptance, record it in the plan's status
+   line (see `docs/AGENTS.md`).
 
-The design's order of stages does not authorize implementation; the
-maintainer starts each milestone explicitly.
+The design's order of stages and the roadmap do not authorize
+implementation; the maintainer starts each milestone explicitly.
 
 **Play-tests.** Maintainer play-time is the scarcest resource. Settle every
 change first with lockstep runs, reference emulator comparisons, and frames
 or audio the agent renders and inspects itself. Play-test only what those
 cannot settle (input feel, how a feature plays, real devices), saying why for
-each item. Hold one session per milestone, after its last part.
+each item. Hold at most one session per milestone, after its last part.
 
 **Maintenance tasks.** Small fixes (a defect, a flaky test, a doc correction)
 may be done without a milestone plan: a scoped prompt, tests for a code or
@@ -142,9 +145,9 @@ be larger or recurring, stop and propose a milestone instead.
   maintainer's machine; a green CI run never replaces them.
 - **Documentation-only changes** (no production code or tests changed): check
   the diff and links and run `git diff --check`; do not build or run tests.
-- Build directories, the toolchain and the suite protocol are set by the
-  first milestone and documented in `docs/dependencies.md` and
-  `docs/development.md`.
+- The toolchain and build directories are documented in
+  `docs/dependencies.md` and `docs/development.md`; the complete-suite
+  protocol is in `tools/AGENTS.md`.
 
 ## Documentation
 
@@ -187,9 +190,10 @@ conversation re-read on every model call.
   plan and the last report. Never stop a task because of context; compact and
   continue.
 - Delegate mechanical, read-heavy work (disassembly sweeps, trace
-  comparisons, inventories, the complete suite) to one lightweight subagent
-  without conversation context that returns a short summary. The main agent
-  keeps design decisions and code edits.
+  comparisons, inventories) to one lightweight subagent without conversation
+  context that returns a short summary. The complete suite follows
+  `tools/AGENTS.md` (a lightweight runner in Codex, a background shell in
+  Claude Code). The main agent keeps design decisions and code edits.
 - Do not re-derive what the docs already settle; reference the plan instead
   of restating it; reports ~100 lines, detail in side files.
 

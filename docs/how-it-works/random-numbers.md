@@ -132,5 +132,6 @@ changing timing could change R. Those choices could therefore affect later
 random results as well as the number of battles.
 
 **Unknown.** The place and method for an optional encounter-rate adjustment
-remain for the next milestone. This chapter chooses neither. The original
+remain for milestone 4 ([roadmap](../roadmap.md)). This chapter chooses
+neither. The original
 thresholds and encounter lists stay in the player's ROM.

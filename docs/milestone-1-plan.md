@@ -2,7 +2,7 @@
 
 **Tier A. Status: completed and accepted (2026-11-08).** Planned and
 reviewed on 2026-11-04 (`e9ee50b`, `689a680`); implemented from `8224972` to
-`4585634`; closed by the commit that condensed this plan. First stage of
+`4585634`; closed by `408077f`, which condensed this plan. First stage of
 [design](design.md) section 8.
 
 ## Goal

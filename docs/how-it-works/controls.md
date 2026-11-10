@@ -44,4 +44,4 @@ The [generated coverage](../coverage.md) records how often C++ runs.
 **Maintainer decision.** When an interrupt or frame boundary could fall
 inside the call's 70-cycle window, PSModern leaves that call on the Z80.
 This keeps the original timing while letting the other calls run in C++.
-See the [milestone 2 plan](../milestone-2-plan.md) for that rule.
+See [development](../development.md#registered-routines) for that rule.

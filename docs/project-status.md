@@ -109,8 +109,8 @@ does; these recordings do not establish coverage of every possible route.
   All previous/current button combinations are checked for both ROMs.
 - **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
   the VDPTest results for the SMS1 video chip.
-- **CI** on a clean Windows machine runs every test that needs no ROM or
-  external test file. The
+- **CI** on a clean Windows machine runs every test that needs no ROM. Of
+  the external conformance suites it runs only the three Rak Z80 tests. The
   ROM and reference tests run locally, as [development](development.md)
   describes.
 
@@ -134,5 +134,5 @@ does; these recordings do not establish coverage of every possible route.
   but the real console's behavior is not known.
 - **Controls are fixed.** Remapping and the second pad are later work, as
   is aspect correction of the picture.
-- **Sound stalls** of about 90 ms were seen once; two later runs of about
-  two minutes each did not show them.
+- **Rare sound stalls are not ruled out.** One of three measured sessions
+  had stalls of about 90 ms; their cause is not known.

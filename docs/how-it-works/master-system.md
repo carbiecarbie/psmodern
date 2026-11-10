@@ -218,7 +218,8 @@ bytes to a port. The chip counts time in steps of 16 processor cycles.
 These rules are in [Maxim's SN76489 notes](https://www.smspower.org/Development/SN76489).
 
 **ROM static.** The game's sound code in bank `$0C` writes to the sound chip
-at `0C:8028`.
+in several places, for example at `0C:8028`. The
+[sound driver chapter](sound.md) explains them.
 
 **Maintainer decision.** PSModern records every byte sent to the sound chip
 with the cycle it arrived, and makes one sound sample (one value of the
@@ -431,9 +432,15 @@ the same clock and start state. It recognizes each file by its SHA-1
 fingerprint, a number computed from the whole file, and refuses any other.
 Each version has its own save file.
 
-**Inference.** The difference lies inside the program: the Brazilian version
-is a translation, and text of another length takes another number of cycles
-to show. That is why each version has its own input recordings.
+**ROM static.** The difference lies in the text, not in the rules: the two
+programs are the same code except one operand, and the Brazilian version
+has its own text and control codes
+([design, section 5.5](../design.md#55-languages);
+[original quirks](../original-quirks.md)).
+
+**ROM run.** Text of another length takes another time to show, so the same
+input gives different random draws in the two versions. That is why each
+version has its own input recordings.
 
 **Unknown.** Whether Brazilian consoles run at exactly the same clock as US
 ones is not settled.

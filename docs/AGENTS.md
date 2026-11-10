@@ -24,14 +24,14 @@ All documentation is in English (maintainer decision, 2026-11-04).
 | `docs/how-it-works/` | Chapters for a reader who does not program, with evidence labels (below): `master-system.md` for the console, then one per game system | As needed |
 | `docs/coverage.md` | Generated census of rewritten vs Z80 routines (`tools/generate_coverage.py`) | Generated |
 | `docs/roadmap.md` | Next milestones and longer-term direction | Short |
+| `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates; one short entry each, with evidence and location | As needed |
 
-Not created yet. The task that first needs one creates it and moves its row
+Not created yet. The task that first needs it creates it and moves its row
 to the table above in that change:
 
 | Document | Responsibility | Created by |
 | --- | --- | --- |
-| `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates | First entry |
-| `docs/controls.md` | Every button and key for players | When controls become configurable |
+| `docs/player-controls.md` | Every button and key for players | When controls become configurable |
 
 `docs/roadmap.md` orders the next milestones; `docs/design.md` section 8
 gives the stages they belong to.
@@ -76,7 +76,7 @@ Used in `docs/how-it-works/`, `docs/original-quirks.md` and plans.
 | Label | What it establishes |
 | --- | --- |
 | ROM run | Observed by running the identified ROM on PSModern's validated Z80 path (trace, RAM, frame, sound); only the described case is established |
-| Reference emulator | Observed by running the identified ROM in an established emulator (for example Emulicious) |
+| Reference emulator | Observed by running the identified ROM in an established emulator (the patched MesenCE 2.2.1, with Emulicious as second opinion) |
 | ROM static | A read-only reading of the identified ROM's code, with addresses; a code rule, not an observed execution |
 | Hardware documentation | Published Master System hardware documentation; what the hardware does with the program's requests, not the program's own behavior |
 | Community source | A disassembly comment, guide or other community material; a lead to confirm, never settled evidence alone |

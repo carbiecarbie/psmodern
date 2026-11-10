@@ -11,7 +11,7 @@ match a patched MesenCE reference on every frame. An independent review
 led to fixes and to six maintainer decisions. The maintainer accepted the
 milestone after playing the US version.
 [Plan](milestone-1-plan.md). Last implementation commit: `4585634`; closed
-by the commit that added this entry.
+by `408077f`.
 
 ## Milestone 2 - Verification (2026-11-09)
 
@@ -22,7 +22,7 @@ independent Tier A reviews passed, and the maintainer's US play-test passed.
 The Brazilian recordings pass automatically. The maintainer accepted the
 milestone after playing the US version.
 [Plan](milestone-2-plan.md). Last implementation commit: `70c3454`; closed
-by the commit that added this entry.
+by `f6d0fc7`.
 
 ## Milestone 3 - Study base (2026-11-09)
 
@@ -33,4 +33,4 @@ are found and explained in three new chapters. The design was corrected
 from the study and the roadmap written. The maintainer accepted the
 milestone after reading the chapters and the roadmap.
 [Plan](milestone-3-plan.md). Last implementation commit: `24410ee`; closed
-by the commit that added this entry.
+by `1d4c6a1`.

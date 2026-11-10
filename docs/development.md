@@ -16,9 +16,12 @@ ctest --test-dir build-rel --output-on-failure
 locations set `PSMODERN_ROM_US` and `PSMODERN_ROM_BR` to the player's own
 uncompressed files. `PSMODERN_ROM_TESTS` defaults to `ON`: a missing or empty
 ROM path makes its test report CTest's skip code 77; an existing wrong file
-fails. Set the option to `OFF` to omit ROM tests, as CI does. The cache path
+fails, including the other version's ROM. Set the option to `OFF` to omit ROM
+tests, as CI does. The cache path
 `PSMODERN_REFERENCE_DIR` locates external reference manifests. Use
 `ctest --test-dir build-rel -L fast --output-on-failure` for fast tests.
+Every test that needs a ROM also carries the label `rom`, besides `fast` or
+`checkpoint`.
 See [the complete-suite protocol](../tools/AGENTS.md) before a complete run.
 
 Set the `PSMODERN_Z80_TEST_DIR` cache path to an external directory containing
@@ -113,8 +116,8 @@ the device and retries the default device at most once per second; emulation
 continues without sound while it is unavailable. Queue diagnostics are sampled
 before adding a frame and their range is cumulative for the run.
 
-**Evidence.** One host run showed stalls of about 90 ms; two subsequent
-instrumented runs of about 140 seconds each did not reproduce them.
+**Unknown.** The cause of rare sound stalls of about 90 ms, seen in one of
+three measured host runs.
 
 ## Input recordings
 
@@ -217,7 +220,7 @@ Every replay writes `routine-census.tsv` beside its manifest, with C++ calls,
 fallback calls and each fallback reason per registered entry. An empty
 registry writes just the header. Counts contain no ROM bytes.
 
-The twelve checkpoint tests now check every admitted C++ call, compare
+The twelve checkpoint tests check every admitted C++ call, compare
 routines on/off frame by frame, and compare the resulting frames with the
 pinned milestone 1 reference. Every checkpoint requires at least 90% C++
 calls. The tests write counts to `build-rel/routine-census/{us,br}/`.
@@ -484,7 +487,9 @@ ROM and recording, the patched executable, the label
 Copy `manifest.txt` and `reference.json` into
 `<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/`. The
 `checkpoint` CTest label runs each recording against its own manifest and
-skips a checkpoint when its ROM, recording, required image or manifest is missing.
+skips a checkpoint when its ROM, required image or manifest is missing. With
+the ROM present, a missing recording file fails: the recordings are part of
+the repository.
 Before skipping it validates every available input: recording format and nonzero
 frame count, ROM digest, image size/digest, manifest header and provenance.
 A present incorrect file fails. Missing provenance, a build digest different

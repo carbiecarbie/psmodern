@@ -2,8 +2,9 @@
 
 **Tier B. Status: completed and accepted (2026-11-09).** Planned and
 approved in `76ebada`; chapters in `24410ee`; private study repository
-from `8994b57` to `3013c10`; closed by the commit that condensed this plan. Third stage of [design](design.md) section 8. The game itself
-did not change.
+from `8994b57` to `3013c10`; closed by `1d4c6a1`, which condensed this
+plan. Third stage of [design](design.md) section 8. The game itself did not
+change.
 
 ## Scope delivered
 

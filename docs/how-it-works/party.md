@@ -104,5 +104,6 @@ still matter. A larger award would not automatically grant every level
 whose threshold it crosses.
 
 **Unknown.** Where an optional experience adjustment should act, and how it
-should interact with those limits, remains for the next milestone. This
-chapter describes the original rule and chooses no adjustment.
+should interact with those limits, remains for milestone 4
+([roadmap](../roadmap.md)). This chapter describes the original rule and
+chooses no adjustment.

@@ -8,7 +8,10 @@ separate private repository (section 6); rewritten routines also reproduce
 the Z80 R register (section 5.2). Amended on 2026-11-09 by the maintainer:
 the US ROM is the main target and the Brazilian ROM is checked by its
 recordings (section 5.5); section 3, stage 3 and section 9 were updated
-with the milestone 3 study of both disassemblies. Changes
+with the milestone 3 study of both disassemblies. Amended on 2026-11-10
+(factual updates, authorized by the maintainer): sections 5.1, 5.2 and 9
+mark the items milestones 1 and 2 settled and name the reference emulator
+in use; no decision changed. Changes
 to this design need the maintainer's approval and are recorded here.
 
 ## 1. What it is and why
@@ -142,7 +145,7 @@ verifiable milestones.
    - **PSG** (SN76489).
    - **Input** (the controller port).
    - **Sega mapper and cartridge RAM** (saves).
-   - **Optional:** FM (YM2413), if the game uses it; see 9.
+   - **Optional:** FM (YM2413), if the game uses it. Not built so far; see 9.
 
    These parts stay in the project for good. The rewritten game keeps
    "talking" to them as the original talks to the hardware, which is what
@@ -175,8 +178,9 @@ verifiable milestones.
   registers and sound output, and reports the first frame and the first
   routine that differ. All new features are off on this path.
 - **Virtual hardware validation:** before the Z80-only path is trusted as the
-  reference, it is checked against an established emulator (for example
-  Emulicious, which has a debugger and tracing) on the same recordings.
+  reference, it is checked against an established emulator on the same
+  recordings: the patched MesenCE 2.2.1, with Emulicious as second opinion
+  (see [dependencies](dependencies.md#reference-emulators)).
 - **Rule for the new features:** with everything off, a run must be identical
   to the original. This is tested too.
 - **Timing counts as behavior** (maintainer decision). A C++ routine is
@@ -199,7 +203,8 @@ verifiable milestones.
     per frame" model that reproduces the same slowdowns.
 - A routine may compute its cycles with a formula derived from the original
   code (instruction counts per path), checked against the Z80 on the
-  recordings. How exactly is settled in the verification milestone.
+  recordings. Milestone 2 settled how: see
+  [development](development.md#registered-routines).
 
 ### 5.3 Dependencies between features and rewritten systems
 
@@ -351,11 +356,20 @@ study base (stage 3) shows how the code is organized.
   catalog of routine and RAM names that this repository's `bank:address`
   citations are checked against.
 - Which Z80 core to use (an existing one with a compatible license, or our
-  own).
-- The format of input recordings and of the divergence report.
-- Comparison granularity beyond what 5.2 requires.
+  own). Settled in milestone 1: redcode/Z80, vendored
+  ([dependencies](dependencies.md#z80-core)).
+- The format of input recordings and of the divergence report. Settled in
+  milestones 1 and 2 ([development](development.md#input-recordings) and
+  [development](development.md#registered-routines)).
+- Comparison granularity beyond what 5.2 requires. Settled in milestone 2:
+  the whole machine at each C++ call and seven components at each frame
+  ([development](development.md#registered-routines)).
 - Whether the US version uses the FM chip (YM2413). If it does, the FM chip
-  joins the virtual hardware.
+  joins the virtual hardware. Settled so far in milestone 1: the game used
+  no FM on the observed routes, and the virtual hardware has none
+  ([milestone 1 plan](milestone-1-plan.md#what-the-game-uses),
+  [the console chapter](how-it-works/master-system.md#the-parts)).
+  Whole-game absence is not established.
 - Defaults and ranges of the experience and encounter settings. The Switch
   release is a reference for feel, not exact values, unless the maintainer
   decides to examine the NSP with their own keys.

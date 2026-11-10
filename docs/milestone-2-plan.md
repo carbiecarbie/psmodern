@@ -2,7 +2,7 @@
 
 **Tier A. Status: completed and accepted (2026-11-09).** Planned, reviewed
 and approved in `43b05b9`; implemented from `60a6f9e` to `70c3454`; closed
-by the commit that condensed this plan. Second stage of [design](design.md)
+by `f6d0fc7`, which condensed this plan. Second stage of [design](design.md)
 section 8, completing the verification base begun in milestone 1.
 
 ## Goal

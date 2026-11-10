@@ -233,7 +233,8 @@ the package list and hashes together when maintaining the toolchain.
 
 ## Replay and reference scripts
 
-The recording launcher, comparison tool and Python test helpers use Python 3
+The recording launcher, comparison tool, coverage generator
+(`tools/generate_coverage.py`) and Python test helpers use Python 3
 standard library only; validated locally with **Python 3.13.15**. CMake discovers
 Python through `find_package(Python3 COMPONENTS Interpreter)` when tests are
 built. There are no pip dependencies. The reference launcher accepts stock or
