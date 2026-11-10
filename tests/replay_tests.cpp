@@ -4,7 +4,6 @@
 #include "rom/sha1.h"
 #include "temporary_cleanup.h"
 #include <chrono>
-#include <fstream>
 #include <iostream>
 #include <stdexcept>
 using namespace psmodern;

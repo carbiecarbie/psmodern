@@ -6,13 +6,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from generate_coverage import CHECKPOINTS, COLUMNS, generate
 
 
+def check(condition, detail):
+    # Explicit, so the test still fails under -O or PYTHONOPTIMIZE.
+    if not condition:
+        raise RuntimeError(detail)
+
+
 def rejects(root, fragment):
     try:
         generate(root)
     except (ValueError, FileNotFoundError) as error:
-        assert fragment in str(error), error
+        check(fragment in str(error), f'Wrong refusal: {error}')
     else:
-        raise AssertionError('Invalid census accepted')
+        raise RuntimeError('Invalid census accepted')
 
 
 with tempfile.TemporaryDirectory() as directory:
@@ -25,7 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
         for name in CHECKPOINTS:
             (root/version/f'{name}.tsv').write_text(header+row, encoding='ascii')
     output = generate(root)
-    assert '| Total | All twelve | 1,188 | 12 | 99.000% |' in output
+    check('| Total | All twelve | 1,188 | 12 | 99.000% |' in output, 'Wrong coverage totals')
     target = root/'br'/'boss.tsv'
     target.unlink()
     rejects(root, 'boss.tsv')

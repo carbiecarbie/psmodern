@@ -228,9 +228,13 @@ void fields() {
     b=before; b.cpu().r^=1; b.cpu().r7^=1;
     b.memory().set_memory_control(0x37); b.write_port(0x3f,0x6d,b.cycles());
     diff=before.differences(b);
+    unsigned raw_fields=0;
     for (const auto& d:diff) if (d.field=="cpu.r" || d.field=="cpu.r7" ||
-        d.field=="machine.io_control" || d.field=="memory.memory_control")
+        d.field=="machine.io_control" || d.field=="memory.memory_control") {
+        ++raw_fields;
         check(d.can_carry_rom && d.original.empty() && d.replacement.empty(),"Raw byte copies stay redacted");
+    }
+    check(raw_fields==4,"All four raw byte copies are reported");
     b=before; b.cpu().memptr.uint16_value^=1;
     check(!before.equivalent(b) && !before.differences(b).empty(),"Equivalence is exactly an empty difference list");
     b=before; b.cpu().af.uint8_values.at_1=b.read_port(0xbf,b.cycles());

@@ -123,8 +123,9 @@ void backups() {
     check(bool(f.read(reinterpret_cast<char*>(copy.data()),copy.size())) && copy==foreign,
           "first write preserves exact foreign image in backup");
     change(memory,43); check(!store.flush(memory),"second write succeeds");
-    std::ifstream again(backup,std::ios::binary);again.read(reinterpret_cast<char*>(copy.data()),copy.size());
-    check(copy==foreign,"later writes do not replace session backup");
+    std::ifstream again(backup,std::ios::binary);copy={};
+    check(bool(again.read(reinterpret_cast<char*>(copy.data()),copy.size())) && copy==foreign,
+          "later writes do not replace session backup");
     auto other=t.path/"failed-backup"; std::filesystem::create_directories(other);
     SaveStore blocked(other,RomVersion::us_rev_a);atomic_save(blocked.path(),foreign);
     auto blocked_backup=blocked.path();blocked_backup += ".bak";std::filesystem::create_directory(blocked_backup);
@@ -230,6 +231,6 @@ void pacing() {
 }
 int main() {
     try { colours(); scaling(); inputs(); saves(); backups(); driver(); resampling(); pacing();
-        std::cout<<"App: 7 test groups passed (no SDL or ROM).\n"; return 0;
+        std::cout<<"App: 8 test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

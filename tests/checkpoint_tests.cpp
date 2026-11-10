@@ -125,12 +125,10 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
         original.run_frame(input,disabled);
         auto native_psg=original_writes.take(frame,original.take_psg_writes());
         original.take_samples();
+        // One set of digests serves both comparisons: routines on/off and the reference.
+        const auto actual=replay::manifest(machine,psg);
         replay::compare_manifests(std::filesystem::path(recording_path).filename().string(),frame,
-            replay::manifest(original,native_psg),replay::manifest(machine,psg));
-        const auto& vram = machine.vdp().vram();
-        std::array actual{sha1(machine.picture()), sha1(machine.memory().ram()), sha1(vram),
-                          sha1(machine.vdp().cram()), sha1(machine.memory().cartridge_ram()),
-                          sha1(replay::cpu_bytes(machine.cpu())), sha1(psg)};
+            replay::manifest(original,native_psg),actual);
         const auto& expected=reference[frame-1];
 
         for (std::size_t i = 0; i < actual.size(); ++i) {

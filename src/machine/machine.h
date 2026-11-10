@@ -72,7 +72,6 @@ private:
     void bind();
     void sync(std::uint64_t target);
     void latch_input();
-    void deliver_nmi();
     std::uint8_t opcode(std::uint16_t address) override;
     std::uint8_t read(std::uint16_t address) override;
     void write(std::uint16_t address, std::uint8_t value) override;

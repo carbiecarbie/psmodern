@@ -98,9 +98,6 @@ std::optional<std::uint64_t> Machine::next_nmi() const {
     if (pending_pause_ && !level && (!next || sample<*next)) next=sample;
     return next;
 }
-void Machine::deliver_nmi() {
-    if (scheduled_nmi_ && *scheduled_nmi_<=cycle_) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
-}
 bool Machine::run_routine(RoutineRegistry& routines) {
     const auto pc=cpu_.raw().pc.uint16_value;
     const auto mapping=memory_.mapping(pc);

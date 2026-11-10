@@ -67,8 +67,14 @@ void ports() {
         check(m.read_port(p,0)==m.read_port(0x7e + (p&1),0),"counter mirrors");
     }
     for (int p=0xc0;p<=0xff;++p) check(m.read_port(p,0)==m.read_port(0xdc+(p&1),0),"controller mirrors");
-    for (int p=0;p<0x40;p+=2) { m.write_port(p,0,0); check(m.memory().memory_control()==0,"memory-control mirrors"); }
-    for (int p=1;p<0x40;p+=2) { m.write_port(p,0xf0,0); check((m.read_port(0xdd,0)&0xc8)==0xc8,"I/O control mirrors"); }
+    // Each mirror must change the register itself: a distinct value per port,
+    // and the outputs driven low again before each I/O control mirror.
+    for (int p=0;p<0x40;p+=2) { m.write_port(p,p,0); check(m.memory().memory_control()==p,"memory-control mirrors"); }
+    m.write_port(0x00,0,0);
+    for (int p=1;p<0x40;p+=2) {
+        m.write_port(0x3f,0,0); check((m.read_port(0xdd,0)&0xc8)==0,"I/O control outputs low before mirror");
+        m.write_port(p,0xf0,0); check((m.read_port(0xdd,0)&0xc8)==0xc8,"I/O control mirrors");
+    }
     Machine open(program({0xdb,0x3e}));
     open.step(); check((open.cpu().af.uint16_value>>8)==0x3e,"SMS1 I/O open bus follows memory access");
 }

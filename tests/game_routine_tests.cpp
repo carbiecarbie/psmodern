@@ -3,7 +3,6 @@
 #include "machine/machine.h"
 #include "rom/rom.h"
 #include "rom/sha1.h"
-#include <bit>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
