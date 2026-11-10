@@ -357,10 +357,11 @@ outside measured coverage.
 **Maintainer decision.** For this reason PSModern is compared with the
 reference emulator frame by frame from power-on, on input recordings of
 real play in both versions. At every frame the comparison checks the
-picture, the work RAM, the VRAM, the CRAM and the save chip, with no
-allowance for differences. Later, when PSModern replaces the game's
-routines one by one with new code, each replacement is checked to spend the
-same cycles and leave R exactly as the original would
+picture, the work RAM, the VRAM, the CRAM, the save chip, the processor's
+registers and the writes to the sound chip, with no allowance for
+differences. As PSModern replaces the game's routines one by one with new
+code, each replacement is checked to spend the same cycles and leave R
+exactly as the original would
 ([design, section 5.2](../design.md#52-verification-the-heart-of-the-project)).
 
 **Hardware documentation; inference.** The reference is not perfect either: the project

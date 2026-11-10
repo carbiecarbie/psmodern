@@ -175,7 +175,7 @@ failed publication reports an error; a partial destination is never published.
 ## Replay runner
 
 ```text
-psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines]
+psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording]
 ```
 
 The runner links no SDL and reads no app save. It checks the ROM and initial

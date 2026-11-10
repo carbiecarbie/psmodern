@@ -11,7 +11,7 @@ All documentation is in English (maintainer decision, 2026-11-04).
 
 | Document | Responsibility | Target size |
 | --- | --- | --- |
-| `README.md` | Public introduction; how to build, run and play once possible | Short |
+| `README.md` | Public introduction; how to build, run and play | Short |
 | `docs/design.md` | The approved design: goals, architecture, decisions. Changes need the maintainer's approval | Stable |
 | `docs/project-status.md` | What runs and can be done now; architecture overview; rewritten vs Z80 systems; known gaps | ~100-300 lines |
 | `docs/milestone-N-plan.md` | That milestone's plan; condensed at closure | Closed: ~30-100 lines |
@@ -21,19 +21,20 @@ All documentation is in English (maintainer decision, 2026-11-04).
 | `docs/playtests.md` | How to prepare a maintainer play-test | Short |
 | `docs/development.md` | Developer entry modes, ROM locations, tests, recordings | As needed |
 | `tools/AGENTS.md` | Complete test-suite protocol | Short |
+| `docs/how-it-works/` | Chapters for a reader who does not program, with evidence labels (below): `master-system.md` for the console, then one per game system | As needed |
+| `docs/coverage.md` | Generated census of rewritten vs Z80 routines (`tools/generate_coverage.py`) | Generated |
+| `docs/roadmap.md` | Next milestones and longer-term direction | Short |
 
-Created by the task that first needs them, and listed here in that change:
+Not created yet. The task that first needs one creates it and moves its row
+to the table above in that change:
 
 | Document | Responsibility | Created by |
 | --- | --- | --- |
-| `docs/how-it-works/` | Chapters for a reader who does not program, with evidence labels (below): `master-system.md` for the console, then one per game system | Milestone 1 (chapter one, `master-system.md`); game-system chapters from milestone 2 |
 | `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates | First entry |
-| `docs/coverage.md` | Generated census of rewritten vs Z80 routines | When the registered-routine mechanism exists |
-| `docs/roadmap.md` | Next milestones and longer-term direction | After the study base (milestone 3) |
 | `docs/controls.md` | Every button and key for players | When controls become configurable |
 
-Until `docs/roadmap.md` exists, the order of stages in `docs/design.md`
-section 8 is the direction.
+`docs/roadmap.md` orders the next milestones; `docs/design.md` section 8
+gives the stages they belong to.
 
 ## Milestone plans
 

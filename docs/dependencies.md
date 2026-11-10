@@ -224,7 +224,7 @@ v6.1.0, pinned to commit `83679a892e2d95755f2dac6acb0bfd1e9ac5d548`.
 The action's absolute `python-path` output is passed to CMake through
 `Python3_EXECUTABLE`, converted with `cygpath -m`; discovery does not depend on
 Python being in MSYS2's minimal PATH. Python remains required for test builds,
-including the `replay_unit` and `replay_tools` CI entries. No pip packages are
+including the `replay_tools` and `routine_coverage_tools` CI entries. No pip packages are
 installed. Actions use full commit pins, checkout does not retain
 credentials, the token is read-only, and no secrets or ROMs are used. The
 hosted run covers data-free tests only and does not replace the local complete
