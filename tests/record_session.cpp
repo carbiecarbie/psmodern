@@ -49,6 +49,9 @@ int main(int argc,char** argv) {
     if(argc!=4)return 1;
     if(!*argv[1]||!std::filesystem::exists(argv[1]))return 77;
     try {
+        const std::string_view region=argv[3];
+        if(region!="us"&&region!="br")throw std::runtime_error("Expected ROM version us or br");
+        if(psmodern::identify_rom(argv[1])!=(region=="us"?psmodern::RomVersion::us_rev_a:psmodern::RomVersion::brazilian))throw std::runtime_error("Wrong ROM version.");
         const auto out=std::filesystem::path(argv[2])/std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());std::filesystem::create_directories(out);
         SDL_setenv("APPDATA",out.string().c_str(),1);SDL_setenv("SDL_VIDEODRIVER","dummy",1);SDL_setenv("SDL_AUDIODRIVER","dummy",1);
         std::ifstream f(argv[1],std::ios::binary);auto rom=std::make_shared<psmodern::Memory::Rom>(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>());

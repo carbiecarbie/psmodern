@@ -142,6 +142,18 @@ with tempfile.TemporaryDirectory() as folder:
     image.write_bytes(bytes(8191));saved_checkpoint(1,'exactly 8192 bytes')
     image.write_bytes(cart.read_bytes());rec.write_text('invalid\n',encoding='ascii')
     saved_checkpoint(1);rec.write_bytes(valid_recording)
+    def bare_checkpoint(arguments,code,diagnostic,cwd=None):
+        result=subprocess.run([sys.argv[2],*arguments],capture_output=True,text=True,cwd=cwd)
+        check(result.returncode==code and diagnostic in result.stdout+result.stderr, (result.stdout,result.stderr))
+    # Recordings are repository content: one missing beside a present ROM is a
+    # failure. Without the ROM the checkpoint still skips.
+    absent=root/'absent.psrec'
+    bare_checkpoint([rom,absent,manifest],1,'recording is missing')
+    bare_checkpoint([root/'absent.sms',absent,manifest],77,'ROM missing')
+    # Without a manifest path there is no image location: a stray file in the
+    # working directory is not read.
+    image.write_bytes(bytes(8191));bare_checkpoint([rom,rec,''],77,'manifest missing',cwd=saved)
+    image.write_bytes(cart.read_bytes())
 
     # The launcher publishes a whole directory, including on Unicode paths.
     # A failed process or incomplete capture leaves no destination or staging.

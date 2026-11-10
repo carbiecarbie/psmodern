@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='reference-boundary-') as folder:
                        '\ncart-ram '+hashlib.sha1(bytes(8192)).hexdigest()+'\nend 1\n',encoding='ascii',newline='\n')
         actual=root/(stem+'-ps');expected=root/(stem+'-saída 漢字')
         subprocess.run([runner,rom,rec,'--dump','all','--out',actual],check=True)
-        subprocess.run([sys.executable,driver,executable,rom,rec,'--dump','all','--out',expected,
+        subprocess.run([sys.executable,'-B',driver,executable,rom,rec,'--dump','all','--out',expected,
                         '--reference-label','instruction boundary regression'],check=True)
         # Both independent producers must publish the boundary CPU and the
         # per-frame port-write stream; the normal comparison checks the hashes.
@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='reference-boundary-') as folder:
     rec=root/'halt-idle.psrec';rec.write_text('psmodern-recording 1\nrom '+hashlib.sha1(data).hexdigest()+
         '\ncart-ram '+hashlib.sha1(bytes(8192)).hexdigest()+'\nend 1\n',encoding='ascii',newline='\n')
     idle=root/'halt-idle-ce'
-    subprocess.run([sys.executable,driver,executable,rom,rec,'--dump','all','--out',idle,
+    subprocess.run([sys.executable,'-B',driver,executable,rom,rec,'--dump','all','--out',idle,
                     '--reference-label','idle HALT regression'],check=True,timeout=12)
     cpu=(idle/'frame-000001.cpu.bin').read_bytes()
     if len(cpu)!=30 or cpu[-1]!=1:raise RuntimeError('HALT state missing at frame boundary')
@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix='reference-boundary-') as folder:
         '\ncart-ram '+hashlib.sha1(bytes(8192)).hexdigest()+'\nend 1\n',encoding='ascii',newline='\n')
     actual=root/'vram-alias-ps';expected=root/'vram-alias-ce'
     subprocess.run([runner,rom,rec,'--dump','all','--out',actual],check=True)
-    subprocess.run([sys.executable,driver,executable,rom,rec,'--dump','all','--out',expected,
+    subprocess.run([sys.executable,'-B',driver,executable,rom,rec,'--dump','all','--out',expected,
                     '--reference-label','VRAM alias regression'],check=True)
     for result in (actual,expected):
         if (result/'frame-000001.psg.bin').read_bytes():raise RuntimeError('VRAM write falsely reported as PSG')
@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix='reference-boundary-') as folder:
         '\ncart-ram '+hashlib.sha1(bytes(8192)).hexdigest()+'\nend 1\n',encoding='ascii',newline='\n')
     actual=root/'interleaved-ps';expected=root/'interleaved-ce'
     subprocess.run([runner,rom,rec,'--dump','all','--out',actual],check=True)
-    subprocess.run([sys.executable,driver,executable,rom,rec,'--dump','all','--out',expected,
+    subprocess.run([sys.executable,'-B',driver,executable,rom,rec,'--dump','all','--out',expected,
                     '--reference-label','interleaved regression'],check=True)
     for result in (actual,expected):
         events=(result/'frame-000001.psg.bin').read_bytes()
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix='reference-boundary-') as folder:
         '\ncart-ram '+hashlib.sha1(bytes(8192)).hexdigest()+'\nend 1\n',encoding='ascii',newline='\n')
     actual=root/'psg-ps';expected=root/'psg-ce'
     subprocess.run([runner,rom,rec,'--dump','all','--out',actual],check=True)
-    subprocess.run([sys.executable,driver,executable,rom,rec,'--dump','all','--out',expected,
+    subprocess.run([sys.executable,'-B',driver,executable,rom,rec,'--dump','all','--out',expected,
                     '--reference-label','PSG regression'],check=True)
     for result in (actual,expected):
         if (result/'frame-000001.psg.bin').read_bytes()!=bytes.fromhex('0011 90 0023 9f'):

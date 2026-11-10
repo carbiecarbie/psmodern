@@ -344,7 +344,7 @@ void regression(unsigned finding) {
     } else throw std::runtime_error("Unknown regression");
 }
 }
-int main(int argc,char** argv) { try { if(argc==2) {regression(std::stoul(argv[1]));return 0;} background();background_color_zero();timed_background();sprites();sprite_flags();scroll();register_masks();
+int main() { try { background();background_color_zero();timed_background();sprites();sprite_flags();scroll();register_masks();
     for(unsigned finding=1;finding<=7;++finding) regression(finding);
     std::cout<<"VDP picture tests passed.\n";return 0;
 } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; } }

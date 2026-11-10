@@ -58,7 +58,7 @@ int main(int argc,char** argv) {
             }
         };
         for (unsigned n=1;n<=600;++n) capture(n);
-        auto fork=first;
+        auto fork=first; const auto total_at_fork=total;
         for (unsigned n=601;n<=1200;++n) capture(n);
         bool fork_wrote=true; unsigned fork_total=0,fork_first=0,fork_bad=0;
         for (unsigned n=601;n<=1200;++n) {
@@ -76,6 +76,11 @@ int main(int argc,char** argv) {
         check(first.equivalent(second),"Second run differs at 1200");
         check(first_irq!=0,"No IRQ accepted");
         check(bad==0,"A frame with IRQ enabled did not accept exactly one new IRQ");
+        // After the first run is known good, so a fault there is not blamed on the copies.
+        check(fork_bad==0 && fork_total==total-total_at_fork && fork_first>600,
+              "Copy at frame 600 accepted different IRQs");
+        check(second_bad==0 && second_total==total && second_first==first_irq,
+              "Second run accepted different IRQs");
         bool vram_written=false; for (auto v:first.vdp().vram()) vram_written|=v!=0;
         check(vram_written,"VRAM unchanged");
         check(write_total>0,"No PSG writes");

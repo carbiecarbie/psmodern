@@ -50,6 +50,7 @@ void results() {
                             0xd3,0x7f,0xdb,0x3e,0x32,0x21,0xc0,0xcb,0x00,0xc9}));
     stack(native); native.cpu().r=0xfe;
     Machine cpp=native;
+    const Machine start=native;
     RoutineRegistry registry;
     registry.add({0,0},[](const Machine& m) { return m.cpu().r&0x80 ? 91 : 92; },[](RoutineContext& c) {
         auto& z=c.cpu();
@@ -78,10 +79,20 @@ void results() {
     check(cpp.last_access()==native.last_access() && cpp.psg().writes()==std::vector<PsgWrite>{{48,0x80}},"T3 port order and timestamp");
     check(cpp.opcode_fetches()-fetches==11 && cpp.cpu().r==0x89,"fetches include prefixes and return, preserving R bit 7");
     check(registry.find({0,0})->counters.cpp_calls==1,"C++ call count");
-    const auto saved=cpp; Machine copied=cpp; copied=cpp;
-    ++registry.find({0,0})->counters.cpp_calls;
+    // The registry is host state. Its counters from the first call do not
+    // change a second identical call, and switching the same registry off
+    // sends that entry down the original path to the same machine state.
+    Machine second=start;
+    check(second.step(registry)==91 && second.equivalent(cpp) && registry.find({0,0})->counters.cpp_calls==2,
+          "a used registry repeats the same call exactly");
     registry.enabled=false;
-    check(copied.equivalent(saved),"registry flags and counters live outside copied machine state");
+    Machine third=start;
+    for (unsigned i=0;i<1000 && !(third.cpu().sp.uint16_value==0xc102 && third.cpu().pc.uint16_value==0x200);++i)
+        third.step(registry);
+    const auto& counters=registry.find({0,0})->counters;
+    check(third.equivalent(cpp) && counters.cpp_calls==2 && counters.fallback_calls==1 &&
+          counters.fallback(RoutineFallback::disabled)==1,
+          "switching the same registry off falls back to the same result, counted once");
 
     // Bulk fetch accounting differs by 128 even when R is equal.
     auto bulk_rom=std::make_shared<Memory::Rom>(512*1024,0); (*bulk_rom)[128]=0xc9;

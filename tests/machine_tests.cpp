@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
-#include <string_view>
 #include <vector>
 using namespace psmodern;
 namespace {
@@ -348,8 +347,9 @@ void interrupts() {
     n.set_pause(true); check(!n.next_nmi(),"pause is edge triggered");
     n.set_pause(false); n.advance(Machine::frame_cycles-n.cycles()+Machine::pause_sample_offset);
     n.set_pause(true); n.advance(Machine::frame_cycles); check(n.next_nmi().has_value(),"new pause edge");
-    // Z80.c:1141-1146 records IFF1 before RETN; 2608-2612 reject INT
-    // when that saved bit is zero. The B1a mirror used the opposite condition.
+    // Z80.c:1142 saves IFF1 before RETN/RETI restores it from IFF2; 2611-2615
+    // then accept no INT at the next boundary when that saved bit is zero, as
+    // after EI. The hook therefore still runs once before the IRQ is taken.
     Machine ret(program({0xed,0x45,0})); ret.cpu().iff1=0; ret.cpu().iff2=1;
     ret.cpu().sp.uint16_value=0xc100; ret.memory().write(0xc100,2); ret.memory().write(0xc101,0);
     ret.step(); int ret_hooks=0;
@@ -449,5 +449,5 @@ void hook_mappings() {
     expect(0xc000,Memory::Kind::ram,0);
 }
 }
-int main(int argc,char** argv) { try { if(argc==2) {if(std::string_view(argv[1])=="advance_zero") advance_zero();else advance_sampling();return 0;} startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
+int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
 catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

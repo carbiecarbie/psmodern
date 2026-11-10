@@ -40,8 +40,10 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
             throw std::runtime_error("Incorrect ROM digest or size.");
     }
     Memory::CartridgeRam cart{};
+    // The image lives beside the manifest; without a manifest path there is
+    // no such place, and the working directory must not stand in for it.
     const auto image_path = std::filesystem::path(manifest_path).parent_path() / "cart-ram.bin";
-    const bool have_image=std::filesystem::exists(image_path);
+    const bool have_image=*manifest_path && std::filesystem::exists(image_path);
     if (have_image) {
         std::ifstream image(image_path, std::ios::binary);
         if (!image || !image.read(reinterpret_cast<char*>(cart.data()), cart.size()) ||
@@ -96,8 +98,12 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
         if (reference.empty() || (have_recording && reference.size()!=recording.frames))
             throw std::runtime_error("Missing or extra reference frame.");
     }
-    if (!have_recording || !have_rom || !have_manifest || (!have_image && sha1(cart)!=recording.cart_ram_sha1)) {
-        std::cout<<"Skipping: "<<(!have_recording?"recording missing":!have_rom?"ROM missing":!have_manifest?"reference manifest missing":"initial cartridge RAM image missing")<<".\n";
+    // Recordings belong to the repository: with the ROM present, a missing
+    // one is a defect, not an absent external dependency.
+    if (have_rom && !have_recording)
+        throw std::runtime_error("Checkpoint recording is missing: "+std::string(recording_path));
+    if (!have_rom || !have_manifest || (!have_image && sha1(cart)!=recording.cart_ram_sha1)) {
+        std::cout<<"Skipping: "<<(!have_rom?"ROM missing":!have_manifest?"reference manifest missing":"initial cartridge RAM image missing")<<".\n";
         return 77;
     }
 

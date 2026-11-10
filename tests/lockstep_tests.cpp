@@ -35,9 +35,9 @@ auto cost(std::uint64_t bound) { return [=](const Machine&) {return bound;}; }
 void simple(RoutineContext& c) {
     c.fetch_opcode(0); c.advance(4); c.fetch_opcode(1); c.advance(4); c.finish_return(2);
 }
-void returned(Machine& m, RoutineRegistry* r=nullptr) {
+void returned(Machine& m) {
     for (unsigned n=0;n<1000;++n) {
-        m.step({},r);
+        m.step();
         if (m.cpu().pc.uint16_value==0x200 && m.cpu().sp.uint16_value==0xc102) return;
     }
     throw std::runtime_error("Synthetic call did not return");

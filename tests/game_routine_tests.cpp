@@ -61,9 +61,11 @@ void compare(const std::shared_ptr<const Memory::Rom>& rom,RoutineRegistry& regi
 int main(int argc,char** argv) { try {
     catalog();
     if(argc==1) return 0;
-    if(argc!=2) return 1;
+    if(argc!=3) return 1;
     if(!*argv[1] || !std::filesystem::exists(argv[1])) return 77;
-    identify_rom(argv[1]);
+    const std::string_view region=argv[2];
+    check(region=="us" || region=="br","Expected ROM version us or br");
+    check(identify_rom(argv[1])==(region=="us" ? RomVersion::us_rev_a : RomVersion::brazilian),"Wrong ROM version.");
     std::ifstream f(argv[1],std::ios::binary);
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>());
     RoutineRegistry registry;
@@ -74,6 +76,7 @@ int main(int argc,char** argv) { try {
         for(unsigned previous=0;previous<256;++previous) compare(rom,registry,current,previous);
     for(unsigned mode=1;mode<=3;++mode)
         for(unsigned current=0;current<256;++current) compare(rom,registry,current,255-current,mode);
-    std::cout<<"65536 controller transitions: complete native/C++ equivalence, port timing, cycles and fetches.\n";
+    std::cout<<"66304 controller calls (65536 held/pressed transitions, 768 in the three special modes): "
+               "complete native/C++ equivalence, port timing, cycles and fetches.\n";
     return 0;
 } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; } }

@@ -5,7 +5,7 @@ import tempfile
 def check(condition,detail='Test check failed'):
     if not condition:raise RuntimeError(detail)
 
-runner,rom,recording,reference=sys.argv[1:]
+runner,rom,recording=sys.argv[1:]
 if not rom or not Path(rom).exists():raise SystemExit(77)
 with tempfile.TemporaryDirectory() as folder:
     outputs=[]
