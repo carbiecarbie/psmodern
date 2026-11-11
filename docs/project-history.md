@@ -49,3 +49,13 @@ the options instead of ranges, with encounters 50 and experience 400 as the
 Switch-like setting.
 [Plan](milestone-4-plan.md). Last implementation commit: `3609f6b`; closed by
 `4066cb2`.
+
+## Milestone 5 - Options inside the game (2026-11-11)
+
+Options now open over the current exploration scene with continuous music,
+retain encounter and experience/meseta rates beside the unchanged save, and
+scale battle meseta with experience. Battle setup and money addition run in
+verified C++. Independent reviews and all 107 configured tests passed with
+no skips. After approving the functional test and playing the revised native
+interface, the maintainer accepted closure and authorized publication.
+[Plan](milestone-5-plan.md). Implementation: `d9ae7d7`; private study: `8db0a92`.

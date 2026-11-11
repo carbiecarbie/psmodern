@@ -1,26 +1,19 @@
 # PSModern - Roadmap
 
 **First approved by the maintainer on 2026-11-09; revised at the closure of
-milestone 4 (2026-11-11).** Written from the milestone 3 study base.
+milestone 5 (2026-11-11).** Written from the milestone 3 study base.
 It orders the stages of [design](design.md) section 8 and names what each
 needs; it starts nothing. The maintainer starts each milestone explicitly,
 and each gets its own plan.
 
 ## Where the project stands
 
-The whole game runs on the virtual Master System. Controller polling, the
-random-number routine, the random-encounter checks and the experience award
-are rewritten in C++ and verified call by call ([milestone 4](milestone-4-plan.md)).
-The first two options exist, off by default: an encounter rate (0, 50, 100 or
-200%) and an experience rate (100, 200 or 400%), set on the command line.
-
-The mechanism can now cut a routine into pieces at its calls into original
-code, so later routines that wait for frames, show text or start battles
-can be rewritten the same way. The private study base has a data-free
-disassembly that rebuilds the ROM, a catalog of routines and RAM fields, and
-chapters on [random numbers and encounters](how-it-works/random-numbers.md),
-[the party's records](how-it-works/party.md) and
-[the sound driver](how-it-works/sound.md).
+The whole game runs on the virtual Master System. Controller polling,
+random numbers, encounter checks, experience, battle setup and money addition
+run in C++, verified against the original. In-game options retain encounter
+and experience/meseta rates beside the unchanged cartridge save. The native
+style window preserves the exploration scene and continuous music.
+[Milestone 5](milestone-5-plan.md) was accepted on 2026-11-11.
 
 ## Later milestones
 
@@ -29,22 +22,6 @@ The numbers are the milestones'. From milestone 6 on they are one above the
 stage numbers of [design](design.md) section 8, because milestone 5 was added
 at the closure of milestone 4.
 
-5. **Options inside the game.** Maintainer request (2026-11-11). Choose the
-   encounter and experience settings inside the game, showing the default
-   (100 for both) and the Switch-like recommendation (encounters 50,
-   experience 400); save the settings with the game without changing the
-   original save format ([design](design.md) section 9); and make the money
-   from battles follow the experience rate. The last needs the money award
-   rewritten; static leads: the battle reward production is in the setup at
-   `01:5FFE` and the award is separate. Its plan must decide:
-   - where the choice appears (a menu, the title or the pause screen) and how
-     it is drawn with no new art;
-   - where the settings are stored, since the original save format must not
-     change;
-   - what happens to a save used on the original cartridge format, and to a
-     save made with the options on when it is loaded without them;
-   - the money rule and its ceiling (rounding, a minimum, and the largest
-     amount the money counter can hold).
 6. **Dungeons and the automap.** Rewrite dungeon state and movement, then
    a minimap and automap. Known so far: community leads for position,
    direction and the dungeon layout in RAM; the dungeon encounter check
@@ -70,7 +47,7 @@ at the closure of milestone 4.
 
 Raised by milestone 4. Each is for the maintainer to place in a milestone,
 change or drop; none is ordered or scheduled here. The money multiplier and
-the in-game settings are now milestone 5.
+the in-game settings are delivered in milestone 5.
 
 - **Several levels per award.** Declined by the maintainer at the closure of
   milestone 4 (one level per fight stays).

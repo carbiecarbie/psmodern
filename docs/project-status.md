@@ -1,12 +1,12 @@
 # PSModern - Project Status
 
-**Milestone 4 (first win) is complete,** accepted on 2026-11-11.
+**Milestone 5 (options inside the game) is complete,** accepted on 2026-11-11.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
-routine, the random-encounter checks and the experience award now run in C++;
+routine, the random-encounter checks, experience, battle setup and money award now run in C++;
 the rest of the original program runs on the virtual Z80. The first two
 optional features exist: a random-encounter rate and an experience
-multiplier, both off by default. Milestones 1, 2 and 3 were accepted on
+and battle-meseta multiplier, both original by default and saved beside SRAM. Milestones 1, 2 and 3 were accepted on
 2026-11-08, 2026-11-09 and 2026-11-09.
 
 Replacements are checked against the original, call by call and frame by
@@ -21,7 +21,7 @@ The whole game, as on the cartridge, plus two optional settings.
 
 - **Starting:** `psmodern.exe <rom-path>`, with an uncompressed `.sms` file of
   the US Rev-A or the Brazilian Tec Toy cartridge. Any other file is refused
-  with a message. The window title names the version, not the options in use.
+  with a message. The window title names the version, active rates and any pending change.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
 - **Sound:** the original sound chip, resampled for the computer's audio
@@ -51,12 +51,18 @@ The whole game, as on the cartridge, plus two optional settings.
     gives. The number on screen is what every character gains. A character
     still gains at most one level per fight.
 
-  Any other value is refused. Encounters 50 with experience 400 gives a pace
-  like the Switch release (Maintainer decision, 2026-11-11). Leaving the flags
-  out plays the original. A value other than 100 cannot be
-  combined with `--no-routines` or `--record`. The options are not saved:
-  a save made with them on loads in original mode with totals the cartridge
-  alone might not produce. Details are in
+  Any other value is refused. New profiles use 100/100. Saved choices load on
+  startup; explicit flags override only their corresponding field.
+- **In-game options:** Escape or controller Y opens the two-row window during
+  free exploration in towns, on the world map and in dungeons, with released
+  controls. The scene stays behind it and music continues. Combat, title,
+  dialogue and other menus ignore the shortcut. Left/Right changes a rate;
+  Z/A saves and closes, X/B or Escape/Y discards the draft. Each 100% is
+  DEFAULT; encounters 50% and experience/meseta 400% are RECOMMENDED.
+- **Persistence:** a companion file retains preferences without changing the
+  cartridge save format. Battle meseta follows the experience rate; other
+  money sources remain unchanged. Recording ignores the shortcut and uses
+  original rules; raw-Z80 mode exposes read-only options. Details are in
   [development](development.md#options).
 
 ## Architecture overview
@@ -68,7 +74,7 @@ layer.
 | --- | --- | --- |
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
-| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience) and the options |
+| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money) and the options |
 | Program | `src/app/` | SDL window, sound, input, save files, frame pacing, command-line options |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
@@ -76,7 +82,7 @@ layer.
 
 Some properties matter for the next milestones:
 
-- **Exact and deterministic.** Nothing from the host reaches the machine.
+- **Exact and deterministic recordings.** Options shortcuts are ignored while recording.
   The same recording always gives the same frames, byte for byte.
 - **Copyable.** The whole machine copies as one value, so a run can be
   forked and compared.
@@ -112,7 +118,8 @@ catalog.
 | Map encounter check (`01:5F63`, with the group choice `01:5FD8`) | C++ by default, in pieces; calls into original code run on the Z80 |
 | Dungeon update with its encounter check (`00:0F3C`) | C++ by default, in pieces |
 | Experience award (`00:170D`, with the per-character helper `00:1754`) | C++ by default, in pieces |
-| Battle setup, rewards, menus, text, sound driver, saves and the rest | Original Z80 code |
+| Battle setup (`01:5FFE`) and money addition (`00:297A`) | C++ by default; battle meseta scales with the experience option |
+| Menus, text, sound driver, native saves and the rest | Original Z80 code; host options use the original field-menu wait |
 
 On the twelve checkpoint recordings, controller polling ran in C++ on all
 93,555 calls. The other routines ran in C++ on almost every call; the few
@@ -150,12 +157,9 @@ the game.
 
 ## Known gaps
 
-- **Options are minimal.** They are command-line flags only: no in-game
-  screen, no saving of the options, and the window title does not show which
-  are active. The maintainer wants the options chosen inside the game and saved
-  with it, and battle money that follows the experience rate; both are the
-  next milestone on the [roadmap](roadmap.md). There is no walking-speed
-  option, and gaining several levels in one fight was declined.
+- **Options remain deliberately small.** Encounter and experience/meseta rates
+  are available in-game and saved. Walking speed, remapping, automap and other
+  features remain later work on the [roadmap](roadmap.md).
 - **Recording coverage is thin where the new routines act.** The recordings
   reach few encounter paths and one level gain. State probes carry the
   exactness; new recordings come when a milestone needs a route the existing
