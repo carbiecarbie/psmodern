@@ -5,6 +5,7 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <memory>
+#include <string>
 
 namespace psmodern::app {
 void sdl_check(bool success,const char* operation);
@@ -22,6 +23,23 @@ private:
 };
 FrameInput sample_input(SDL_Window* window,const Controller& controller,const EnterKey& enter);
 MenuInput sample_menu_input(SDL_Window* window,const Controller& controller);
+// The game window and what draws the 256x192 picture into it.
+struct Display {
+    std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> window{nullptr,SDL_DestroyWindow};
+    std::unique_ptr<SDL_Renderer,decltype(&SDL_DestroyRenderer)> renderer{nullptr,SDL_DestroyRenderer};
+    std::unique_ptr<SDL_Texture,decltype(&SDL_DestroyTexture)> texture{nullptr,SDL_DestroyTexture};
+};
+// A resizable 768x576 window with a vsync renderer when available.
+Display open_display(const std::string& title);
+// Shows the uploaded texture: nearest-neighbour integer scaling, centred
+// with black bars. The upload stays with the caller, where the session tests
+// intercept it.
+void present(const Display& display);
+// Alt+Enter: borderless desktop fullscreen on and off.
+void toggle_fullscreen(SDL_Window* window);
+// Start screen input: arrows, d-pad and left stick move; Z, Enter without
+// Alt, controller A or Start accept; Esc is cancel (quit).
+MenuInput sample_start_input(SDL_Window* window,const Controller& controller,const EnterKey& enter);
 class Audio {
 public:
     Audio();

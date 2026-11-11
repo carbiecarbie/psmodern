@@ -74,3 +74,15 @@ execution of the ROM sound driver keeps music and effects at normal tempo
 through acceleration and the return to 1x, without changing gameplay state.
 Independent reviews and all 111 configured tests passed without skips; the
 maintainer reported that the isolated play-test worked perfectly.
+
+## Release 0.1.0 - Start screen and first public release (2026-11-11)
+
+Double-clicking `psmodern.exe` now opens the Windows Open dialog once, then
+a start screen in the original window style that remembers the US and
+Brazilian ROMs, opens the saves folder and starts the game in the same
+window. The program became a GUI-subsystem executable with UTF-8 command-line
+paths, and `tools/package-release.ps1` builds the Windows zip from a clean
+export of the commit. An independent review's fixes were applied, and all 116
+configured tests passed without skips. The maintainer play-tested the release
+zip, found everything correct and authorized publication as GitHub release
+v0.1.0. [Plan](release-0.1.0-plan.md).

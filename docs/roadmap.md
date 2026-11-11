@@ -17,6 +17,10 @@ Session-only fast-forward cycles 1x/2x/4x with an indicator. Music and effects
 keep normal tempo while accelerated. [Milestone 6](milestone-6-plan.md),
 including its normal-tempo audio follow-up, was accepted on 2026-11-11.
 
+**Releases.** Version 0.1.0, the first public Windows release, with a start
+screen that remembers the player's ROMs, was accepted on 2026-11-11; see its
+[plan](release-0.1.0-plan.md). It does not change the milestone numbering.
+
 ## Later milestones
 
 Each line is the stage's goal, then what the study base suggests about it.

@@ -69,6 +69,34 @@ mingw-w64-ucrt-x86_64-zlib 1.3.2-2
 mingw-w64-ucrt-x86_64-zstd 1.5.7-2
 ```
 
+## Windows libraries and version header
+
+`psmodern.exe` also links the Windows system libraries `comdlg32` (Open
+dialog), `shell32` (command-line arguments, opening the saves folder) and
+`ole32`; they ship with Windows. It is built as a GUI-subsystem program.
+CMake generates `PSModernVersion.h` from `cmake/PSModernVersion.h.in` using
+the version in `project(PSModern VERSION ...)`.
+
+## Release package
+
+The zip made by `tools/package-release.ps1` contains `psmodern.exe`
+(stripped of debug information), the DLLs `SDL2.dll`, `libgcc_s_seh-1.dll`,
+`libstdc++-6.dll` and `libwinpthread-1.dll` found with MSYS2 `ldd` and copied
+from `ucrt64\bin` only, `LICENSE.txt`, `README.txt`, `THIRD-PARTY.txt` and a
+`licenses\` folder. The notices come from these sources:
+
+| Notice | Source |
+| --- | --- |
+| `SDL2.txt` | MSYS2 `share\licenses\SDL2\LICENSE.txt` |
+| `winpthreads.txt` | MSYS2 `share\licenses\winpthreads\COPYING` |
+| `GCC-runtime-exception.txt`, `GCC-GPL-3.0.txt` | MSYS2 `share\licenses\gcc-libs\COPYING.RUNTIME`, `COPYING3` |
+| `redcode-z80-LGPL-3.0.txt` | `third_party/redcode-z80/COPYING.LESSER` |
+| `Zeta-LGPL-3.0.txt` | `third_party/zeta/COPYING.LESSER` |
+
+`THIRD-PARTY.txt` names the redcode/Z80 and Zeta commits below, the
+`pacman -Q` versions of the shipped packages and the exact source commit and tag. The
+script refuses to run if this file stops naming those two commits.
+
 ## Z80 core
 
 [redcode/Z80](https://github.com/redcode/Z80) is vendored at commit

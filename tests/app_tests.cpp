@@ -290,6 +290,27 @@ void flags() {
         check(!text.empty() && text.find(expected)!=std::string::npos,expected);
     };
     const auto original=parse({});
+    check(original.mode==AppMode::play,"a ROM path means play mode");
+    {
+        const char* none[]={"psmodern.exe"};
+        const auto launcher=parse_app_arguments(1,none);
+        check(launcher.mode==AppMode::launcher && launcher.rom.empty(),"no arguments means the start screen");
+        const char* version[]={"psmodern.exe","--version"};
+        check(parse_app_arguments(2,version).mode==AppMode::version,"--version alone prints the version");
+        const char* extra[]={"psmodern.exe","--version","game.sms"};
+        const char* first[]={"psmodern.exe","game.sms","--version"};
+        for (auto* words:{extra,first}) refuses([&] { parse_app_arguments(3,words); },"--version with anything else is refused");
+        // utf8_arguments hands main UTF-8; the paths must reach the file system unchanged.
+        const char* unicode[]={"psmodern.exe","C:/Jogos/\xc3\xa7\xc3\xa3o/\xe6\x97\xa5\xe6\x9c\xac/ps.sms","--record","\xc3\xa9.psrec"};
+        const auto parsed=parse_app_arguments(4,unicode);
+        check(parsed.rom==std::filesystem::path(u8"C:/Jogos/\u00e7\u00e3o/\u65e5\u672c/ps.sms") &&
+              parsed.record_path==std::filesystem::path(u8"\u00e9.psrec"),"non-ASCII arguments are read as UTF-8");
+        const auto back=parsed.rom.u8string();
+        check(std::string(reinterpret_cast<const char*>(back.data()),back.size())==unicode[1],"non-ASCII argument round trip");
+#ifdef _WIN32
+        check(parsed.rom.native()==L"C:/Jogos/\u00e7\u00e3o/\u65e5\u672c/ps.sms","non-ASCII argument becomes the right wide path");
+#endif
+    }
     check(original.options==game::Options{} && original.routines_enabled && !original.record_path && original.rom=="game.sms","no flags means original");
     for (const auto* value:{"0","50","100","200"}) check(parse({"--encounter-rate",value}).options.encounter_percent==std::stoul(value),"encounter values");
     for (const auto* value:{"100","200","400"}) check(parse({"--experience-rate",value}).options.experience_percent==std::stoul(value),"experience values");

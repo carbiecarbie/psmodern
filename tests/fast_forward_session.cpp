@@ -108,6 +108,12 @@ int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,co
     return SDL_UpdateTexture(texture,rect,data,pitch);
 }
 }
+// The scripted sessions pass their own argv and never reach the start screen.
+#include "app/start_loop.h"
+#include "app/windows_platform.h"
+#define utf8_arguments(argc,argv) std::vector<std::string>(argv,argv+argc)
+#define attach_parent_console()
+#define run_launcher(display) std::optional<std::filesystem::path>()
 #define main fast_app_main
 #define FrameDriver CheckedDriver
 #define SDL_PollEvent scripted_poll
@@ -118,6 +124,9 @@ int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,co
 #define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),t,r,p,pitch)
 #include "../src/app/main.cpp"
 #undef main
+#undef utf8_arguments
+#undef attach_parent_console
+#undef run_launcher
 #undef FrameDriver
 #undef SDL_PollEvent
 #undef SDL_GetKeyboardState

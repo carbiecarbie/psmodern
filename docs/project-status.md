@@ -1,6 +1,8 @@
 # PSModern - Project Status
 
 **Milestone 6 (fast-forward) is complete,** accepted on 2026-11-11.
+**Release 0.1.0**, the first public Windows release, adds a start screen
+that remembers the player's ROMs ([plan](release-0.1.0-plan.md)).
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup and money award now run in C++;
@@ -20,9 +22,12 @@ milestone explicitly.
 
 The whole game, as on the cartridge, plus saved rate settings and fast-forward.
 
-- **Starting:** `psmodern.exe <rom-path>`, with an uncompressed `.sms` file of
-  the US Rev-A or the Brazilian Tec Toy cartridge. Any other file is refused
-  with a message. The window title names the version, active rates and any pending change.
+- **Starting:** double-click `psmodern.exe` (no arguments) to reach the start
+  screen: the first time, pick an uncompressed `.sms` file of the US Rev-A or
+  the Brazilian Tec Toy cartridge; it is remembered, and any other file is
+  refused with a message. Or run `psmodern.exe <rom-path>` from a terminal.
+  The window title names the version, active rates and any pending change.
+  See [development](development.md#start-screen) for both paths.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
 - **Sound:** the original sound chip, resampled for the computer's audio

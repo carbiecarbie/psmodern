@@ -41,3 +41,20 @@ Read the notes. Check the files the test should have produced, such as the
 save of the version played, its `.bak` copy and the lock file, before
 treating an item as done. Record the result, including any part the maintainer chose to
 skip, in the milestone plan at closure.
+
+## Release play-test
+
+Before a release, play-test the exact zip, not a development build:
+
+- Extract the zip into a clean folder whose name has a non-ASCII character
+  (for example `ção`), outside the repository. Note the commit and the zip's
+  SHA-256.
+- Rename the player's `%APPDATA%\PSModern` to `PSModern.backup` first, so the
+  test starts with no remembered ROM and no save. Afterwards delete the
+  test's `PSModern` folder and rename the backup back.
+- Start by double-clicking `psmodern.exe`; no launcher script is used. The
+  guide covers what only a person can judge: no console window, the Open
+  dialog filter, the wrong-file message, a ROM in a non-ASCII folder, the
+  start screen text, adding the second version, keyboard and controller,
+  Alt+Enter carrying into the game, Open saves folder, Options and saves, and
+  quitting closing the program.

@@ -2,20 +2,44 @@
 #include "app/frame_driver.h"
 #include "game/routines.h"
 #include "rom/sha1.h"
+#include <fstream>
 #include <stdexcept>
 
 namespace psmodern::app {
+namespace {
+// Arguments arrive as UTF-8 (utf8_arguments on Windows); say so explicitly
+// rather than rely on the library's narrow-string conversion.
+std::filesystem::path utf8_path(std::string_view text) {
+    return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()),text.size()));
+}
+}
+std::string app_usage() {
+    return "Usage: psmodern.exe | psmodern.exe --version | psmodern.exe <rom-path> [--record <new-file>] [--no-routines] "+game::OptionFlags::usage()+
+        "\nRun without arguments for the start screen. Provide an uncompressed US Rev-A or Brazilian .sms file. Omitted rate flags use saved settings; a new profile defaults to the original game.";
+}
+LoadedRom load_rom(const std::filesystem::path& path) {
+    const auto version=identify_rom(path);
+    std::ifstream file(path,std::ios::binary);
+    auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>());
+    if (file.bad() || rom->size()!=512*1024 || identify_digest(sha1(*rom))!=version)
+        throw std::runtime_error("ROM changed or could not be read completely while loading.");
+    return {version,std::move(rom)};
+}
 AppArguments parse_app_arguments(int argc,const char* const* argv) {
-    const auto usage="Usage: psmodern.exe <rom-path> [--record <new-file>] [--no-routines] "+game::OptionFlags::usage()+
-        "\nProvide an uncompressed US Rev-A or Brazilian .sms file. Omitted rate flags use saved settings; a new profile defaults to the original game.";
-    if (argc<2) throw std::runtime_error(usage);
-    AppArguments result; result.rom=argv[1];
+    const auto usage=app_usage();
+    AppArguments result;
+    if (argc<2) { result.mode=AppMode::launcher; return result; }
+    if (std::string_view(argv[1])=="--version") {
+        if (argc!=2) throw std::runtime_error(usage);
+        result.mode=AppMode::version; return result;
+    }
+    result.rom=utf8_path(argv[1]);
     game::OptionFlags flags;
     for (int i=2;i<argc;++i) {
         const std::string_view arg=argv[i];
         if (flags.take(argc,argv,i)) continue;
         if (arg=="--no-routines" && result.routines_enabled) result.routines_enabled=false;
-        else if (arg=="--record" && !result.record_path && i+1<argc) result.record_path=argv[++i];
+        else if (arg=="--record" && !result.record_path && i+1<argc) result.record_path=utf8_path(argv[++i]);
         else throw std::runtime_error(usage);
     }
     if (!result.routines_enabled) flags.refuse_with("--no-routines","the options are carried out by the rewritten routines");

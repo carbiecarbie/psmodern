@@ -60,6 +60,56 @@ MenuInput sample_menu_input(SDL_Window* window,const Controller& controller) {
     }
     return input;
 }
+MenuInput sample_start_input(SDL_Window* window,const Controller& controller,const EnterKey& enter) {
+    const auto buttons=controller.sample();
+    MenuInput input{buttons.pad.up,buttons.pad.down,buttons.pad.left,buttons.pad.right,buttons.pad.one || buttons.pause};
+    input.focused=SDL_GetKeyboardFocus()==window;
+    if(input.focused) {
+        const auto* keys=SDL_GetKeyboardState(nullptr);
+        input.up|=keys[SDL_SCANCODE_UP];input.down|=keys[SDL_SCANCODE_DOWN];
+        input.left|=keys[SDL_SCANCODE_LEFT];input.right|=keys[SDL_SCANCODE_RIGHT];
+        input.accept|=keys[SDL_SCANCODE_Z] || (enter.pause(keys[SDL_SCANCODE_RETURN]) && !(keys[SDL_SCANCODE_LALT] || keys[SDL_SCANCODE_RALT]));
+        input.cancel|=keys[SDL_SCANCODE_ESCAPE];
+    }
+    return input;
+}
+Display open_display(const std::string& title) {
+    Display display;
+    display.window.reset(SDL_CreateWindow(title.c_str(),SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,768,576,SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI));
+    sdl_check(bool(display.window),"Creating window");
+    SDL_SetWindowMinimumSize(display.window.get(),256,192);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"0");
+    auto& renderer=display.renderer;
+    renderer.reset(SDL_CreateRenderer(display.window.get(),-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC));
+    if (!renderer) renderer.reset(SDL_CreateRenderer(display.window.get(),-1,SDL_RENDERER_ACCELERATED));
+    if (!renderer) renderer.reset(SDL_CreateRenderer(display.window.get(),-1,SDL_RENDERER_SOFTWARE));
+    sdl_check(bool(renderer),"Creating renderer");
+    SDL_RendererInfo renderer_info{};
+    sdl_check(SDL_GetRendererInfo(renderer.get(),&renderer_info)==0,"Reading renderer information");
+    SDL_DisplayMode mode{};
+    const int display_index=SDL_GetWindowDisplayIndex(display.window.get());
+    const bool have_display=display_index>=0 && SDL_GetCurrentDisplayMode(display_index,&mode)==0;
+    std::cerr<<"Video: "<<renderer_info.name<<", vsync="
+             <<bool(renderer_info.flags&SDL_RENDERER_PRESENTVSYNC)
+             <<", display_hz="<<(have_display ? mode.refresh_rate : 0)<<'\n';
+    display.texture.reset(SDL_CreateTexture(renderer.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,256,192));
+    sdl_check(bool(display.texture),"Creating picture texture");
+    sdl_check(SDL_SetTextureScaleMode(display.texture.get(),SDL_ScaleModeNearest)==0,"Setting nearest-neighbour scaling");
+    return display;
+}
+void present(const Display& display) {
+    auto* renderer=display.renderer.get();
+    int w,h; sdl_check(SDL_GetRendererOutputSize(renderer,&w,&h)==0,"Reading output size");
+    const auto v=viewport(w,h); const SDL_Rect rect{v.x,v.y,v.width,v.height};
+    sdl_check(SDL_SetRenderDrawColor(renderer,0,0,0,255)==0,"Setting black bars");
+    sdl_check(SDL_RenderClear(renderer)==0,"Clearing picture");
+    sdl_check(SDL_RenderCopy(renderer,display.texture.get(),nullptr,&rect)==0,"Drawing picture");
+    SDL_RenderPresent(renderer);
+}
+void toggle_fullscreen(SDL_Window* window) {
+    const bool fullscreen=SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP;
+    sdl_check(SDL_SetWindowFullscreen(window,fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
+}
 FrameInput sample_input(SDL_Window* window,const Controller& c,const EnterKey& enter) {
     SDL_PumpEvents(); // Exactly one snapshot for this emulated frame.
     Keys keys{};

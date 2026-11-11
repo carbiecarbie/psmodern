@@ -22,6 +22,26 @@ of the game works.
 - [Design](docs/design.md)
 - [Project status](docs/project-status.md)
 
+## Download and play
+
+On Windows (64-bit), download the zip from the
+[Releases page](https://github.com/carbiecarbie/psmodern/releases), unzip it
+anywhere and double-click `psmodern.exe`. The first time, pick your own
+cartridge dump in the Open dialog; PSModern remembers it. It needs an
+uncompressed `.sms` file of one of these releases:
+
+| Release | SHA-1 |
+| --- | --- |
+| US Rev-A | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
+| Brazilian (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
+
+Any other file is refused with a message. A start screen then offers to play
+each remembered version, choose another ROM, open the saves folder or quit.
+Windows SmartScreen may warn about an unknown publisher, because the program
+is not digitally signed: click "More info", then "Run anyway". Saves and the
+list of remembered ROMs live in `%APPDATA%\PSModern`; delete `roms.txt` there
+to make PSModern forget the ROMs. The zip's `README.txt` lists the controls.
+
 ## Build and run
 
 With the [pinned MSYS2 UCRT64 toolchain](docs/dependencies.md), in a UCRT64 shell:
@@ -32,6 +52,9 @@ cmake --build build-rel
 ctest --test-dir build-rel --output-on-failure
 ./build-rel/psmodern.exe "path/to/your-game.sms"
 ```
+
+Without a ROM path, `psmodern.exe` opens the start screen; `--version` prints
+the version. Details are in [development](docs/development.md).
 
 New profiles use original rules, with the cartridge's picture, sound, controls and saves.
 See [project status](docs/project-status.md) for the controls and

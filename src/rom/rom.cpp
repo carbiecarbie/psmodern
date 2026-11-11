@@ -20,12 +20,12 @@ RomVersion identify_rom(const std::filesystem::path& path) {
     if (extension == ".zip") throw std::runtime_error("ZIP archive given: unzip it and provide the .sms file.");
     if (extension != ".sms") throw std::runtime_error("Expected an uncompressed .sms ROM file.");
     std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) throw std::runtime_error("Cannot open ROM file.");
+    if (!file) throw RomUnreadable("Cannot open ROM file.");
     if (file.tellg() != 512 * 1024) throw std::runtime_error("Wrong ROM size: expected 512 KiB.");
     file.seekg(0);
     std::vector<std::uint8_t> data(512 * 1024);
     if (!file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size())))
-        throw std::runtime_error("Cannot read ROM file.");
+        throw RomUnreadable("Cannot read ROM file.");
     return identify_digest(sha1(data));
 }
 const char* rom_name(RomVersion version) {

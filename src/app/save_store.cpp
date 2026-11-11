@@ -135,22 +135,23 @@ static void publish_bytes(const std::filesystem::path& path,std::span<const std:
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image) {
     publish_bytes(path,image,true);
 }
-void atomic_settings(const std::filesystem::path& path,const std::string& text) {
+void atomic_text(const std::filesystem::path& path,const std::string& text) {
     if(std::filesystem::exists(path) && !std::filesystem::is_regular_file(path))
-        throw std::runtime_error("Refusing to replace non-file settings: "+path.string());
+        throw std::runtime_error("Refusing to replace non-file: "+path.string());
     publish_bytes(path,{reinterpret_cast<const std::uint8_t*>(text.data()),text.size()},false);
 }
-namespace {
-std::string read_settings_file(const std::filesystem::path& path) {
-    if(!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path)>1024)
-        throw std::runtime_error("Expected a regular settings file of at most 1024 bytes.");
+std::string read_text_file(const std::filesystem::path& path,std::size_t limit,const char* what) {
+    if(!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path)>limit)
+        throw std::runtime_error(std::string("Expected a regular ")+what+" of at most "+std::to_string(limit)+" bytes.");
     std::ifstream file(path,std::ios::binary);
-    std::string text(1025,'\0');file.read(text.data(),text.size());
+    std::string text(limit+1,'\0');file.read(text.data(),text.size());
     const auto count=file.gcount();
-    if(file.bad() || count>1024 || !file.eof())throw std::runtime_error("Cannot read bounded settings file.");
+    if(file.bad() || static_cast<std::size_t>(count)>limit || !file.eof())throw std::runtime_error(std::string("Cannot read bounded ")+what+".");
     text.resize(static_cast<std::size_t>(count));
     return text;
 }
+namespace {
+std::string read_settings_file(const std::filesystem::path& path) { return read_text_file(path,1024,"settings file"); }
 }
 game::Options SaveStore::load_preferences(const Memory::CartridgeRam& image) {
     ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};

@@ -7,15 +7,30 @@
 #include "app/tempo_audio.h"
 
 namespace psmodern::app {
-// The command line of psmodern.exe, already validated.
+// What psmodern.exe was asked to do: play (a ROM path was given), show the
+// start screen (no arguments) or print the version (--version alone).
+enum class AppMode { play, launcher, version };
+// The command line of psmodern.exe, already validated. rom and the other
+// fields are meaningful only in play mode.
 struct AppArguments {
+    AppMode mode=AppMode::play;
     std::filesystem::path rom;
     std::optional<std::filesystem::path> record_path;
     bool routines_enabled=true;
     game::Options options;
     game::OptionOverrides overrides;
 };
-// argv[0] is the program name. Throws std::runtime_error with a usage or
+// A ROM file read completely and identified.
+struct LoadedRom {
+    RomVersion version;
+    std::shared_ptr<Memory::Rom> rom;
+};
+// Identifies the file, reads it and checks that the bytes read are still the
+// identified dump; throws std::runtime_error otherwise.
+LoadedRom load_rom(const std::filesystem::path& path);
+// The usage message that refusals carry.
+std::string app_usage();
+// argv[0] is the program name; paths are read as UTF-8. Throws std::runtime_error with a usage or
 // refusal message; nothing is opened or run before this returns.
 AppArguments parse_app_arguments(int argc,const char* const* argv);
 

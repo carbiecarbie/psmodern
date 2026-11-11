@@ -13,7 +13,13 @@ namespace psmodern::app {
 const char* save_name(RomVersion version);
 std::filesystem::path production_save_folder();
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image);
-void atomic_settings(const std::filesystem::path& path,const std::string& text);
+// Atomically replaces a small text file (settings, remembered ROMs), creating
+// its folder; refuses a destination that exists and is not a regular file.
+void atomic_text(const std::filesystem::path& path,const std::string& text);
+inline void atomic_settings(const std::filesystem::path& path,const std::string& text) { atomic_text(path,text); }
+// Reads a regular file of at most limit bytes; throws otherwise. what names
+// the file kind in the messages.
+std::string read_text_file(const std::filesystem::path& path,std::size_t limit,const char* what);
 class SaveStore {
 public:
     using Writer=std::function<void(const std::filesystem::path&,const Memory::CartridgeRam&)>;

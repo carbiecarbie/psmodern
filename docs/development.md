@@ -53,12 +53,58 @@ The game-system chapters explain [controller reading](how-it-works/controls.md),
 
 ## Program
 
-Run `psmodern.exe <rom-path>` with the player's uncompressed `.sms` file.
+Run `psmodern.exe <rom-path>` with the player's uncompressed `.sms` file, or
+`psmodern.exe` alone for the [start screen](#start-screen).
 The program identifies US Rev-A and Brazilian cartridges by SHA-1; other
 files are refused. Errors appear on stderr and in an SDL message box.
 The window title names the identified version. The 256x192 picture uses
 nearest-neighbour integer scaling, centred with black bars in a resizable
 window initially 768x576. Alt+Enter toggles borderless desktop fullscreen.
+
+`psmodern.exe --version` prints `PSModern 0.1.0` and exits with 0 before any
+window or SDL start-up; combined with any other argument it is refused. The
+version comes from `project(PSModern VERSION ...)` in `CMakeLists.txt`,
+through the generated header `PSModernVersion.h`.
+
+**Terminal behaviour.** `psmodern.exe` is a Windows GUI-subsystem program, so
+a double-click opens no console window. Standard streams that are already
+redirected (pipes, files, CTest, Python tests) are kept as they are;
+otherwise the program attaches to the parent console. `cmd` and PowerShell do
+not wait for a GUI program, so its output appears after the prompt returns
+and the exit code is not available at once. To wait and get the exit code use
+`start /wait psmodern.exe ...` in `cmd`, or `Start-Process -Wait -PassThru`
+(or piping the output, `| Out-Host`) in PowerShell. After attaching to the
+terminal's console the program ignores Ctrl+C, so Ctrl+C typed in that
+terminal does not stop the game or cut a `--record` short; close its window.
+Command-line arguments are read as UTF-16 and converted to UTF-8, so ROM
+paths with non-ASCII characters work.
+
+### Start screen
+
+With no arguments the program reads the remembered ROMs and shows the start
+screen in the game window, in the original black and white window style with
+the ROM's font, so labels are uppercase. Entries: `PLAY PHANTASY STAR (US)`
+and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`,
+`OPEN SAVES FOLDER` and `QUIT`, with the footer `PSMODERN 0.1.0`. The window
+title is `PSModern 0.1.0`.
+
+Arrows, the d-pad or the left stick move the selection (it wraps, with the
+same key repeat as Options). Z, Enter (without Alt), controller A or Start
+accept; Escape or closing the window quits. Alt+Enter toggles fullscreen,
+and the game that follows uses the same window and keeps the choice. A
+button still held from the start screen does not reach the game. Leaving the
+game ends the program. A second instance choosing Play is refused by the
+save lock.
+
+**Remembered ROMs.** `%APPDATA%\PSModern\roms.txt` holds a header line
+`psmodern-roms 1`, then `us <path>` and/or `br <path>`. Delete the file to
+reset. On start, each remembered ROM is identified again; missing or changed
+files are dropped with one message and the list is rewritten. With nothing
+remembered, a Windows Open dialog (`*.sms`) asks for a ROM: cancel exits with
+0 and writes nothing; a wrong file shows a message naming the accepted
+dumps, with Choose again or Quit (Back from the start screen). Choosing a
+ROM of the other version adds it; of the same version replaces it. The file
+is written atomically, like the settings companion.
 
 **Hardware documentation.** The [SMS Power palette documentation](https://www.smspower.org/Development/Palette)
 describes CRAM as `00BBGGRR`: two bits each for red, green and blue. The
@@ -1290,3 +1336,39 @@ Matched write timestamps differ by -16 to +27 CPU cycles (PSModern minus CE).
 The first IRQ entry is 462953 in PSModern and 462963 in CE. A reused,
 initialized CE save instead gives its first IRQ at 342682 and 5,877 writes;
 this is a different starting machine value, not a PSG timing discrepancy.
+
+## Release packaging
+
+`tools/package-release.ps1` builds the Windows release zip (`Get-Help` shows
+its parameters). It reads the version from `CMakeLists.txt`, refuses a dirty
+git tree, an output folder inside the repository and an existing zip,
+`.partial`, staging or build folder, exports `HEAD` with `git archive` into a
+temporary folder under the output folder, builds only the `psmodern` target
+there (RelWithDebInfo, tests off, so it needs neither Python nor ROMs) and
+stages that executable. It then requires exactly the DLLs `SDL2.dll`,
+`libgcc_s_seh-1.dll`, `libstdc++-6.dll` and `libwinpthread-1.dll`, all from
+the UCRT64 `bin` folder, runs the staged `psmodern.exe --version` and requires exactly
+`PSModern <version>`, and writes the zip as `.partial` before renaming it.
+`-KeepBuild` keeps the temporary build folder. `-BuildDir` packages an
+existing build tree instead; it requires `-AllowDirty`, is only for testing
+the script, and `-AllowDirty` adds `-dirty` to the name. The zip,
+`PSModern-<version>-windows-x64.zip`, holds the stripped `psmodern.exe`, the
+runtime DLLs, `LICENSE.txt`, the player's `README.txt`
+(`tools/release/README.txt`), `THIRD-PARTY.txt` and `licenses\`; it never
+holds ROMs, saves or debug files. See [dependencies](dependencies.md#release-package).
+Stripping is not byte-deterministic, so record the zip's SHA-256 instead of
+expecting a rebuild to match. `THIRD-PARTY.txt` names the full commit the
+zip was built from; the script ends by printing it, and the tag `v<version>`
+must point to that commit.
+
+Steps:
+
+1. Run the complete suite on a clean, committed tree.
+2. Run `tools/package-release.ps1 -OutputDir <folder outside the repository>`
+   (the tag does not have to exist yet; create `v<version>` on the printed
+   commit before publishing).
+3. Extract the zip into a clean folder and run `psmodern.exe --version` with
+   `PATH` limited to System32, which proves the DLL set is complete.
+4. Play-test the exact zip ([release play-test](playtests.md#release-play-test)).
+5. Tag and publish the GitHub release only with the maintainer's
+   authorization.
