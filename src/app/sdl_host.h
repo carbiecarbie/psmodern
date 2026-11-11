@@ -29,7 +29,6 @@ public:
     void removed(SDL_AudioDeviceID device);
     void submit(std::span<const std::int16_t> samples,double now);
     void reset();
-    void speed(unsigned value);
     void pause(bool paused);
     void report() const;
 private:
@@ -37,7 +36,6 @@ private:
     void close();
     SDL_AudioDeviceID device_=0;
     int hz_=48000;
-    unsigned speed_=1;
     std::unique_ptr<Resampler> resampler_;
     double retry_at_=0;
     bool warned_=false;

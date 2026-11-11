@@ -73,7 +73,12 @@ void Machine::advance(std::uint64_t cycles) {
     z80_int(&cpu_.raw(),sampled_int_);
     cycle_+=cycles; sync(cycle_);
 }
-std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines, const Hook& hook) {
+std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines, const Hook& hook, const WriteObserver& writes) {
+    struct RestoreObserver {
+        const WriteObserver*& slot;const WriteObserver* previous;
+        ~RestoreObserver() {slot=previous;}
+    } restore{write_observer_,write_observer_};
+    write_observer_=writes ? &writes : nullptr;
     pending_pads_=next_input.pads; pending_reset_=next_input.reset; pending_pause_=next_input.pause;
     auto target=(cycle_/frame_cycles+1)*frame_cycles;
     while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step(hook,routines);
@@ -222,7 +227,10 @@ std::uint8_t Machine::read(std::uint16_t addr) {
     if (memory_.mapping(addr).kind!=Memory::Kind::unmapped) open_bus_=memory_.read(addr);
     return open_bus_;
 }
-void Machine::write(std::uint16_t addr,std::uint8_t value) { memory_.write(addr,value); open_bus_=value; }
+void Machine::write(std::uint16_t addr,std::uint8_t value) {
+    memory_.write(addr,value);open_bus_=value;
+    if(write_observer_)(*write_observer_)(addr,value);
+}
 std::uint8_t Machine::input(std::uint16_t addr,std::uint64_t cycle) { return read_port(addr,cycle); }
 void Machine::output(std::uint16_t addr,std::uint8_t value,std::uint64_t cycle) { write_port(addr,value,cycle); }
 std::uint8_t Machine::read_port(std::uint16_t raw,std::uint64_t cycle) {

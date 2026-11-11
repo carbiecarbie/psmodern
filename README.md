@@ -38,8 +38,8 @@ See [project status](docs/project-status.md) for the controls and
 [development](docs/development.md) for ROM test paths.
 
 Press Tab or the controller's right shoulder to cycle through 1x, 2x and
-4x speed. The indicator appears while accelerated, and all sound, including
-music and effects, is muted. Speed starts at 1x each session and returns to 1x on F5;
+4x speed. The indicator appears while accelerated; music and effects keep
+their normal tempo and pitch. Speed starts at 1x each session and returns to 1x on F5;
 recordings stay at 1x. Options and loss of focus temporarily use 1x, then
 restore the chosen speed.
 

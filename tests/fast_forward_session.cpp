@@ -10,12 +10,23 @@
 namespace {
 using namespace psmodern;
 unsigned sampled=0,press_stage=0,focus_event=0,quick_event=0,options_event=0; unsigned marks[4]{}; double times[4]{}; bool got_badge[2]{},sent_quit=false,release_key=false,record_mode=false,sent_f5=false,saw_f5_reset=false,saw_before_f5=false;
+unsigned audio_speed=1;std::size_t audible[3]{};
+std::size_t queued_audible[3]{};SDL_AudioDeviceID audio_device=0;bool removed_audio=false;
+int checked_queue(SDL_AudioDeviceID device,const void* data,Uint32 size) {
+    audio_device=device;
+    const auto* samples=static_cast<const std::int16_t*>(data);
+    for(Uint32 i=0;i<size/sizeof(*samples);++i)if(samples[i])++queued_audible[audio_speed==4 ? 2 : audio_speed==2 ? 1 : 0];
+    return SDL_QueueAudio(device,data,size);
+}
 std::shared_ptr<const Memory::Rom> shadow_rom;
 std::unique_ptr<Machine> shadow; RoutineRegistry shadow_routines;
 std::filesystem::path image_dir;
 SDL_Window* focus_window=nullptr;
 double time_now(){return static_cast<double>(SDL_GetPerformanceCounter())/SDL_GetPerformanceFrequency();}
 int scripted_poll(SDL_Event* e) {
+    if(!record_mode && sampled>=300 && !removed_audio && audio_device) {
+        removed_audio=true;e->type=SDL_AUDIODEVICEREMOVED;e->adevice.which=audio_device;e->adevice.iscapture=0;return 1;
+    }
     if(!record_mode && sampled>=100 && focus_event<3) {
         if(focus_event==1) {
             e->type=SDL_KEYUP;e->key.windowID=SDL_GetWindowID(focus_window);e->key.repeat=0;
@@ -54,16 +65,21 @@ SDL_Window* scripted_focus(){return focus_window;}
 app::MenuInput scripted_menu(SDL_Window* w,const app::Controller&){focus_window=w;return {};}
 FrameInput scripted_input(SDL_Window*,const app::Controller&,const app::EnterKey&) {
     if(sampled==0)times[0]=time_now();
-    ++sampled;return {};
+    ++sampled;FrameInput input;input.pause=!record_mode && (sampled==240 || sampled==280);return input;
 }
 class CheckedDriver : public app::FrameDriver {
 public:
     using app::FrameDriver::FrameDriver;
+    void speed(unsigned value) {audio_speed=value;app::FrameDriver::speed(value);}
     std::optional<std::string> power_cycle() {
         auto error=app::FrameDriver::power_cycle();shadow=std::make_unique<Machine>(shadow_rom,machine().memory().cartridge_ram());return error;
     }
     app::FrameOutput run(const FrameInput& input) {
         auto output=app::FrameDriver::run(input);
+        if(output.audio_error)throw std::runtime_error(*output.audio_error);
+        if(record_mode && output.playback)throw std::runtime_error("Recording used independent audio");
+        if(output.playback)for(auto sample:output.playback->values)
+            if(sample)++audible[audio_speed==4 ? 2 : audio_speed==2 ? 1 : 0];
         shadow->run_frame(input,shadow_routines);
         if(output.writes!=shadow->take_psg_writes() || output.samples!=shadow->take_samples())
             throw std::runtime_error("Frame PSG writes or samples differ from shadow");
@@ -109,6 +125,9 @@ int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,co
 #undef sample_input
 #undef sample_menu_input
 #undef SDL_UpdateTexture
+#define SDL_QueueAudio checked_queue
+#include "../src/app/sdl_host.cpp"
+#undef SDL_QueueAudio
 int main(int argc,char** argv){try{
     if(argc!=3)return 1;if(!*argv[1] || !std::filesystem::exists(argv[1]))return 77;
     image_dir=argv[2];std::filesystem::create_directories(image_dir);
@@ -120,6 +139,9 @@ int main(int argc,char** argv){try{
     char* args[]{argv[0],argv[1]};if(fast_app_main(2,args))throw std::runtime_error("App session failed");
     for(int i=0;i<3;++i){const auto seconds=times[i+1]-times[i];const auto expected=(marks[i+1]-marks[i])*app::frame_seconds/(1u<<i);if(seconds<expected*.70 || seconds>expected*1.40)throw std::runtime_error("Unexpected speed interval: "+std::to_string(seconds));std::cout<<"interval "<<i<<": "<<seconds<<" seconds, "<<marks[i+1]-marks[i]<<" frames\n";}
     if(!got_badge[0] || !got_badge[1] || !sent_f5 || !saw_before_f5 || !saw_f5_reset)throw std::runtime_error("Missing badge or F5 reset");
+    if(!audible[0] || !audible[1] || !audible[2])throw std::runtime_error("Missing continuous music at one speed");
+    if(!queued_audible[0] || !queued_audible[1] || !queued_audible[2] || !removed_audio)
+        throw std::runtime_error("Missing SDL music delivery or accelerated device recovery");
     record_mode=true;sampled=0;sent_quit=false;
     { app::SaveStore saved(temp/"PSModern",identify_rom(argv[1]));shadow=std::make_unique<Machine>(shadow_rom,saved.load()); }
     std::string record=(temp/"session.psrec").string();char flag[]="--record";char* record_args[]{argv[0],argv[1],flag,record.data()};

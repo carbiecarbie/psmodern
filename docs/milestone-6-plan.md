@@ -42,3 +42,39 @@ The maintainer tested the revised silent-fast-forward build, said it was good,
 and explicitly accepted closure, commit and push on 2026-11-11. The tested
 executable's SHA-256 is
 `6fa842351e4501e1794292b267444a58753a43950b6cd5b38d90de9f7c847e19`.
+
+## Follow-up: normal-tempo audio
+
+**Tier A. Status: completed and accepted (2026-11-11).**
+The acceptance above applies to the original fast-forward delivery. The
+maintainer subsequently requested investigation and implementation of music
+that continues at its normal tempo during acceleration.
+
+The optional presentation path executes the player's ROM sound routines on
+a separate CPU, sound RAM and PSG. The gameplay machine continues unchanged.
+On first acceleration, capture coherent sound state and oscillator phase;
+retain this independent sound timeline when returning to 1x, until power
+cycle. Sessions that never accelerate and recordings retain original audio.
+
+Forward requests actually consumed by the game, in order, to the original
+request handler. Advance sequence timing at the original frame period.
+This deliberately separates request delivery from music timing: several
+requests can arrive between music ticks. It does not promise original
+request/tick interleaving during acceleration. Preserve the ROM's channel
+priorities and commands rather than classifying or replacing its music.
+External initialization and silence remain distinct events; pause must not
+advance music. Speed changes must neither clear audio nor replay a backlog.
+
+Independent design and implementation reviews passed. Both-ROM tests compare
+audio against native sound routine execution, including constant-tempo PCM,
+ordered requests, startup samples, fade provenance, transitions and unchanged
+gameplay state. Private execution is bounded and falls back safely if its
+verified contract is violated. The complete configured suite passed 111/111,
+with no failures or skips, in 374.03 seconds. A Luna runner executed
+`ctest --test-dir build-rel -j 16 --output-on-failure --no-tests=error`,
+awaiting its execution session through exit using `write_stdin`.
+The log is `build-rel/tempo-full-suite.log`.
+
+The maintainer reported that the isolated play-test worked perfectly on
+2026-11-11, accepting the result. The tested executable's SHA-256 is
+`b98845bd0fa16e75b38101e629e8715f316c8bb21f376800cf2b6c726b8084b0`.

@@ -35,20 +35,17 @@ int main(){try{
         audio.pause(false);check(SDL_GetAudioDeviceStatus(last_device)==SDL_AUDIO_PLAYING,"pause close resumes audio");
         const auto before=nonzero_submissions;audio.submit(samples,2.1);
         check(nonzero_submissions>before,"1x queues nonzero source audio");
-        for(unsigned speed:{2u,4u}) {
-            audio.speed(speed);suppressed("fast-forward immediately pauses and empties queue");
-            const auto count=nonzero_submissions;audio.submit(samples,2.2);
-            check(nonzero_submissions==count,"fast-forward submits no nonzero source audio");
-            audio.reset();suppressed("reset while accelerated stays empty");
-            audio.pause(true);audio.pause(false);suppressed("pause cycle while accelerated stays empty");
-        }
-        audio.removed(last_device);audio.submit(samples,4);suppressed("replacement while accelerated stays empty");
-        audio.pause(true);audio.speed(1);suppressed("return to 1x while paused stays empty");
+        // The host now supplies normal-rate PCM at every gameplay speed.
+        const auto continuous=nonzero_submissions;audio.submit(samples,2.2);
+        check(nonzero_submissions>continuous,"continuous source remains audible");
+        audio.removed(last_device);audio.submit(samples,4);
+        check(SDL_GetAudioDeviceStatus(last_device)==SDL_AUDIO_PLAYING,"replacement resumes continuous sound");
+        audio.pause(true);suppressed("pause stays empty");
         audio.pause(false);check(SDL_GetAudioDeviceStatus(last_device)==SDL_AUDIO_PLAYING,"normal audio resumes after pause and acceleration");
         check(SDL_GetQueuedAudioSize(last_device)<=48000*2/10,"normal queue is freshly bounded");
         const auto resumed=nonzero_submissions;audio.submit(samples,4.1);
         check(nonzero_submissions>resumed,"1x submits fresh nonzero sound after acceleration");
-        audio.speed(2);suppressed("second acceleration mutes");audio.speed(1);
+        audio.reset();
         check(SDL_GetAudioDeviceStatus(last_device)==SDL_AUDIO_PLAYING,"1x directly restores playback");
         check(SDL_GetQueuedAudioSize(last_device)<=48000*2/10,"direct return starts with bounded queue");
         audio.pause(true);suppressed("pause clears queued game audio");

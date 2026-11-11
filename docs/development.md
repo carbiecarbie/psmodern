@@ -127,9 +127,14 @@ session. F5 returns the choice to 1x; console Reset does not. Recording ignores
 the shortcut. The effective speed becomes 1x while unfocused or inside Options,
 then restores the chosen speed. A released key or shoulder must be observed
 before a new activation after focus loss or controller replacement. The host
-runs every emulated frame and drains its sound samples. At 2x and 4x all host
-audio is muted, including effects; the device is paused and its queue cleared.
-At 1x sound resumes from a fresh bounded queue. The indicator affects only the
+runs every emulated frame and drains its sound samples. First acceleration
+starts a separate execution of the ROM's sound driver at its next update
+boundary. Music and effects keep normal tempo and pitch, including after
+returning to 1x; power cycle discards that separate timeline. The audio queue
+and resampler stay continuous across speed changes. Sessions that never
+accelerate, and recordings, use the original audio path. See the
+[sound chapter](how-it-works/sound.md#sound-during-fast-forward) for request
+scheduling and guarded fallback. The indicator affects only the
 presented picture. The host clock rebases on speed changes; no choice is saved.
 
 Escape/controller Y opens Options during free exploration in towns, on the

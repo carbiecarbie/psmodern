@@ -106,21 +106,17 @@ void Audio::reset() {
     SDL_PauseAudioDevice(device_,1);
     SDL_ClearQueuedAudio(device_);
     resampler_=std::make_unique<Resampler>(hz_);
-    if (paused_ || speed_!=1) return;
+    if (paused_) return;
     std::vector<std::int16_t> silence(static_cast<std::size_t>(audio_target_seconds*hz_));
     if (SDL_QueueAudio(device_,silence.data(),static_cast<Uint32>(silence.size()*sizeof(std::int16_t)))!=0) {
         std::cerr<<"Cannot prime audio queue: "<<SDL_GetError()<<'\n'; close(); return;
     }
     SDL_PauseAudioDevice(device_,0);
 }
-void Audio::speed(unsigned value) {
-    if (value!=1 && value!=2 && value!=4) throw std::invalid_argument("Invalid speed.");
-    if (value!=speed_) { speed_=value; reset(); }
-}
 void Audio::submit(std::span<const std::int16_t> input,double now) {
     if (!device_) open(now);
     if (!device_) return;
-    if(paused_ || speed_!=1)return;
+    if(paused_)return;
     auto queued=SDL_GetQueuedAudioSize(device_)/(2.0*hz_);
     if (queued==0) { ++underruns_; reset(); }
     if (queued>0.150) { ++resets_; reset(); }

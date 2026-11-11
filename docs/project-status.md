@@ -26,7 +26,7 @@ The whole game, as on the cartridge, plus saved rate settings and fast-forward.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
 - **Sound:** the original sound chip, resampled for the computer's audio
-  device. Music and effects are muted while running at 2x/4x.
+  device. Music and effects keep normal tempo and pitch while running at 2x/4x.
 - **Controls:**
 
   | Console | Keyboard | Game controller |
@@ -42,7 +42,8 @@ The whole game, as on the cartridge, plus saved rate settings and fast-forward.
   also when it is plugged in during play.
 - **Fast-forward:** each Tab/RB press cycles 1x, 2x, 4x, then 1x; holding
   does not repeat. An indicator appears while accelerated. Music and effects
-  are muted at 2x/4x and resume normally at 1x without an audio backlog.
+  keep normal tempo at 2x/4x and continue smoothly when returning to 1x,
+  without an audio backlog.
   Options and loss of focus temporarily use 1x and restore the chosen speed
   afterward. New sessions and F5 start at 1x; recording remains at 1x.
 - **Saves:** the game saves through its own menu, as on the cartridge. Each

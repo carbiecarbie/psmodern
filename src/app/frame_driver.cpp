@@ -51,8 +51,36 @@ bool FrameDriver::request_menu() {
     menu_request_=exploration_wait_;
     return true;
 }
+void FrameDriver::speed(unsigned value) {
+    if(value!=1 && value!=2 && value!=4)throw std::invalid_argument("Invalid speed.");
+    speed_=original_only_ ? 1 : value;
+    if(tempo_audio_)tempo_audio_->speed(speed_);
+}
 FrameOutput FrameDriver::run(const FrameInput& input) {
+    std::optional<std::string> audio_error;
+    auto audio_failure=[&](const std::exception& error) {
+        tempo_audio_.reset();audio_failed_=true;
+        audio_error=std::string("Normal-tempo audio unavailable; accelerated audio is muted until power cycle: ")+error.what();
+    };
     Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
+        if(!original_only_ && !audio_failed_)try {
+            if(pc==0x8043 && mapping==Memory::Mapping{Memory::Kind::rom,12}) {
+                if(tempo_audio_)tempo_audio_->update(machine_->cycles(),0x80);
+                else if(speed_>1) {
+                    tempo_audio_=std::make_unique<TempoAudio>(*machine_);tempo_audio_->speed(speed_);
+                    sound_request_.reset(); // The captured first tick consumed it.
+                }
+            } else if(tempo_audio_) {
+                if(pc==0x82ef && mapping==Memory::Mapping{Memory::Kind::rom,12}) {
+                    if(sound_request_ && *sound_request_==machine_->peek(0xc004))
+                        tempo_audio_->request(machine_->cycles(),*sound_request_);
+                    sound_request_.reset();
+                } else if(mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+                    if(pc==0x02ed) {tempo_audio_->initialize(machine_->cycles());sound_request_.reset();}
+                    if(pc==0x02f5)tempo_audio_->silence(machine_->cycles());
+                }
+            }
+        } catch(const std::exception& error) {audio_failure(error);}
         auto& cpu=machine_->cpu(); auto& memory=machine_->memory();
         const auto sp=cpu.sp.uint16_value;
         // This token describes the currently executing native field wait, not
@@ -103,16 +131,30 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     };
     auto supplied=input;
     if(menu_active_ || menu_request_) { supplied={}; if(menu_closing_ && !menu_cancel_seen_)supplied.pads[0].one=true; }
-    machine_->run_frame(supplied,routines_,hook);
+    Machine::WriteObserver sound_writes=[&](std::uint16_t address,std::uint8_t value) {
+        if((address&0x1fff)!=4 || machine_->memory().mapping(address).kind!=Memory::Kind::ram)return;
+        const auto writer=machine_->memory().mapping(machine_->cpu().pc.uint16_value);
+        // The driver's own fades and acknowledgements belong to its own clock.
+        // Only external writes create a request to relay, even if the byte did
+        // not change. A later internal write can consume/discard that request.
+        if(writer==Memory::Mapping{Memory::Kind::rom,12})sound_request_.reset();
+        else sound_request_=value;
+    };
+    machine_->run_frame(supplied,routines_,hook,sound_writes);
     menu_request_.reset(); // An unsuccessful request never opens later.
     auto writes=machine_->take_psg_writes();
     auto samples=machine_->take_samples();
-    return {std::move(writes),std::move(samples),flush()};
+    std::optional<PsgSamples> playback;
+    if(tempo_audio_)try {playback=tempo_audio_->finish(machine_->cycles());}
+        catch(const std::exception& error) {audio_failure(error);}
+    if(!playback && speed_>1)playback=PsgSamples{};
+    return {std::move(writes),std::move(samples),flush(),std::move(playback),std::move(audio_error)};
 }
 std::optional<std::string> FrameDriver::power_cycle() {
     auto error=flush();
     machine_=std::make_unique<Machine>(rom_,machine_->memory().cartridge_ram());
     exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
+    tempo_audio_.reset();audio_failed_=false;sound_request_.reset();speed_=1;
     if(options_pending())activate(chosen_);
     return error;
 }

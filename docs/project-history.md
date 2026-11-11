@@ -63,9 +63,14 @@ interface, the maintainer accepted closure and authorized publication.
 ## Milestone 6 - Fast-forward (2026-11-11)
 
 Tab or the right shoulder toggles whole-game 1x/2x/4x speed, with a small
-indicator and unchanged emulated timing. Music and effects are muted while
-accelerated, following maintainer feedback; a future normal-tempo music study
-remains in the roadmap. Independent reviews and the final 109-test suite
+indicator and unchanged emulated timing. The initial delivery muted music and
+effects while accelerated, following maintainer feedback. Independent reviews and the final 109-test suite
 passed without skips. The maintainer played the revised build, approved it,
 and authorized closure and publication. [Plan](milestone-6-plan.md).
 Implementation and closure: `106ea66`.
+
+The normal-tempo audio follow-up was accepted later on 2026-11-11. A separate
+execution of the ROM sound driver keeps music and effects at normal tempo
+through acceleration and the return to 1x, without changing gameplay state.
+Independent reviews and all 111 configured tests passed without skips; the
+maintainer reported that the isolated play-test worked perfectly.

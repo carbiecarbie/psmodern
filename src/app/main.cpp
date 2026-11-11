@@ -73,7 +73,7 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
         auto effective_speed=[&]() { return !recorder && SDL_GetKeyboardFocus()==window.get() && !driver.menu_active() ? chosen_speed : 1u; };
         auto sync_speed=[&]() {
             const unsigned speed=effective_speed();
-            if (clock.speed()!=speed) { clock.speed(speed,now()); audio.speed(speed); }
+            if (clock.speed()!=speed) { clock.speed(speed,now()); driver.speed(speed); }
         };
         std::string displayed_title;
         auto report=[&]() {
@@ -150,7 +150,8 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
                 const auto output=driver.run(input);
                 if(recorder) recorder->add(input);
                 ++frames; report_save(output.save_error);
-                audio.submit(output.samples.values,now());
+                if(output.audio_error)std::cerr<<*output.audio_error<<'\n';
+                audio.submit(output.playback ? output.playback->values : output.samples.values,now());
                 if(!was_active && driver.menu_active()) {
                     menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false);
                     release.consume();

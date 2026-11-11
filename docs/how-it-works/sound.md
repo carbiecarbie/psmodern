@@ -94,3 +94,49 @@ Their behavior has no runtime confirmation from these recordings.
 request or every sequence command. A complete account of sound priorities,
 shared-channel behavior and all transitions needs further study. Code
 that was not reached is not assumed to be unused.
+
+## Sound during fast-forward
+
+**Maintainer decision.** Acceleration should speed up the game while music
+keeps its normal tempo. The host now runs a separate copy of the player's
+ROM sound driver, sound memory and chip state after the first accelerated
+sound update. The gameplay machine still executes every original sound
+instruction and chip write, unchanged. The listener hears the separate
+copy. It continues after returning to 1x, avoiding a jump forward in a song.
+A power cycle discards it. A session that never accelerates uses only the
+original output.
+
+**ROM static; ROM run.** Sound execution uses bank `0C`, sound records within
+`$C000–$C1FF`, and PSG writes. Some indirect data reads also reach the fixed
+ROM bank. The separate path therefore keeps the player's complete ROM
+mapping and uses its original CPU and chip implementations. It retains
+oscillator phase and the unsubmitted audio before capture. Native calls
+that generate samples beyond the current playback time retain those samples
+until due, rather than playing them early.
+
+**Inference from the implementation.** At 2x, two actual game sound updates
+give the separate copy one update; at 4x, four give one. Fractional progress
+survives speed changes. When pause or another game path omits sound updates,
+the separate copy also stops advancing the sequences, while chip time still
+passes. Initialization and silence are forwarded separately.
+
+**ROM static; ROM run.** The sound driver can itself write the request byte
+while finishing a fade. Forwarding those internal writes from the accelerated
+game would finish a normal-speed fade early. A read-only observer distinguishes
+game writes, including C++ replacements, from the sound driver's own writes.
+Only surviving external requests consumed at `0C:82EF` are forwarded.
+Internal fades and acknowledgements instead follow the separate sound clock.
+
+**Maintainer decision; inference from the implementation.** Forwarded
+requests run in their observed order using the ROM request handler. They
+do not wait in a backlog of accelerated frames. Sequence updates remain
+slower, so several effects can arrive between music updates and the ROM's
+shared-channel rules can replace an earlier effect. This deliberately changes
+the relationship between requests and music ticks during acceleration;
+it does not claim the original event timing for that optional mode.
+
+**Inference from the implementation.** Activation waits for a coherent sound
+update boundary; before that boundary accelerated output remains muted.
+Unexpected private memory/port access or a routine exceeding its execution
+bound disables this path until power cycle, logs a diagnostic, and falls back
+to muted acceleration and original audio at 1x. Gameplay continues unchanged.

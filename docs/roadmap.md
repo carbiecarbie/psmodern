@@ -13,8 +13,9 @@ random numbers, encounter checks, experience, battle setup and money addition
 run in C++, verified against the original. In-game options retain encounter
 and experience/meseta rates beside the unchanged cartridge save. The native
 style window preserves the exploration scene and continuous music.
-Session-only fast-forward cycles 1x/2x/4x with an indicator and silent audio
-while accelerated. [Milestone 6](milestone-6-plan.md) was accepted on 2026-11-11.
+Session-only fast-forward cycles 1x/2x/4x with an indicator. Music and effects
+keep normal tempo while accelerated. [Milestone 6](milestone-6-plan.md),
+including its normal-tempo audio follow-up, was accepted on 2026-11-11.
 
 ## Later milestones
 
@@ -53,9 +54,6 @@ the in-game settings are delivered in milestone 5.
   milestone 4 (one level per fight stays).
 - **Walking speed.** The Switch easy mode has it; the movement code has not
   been studied.
-- **Normal-tempo music during fast-forward.** Study whether a separate sound
-  path is feasible after understanding driver requests, sound priorities and
-  shared channels. No solution is established; all sound is muted at 2x/4x.
 
 ## Throughout
 

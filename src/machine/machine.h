@@ -31,14 +31,17 @@ public:
     static constexpr std::uint64_t frame_cycles=228*262;
     static constexpr std::uint64_t pause_sample_offset=260*228+212;
     using Hook = std::function<std::optional<std::uint16_t>(std::uint16_t, Memory::Mapping)>;
+    // Read-only host instrumentation, scoped to one frame and never copied
+    // into snapshots. Both native and registered-routine writes pass here.
+    using WriteObserver = std::function<void(std::uint16_t,std::uint8_t)>;
     explicit Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram = {});
     Machine(const Machine& other);
     Machine& operator=(const Machine& other);
     std::uint64_t step(const Hook& hook = {}, RoutineRegistry* routines = nullptr);
     std::uint64_t step(RoutineRegistry& routines, const Hook& hook = {}) { return step(hook,&routines); }
     void advance(std::uint64_t cycles);
-    std::uint64_t run_frame(const FrameInput& next_input, RoutineRegistry* routines = nullptr, const Hook& hook = {});
-    std::uint64_t run_frame(const FrameInput& input, RoutineRegistry& routines, const Hook& hook = {}) { return run_frame(input,&routines,hook); }
+    std::uint64_t run_frame(const FrameInput& next_input, RoutineRegistry* routines = nullptr, const Hook& hook = {}, const WriteObserver& writes = {});
+    std::uint64_t run_frame(const FrameInput& input, RoutineRegistry& routines, const Hook& hook = {}, const WriteObserver& writes = {}) { return run_frame(input,&routines,hook,writes); }
     std::uint64_t cycles() const { return cycle_; }
     std::uint64_t opcode_fetches() const { return opcode_fetches_; }
     void set_pause(bool level) { pending_pause_=level; }
@@ -91,5 +94,6 @@ private:
     bool input_latched_ = false, sampled_int_ = false, sampled_nmi_ = false,
         pause_nmi_level_ = false;
     std::optional<PortAccess> last_access_;
+    const WriteObserver* write_observer_=nullptr;
 };
 }

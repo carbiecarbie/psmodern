@@ -464,6 +464,31 @@ void frame_hooks() {
         check(calls>0,"frame hook actually called");
     }
 }
+void write_observers() {
+    // Repeated equal stores, including the RAM mirror, must all be visible.
+    auto rom=program({0x3e,0,0x32,4,0xc0,0x32,4,0xe0,0xc3,2,0});
+    Machine observed(rom),plain(rom);unsigned calls=0,mirrors=0;bool copied=false;
+    Machine::WriteObserver observer=[&](std::uint16_t address,std::uint8_t value) {
+        ++calls;check(value==0 && observed.peek(address)==0,"observer sees completed write");
+        mirrors+=address==0xe004;
+        check(observed.memory().mapping(observed.cpu().pc.uint16_value)==Memory::Mapping{Memory::Kind::rom,0},"writer remains in executing ROM bank");
+        if(!copied) {
+            copied=true;Machine clone(observed),assigned(rom);assigned=observed;
+            const auto before=calls;clone.run_frame({});assigned.run_frame({});
+            check(calls==before,"machine copies must not inherit observer");
+        }
+    };
+    observed.run_frame({},nullptr,{},observer);plain.run_frame({});
+    check(calls>100 && mirrors>50,"identical stores and RAM mirror observed");
+    check(observed.equivalent(plain),"write observation preserves all emulated state");
+    const auto before=calls;observed.run_frame({});
+    check(calls==before,"observer detached at normal frame exit");
+    Machine throwing(rom);unsigned exceptions=0;
+    try {throwing.run_frame({},nullptr,{},[&](auto,auto){++exceptions;throw std::runtime_error("observer probe");});}
+    catch(const std::runtime_error&) {}
+    check(exceptions==1,"throwing observer invoked");
+    throwing.run_frame({});check(exceptions==1,"observer detached after exception");
 }
-int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); frame_hooks(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
+}
+int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); frame_hooks(); write_observers(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
 catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

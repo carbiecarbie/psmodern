@@ -4,6 +4,7 @@
 #include "app/save_store.h"
 #include <filesystem>
 #include "machine/machine.h"
+#include "app/tempo_audio.h"
 
 namespace psmodern::app {
 // The command line of psmodern.exe, already validated.
@@ -22,6 +23,8 @@ struct FrameOutput {
     std::vector<PsgWrite> writes;
     PsgSamples samples;
     std::optional<std::string> save_error;
+    std::optional<PsgSamples> playback;
+    std::optional<std::string> audio_error;
 };
 class FrameDriver {
 public:
@@ -44,6 +47,7 @@ public:
     void close_menu() { if (menu_active_) menu_closing_=true; }
     bool menu_active() const { return menu_active_; }
     bool menu_closing() const { return menu_closing_; }
+    void speed(unsigned value);
 private:
     void activate(const game::Options& options);
     std::shared_ptr<const Memory::Rom> rom_;
@@ -58,5 +62,9 @@ private:
     Z80 menu_caller_{};
     std::uint16_t menu_return_=0;
     std::array<std::uint8_t,6> menu_saved_{};
+    std::unique_ptr<TempoAudio> tempo_audio_;
+    unsigned speed_=1;
+    bool audio_failed_=false;
+    std::optional<std::uint8_t> sound_request_;
 };
 }

@@ -21,7 +21,8 @@ static void scenario(std::shared_ptr<const Memory::Rom> rom,RomVersion version,c
         auto out=d.run(recording.input_at(n));check(!out.save_error,"save failed");
     }
     check(rejected>100,"non-exploration coverage missing");
-    for(unsigned n=0;n<40;++n)d.run({});
+    d.speed(4);
+    for(unsigned n=0;n<40;++n){const auto out=d.run({});check(!out.audio_error,"accelerated exploration sound failed");}
     bool requested=false;
     for(unsigned n=0;n<120 && !requested;++n){d.run({});requested=d.request_menu();}
     check(requested,"idle exploration did not admit options");
@@ -30,20 +31,24 @@ static void scenario(std::shared_ptr<const Memory::Rom> rom,RomVersion version,c
     const auto initial=d.machine().picture();
     Machine uninterrupted(d.machine());
     const auto ram=d.machine().memory().ram();
-    d.run({});check(d.menu_active(),"native menu did not open in immediate frame");
+    d.run({});check(d.menu_active(),"native menu did not open in immediate frame");d.speed(1);
     unsigned writes=0;std::size_t samples=0;unsigned frames_with_writes=0;bool nonzero=false;
     std::array<std::vector<std::uint8_t>,4> sound_blocks;
+    bool presentation_nonzero=false;
     for(unsigned n=0;n<240;++n){FrameInput hostile{};hostile.pause=true;hostile.reset=true;hostile.pads[0].right=true;
         const auto out=d.run(hostile);writes+=out.writes.size();samples+=out.samples.values.size();frames_with_writes+=!out.writes.empty();
+        check(out.playback && !out.audio_error,"options lost the independent sound timeline");
+        for(auto value:out.playback->values)presentation_nonzero|=value!=0;
         for(const auto& w:out.writes)sound_blocks[n/60].push_back(w.byte);
         for(auto value:out.samples.values)nonzero|=value!=0;
         check(d.menu_active(),"menu lost its native call");check(!d.request_menu(),"nested request accepted");}
-    check(writes>100 && samples>100000 && frames_with_writes>60 && nonzero &&
+    check(presentation_nonzero && writes>100 && samples>100000 && frames_with_writes>60 && nonzero &&
           (sound_blocks[0]!=sound_blocks[1] || sound_blocks[1]!=sound_blocks[2]),"native music did not continue");
     for(unsigned n=0x300;n<0x800;++n)check(d.machine().memory().ram()[n]==ram[n],"party or position changed while menu was open");
     d.close_menu();unsigned close_frames=0;while(d.menu_active()&&close_frames++<100)d.run({});
     check(!d.menu_active(),"native menu did not return");
-    for(unsigned n=0;n<20;++n)d.run({});
+    d.speed(4);
+    for(unsigned n=0;n<20;++n){const auto out=d.run({});check(out.playback && !out.audio_error,"options close lost accelerated sound");}
     check(d.machine().peek(0xc202)==mode,"cancel leaked into game action");
     check(d.machine().peek(0xc204)==0 && d.machine().peek(0xc205)==0,"cancel left a button pressed");
     for(unsigned n=0;n<1+240+close_frames+20;++n){uninterrupted.run_frame({});uninterrupted.take_samples();uninterrupted.take_psg_writes();}
