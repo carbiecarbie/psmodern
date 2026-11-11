@@ -47,4 +47,5 @@ maintainer accepted the milestone on 2026-11-11 after playing the US version
 with the launchers and finding everything correct. He chose fixed values for
 the options instead of ranges, with encounters 50 and experience 400 as the
 Switch-like setting.
-[Plan](milestone-4-plan.md). Last implementation commit: `3609f6b`.
+[Plan](milestone-4-plan.md). Last implementation commit: `3609f6b`; closed by
+`4066cb2`.
