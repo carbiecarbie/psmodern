@@ -1,7 +1,7 @@
 # Milestone 5 plan - Options inside the game
 
 **Tier A. Status: completed and accepted (2026-11-11).**
-Implemented in `d9ae7d7`; private annotations in `8db0a92`.
+Implemented in `d9ae7d7`; closed by `8e010dd`; private annotations in `8db0a92`.
 
 ## Delivered
 

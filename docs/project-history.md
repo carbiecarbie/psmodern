@@ -58,4 +58,4 @@ scale battle meseta with experience. Battle setup and money addition run in
 verified C++. Independent reviews and all 107 configured tests passed with
 no skips. After approving the functional test and playing the revised native
 interface, the maintainer accepted closure and authorized publication.
-[Plan](milestone-5-plan.md). Implementation: `d9ae7d7`; private study: `8db0a92`.
+[Plan](milestone-5-plan.md). Implementation: `d9ae7d7`; closed by `8e010dd`; private study: `8db0a92`.
