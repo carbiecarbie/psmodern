@@ -34,3 +34,17 @@ from the study and the roadmap written. The maintainer accepted the
 milestone after reading the chapters and the roadmap.
 [Plan](milestone-3-plan.md). Last implementation commit: `24410ee`; closed
 by `1d4c6a1`.
+
+## Milestone 4 - First win (2026-11-10 to 2026-11-11)
+
+The random-number routine, the random-encounter checks and the experience
+award now run in C++, checked call by call against the original, on all
+twelve recordings and by state probes over every input. Two options, off by
+default, set the encounter rate (0, 50, 100 or 200%) and the experience
+gained (100, 200 or 400%); with them off the game is identical to the
+original. Speed meets the limit and three independent reviews passed. The
+maintainer accepted the milestone on 2026-11-11 after playing the US version
+with the launchers and finding everything correct. He chose fixed values for
+the options instead of ranges, with encounters 50 and experience 400 as the
+Switch-like setting.
+[Plan](milestone-4-plan.md). Last implementation commit: `3609f6b`.

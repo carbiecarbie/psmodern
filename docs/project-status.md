@@ -1,26 +1,27 @@
 # PSModern - Project Status
 
-**Milestone 3 (study base) is complete,** accepted on 2026-11-09.
+**Milestone 4 (first win) is complete,** accepted on 2026-11-11.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
-original mode, in both the US and the Brazilian version. Controller polling
-is the first routine rewritten in C++; the rest of the original program
-runs on the virtual Z80. Milestones 1 and 2 were accepted on 2026-11-08 and
-2026-11-09.
+the US and the Brazilian version. Controller polling, the random-number
+routine, the random-encounter checks and the experience award now run in C++;
+the rest of the original program runs on the virtual Z80. The first two
+optional features exist: a random-encounter rate and an experience
+multiplier, both off by default. Milestones 1, 2 and 3 were accepted on
+2026-11-08, 2026-11-09 and 2026-11-09.
 
-Replacements can be checked against the original, call by call and frame by
-frame, with exact state and timing. A private study base now explains how
-the encounter checks, experience and the sound driver work. The
-[roadmap](roadmap.md) orders the next milestones; the next one rewrites the
-encounter checks and experience and adds their options. The maintainer
-starts each milestone explicitly.
+Replacements are checked against the original, call by call and frame by
+frame, with exact state and timing. A private study base explains how the
+encounter checks, experience and the sound driver work. The
+[roadmap](roadmap.md) orders the next milestones. The maintainer starts each
+milestone explicitly.
 
 ## What can be played
 
-The whole game, as on the cartridge.
+The whole game, as on the cartridge, plus two optional settings.
 
 - **Starting:** `psmodern.exe <rom-path>`, with an uncompressed `.sms` file of
   the US Rev-A or the Brazilian Tec Toy cartridge. Any other file is refused
-  with a message. The window title names the version.
+  with a message. The window title names the version, not the options in use.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
 - **Sound:** the original sound chip, resampled for the computer's audio
@@ -41,9 +42,22 @@ The whole game, as on the cartridge.
   version keeps one file in `%APPDATA%\PSModern\`. Before the first write of
   a session, the previous file is copied to a `.bak` file. Only one running
   copy of PSModern may use a save file; a second one is refused.
+- **Options (off by default):** two flags after the ROM path, each a
+  percentage of the original, where 100 is the original game.
+  - `--encounter-rate 0`, `50`, `100` or `200`: how often random fights
+    start, on the map and in dungeons. 0 turns random fights off, 50 halves
+    them, 200 doubles them. Story and fixed fights do not change.
+  - `--experience-rate 100`, `200` or `400`: how much experience each fight
+    gives. The number on screen is what every character gains. A character
+    still gains at most one level per fight.
 
-There are no options yet: every comfort feature of the design is still to
-come.
+  Any other value is refused. Encounters 50 with experience 400 gives a pace
+  like the Switch release (Maintainer decision, 2026-11-11). Leaving the flags
+  out plays the original. A value other than 100 cannot be
+  combined with `--no-routines` or `--record`. The options are not saved:
+  a save made with them on loads in original mode with totals the cartridge
+  alone might not produce. Details are in
+  [development](development.md#options).
 
 ## Architecture overview
 
@@ -54,11 +68,11 @@ layer.
 | --- | --- | --- |
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
-| Game | `src/game/` | Registered C++ routines, starting with controller polling |
-| Program | `src/app/` | SDL window, sound, input, save files, frame pacing |
+| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience) and the options |
+| Program | `src/app/` | SDL window, sound, input, save files, frame pacing, command-line options |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
-| Tests | `tests/` | Unit, conformance, ROM and checkpoint tests |
+| Tests | `tests/` | Unit, conformance, ROM, probe and checkpoint tests |
 
 Some properties matter for the next milestones:
 
@@ -69,6 +83,11 @@ Some properties matter for the next milestones:
 - **Verified replacements.** Registered C++ routines replace the original
   only where interrupts and frame boundaries permit exact timing. Other
   calls stay on the Z80. A developer switch disables replacements.
+- **Segments.** A routine that calls original code, for instance to wait for
+  a frame or show text, is cut into pieces. Each piece runs in C++ and ends
+  by handing one original instruction to the Z80 core, so that cycles and
+  interrupts come out as on the console. Later routines that wait for frames
+  or show text can be rewritten the same way.
 
 How the console works, in plain words, is in
 [how the Master System works](how-it-works/master-system.md). Building,
@@ -89,12 +108,18 @@ catalog.
 | Game system | State |
 | --- | --- |
 | Controller polling (`00:0339`) | C++ by default; original Z80 fallback when needed |
-| Map, dungeons, battle, menus, text, sound driver, saves and remaining control handling | Original Z80 code |
+| Random numbers (`00:05B1`) | C++ by default; original Z80 fallback when needed |
+| Map encounter check (`01:5F63`, with the group choice `01:5FD8`) | C++ by default, in pieces; calls into original code run on the Z80 |
+| Dungeon update with its encounter check (`00:0F3C`) | C++ by default, in pieces |
+| Experience award (`00:170D`, with the per-character helper `00:1754`) | C++ by default, in pieces |
+| Battle setup, rewards, menus, text, sound driver, saves and the rest | Original Z80 code |
 
-The first routine ran in C++ on all 93,555 calls in the twelve checkpoints,
-with no fallback. The generated [coverage census](coverage.md) gives the
-counts by recording. [Controls](how-it-works/controls.md) explains what it
-does; these recordings do not establish coverage of every possible route.
+On the twelve checkpoint recordings, controller polling ran in C++ on all
+93,555 calls. The other routines ran in C++ on almost every call; the few
+fallbacks are calls where a frame boundary could fall inside the routine.
+The generated [coverage census](coverage.md) gives the counts per piece and
+recording. It describes these recordings, not every possible route through
+the game.
 
 ## How it is verified
 
@@ -102,31 +127,56 @@ does; these recordings do not establish coverage of every possible route.
   recordings, six per version: the opening, the first battle, the first
   dungeon, a later town, a boss fight and a deep dungeon. All 124,920 frames
   match in the picture, RAM, video memory, palette, cartridge RAM, CPU state
-  and sound writes.
+  and sound writes, with the rewritten routines on and off.
 - **Each C++ call** is checked against a copy running the original, including
-  hidden machine state, cycles, R and opcode fetches. Routines on and off
-  also produce identical manifests on every frame of the twelve recordings.
-  All previous/current button combinations are checked for both ROMs.
+  hidden machine state, cycles, R and opcode fetches. All previous/current
+  button combinations are checked for both ROMs.
+- **State probes** run each piece of the new routines against the original
+  from many machine states, in both versions: the random-number routine's states,
+  all 192 map region records, every threshold comparison, every reward value
+  and the level-up cases. Because the recordings reach few encounter and
+  experience paths (two of 192 map regions, one level gain), these probes
+  carry the exactness there.
+- **The options** are checked against their formulas over every input, with
+  interrupt and frame boundaries forced at each cycle, and by running the
+  twelve recordings with the options on. At 100 the game is byte-identical to
+  the original.
 - **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
   the VDPTest results for the SMS1 video chip.
 - **CI** on a clean Windows machine runs every test that needs no ROM. Of
   the external conformance suites it runs only the three Rak Z80 tests. The
-  ROM and reference tests run locally, as [development](development.md)
-  describes.
+  ROM, probe and reference tests run locally, as
+  [development](development.md) describes.
 
 ## Known gaps
 
-- **No optional features yet; only controller polling is rewritten.** The
-  registered-routine mechanism currently excludes routines that change
-  interrupt sources or mapping, adjust the stack, have interior entries or
-  exit without returning. The [coverage census](coverage.md) tracks progress.
+- **Options are minimal.** They are command-line flags only: no in-game
+  screen, no saving of the options, and the window title does not show which
+  are active. The maintainer wants the options chosen inside the game and saved
+  with it, and battle money that follows the experience rate; both are the
+  next milestone on the [roadmap](roadmap.md). There is no walking-speed
+  option, and gaining several levels in one fight was declined.
+- **Recording coverage is thin where the new routines act.** The recordings
+  reach few encounter paths and one level gain. State probes carry the
+  exactness; new recordings come when a milestone needs a route the existing
+  ones miss.
+- **The experience ceiling differs only with the option on.** The original
+  can in principle stop a character's levelling at a total ceiling, but no
+  sequence of battles reaches it ([original quirks](original-quirks.md)). With
+  experience at 200 or 400 it is reachable, and PSModern then keeps one level
+  per fight, also for a character at the ceiling (Maintainer decision,
+  2026-11-11).
+- **The registered-routine mechanism has limits.** It still refuses routines
+  that change interrupt sources, adjust the stack or write mapping registers
+  other than the declared upper-bank one ([development](development.md#segments)).
+  The [coverage census](coverage.md) tracks progress.
 - **Study coverage is route-bound.** The study observed the six US
   recordings; routes they never reach, such as the ending, rare battle and
   sound paths, and most work-RAM fields are still Unknown.
 - **Windows only** for the save location.
-- **The Brazilian version is checked by its recordings, not by play.**
-  Development and play-tests use the US version (design 5.5); the Brazilian
-  version's six checkpoints run in the tests.
+- **The Brazilian version is checked by its recordings and probes, not by
+  play.** Development and play-tests use the US version (design 5.5); the
+  Brazilian version's six checkpoints and its probes run in the tests.
 - **Some details of the first Master System's video chip are unmeasured.**
   PSModern follows the reference there, and [development](development.md)
   labels them Unknown. The game reaches two of them, video memory accesses
