@@ -8,7 +8,7 @@ cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DPSMODERN_ROM_US="/path/to/us-rom.sms" \
   -DPSMODERN_ROM_BR="/path/to/br-rom.sms"
 cmake --build build-rel
-ctest --test-dir build-rel --output-on-failure
+ctest --test-dir build-rel -j 16 --output-on-failure
 ./build-rel/psmodern.exe "/path/to/game.sms"
 ```
 
@@ -22,6 +22,12 @@ tests, as CI does. The cache path
 `ctest --test-dir build-rel -L fast --output-on-failure` for fast tests.
 Every test that needs a ROM also carries the label `rom`, besides `fast` or
 `checkpoint`.
+The suite runs in parallel: set `-j` to the machine's logical processor count.
+Tests that wait on wall-clock time (`reference_driver`, `rom_unit_cleanup`,
+`rom_us_save_process`) carry `RUN_SERIAL`, so CTest runs each alone, and each
+recording's `_options` test, which runs five replays at once, counts as five
+processors (`PROCESSORS 5`). Serial and parallel runs give the same results
+and the same censuses.
 See [the complete-suite protocol](../tools/AGENTS.md) before a complete run.
 
 Set the `PSMODERN_Z80_TEST_DIR` cache path to an external directory containing

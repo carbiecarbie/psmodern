@@ -97,7 +97,9 @@ if(BUILD_TESTING)
   set_tests_properties(replay_unit replay_tools PROPERTIES LABELS fast)
   add_test(NAME reference_driver COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/reference_driver_tests.py
     $<TARGET_FILE:psmodern_replay_runner> "${PSMODERN_REFERENCE_EXECUTABLE}")
-  set_tests_properties(reference_driver PROPERTIES SKIP_RETURN_CODE 77 LABELS conformance)
+  # Runs alone under ctest -j: on a loaded machine MesenCE can start one more frame after the
+  # capture script's last-frame emu.stop(0), and the script then fails on the missing input.
+  set_tests_properties(reference_driver PROPERTIES SKIP_RETURN_CODE 77 LABELS conformance RUN_SERIAL TRUE)
   add_executable(psmodern_app_tests tests/app_tests.cpp)
   target_link_libraries(psmodern_app_tests PRIVATE psmodern_app)
   add_test(NAME app_unit COMMAND psmodern_app_tests)
@@ -184,7 +186,9 @@ if(BUILD_TESTING)
   set_tests_properties(rom_unit PROPERTIES LABELS fast)
   if(WIN32)
     add_test(NAME rom_unit_cleanup COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/rom_cleanup_tests.py $<TARGET_FILE:psmodern_unit_tests>)
-    set_tests_properties(rom_unit_cleanup PROPERTIES LABELS fast SKIP_RETURN_CODE 77)
+    # Runs alone under ctest -j: its lock is released 0.1 s before the child's
+    # ~0.2 s cleanup retries end, a margin a loaded machine can eat.
+    set_tests_properties(rom_unit_cleanup PROPERTIES LABELS fast SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
   endif()
 
   # Each ROM test executable receives a path and returns 77 when it is absent.
@@ -225,7 +229,9 @@ if(BUILD_TESTING)
         add_test(NAME "${name}_${checkpoint}_options" COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/replay_rom_tests.py
           $<TARGET_FILE:psmodern_replay_runner> "${path}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}/${checkpoint}.psrec" options "${option_image}" full
           "${CMAKE_CURRENT_BINARY_DIR}/option-fights/${version}/${checkpoint}.txt")
-        set_tests_properties("${name}_${checkpoint}_options" PROPERTIES SKIP_RETURN_CODE 77 LABELS "checkpoint;rom" FIXTURES_SETUP "options_${version}")
+        # Each test runs its five replays side by side, so ctest -j counts it as five processors.
+        set_tests_properties("${name}_${checkpoint}_options" PROPERTIES SKIP_RETURN_CODE 77 LABELS "checkpoint;rom" FIXTURES_SETUP "options_${version}"
+          PROCESSORS 5)
       endforeach()
       # At least one recording of the version starts a random fight in original mode, so that the rate-0
       # check of the options tests is known to be able to fail.
@@ -236,7 +242,8 @@ if(BUILD_TESTING)
       set_tests_properties("${name}" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       if(version STREQUAL "us")
       add_test(NAME "${name}_save_process" COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/save_process_tests.py $<TARGET_FILE:psmodern> "${path}")
-      set_tests_properties("${name}_save_process" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      # Runs alone under ctest -j: it gives real game processes 1 to 5 s of wall-clock time.
+      set_tests_properties("${name}_save_process" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom" RUN_SERIAL TRUE)
       endif()
       add_test(NAME "${name}_app" COMMAND psmodern_app_rom_tests "${path}" "${version}")
       set_tests_properties("${name}_app" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
