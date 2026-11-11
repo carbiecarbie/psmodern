@@ -1,50 +1,169 @@
 # PSModern
 
+English | [Português (Brasil)](README.pt-BR.md)
+
+[![CI](https://github.com/carbiecarbie/psmodern/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/carbiecarbie/psmodern/actions/workflows/ci.yml?query=branch%3Amain)
+[![Latest release](https://img.shields.io/github/v/release/carbiecarbie/psmodern)](https://github.com/carbiecarbie/psmodern/releases)
+[![License: GPL-3.0-or-later](https://img.shields.io/github/license/carbiecarbie/psmodern)](LICENSE)
+
 > [!IMPORTANT]
-> PSModern is an unofficial fan project in an early stage: the original game
-> runs, a few of its routines are rewritten in C++, and the first two options
-> (random encounters and experience/battle money) can be set inside it. It ships no
-> game data: you will need your own Phantasy Star cartridge dump for the
-> Sega Master System (US Rev-A, or the Brazilian Tec Toy release).
+> PSModern is an unofficial fan project in an early stage. It ships no game
+> data: you need your own dump of the Phantasy Star cartridge for the Sega
+> Master System, either the US Rev-A or the Brazilian Tec Toy release.
 
 PSModern is an open-source reimplementation of **Phantasy Star** (Sega Master
-System, 1987/88) in C++, for modern computers. The goal is to match the
-original cartridge in how it looks, sounds, plays and times. Optional
-comfort features are off by default: adjustable experience and random
-encounters exist already, and a dungeon automap and widescreen on the world
-map and in towns will come later.
+System, 1987/88) in C++. It runs on your own cartridge dump and aims to look,
+sound, play and keep time exactly like the original. Anything the cartridge
+never had, such as adjustable encounters and experience or fast-forward, is
+an option, and the options start off.
 
-The original game runs on a virtual Z80 from the start, and its routines are
-rewritten in C++ one at a time, each checked against the original, until no
-original code is left. Along the way, the project documents how every part
-of the game works.
+The original program runs on a virtual Z80 from day one. Its routines are
+rewritten in C++ one at a time, and each rewrite is checked against the
+original, call by call and frame by frame, until no Z80 code is left. Along
+the way the project writes down [how the game works inside][how-it-works].
 
-- [Design](docs/design.md)
-- [Project status](docs/project-status.md)
+| Start screen | Options |
+| --- | --- |
+| ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options window over a town, with the recommended rates](docs/images/options.png) |
+
+## What works today
+
+The whole game can be played, in English (US) or Portuguese (Brazilian Tec
+Toy release). Controller polling, the random numbers, the random-encounter
+checks, experience, battle setup and battle money already run in C++; the
+rest of the game still runs on the virtual Z80.
+
+What you get today:
+
+- A Windows (64-bit) version, with a start screen that remembers your ROMs.
+- The original 256x192 picture, scaled in whole steps, in a window or
+  fullscreen.
+- The original sound chip, music and effects.
+- Keyboard or game controller, both at the same time if you like.
+- Two options you set inside the game: how often random fights happen, and
+  how much experience and battle money each fight gives.
+- 2x and 4x fast-forward, with the music kept at its normal tempo.
+
+The [roadmap][roadmap] lists what comes next: dungeons and an automap, then
+text and language selection, full controller support, and widescreen on the
+world map and in towns.
 
 ## Download and play
 
-On Windows (64-bit), download the zip from the
-[Releases page](https://github.com/carbiecarbie/psmodern/releases), unzip it
-anywhere and double-click `psmodern.exe`. The first time, pick your own
-cartridge dump in the Open dialog; PSModern remembers it. It needs an
-uncompressed `.sms` file of one of these releases:
+You need a dump of your own cartridge: an uncompressed `.sms` file (not
+zipped) of one of these releases.
 
 | Release | SHA-1 |
 | --- | --- |
 | US Rev-A | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
 | Brazilian (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
 
-Any other file is refused with a message. A start screen then offers to play
-each remembered version, choose another ROM, open the saves folder or quit.
-Windows SmartScreen may warn about an unknown publisher, because the program
-is not digitally signed: click "More info", then "Run anyway". Saves and the
-list of remembered ROMs live in `%APPDATA%\PSModern`; delete `roms.txt` there
-to make PSModern forget the ROMs. The zip's `README.txt` lists the controls.
+PSModern refuses any other file and tells you why.
 
-## Build and run
+1. Download `PSModern-<version>-windows-x64.zip` from the
+   [releases page][releases].
+2. Unzip it into a folder of its own.
+3. Double-click `psmodern.exe`. The first time, pick your `.sms` file in the
+   Open dialog; PSModern remembers it.
+4. On the start screen, choose the version to play. The same screen lets you
+   pick another ROM, open the saves folder or quit.
 
-With the [pinned MSYS2 UCRT64 toolchain](docs/dependencies.md), in a UCRT64 shell:
+The program is not digitally signed, so Windows SmartScreen may warn about an
+unknown publisher. Click **More info**, then **Run anyway**.
+
+## Controls
+
+| Console | Keyboard | Game controller |
+| --- | --- | --- |
+| Directional pad | Arrow keys | D-pad or left stick |
+| Button 1 / Button 2 | Z / X | A / B |
+| Pause | Enter | Start |
+| Reset | Backspace | Back |
+| Power off and on | F5 | - |
+| Speed 1x / 2x / 4x | Tab | Right shoulder (R / RB) |
+| Options window | Escape | Y |
+| Window or fullscreen | Alt+Enter | - |
+
+The first controller found is used, including one plugged in during play.
+
+### Fast-forward
+
+Each press of Tab (or RB) moves to the next speed: 1x, 2x, 4x, then back to
+1x. An indicator shows while the game runs faster. Music and sound effects
+keep their normal tempo and pitch. Every session starts at 1x, and so does
+F5. While the Options window is open, or the window loses focus, the game
+runs at 1x and then goes back to the speed you chose.
+
+## Options
+
+Press Escape (or Y on a controller) while walking around a town, the world
+map or a dungeon. Up and down pick a row, left and right change its value. Z
+(or A) saves and closes, and X or B (or Escape/Y) closes without saving. The
+scene stays behind the window and the music keeps playing.
+
+| Option | Values | What it does |
+| --- | --- | --- |
+| Encounters | 0, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
+| Experience / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
+
+100% is the original game and is marked DEFAULT. Encounters at 50% and
+experience at 400% are marked RECOMMENDED; together they give a pace close
+to the Nintendo Switch release. A change applies once the current action
+ends, so a battle in progress, its rewards included, finishes under the old
+rates. The window title shows the active rates and any change still waiting.
+
+The choice is saved for that version's whole save file, so all five of the
+game's save slots share it.
+
+## Saves
+
+You save through the game's own menu, as on the cartridge. PSModern keeps
+its files in `%APPDATA%\PSModern`, one set per version:
+
+- the save itself, in the cartridge's format, so other emulators can read it;
+- a small companion file with your options;
+- a `.bak` copy of the previous save, made before the first write of each
+  session.
+
+If you copy only the raw save to another emulator, your progress goes with
+it but the options don't; a raw save without its companion file plays with
+the original rules. Turning the options back to 100% keeps the experience
+and money already earned. Only one running copy of PSModern can use a save at
+a time. To make PSModern forget your ROMs, delete `roms.txt` from that folder.
+
+## Command line
+
+`psmodern.exe` also takes a ROM path and the two options, which then apply to
+that session only:
+
+```sh
+psmodern.exe "path/to/your-game.sms" --encounter-rate 50 --experience-rate 400
+psmodern.exe --version
+```
+
+`--encounter-rate` takes 0, 50, 100 or 200 and `--experience-rate` takes 100,
+200 or 400. A flag you leave out uses the saved choice, and an explicit 100
+overrides a saved one. Flags are only saved if you confirm them in the
+Options window. The developer modes `--record` and `--no-routines` always
+use the original rules and refuse any other value; [development][development]
+has the details.
+
+## About the project
+
+- [Project status][status]: what runs now, the architecture and the known
+  gaps.
+- [Roadmap][roadmap]: the next milestones.
+- [Project history][history]: the finished milestones.
+- [How it works][how-it-works]: the console, the controls, the random
+  numbers, the party and the sound, explained for readers who don't program.
+- [Original quirks][quirks]: oddities of the original kept on purpose, and
+  the differences between the US and Brazilian versions.
+- [Design][design]: the goals and the decisions behind them.
+
+## Building
+
+Development uses Windows x86-64 with the
+[pinned MSYS2 UCRT64 toolchain][dependencies]. In a UCRT64 shell:
 
 ```sh
 cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -53,53 +172,26 @@ ctest --test-dir build-rel --output-on-failure
 ./build-rel/psmodern.exe "path/to/your-game.sms"
 ```
 
-Without a ROM path, `psmodern.exe` opens the start screen; `--version` prints
-the version. Details are in [development](docs/development.md).
+Without a ROM path, `psmodern.exe` opens the start screen. Tests that need a
+ROM skip themselves when it is missing. [Development][development] covers the
+ROM test paths, the input recordings, the replay runner and the comparison
+against the original.
 
-New profiles use original rules, with the cartridge's picture, sound, controls and saves.
-See [project status](docs/project-status.md) for the controls and
-[development](docs/development.md) for ROM test paths.
+## Disclaimer and license
 
-Press Tab or the controller's right shoulder to cycle through 1x, 2x and
-4x speed. The indicator appears while accelerated; music and effects keep
-their normal tempo and pitch. Speed starts at 1x each session and returns to 1x on F5;
-recordings stay at 1x. Options and loss of focus temporarily use 1x, then
-restore the chosen speed.
+PSModern is unofficial and is not affiliated with or endorsed by SEGA or Tec
+Toy. Phantasy Star is a trademark of SEGA.
 
-Press Escape or controller Y to open Options. Arrows or the d-pad select a
-row; Left/Right change a rate; Z/A saves both rates and closes;
-X/B or Escape/Y cancels. Enter/Start still press the original Pause button.
-Options is available while exploring towns, the world map and dungeons,
-with the current scene behind its original-style black and white window.
-The music continues. Each rate marks 100% as DEFAULT; encounters 50% and
-experience/meseta 400% are marked RECOMMENDED. Confirming saves the choice
-for that version's whole cartridge save image, shared by its original slots.
-Changes take effect when the current game operation finishes, including the
-entire battle/reward sequence. The title shows active
-rates and any waiting change.
+PSModern is distributed under the GNU General Public License version 3 or, at
+your option, any later version (GPL-3.0-or-later). The release zip's
+`THIRD-PARTY.txt` lists the bundled libraries and their licenses.
 
-Two optional flags override saved choices for the current session:
-
-```sh
-./build-rel/psmodern.exe "path/to/your-game.sms" --encounter-rate 50 --experience-rate 200
-```
-
-`--encounter-rate` takes 0, 50, 100 or 200: 0 turns random fights off, 50 halves
-them and 200 doubles them, while story and fixed fights stay as they are.
-`--experience-rate` takes 100, 200 or 400 and multiplies the experience each
-fight gives and battle money. Any other value is refused. 100, the default for both, is the
-original game. For a pace like the Switch release, use `--encounter-rate 50
---experience-rate 400`. A value other than 100 cannot be combined with
-`--record` or `--no-routines`; those sessions use original rules and keep saved
-preferences. Omitted flags load saved choices, and explicit 100 overrides a
-saved enhancement. Flags stay session-only until confirmed in Options.
-
-The raw save stays compatible with the cartridge and other emulators. Settings
-live beside it in a companion file; copying only raw SRAM carries earned
-totals but no options. A raw image without matching settings uses original
-rules. Turning enhancements off keeps the totals already earned.
-
-## License
-
-GPL-3.0-or-later. Phantasy Star is a trademark of SEGA; this project is not
-affiliated with or endorsed by SEGA or Tec Toy.
+[releases]: https://github.com/carbiecarbie/psmodern/releases
+[status]: docs/project-status.md
+[roadmap]: docs/roadmap.md
+[history]: docs/project-history.md
+[how-it-works]: docs/how-it-works/
+[quirks]: docs/original-quirks.md
+[design]: docs/design.md
+[dependencies]: docs/dependencies.md
+[development]: docs/development.md

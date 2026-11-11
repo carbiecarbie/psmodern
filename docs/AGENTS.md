@@ -5,13 +5,17 @@ under `docs/`, including milestone plans and milestone closure. The root
 `AGENTS.md` still applies, including its documentation-only check and its ban
 on additional workflow documents.
 
-All documentation is in English (maintainer decision, 2026-11-04).
+All documentation is in English (maintainer decision, 2026-11-04). The one
+exception is `README.pt-BR.md`, the Brazilian Portuguese translation of
+`README.md` (maintainer decision, 2026-11-11).
 
 ## Documents and their responsibilities
 
 | Document | Responsibility | Target size |
 | --- | --- | --- |
 | `README.md` | Public introduction; how to build, run and play | Short |
+| `README.pt-BR.md` | Brazilian Portuguese translation of `README.md`; any change to one updates the other in the same change | Same as `README.md` |
+| `docs/images/` | README screenshots taken from the running game (maintainer decision, 2026-11-11); no other images from the ROM | Few files |
 | `docs/design.md` | The approved design: goals, architecture, decisions. Changes need the maintainer's approval | Stable |
 | `docs/project-status.md` | What runs and can be done now; architecture overview; rewritten vs Z80 systems; known gaps | ~100-300 lines |
 | `docs/milestone-N-plan.md` | That milestone's plan; condensed at closure | Closed: ~30-100 lines |
