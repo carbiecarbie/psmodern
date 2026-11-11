@@ -56,6 +56,11 @@ struct SegmentSpec {
     unsigned scratch_stack=0;
     bool single_instruction=false;
     bool force_admit=false;
+    // A single original LD (nn),HL may be executed by the core when both
+    // bytes are mapped work RAM at this exact address. No other store is
+    // allowed. If RAM is disabled the forced body is rejected before the
+    // step and the unchanged original instruction runs natively.
+    std::optional<std::uint16_t> absolute_wram_store=std::nullopt;
 };
 
 // A capability for one replacement call. Bus operations must follow the original

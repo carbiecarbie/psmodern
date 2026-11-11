@@ -40,6 +40,12 @@ public:
             refuse("--experience-rate",options.experience_percent,game::experience_percent_choices.original);
     }
     game::Options options;
+    OptionOverrides overrides() const {
+        OptionOverrides result;
+        if(encounter_given_)result.encounter=options.encounter_percent;
+        if(experience_given_)result.experience=options.experience_percent;
+        return result;
+    }
     static std::string usage() {
         return "[--encounter-rate <percent: "+game::encounter_percent_choices.text()+">] [--experience-rate <percent: "+
             game::experience_percent_choices.text()+">]";

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/routines.h"
+#include "game/money.h"
 #include "rom/rom.h"
 #include <bit>
 #include <stdexcept>
@@ -53,6 +54,8 @@ bool register_routines(RoutineRegistry& registry, std::string_view digest, const
     register_random(registry);
     register_encounters(registry,options);
     register_experience(registry,options);
+    register_money_add(registry);
+    register_battle_setup(registry,options);
     return true;
 }
 }

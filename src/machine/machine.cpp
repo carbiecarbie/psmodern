@@ -73,10 +73,10 @@ void Machine::advance(std::uint64_t cycles) {
     z80_int(&cpu_.raw(),sampled_int_);
     cycle_+=cycles; sync(cycle_);
 }
-std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines) {
+std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines, const Hook& hook) {
     pending_pads_=next_input.pads; pending_reset_=next_input.reset; pending_pause_=next_input.pause;
     auto target=(cycle_/frame_cycles+1)*frame_cycles;
-    while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step({},routines);
+    while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step(hook,routines);
     return cycle_-target;
 }
 void Machine::schedule_nmi(std::uint64_t cycle) {
@@ -135,9 +135,11 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     reason(RoutineFallback::nmi,nmi && *nmi<end);
     reason(RoutineFallback::frame,frame_cycles-cycle_%frame_cycles<bound);
     // A forced single instruction runs on the core with no added delay, so
-    // window reasons do not apply; the two the core itself must handle do.
+    // window reasons do not apply. HALT must run on the core without the
+    // adjustment. The validated RAM store can also run at an NMI-reject
+    // boundary: the core clears the rejection and executes that instruction.
     const bool hard=applies[static_cast<unsigned>(RoutineFallback::halted)] ||
-        applies[static_cast<unsigned>(RoutineFallback::interrupt_delay)];
+        (applies[static_cast<unsigned>(RoutineFallback::interrupt_delay)] && !spec.absolute_wram_store);
     const bool forced=spec.force_admit && !hard;
     if (spec.force_admit && hard) ++counters.forced_failed;
     if (!forced && std::find(applies.begin(),applies.end(),true)!=applies.end()) {

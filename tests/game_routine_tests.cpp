@@ -16,8 +16,8 @@ void check(bool condition,const char* message) { if(!condition) throw std::runti
 // add their names.
 bool declared(RoutineEntry entry) {
     auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
-    return entry==game::controller_poll_entry || entry==game::random_entry ||
-        in(game::encounter_entries) || in(game::experience_entries);
+    return entry==game::controller_poll_entry || entry==game::random_entry || entry==game::money_add_unit ||
+        in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries);
 }
 void catalog() {
     RoutineRegistry unknown;
@@ -30,6 +30,10 @@ void catalog() {
             check(r.find(game::controller_poll_entry)!=nullptr,"controller entry exists");
             const auto* random=r.find(game::random_entry);
             check(random!=nullptr && random->spec.unit==game::random_entry,"random-number entry exists");
+            check(r.find(game::money_add_unit)!=nullptr,"shared money entry exists");
+            for(const auto entry:game::battle_setup_entries)
+                check(r.find(entry)!=nullptr && r.find(entry)->spec.unit==game::battle_setup_unit,
+                      "battle-setup segment exists and belongs to its unit");
             for(const auto& [entry,routine]:r.entries()) check(declared(entry),"registered entry is not declared by name");
         }
 }

@@ -24,6 +24,8 @@ void RoutineRegistry::add(RoutineEntry entry, SegmentSpec spec, RegisteredRoutin
     valid=valid && spec.scratch_stack<=max_scratch_stack;
     if (spec.force_admit) valid=valid && spec.single_instruction && spec.exits.size()==1 &&
         spec.exits[0]==SegmentExit{RoutineExit::core_final,entry.address};
+    if (spec.absolute_wram_store) valid=valid && spec.single_instruction &&
+        *spec.absolute_wram_store>=0xc000 && *spec.absolute_wram_store<0xdfff;
     if (!valid) throw std::invalid_argument("Invalid registered segment");
     insert(entry,std::move(spec),std::move(bound),std::move(body));
 }
@@ -169,13 +171,18 @@ void RoutineContext::finish_core(std::uint16_t address) {
         throw std::runtime_error("Registered routine final instruction must be in ROM");
     const auto code=machine_.memory().read(address);
     const bool call=code==0xcd, call_cc=(code&0xc7)==0xc4, jump=code==0xc3;
-    const unsigned length=call || call_cc || jump ? 3 : plain_length(code);
+    const auto operand=static_cast<std::uint16_t>(machine_.peek(static_cast<std::uint16_t>(address+1))|
+        (machine_.peek(static_cast<std::uint16_t>(address+2))<<8));
+    const bool store=spec_.absolute_wram_store && code==0x22 && operand==*spec_.absolute_wram_store &&
+        machine_.memory().mapping(operand).kind==Memory::Kind::ram &&
+        machine_.memory().mapping(static_cast<std::uint16_t>(operand+1)).kind==Memory::Kind::ram;
+    const unsigned length=call || call_cc || jump || store ? 3 : plain_length(code);
+    if (spec_.absolute_wram_store && !store) throw std::runtime_error("Registered final store must target its declared work RAM address");
     if (!length) throw std::runtime_error("Registered routine final instruction is not allowed");
     if (machine_.cpu().sp.uint16_value!=stack_)
         throw std::runtime_error("Registered routine must execute its final instruction with the entry stack");
     // Side-effect-free operand peek; the core performs the real fetches.
-    const auto target=static_cast<std::uint16_t>(machine_.peek(static_cast<std::uint16_t>(address+1))|
-        (machine_.peek(static_cast<std::uint16_t>(address+2))<<8));
+    const auto target=operand;
     machine_.cpu().pc.uint16_value=address;
     final_step();
     const auto pc=machine_.cpu().pc.uint16_value, sp=machine_.cpu().sp.uint16_value;

@@ -118,6 +118,38 @@ at `00:279F` checks capacity before appending an item; the search at
 amount for number display at `00:35D2`. The nearby inventory count is a
 separate field, not part of the money counter.
 
+## Money after battle
+
+**ROM static.** When a battle is prepared, `01:5FFE` works out its money
+reward from the enemy and the number in the group. The result is kept in two
+bytes at `$C2DD`. After the fight, the game can show the reward in a chest.
+The chest and other ways of receiving money use the same addition at
+`00:297A`: it adds the amount to the party's money, stopping at 65,535 if
+the sum would be larger. The amount shown is the reward, which can be more
+than the space remaining in the counter. Selling an item also uses this
+addition; money found elsewhere and item sales are not battle rewards.
+
+**ROM static.** Some scripted encounters deliberately replace the prepared
+money with zero. A separate item may be present even when the money is zero.
+The battle setup and addition code are the same in the US and Brazilian
+cartridges. **ROM run:** both versions passed original-mode state probes for
+the setup and money addition, including an empty reward and overflow. A
+recorded chest with its reward raised to 50,000 or 65,535 displayed all five
+digits in both versions, and the total stopped at 65,535.
+
+**Maintainer decision.** Battle money follows the experience rate: 100, 200
+or 400 percent. At 200 or 400, the game multiplies the prepared battle reward
+and limits it to 65,535 before the chest displays and adds it. Zero stays
+zero. The normal total still stops at 65,535. At 100 the original calculation,
+timing and side effects are unchanged. This setting does not multiply money
+from map chests or sales.
+
+The setup is rewritten in segments around calls to the original graphics,
+random and other helpers. A few stack, call and store instructions between
+segments still run on the original processor. The money multiplier changes
+the value passed through the original reward-store instruction; it does not
+add a new memory write or change the original battle's multiplication.
+
 **ROM static.** Party size is stored at `$C4F0` as one less than the number
 of members. Recruitment writes this field at `01:4C5C`, `00:247E` and
 `01:51AB`. The encounter code at `01:606C` adds one to recover the size.

@@ -573,6 +573,63 @@ void segment_windows() {
           n.cpp_calls==0 && n.forced_calls==0,"interrupt delay at a forced entry is a counted forced failure");
     same_as_native(delay,native,"forced failure runs natively");
 }
+void absolute_store_segment() {
+    auto spec=forced_spec(0); spec.absolute_wram_store=0xc220;
+    RoutineRegistry registry;
+    registry.add({0,0},spec,cost(16),[](RoutineContext& c) {
+        auto& cpu=c.cpu(); const auto original=cpu.hl.uint16_value;
+        cpu.hl.uint16_value=0x4567; c.finish_core(0); cpu.hl.uint16_value=original;
+    });
+    for (auto event:{Event::irq,Event::nmi,Event::frame}) {
+        const auto first=event==Event::frame ? 1u : 0u;
+        for (unsigned distance=first;distance<=16;++distance) {
+            Machine actual=windowed(program({0x22,0x20,0xc2}),event,distance); actual.cpu().hl.uint16_value=0x1234;
+            Machine expected=actual; expected.cpu().hl.uint16_value=0x4567;
+            expected.step(); expected.cpu().hl.uint16_value=0x1234;
+            actual.step(registry);
+            check(actual.equivalent(expected),"store transform preserves native cycles, registers and bus state");
+        }
+    }
+    Machine delay(image({{0x66,{0x22,0x20,0xc2}}})); stack(delay);
+    delay.schedule_nmi(0); delay.advance(1); delay.step();
+    check(delay.cpu().pc.uint16_value==0x66,"NMI reached handler store");
+    delay.cpu().hl.uint16_value=0x1234; Machine expected=delay;
+    expected.cpu().hl.uint16_value=0x4567; expected.step(); expected.cpu().hl.uint16_value=0x1234;
+    auto at_handler=forced_spec(0x66); at_handler.absolute_wram_store=0xc220;
+    RoutineRegistry handler; handler.add({0,0x66},at_handler,cost(16),[](RoutineContext& c){
+        auto& cpu=c.cpu(); const auto original=cpu.hl.uint16_value;
+        cpu.hl.uint16_value=0x4567; c.finish_core(0x66); cpu.hl.uint16_value=original;
+    });
+    delay.step(handler);
+    check(handler.find({0,0x66})->counters.forced(RoutineFallback::interrupt_delay)==1 && delay.equivalent(expected),
+          "store executes under NMI rejection with the same native result");
+    Machine halted(image({{0,{0x76,0x22,0x20,0xc2}},{0x66,{0xed,0x45}}})); stack(halted);
+    halted.cpu().hl.uint16_value=0x1234; halted.step();
+    auto at_one=forced_spec(1); at_one.absolute_wram_store=0xc220;
+    RoutineRegistry after_halt; after_halt.add({0,1},at_one,cost(16),[](RoutineContext& c){
+        auto& cpu=c.cpu(); const auto original=cpu.hl.uint16_value;
+        cpu.hl.uint16_value=0x4567; c.finish_core(1); cpu.hl.uint16_value=original;
+    });
+    halted.step(after_halt); // A halted core must not execute the store.
+    check(halted.memory().read(0xc220)!=0x67,"HALT did not store the reward");
+    halted.schedule_nmi(halted.cycles()+10);
+    for(unsigned i=0;i<100 && halted.cpu().pc.uint16_value!=4;++i) halted.step(after_halt);
+    check(halted.cpu().pc.uint16_value==4 && halted.memory().read(0xc220)==0x67 &&
+          halted.memory().read(0xc221)==0x45 && halted.cpu().hl.uint16_value==0x1234 &&
+          after_halt.find({0,1})->counters.forced_calls==1,"HALT resumes and transforms the store once");
+    // With work RAM disabled there is no reward destination. Reject the
+    // transformed store before its core step, restore registers and let the
+    // native ignored write drive the ordinary open-bus value.
+    Machine disabled(program({0x22,0x20,0xc2})); stack(disabled);
+    disabled.cpu().hl.uint16_value=0x1234; disabled.memory().set_memory_control(0x10);
+    Machine native_disabled=disabled; native_disabled.step();
+    const auto before=registry.find({0,0})->counters.forced_failed;
+    disabled.step(registry);
+    check(disabled.equivalent(native_disabled) && registry.find({0,0})->counters.forced_failed==before+1,
+          "disabled work RAM falls back to the unmodified native write");
+    auto invalid=forced_spec(0); invalid.absolute_wram_store=0x8000;
+    rejects([&]{RoutineRegistry bad; bad.add({0,0},invalid,cost(16),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
+}
 void irq_query() {
     unsigned count=0, future=0, absent=0;
     for (unsigned line:{0,1,190,191,192,193,259,260,261})
@@ -612,7 +669,7 @@ int main(int argc,char** argv) {
     try {
         if(argc==2 && std::string_view(argv[1])=="irq_query") irq_query();
         else {results(); vdp_results(); windows(); registry_and_guards(); scratch_overwrite();
-            segments(); segment_faults(); segment_windows();}
+            segments(); segment_faults(); segment_windows(); absolute_store_segment();}
         std::cout<<"Registered routine tests passed.\n"; return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n'; return 1;}
 }

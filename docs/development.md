@@ -81,6 +81,31 @@ A failed backup prevents the save write and is reported and retried. A session
 holds an operating-system lock for its save; another instance using that save
 is refused. The lock is released when the process exits, including after a crash.
 
+The unchanged raw image has a versioned `<save name>.options` companion under
+the same lock. It stores committed, optional pending and backup SHA-256/options
+records. Before raw publication the app atomically stages the old durable
+image association and the candidate association, then publishes SRAM. Startup
+matches actual SRAM, preferring pending, committed, then backup. Equal digests
+prefer pending: a settings-only Apply commits preferences without writing raw
+SRAM. No two-file atomicity or arbitrary power-loss durability is assumed.
+
+Before the first mutation of a session, the companion snapshot is published
+to `.options.bak` and any existing raw image to `.sav.bak`. Their operations
+are independent. The live companion retains the session-first raw backup's
+association through later saves. Restoring raw backup alone recovers its
+matching preferences when identifiable; identical SRAM bytes cannot reveal an
+older choice, so restoring the matching companion backup restores that choice.
+Publication failures keep dirty/retry state; failed companion staging prevents
+raw replacement. The absent-file zero image can have saved settings without
+creating a raw file.
+
+Missing metadata defaults to original. Malformed, unsupported or unmatched
+companions produce a startup diagnostic and original preferences. Automatic
+SRAM writes keep that companion byte-for-byte unchanged; explicit Apply may
+replace it. Raw saves still work while the unrecognized companion is preserved.
+Copying raw SRAM to a cartridge/emulator retains earned totals but carries no
+options. Importing a raw image without matching metadata defaults original.
+
 ## Input
 
 The arrows are the directional pad; Z and X are buttons 1 and 2, Enter is
@@ -96,6 +121,50 @@ once per emulated frame. Alt+Enter does not also press Pause.
 the keyboard; full controller support with remapping and shortcuts is optional.
 The Enter press used for fullscreen stays consumed until Enter is released,
 even if Alt is released or pressed again first.
+
+Escape/controller Y opens Options during free exploration in towns, on the
+world map and in dungeons, when the original field menu is available. It is
+unavailable during battles, dialogue, other menus and the title screen; those
+presses are discarded. Enter/Start remains the original Pause. Up/Down
+selects one of the two rates and Left/Right changes it. Z/A persists both
+rates and closes; X/B or Escape/Y discards the draft. The screen marks each
+100% value as DEFAULT, encounters 50% as RECOMMENDED and experience/meseta
+400% as RECOMMENDED; other values have no marker. Only restrictions, pending
+activation or a failed save add a status message inside the window. A failed
+save keeps the draft open so confirmation can retry.
+
+The screen consumes opening and closing inputs until all gameplay buttons
+are released. Focus loss does not count as a physical release: the menu
+rearms only after a neutral focused snapshot, and closing-button suppression
+survives focus loss. Its black and white window overlays the current scene
+and the music continues. The window title shows active rates and saved
+changes waiting for a safe game boundary.
+
+The host reads font patterns from the player's immutable ROM using the plane
+format loaded by `00:03CD` and the character mapping used at `00:33D6`.
+It also reads the original field-menu border and cursor block, using the
+original tiles and their flipped corners. Both versions match original-loader
+probes. The cartridge's ASCII slots for `%`, `/`, `(` and `)` are blank.
+To implement the approved labels, the host composes those symbols at runtime
+from the ROM's Z diagonal, C curves and reduced zero rings. These
+are composed UI punctuation, not literal glyphs present in the cartridge;
+no font pixels or new image assets are stored in the repository. Host drawing
+preserves every background pixel outside the window and does not modify
+console VRAM or the cartridge save.
+
+The host captures the exploration picture, then runs the original field menu
+on the same live machine while drawing Options over that picture. Admission
+requires the original exploration frame wait, its map or dungeon caller,
+released controls and no movement or pending action. A rejected request does
+not survive into a later scene. The original menu keeps gameplay waiting
+while interrupts and the sound driver continue normally.
+
+Closing requests the original cancel action and waits for its cleanup before
+returning control. The bridge preserves the caller's registers and the input,
+sprite and stack fields affected by this additional call; it does not rewind
+the CPU, console clock or sound state. Gameplay controls, Pause, Reset and F5
+are consumed while the bridge is active, including cleanup after the visible
+options window closes. Quit remains available.
 
 ## Audio and pacing
 
@@ -456,7 +525,11 @@ may be:
   original or in another registered segment;
 - a plain instruction with no port access, no memory write and no control
   transfer, which is not a halt, an interrupt enable or an interrupt disable. The segment ends there and
-  the next instruction starts a new dispatch.
+  the next instruction starts a new dispatch;
+- the original `LD (nn),HL`, only in a single-instruction segment with
+  `absolute_wram_store` declaring that exact destination. Both bytes must be
+  canonical work RAM and currently mapped as RAM. No other final store is
+  permitted.
 
 The stack and the program counter are checked after that step against the
 declared exit, and the cost bound includes the step. C++ never fakes a step of
@@ -466,21 +539,28 @@ boundary come out exactly as on the Z80.
 Bare calls and returns between segments stay on the Z80: they need no
 rewriting, they are not registered, and the unit still counts as rewritten.
 
-Two permissions exist, declared per segment and off by default.
+Three permissions exist, declared per segment and off by default.
 `slot2_mapper` allows a write to `$FFFF` (the slot-2 bank register). Writes to
 the other mapper addresses stay runtime errors. `scratch_stack` names a number
 of bytes below the stack pointer that the body may use for its own pushes. They
 go through the bus like any write, so a stack in ROM or cartridge RAM behaves as
 on the original; dispatch falls back when those bytes are unmapped or fall on
-the mapper registers.
+the mapper registers. `absolute_wram_store` permits only the final store above,
+to a declared pair wholly within `$C000-$DFFF`; mirrors, mapper registers,
+cartridge RAM and other destinations are refused. The core performs the actual
+write. If RAM is disabled, the enhanced forced body is rejected before its
+step, its register adjustments are undone, and the unchanged original
+instruction runs natively.
 
 A single-instruction segment is exactly one core step with register adjustments
 before and after it. It may be `force_admit`: its window reasons (interrupt,
 NMI, frame boundary, `ei_delay`, unmapped stack) never cause a fallback, because
 the core runs the instruction itself and the segment adds no delay. Such calls
 are counted as `forced` (and also as C++ calls), with the reasons they ran
-through in the `forced_` columns. A forced call that still has to fall back (a
-halted core or the NMI-rejection marker) counts `forced_failed`, and so does a
+through in the `forced_` columns. A halted core still causes forced fallback.
+The NMI-rejection marker does too, except for the declared absolute work-RAM
+store: the core clears that marker and executes the validated store itself.
+These hard fallbacks count `forced_failed`, and so does a
 forced body the context rejects before its step: bus, port or time use, an
 undeclared exit, a missing finish, a changed entry stack or an interrupt that
 would be accepted. Such a call falls back to the original with its register
@@ -508,8 +588,10 @@ are refused as final instructions.
 
 ### Options
 
-Two optional flags change the game; leaving both out, or giving both as 100,
-plays the original. They exist in `psmodern.exe` and `psmodern_replay`, share
+Two optional flags change the game. The app loads saved preferences for
+omitted fields; an explicit flag overrides just that field, even at 100.
+The headless replay runner always defaults to original and reads no app
+settings. The flags exist in `psmodern.exe` and `psmodern_replay`, share
 one parser (`src/game/option_flags.h`) and take their allowed values from
 `src/game/options.h`:
 
@@ -525,19 +607,32 @@ a message listing the allowed values. A flag at any value other than 100 is refu
 in the app, with `--record` (recordings always play the original); in the
 runner it is also refused with `--lockstep-calls` and `--compare-recording`,
 because the game differs from the original by design and cannot be compared.
-An explicit 100 is accepted wherever omitting the flag is. The options are not
-stored in a save.
+An explicit 100 is accepted in restricted modes too. App recording and
+`--no-routines` force original execution, retaining configured preferences
+even when SRAM changes. Recording ignores Escape/controller Y; raw-Z80
+sessions can open Options read-only during exploration. CLI overrides remain
+session-only until an explicit in-game Apply, which supersedes launch flags.
 
 **Maintainer decision (2026-11-11).** The options take fixed values, not
 ranges: encounters 0, 50, 100 or 200 percent and experience 100, 200 or 400
 percent, with 100 (the original game) as the default for both. The values for a
 pace like the Switch release are encounters 50 and experience 400; the
-constants for them are in `src/game/options.h` for a later selection screen.
+constants for them are in `src/game/options.h` and the selection screen.
 Reduced or off encounters still consume the random draw, a character at the
-experience ceiling keeps gaining one level per fight, and for now the options
-are set only by the command-line flags. The formulas are explained in the
+experience ceiling keeps gaining one level per fight. The formulas are explained in the
 [random numbers](how-it-works/random-numbers.md#the-encounter-rate-option) and
 [party](how-it-works/party.md#the-experience-rate-option) chapters.
+
+Apply first persists configured preferences and queues their activation. A new
+Apply supersedes an older pending choice. Effective rates and their captured
+registry remain unchanged until the native main dispatcher `00:00AF`, after
+the complete mode handler, so a battle's displays, character awards and money
+share one rate. Activation uses the instruction hook forwarded through
+`run_frame` without redirecting execution; no hook runs inside a registered
+routine or accepted interrupt. Registry replacement preserves enabled/verifier policy and occurs
+only at the unregistered dispatcher. Reset reaches that dispatcher; F5 creates
+a new machine with the latest chosen values. Quit/restart loads the durable
+choice. No runtime SRAM restore is added. Opening/cancelling changes nothing.
 
 To run a recording with the options on and read what ran, use the runner; it
 writes manifests and the census but compares nothing:
@@ -546,17 +641,20 @@ writes manifests and the census but compares nothing:
 psmodern_replay <rom> <recording> --dump 1 --out <new-folder> [--cart-ram <file>]   --encounter-rate 50 --experience-rate 400
 ```
 
-The census then has the four option segments: `00:0F5B` and `01:5FB0` (the
+The census then has five option segments: `00:0F5B` and `01:5FB0` (the
 two threshold comparisons) and `00:170D` and `00:1773` (the reward load and the
-per-character addition). A segment whose option is on is admitted at every
-moment, since it is one original instruction run by the core with a register
-adjusted around it and adds no time. Those calls count in `forced` (a subset
+per-character addition), plus `01:60BC` (the battle-money production store).
+The experience rate controls the last three. In normal gameplay a segment
+whose option is on is admitted at every moment, since it is one original
+instruction run by the core with a register adjusted around it and adds no
+time. Those calls count in `forced` (a subset
 of `cpp`) and in the `forced_` reason columns when an interrupt, a frame
 boundary or another window reason fell inside. A healthy enhanced census has
 `forced` equal to the call count and `fallback` and `forced_failed` 0 on these
-four; the other segments behave as in original mode. A forced call the
-mechanism cannot admit counts in `forced_failed` and falls back to the
-original instructions. In original mode the same four segments follow the
+five in normal mapped game states; the other segments behave as in original
+mode. A forced call the mechanism cannot admit counts in `forced_failed`
+and falls back to the
+original instructions. In original mode the same five segments follow the
 ordinary window rule and `forced` is 0, which the checkpoint tests and the
 coverage generator require.
 

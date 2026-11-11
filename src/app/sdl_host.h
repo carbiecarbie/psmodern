@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "app/host.h"
+#include "app/options_menu.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <memory>
@@ -13,10 +14,12 @@ public:
     ~Controller();
     void refresh();
     Buttons sample() const;
+    bool options() const;
 private:
     SDL_GameController* controller_=nullptr;
 };
 FrameInput sample_input(SDL_Window* window,const Controller& controller,const EnterKey& enter);
+MenuInput sample_menu_input(SDL_Window* window,const Controller& controller);
 class Audio {
 public:
     Audio();
@@ -24,6 +27,7 @@ public:
     void removed(SDL_AudioDeviceID device);
     void submit(std::span<const std::int16_t> samples,double now);
     void reset();
+    void pause(bool paused);
     void report() const;
 private:
     void open(double now);
@@ -33,6 +37,7 @@ private:
     std::unique_ptr<Resampler> resampler_;
     double retry_at_=0;
     bool warned_=false;
+    bool paused_=false;
     unsigned underruns_=0, resets_=0;
     std::uint64_t submitted_=0, nonzero_=0;
     double queue_min_=1, queue_max_=0;

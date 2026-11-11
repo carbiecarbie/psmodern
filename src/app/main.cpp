@@ -12,13 +12,14 @@ namespace {
 using namespace psmodern;
 using namespace psmodern::app;
 int play(const std::filesystem::path& path,const std::optional<std::filesystem::path>& record_path,bool routines_enabled,
-         const game::Options& options) {
+         const game::OptionOverrides& overrides) {
     const auto version=identify_rom(path);
     std::ifstream file(path,std::ios::binary);
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>());
     if (file.bad() || rom->size()!=512*1024 || identify_digest(sha1(*rom))!=version)
         throw std::runtime_error("ROM changed or could not be read completely while loading.");
-    FrameDriver driver(rom,SaveStore(production_save_folder(),version),routines_enabled,options);
+    FrameDriver driver(rom,SaveStore(production_save_folder(),version),routines_enabled,overrides,record_path.has_value());
+    RomFont font(*rom);OptionsMenu menu;InputRelease release;
     if(record_path && std::filesystem::exists(*record_path))
         throw std::runtime_error("Recording output already exists: "+record_path->string());
     if(record_path && !std::filesystem::is_directory(record_path->has_parent_path() ? record_path->parent_path() : std::filesystem::current_path()))
@@ -33,6 +34,7 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
         }
         last_save_error=error;
     };
+    report_save(driver.store().settings_warning());
     try {
         const auto title=std::string("PSModern - Phantasy Star (")+rom_name(version)+")"+
             (recorder ? " - RECORDING (F5 disabled)" : "");
@@ -59,13 +61,15 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
         sdl_check(bool(texture),"Creating picture texture");
         sdl_check(SDL_SetTextureScaleMode(texture.get(),SDL_ScaleModeNearest)==0,"Setting nearest-neighbour scaling");
         std::array<std::uint32_t,256*192> pixels{};
+        Vdp::Picture menu_background{};
         Controller controller; controller.refresh(); Audio audio; EnterKey enter;
         const double frequency=static_cast<double>(SDL_GetPerformanceFrequency());
         auto now=[&]() { return SDL_GetPerformanceCounter()/frequency; };
         audio.submit({},now()); // Open and prime the device before starting the frame clock.
         const auto start=now(); double next_report=start+10;
         FrameClock clock(start);
-        std::uint64_t frames=0; bool quit=false;
+        std::uint64_t frames=0; bool quit=false,toggle_held=false;
+        std::string displayed_title;
         auto report=[&]() {
             const auto elapsed=now()-start;
             std::cerr<<"frames="<<frames<<" elapsed_s="<<elapsed
@@ -85,21 +89,50 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
                     sdl_check(SDL_SetWindowFullscreen(window.get(),fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
                 }
                 if (event.type==SDL_KEYDOWN && !event.key.repeat) {
-                    if (event.key.keysym.sym==SDLK_F5 && !recorder) { report_save(driver.power_cycle()); audio.reset(); }
+                    if (event.key.keysym.sym==SDLK_F5 && !recorder && !driver.menu_active()) { report_save(driver.power_cycle()); audio.reset(); }
                 }
             }
             if (quit) break;
+            const auto menu_input=sample_menu_input(window.get(),controller);
+            const bool opening=!driver.menu_active() && menu_input.toggle && !toggle_held;
+            toggle_held=menu_input.toggle;
+            if(opening && !recorder && menu_input.focused && !menu_input.up && !menu_input.down &&
+                !menu_input.left && !menu_input.right && !menu_input.accept && !menu_input.cancel) {
+                const auto input=sample_input(window.get(),controller,enter);
+                if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu())
+                    menu_background=driver.machine().picture();
+            }
+            if(menu.visible()) {
+                const auto action=menu.update(menu_input,now());
+                if(action==MenuAction::apply) {
+                    if(const auto error=driver.choose_options(menu.draft())) { report_save(error);menu.failed(); }
+                    else { menu.close();driver.close_menu();report_save({});release.consume(); }
+                } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
+            }
             const auto count=clock.due(now());
             for (unsigned i=0;i<count;++i) {
-                const auto input=sample_input(window.get(),controller,enter);
+                const auto input=release.filter(sample_input(window.get(),controller,enter),menu_input.any(),menu_input.focused);
+                const bool was_active=driver.menu_active();
                 const auto output=driver.run(input);
                 if(recorder) recorder->add(input);
                 ++frames; report_save(output.save_error);
                 audio.submit(output.samples.values,now());
+                if(!was_active && driver.menu_active()) {
+                    menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false);
+                    release.consume();
+                }
+                if(was_active && !driver.menu_active())release.consume();
             }
-            if (count && !(SDL_GetWindowFlags(window.get())&SDL_WINDOW_MINIMIZED)) {
-                const auto& picture=driver.machine().picture();
+            const auto& effective=driver.effective_options();
+            const auto current_title=title+" - Encounters "+std::to_string(effective.encounter_percent)+
+                "% - Experience/Meseta "+std::to_string(effective.experience_percent)+"%"+
+                (driver.options_pending() ? " - CHANGES SAVED, WAITING FOR GAME" : "")+
+                " - Options: Esc / Y";
+            if(current_title!=displayed_title) {SDL_SetWindowTitle(window.get(),current_title.c_str());displayed_title=current_title;}
+            if ((count || menu.visible()) && !(SDL_GetWindowFlags(window.get())&SDL_WINDOW_MINIMIZED)) {
+                const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 std::transform(picture.begin(),picture.end(),pixels.begin(),rgb);
+                if(menu.visible())menu.render(pixels,font);
                 sdl_check(SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
                 int w,h; sdl_check(SDL_GetRendererOutputSize(renderer.get(),&w,&h)==0,"Reading output size");
                 const auto v=viewport(w,h); const SDL_Rect rect{v.x,v.y,v.width,v.height};
@@ -129,7 +162,7 @@ int main(int argc,char** argv) {
     try {
         const auto args=parse_app_arguments(argc,argv);
         sdl_check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"Starting SDL");
-        const auto result=play(args.rom,args.record_path,args.routines_enabled,args.options); SDL_Quit(); return result;
+        const auto result=play(args.rom,args.record_path,args.routines_enabled,args.overrides); SDL_Quit(); return result;
     } catch (const std::exception& e) {
         message(e.what()); SDL_Quit(); return 1;
     }

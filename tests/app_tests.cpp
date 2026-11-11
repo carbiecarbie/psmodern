@@ -82,7 +82,7 @@ void saves() {
     change(memory,42); check(!store.flush(memory) && !memory.cartridge_ram_dirty() && store.writes()==1,"dirty flush");
     check(store.load()[0]==42 && std::filesystem::file_size(store.path())==8192,"load exact image");
     change(memory,64); check(!store.flush(memory) && store.load()[0]==64,"atomic replacement");
-    for (const auto& item:std::filesystem::directory_iterator(t.path)) check(item.path()==store.path() || item.path().extension()==".lock","no temporary remains");
+    for (const auto& item:std::filesystem::directory_iterator(t.path)) check(item.path().filename().string().find(".tmp-")==std::string::npos,"no temporary remains");
     change(memory,64); check(!store.flush(memory) && store.writes()==2,"same byte stays clean");
     for (unsigned size:{0u,8191u,8193u}) {
         auto folder=t.path/std::to_string(size); std::filesystem::create_directory(folder);

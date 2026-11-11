@@ -2,6 +2,7 @@
 #pragma once
 #include "game/encounters.h"
 #include "game/experience.h"
+#include "game/money.h"
 #include "game/options.h"
 #include "machine/routines.h"
 #include <string_view>

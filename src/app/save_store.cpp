@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/save_store.h"
+#include "rom/sha256.h"
+#include <span>
 #include <fstream>
 #include <stdexcept>
 #include <system_error>
@@ -34,8 +36,8 @@ std::filesystem::path production_save_folder() {
     throw std::runtime_error("Production save location currently requires Windows %APPDATA%.");
 #endif
 }
-SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer)
-    :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)) {}
+SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer,SettingsWriter settings_writer)
+    :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)),settings_writer_(std::move(settings_writer)) {}
 struct SaveStore::Lock {
 #ifdef _WIN32
     HANDLE handle=INVALID_HANDLE_VALUE;
@@ -83,7 +85,7 @@ Memory::CartridgeRam SaveStore::load() const {
         throw std::runtime_error("Cannot read complete save; it will not be overwritten: "+path_.string());
     return image;
 }
-static void publish_save(const std::filesystem::path& path,const Memory::CartridgeRam& image,bool validate_destination) {
+static void publish_bytes(const std::filesystem::path& path,std::span<const std::uint8_t> image,bool validate_destination) {
     std::filesystem::create_directories(path.parent_path());
     // Refuse a newly malformed destination too (e.g. external replacement).
     if (validate_destination && std::filesystem::exists(path) && (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path)!=image.size()))
@@ -131,19 +133,90 @@ static void publish_save(const std::filesystem::path& path,const Memory::Cartrid
 #endif
 }
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image) {
-    publish_save(path,image,true);
+    publish_bytes(path,image,true);
+}
+void atomic_settings(const std::filesystem::path& path,const std::string& text) {
+    if(std::filesystem::exists(path) && !std::filesystem::is_regular_file(path))
+        throw std::runtime_error("Refusing to replace non-file settings: "+path.string());
+    publish_bytes(path,{reinterpret_cast<const std::uint8_t*>(text.data()),text.size()},false);
+}
+namespace {
+std::string read_settings_file(const std::filesystem::path& path) {
+    if(!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path)>1024)
+        throw std::runtime_error("Expected a regular settings file of at most 1024 bytes.");
+    std::ifstream file(path,std::ios::binary);
+    std::string text(1025,'\0');file.read(text.data(),text.size());
+    const auto count=file.gcount();
+    if(file.bad() || count>1024 || !file.eof())throw std::runtime_error("Cannot read bounded settings file.");
+    text.resize(static_cast<std::size_t>(count));
+    return text;
+}
+}
+game::Options SaveStore::load_preferences(const Memory::CartridgeRam& image) {
+    ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};
+    const auto digest=sha256(image);settings_={{digest,{}},{},{}};
+    if(!std::filesystem::exists(settings_path()))return preferences_;
+    try {
+        settings_=parse_settings(read_settings_file(settings_path()));
+        const auto selected=settings_.matching(digest);
+        if(!selected)throw std::runtime_error("Settings do not match the cartridge image.");
+        preferences_=*selected;
+    } catch(const std::exception& e) {
+        settings_blocked_=true;
+        settings_warning_="Using original settings; companion preserved until explicit Apply: "+settings_path().string()+": "+e.what();
+    }
+    return preferences_;
+}
+void SaveStore::ensure_backup() {
+    if(backup_done_)return;
+    const auto original=load();
+    if(!settings_loaded_)load_preferences(original);
+    const auto digest=sha256(original);
+    session_backup_=SettingsRecord{digest,settings_blocked_ ? game::Options{} : settings_.matching(digest).value_or(game::Options{})};
+    // Publish the companion snapshot first. It is deliberately independent of
+    // raw backup publication; digest selection prevents a mismatched restore.
+    if(!settings_blocked_ && std::filesystem::exists(settings_path())) {
+        auto backup=settings_path();backup+=".bak";
+        settings_writer_(backup,read_settings_file(settings_path()));
+    } else if(!settings_blocked_) {
+        auto backup=settings_path();backup+=".bak";
+        settings_writer_(backup,write_settings(SettingsImage{*session_backup_,{},settings_.backup}));
+    }
+    if(std::filesystem::exists(path_)) {
+        auto backup=path_;backup+=".bak";publish_bytes(backup,original,false);
+    }
+    backup_done_=true;
+}
+void SaveStore::stage(const Memory::CartridgeRam& image,const game::Options& preferences) {
+    const auto disk=load();
+    const auto digest=sha256(disk);
+    SettingsImage next{{digest,settings_.matching(digest).value_or(game::Options{})},
+        SettingsRecord{sha256(image),preferences},session_backup_ ? session_backup_ : settings_.backup};
+    settings_writer_(settings_path(),write_settings(next));
+    settings_=std::move(next);
+}
+std::optional<std::string> SaveStore::choose(const game::Options& options,const Memory::CartridgeRam& image) {
+    game::validate(options);
+    try {
+        ensure_lock();if(!settings_loaded_)load_preferences(load());
+        ensure_backup();
+        const auto disk=load();
+        SettingsImage next{{sha256(disk),options},SettingsRecord{sha256(image),options},
+            session_backup_ ? session_backup_ : settings_.backup};
+        settings_writer_(settings_path(),write_settings(next));settings_=std::move(next);
+        preferences_=options;settings_blocked_=false;settings_warning_.reset();return {};
+    } catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
 }
 std::optional<std::string> SaveStore::flush(Memory& memory) {
     if (!retry_ && !memory.cartridge_ram_dirty()) return {};
     retry_=true;
     try {
         ensure_lock();
-        if (!backup_done_ && std::filesystem::exists(path_)) {
-            const auto original=load();
-            auto backup=path_;backup += ".bak";
-            publish_save(backup,original,false);
-            backup_done_=true;
-        }
+        if(!settings_loaded_)load_preferences(load());
+        ensure_backup();
+        // An unrecognized companion is evidence. Automatic SRAM writes leave
+        // it untouched; only the user's explicit Apply may resolve it.
+        if(!settings_blocked_)stage(memory.cartridge_ram(),preferences_);
         writer_(path_,memory.cartridge_ram());
         backup_done_=true;
         memory.clear_cartridge_ram_dirty(); retry_=false; ++writes_; return {};

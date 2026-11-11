@@ -448,6 +448,22 @@ void hook_mappings() {
     m.memory().write(0xfffc,8); expect(0x8000,Memory::Kind::cartridge_ram,0);
     expect(0xc000,Memory::Kind::ram,0);
 }
+void frame_hooks() {
+    // Prefix resumes, frame edges, accepted IRQ/NMI and reset must be exactly
+    // the same with an absent hook and a nonredirecting observer.
+    for(bool nmi:{false,true})for(unsigned offset:{0u,3u,4u,5u}) {
+        Machine a(program({0xdd,0x21,0x34,0x12,0,0xc3,0,0}));
+        a.read_port(0xbf,0);a.cpu().im=1;a.cpu().iff1=a.cpu().iff2=1;
+        a.advance(nmi ? 1 : 43986-offset);if(nmi)a.schedule_nmi(a.cycles()+offset);
+        Machine b=a;unsigned calls=0;
+        Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
+            ++calls;check(mapping==b.memory().mapping(pc),"frame hook original mapping");return {};
+        };
+        for(unsigned i=0;i<3;++i){FrameInput input;input.pause=i==1;input.reset=i==2;
+            check(a.run_frame(input)==b.run_frame(input,nullptr,hook) && a.equivalent(b),"frame hook preserves complete state and timing");}
+        check(calls>0,"frame hook actually called");
+    }
 }
-int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
+}
+int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); frame_hooks(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
 catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }
