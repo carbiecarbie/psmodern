@@ -50,14 +50,22 @@ stages of [design](design.md) section 8.
 
 ## Possible later options
 
-Raised during milestones 4 and 6. Each is for the maintainer to place in a
-milestone, change or drop; none is ordered or scheduled here. The money multiplier and
-the in-game settings are delivered in milestone 5.
+Raised during milestones 4 and 6, and after release 0.1.0. Each is for the
+maintainer to place in a milestone, change or drop; none is ordered or
+scheduled here. The money multiplier and the in-game settings are delivered
+in milestone 5.
 
 - **Several levels per award.** Declined by the maintainer at the closure of
   milestone 4 (one level per fight stays).
 - **Walking speed.** The Switch easy mode has it; the movement code has not
   been studied.
+- **Easier modding.** Requested by the maintainer on 2026-11-11 as a
+  direction, with no design yet. Rewritten C++ routines and the how-it-works
+  chapters already make the game easier to study and change. A first step
+  could be a patch format applied to the player's ROM at run time, so that
+  mods ship no SEGA data; later, tables such as enemy stats or prices could
+  move to editable files. Text changes become practical after milestone 8,
+  and changes anywhere in the game once the Z80 is gone (milestone 13).
 
 ## Throughout
 
