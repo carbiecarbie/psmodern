@@ -205,6 +205,25 @@ void resampling() {
         Resampler r(48000); auto out=r.process(dc,adjustment);
         check(std::abs(static_cast<double>(out.size())-48000/Resampler::bounded_adjustment(adjustment))<2,"bounded ratio controls output length");
     }
+    for (unsigned speed:{2u,4u}) {
+        Resampler r(48000); auto out=r.process(dc,1,speed);
+        check(std::abs(static_cast<double>(out.size())-48000.0/speed)<2,"accelerated audio length");
+        check(std::all_of(out.begin(),out.end(),[](auto v){return v==12345;}),"accelerated audio preserves DC");
+        Resampler whole_speed(48000),split_speed(48000);
+        auto all=whole_speed.process(wave,1,speed); std::vector<std::int16_t> parts;
+        for(std::size_t i=0;i<wave.size();i+=3733) {
+            auto part=split_speed.process(std::span(wave).subspan(i,std::min(wave.size()-i,std::size_t(3733))),1,speed);
+            parts.insert(parts.end(),part.begin(),part.end());
+        }
+        check(all==parts,"accelerated resampling preserves frame splits");
+    }
+    std::vector<std::int16_t> tone(n);
+    for(std::size_t i=0;i<n;++i) tone[i]=static_cast<std::int16_t>(12000*std::sin(2*3.141592653589793*440*i/n));
+    for(unsigned speed:{1u,2u,4u}) {
+        Resampler r(48000);const auto out=r.process(tone,1,speed);
+        unsigned crossings=0;for(std::size_t i=1;i<out.size();++i)if(out[i-1]<=0 && out[i]>0)++crossings;
+        check(crossings>=438 && crossings<=442,"accelerated audio retains tone cycles over shortened duration");
+    }
     refuses([] { Resampler r(0); },"invalid device rate");
 }
 void pacing() {
@@ -223,6 +242,31 @@ void pacing() {
         check(std::abs(emulated*frame_seconds-180)<frame_seconds && vsync_clock.discarded_seconds()==0,
               "display refresh does not determine machine frame rate");
     }
+    for (unsigned speed:{2u,4u}) for (int refresh:{50,60,144}) {
+        FrameClock accelerated(0); accelerated.speed(speed,0); std::uint64_t frames=0;
+        for (int tick=0;tick<=60*refresh;++tick) frames+=accelerated.due(static_cast<double>(tick)/refresh);
+        check(std::abs(frames*frame_seconds-60*speed)<frame_seconds*speed && accelerated.discarded_seconds()==0,
+              "accelerated clock independent of display refresh");
+        check(accelerated.due(1000)==3*speed && accelerated.deadline()>1000,"accelerated catch-up bounded");
+        accelerated.speed(1,1000); check(accelerated.due(1000)==0 && accelerated.due(1000+frame_seconds+1e-8)==1,"speed change rebases without burst");
+    }
+    SpeedShortcut quick;
+    check(!quick.update(true,false,false,true),"arm quick shortcut");
+    check(quick.keyboard_event(true,true,true) && !quick.keyboard_event(false,true,true),"quick keyboard tap is observed");
+    check(!quick.update(true,false,false,true),"quick event is not counted again by snapshot");
+    check(quick.shoulder_event(true,true,true) && !quick.shoulder_event(false,true,true),"quick shoulder tap is observed");
+    check(!quick.update(true,false,false,true),"quick shoulder event is not counted again by snapshot");
+    quick.focus_lost();check(!quick.keyboard_event(true,true,true),"held key after focus event remains disarmed");
+    SpeedShortcut shortcut;
+    check(!shortcut.update(true,false,false,true),"arm shortcuts on release");
+    check(shortcut.update(true,true,false,true) && !shortcut.update(true,true,false,true),"keyboard press only once");
+    check(shortcut.update(true,true,true,true),"independent shoulder press");
+    check(!shortcut.update(false,false,false,true) && !shortcut.update(true,true,true,true),"focus regain held does not trigger");
+    check(!shortcut.update(true,false,false,true) && shortcut.update(true,false,true,true),"released shoulder rearms");
+    shortcut.controller_changed(); check(!shortcut.update(true,false,true,true),"reconnected held shoulder does not trigger");
+    shortcut.update(true,false,false,true); shortcut.focus_lost();
+    check(!shortcut.update(true,true,true,true),"queued focus loss and regain cannot arm held sources");
+    check(!shortcut.update(true,false,false,false) && !shortcut.update(true,true,true,true),"disabled shortcut requires release");
     for (double device_error:{-0.002,0.002}) {
         double queue=audio_target_seconds;
         for (int frame=0;frame<11000;++frame) {

@@ -41,6 +41,13 @@ Buttons Controller::sample() const {
 bool Controller::options() const {
     return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_Y);
 }
+bool Controller::owns(SDL_JoystickID instance) const {
+    return controller_ && SDL_GameControllerGetAttached(controller_) &&
+        SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller_))==instance;
+}
+bool Controller::fast_forward() const {
+    return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+}
 MenuInput sample_menu_input(SDL_Window* window,const Controller& controller) {
     const auto pad=controller.sample().pad;
     MenuInput input{pad.up,pad.down,pad.left,pad.right,pad.one,pad.two,controller.options()};
@@ -88,27 +95,32 @@ void Audio::open(double now) {
     hz_=got.freq; resampler_=std::make_unique<Resampler>(hz_);
     std::cerr<<"Audio: "<<SDL_GetCurrentAudioDriver()<<", "<<hz_<<" Hz, mono S16, buffer "<<got.samples<<" samples.\n";
     warned_=false; reset();
-    if (device_) SDL_PauseAudioDevice(device_,paused_ ? 1 : 0);
 }
 void Audio::pause(bool paused) {
-    paused_=paused;
-    if(device_) {
-        SDL_PauseAudioDevice(device_,1);SDL_ClearQueuedAudio(device_);
-        if(!paused_) { reset();if(device_)SDL_PauseAudioDevice(device_,0); }
-    }
+    if (paused_!=paused) { paused_=paused; reset(); }
 }
 void Audio::reset() {
     if (!device_) return;
-    SDL_ClearQueuedAudio(device_); resampler_=std::make_unique<Resampler>(hz_);
+    // A suppressed device must stay paused and empty, including during device
+    // replacement and modal pauses. Resume only with a freshly primed queue.
+    SDL_PauseAudioDevice(device_,1);
+    SDL_ClearQueuedAudio(device_);
+    resampler_=std::make_unique<Resampler>(hz_);
+    if (paused_ || speed_!=1) return;
     std::vector<std::int16_t> silence(static_cast<std::size_t>(audio_target_seconds*hz_));
     if (SDL_QueueAudio(device_,silence.data(),static_cast<Uint32>(silence.size()*sizeof(std::int16_t)))!=0) {
-        std::cerr<<"Cannot prime audio queue: "<<SDL_GetError()<<'\n'; close();
+        std::cerr<<"Cannot prime audio queue: "<<SDL_GetError()<<'\n'; close(); return;
     }
+    SDL_PauseAudioDevice(device_,0);
+}
+void Audio::speed(unsigned value) {
+    if (value!=1 && value!=2 && value!=4) throw std::invalid_argument("Invalid speed.");
+    if (value!=speed_) { speed_=value; reset(); }
 }
 void Audio::submit(std::span<const std::int16_t> input,double now) {
     if (!device_) open(now);
     if (!device_) return;
-    if(paused_)return;
+    if(paused_ || speed_!=1)return;
     auto queued=SDL_GetQueuedAudioSize(device_)/(2.0*hz_);
     if (queued==0) { ++underruns_; reset(); }
     if (queued>0.150) { ++resets_; reset(); }

@@ -1,12 +1,13 @@
 # PSModern - Project Status
 
-**Milestone 5 (options inside the game) is complete,** accepted on 2026-11-11.
+**Milestone 6 (fast-forward) is complete,** accepted on 2026-11-11.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup and money award now run in C++;
-the rest of the original program runs on the virtual Z80. The first two
-optional features exist: a random-encounter rate and an experience
-and battle-meseta multiplier, both original by default and saved beside SRAM. Milestones 1, 2 and 3 were accepted on
+the rest of the original program runs on the virtual Z80. Optional features
+include saved encounter and experience/battle-meseta rates, plus session-only
+2x/4x fast-forward. New profiles use original rates; acceleration starts at 1x.
+Milestones 1, 2 and 3 were accepted on
 2026-11-08, 2026-11-09 and 2026-11-09.
 
 Replacements are checked against the original, call by call and frame by
@@ -17,7 +18,7 @@ milestone explicitly.
 
 ## What can be played
 
-The whole game, as on the cartridge, plus two optional settings.
+The whole game, as on the cartridge, plus saved rate settings and fast-forward.
 
 - **Starting:** `psmodern.exe <rom-path>`, with an uncompressed `.sms` file of
   the US Rev-A or the Brazilian Tec Toy cartridge. Any other file is refused
@@ -25,7 +26,7 @@ The whole game, as on the cartridge, plus two optional settings.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
 - **Sound:** the original sound chip, resampled for the computer's audio
-  device.
+  device. Music and effects are muted while running at 2x/4x.
 - **Controls:**
 
   | Console | Keyboard | Game controller |
@@ -35,9 +36,15 @@ The whole game, as on the cartridge, plus two optional settings.
   | Pause | Enter | Start |
   | Reset | Backspace | Back |
   | Power off and on | F5 | - |
+  | Speed: 1x / 2x / 4x | Tab | Right shoulder (R/RB) |
 
   Keyboard and controller work together. The first controller found is used,
   also when it is plugged in during play.
+- **Fast-forward:** each Tab/RB press cycles 1x, 2x, 4x, then 1x; holding
+  does not repeat. An indicator appears while accelerated. Music and effects
+  are muted at 2x/4x and resume normally at 1x without an audio backlog.
+  Options and loss of focus temporarily use 1x and restore the chosen speed
+  afterward. New sessions and F5 start at 1x; recording remains at 1x.
 - **Saves:** the game saves through its own menu, as on the cartridge. Each
   version keeps one file in `%APPDATA%\PSModern\`. Before the first write of
   a session, the previous file is copied to a `.bak` file. Only one running

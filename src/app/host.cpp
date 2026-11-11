@@ -32,8 +32,10 @@ double Resampler::bounded_adjustment(double a) {
     if (!std::isfinite(a)) throw std::invalid_argument("Invalid audio rate adjustment.");
     return std::clamp(a,0.995,1.005);
 }
-std::vector<std::int16_t> Resampler::process(std::span<const std::int16_t> input,double a) {
-    const auto next_width=nominal_*bounded_adjustment(a);
+std::vector<std::int16_t> Resampler::process(std::span<const std::int16_t> input,double a,unsigned speed) {
+    if (speed!=1 && speed!=2 && speed!=4) throw std::invalid_argument("Invalid speed.");
+    const auto next_width=nominal_*bounded_adjustment(a)*speed;
+    if (!started_ && !input.empty()) { if (speed!=1) width_=remaining_=next_width; started_=true; }
     std::vector<std::int16_t> output;
     output.reserve(static_cast<std::size_t>(input.size()/next_width)+1);
     for (auto sample:input) {
@@ -53,12 +55,43 @@ double rate_adjustment(double queued) {
     // Queue is measured immediately before adding the current frame.
     return Resampler::bounded_adjustment(1+(queued-(audio_target_seconds-frame_seconds/2))*0.1);
 }
+bool SpeedShortcut::keyboard_event(bool down,bool focused,bool allowed) {
+    if(!focused || !allowed) { keyboard_armed_=keyboard_previous_=false; return false; }
+    const bool pressed=down && keyboard_armed_ && !keyboard_previous_;
+    if(!down)keyboard_armed_=true;
+    keyboard_previous_=down;
+    return pressed;
+}
+bool SpeedShortcut::shoulder_event(bool down,bool focused,bool allowed) {
+    if(!focused || !allowed) { shoulder_armed_=shoulder_previous_=false; return false; }
+    const bool pressed=down && shoulder_armed_ && !shoulder_previous_;
+    if(!down)shoulder_armed_=true;
+    shoulder_previous_=down;
+    return pressed;
+}
+bool SpeedShortcut::update(bool focused,bool keyboard,bool shoulder,bool allowed) {
+    if (!focused || !allowed) {
+        keyboard_armed_=shoulder_armed_=false;
+        keyboard_previous_=shoulder_previous_=false;
+        return false;
+    }
+    const bool pressed=(keyboard_armed_ && keyboard && !keyboard_previous_) ||
+                       (shoulder_armed_ && shoulder && !shoulder_previous_);
+    if (!keyboard) keyboard_armed_=true;
+    if (!shoulder) shoulder_armed_=true;
+    keyboard_previous_=keyboard; shoulder_previous_=shoulder;
+    return pressed;
+}
+void FrameClock::speed(unsigned value,double now) {
+    if (value!=1 && value!=2 && value!=4) throw std::invalid_argument("Invalid speed.");
+    if (value!=speed_) { speed_=value; deadline_=now+frame_seconds/speed_; }
+}
 unsigned FrameClock::due(double now) {
     unsigned count=0;
-    while (now>=deadline_ && count<3) { ++count; deadline_+=frame_seconds; }
+    while (now>=deadline_ && count<3*speed_) { ++count; deadline_+=frame_seconds/speed_; }
     if (now>=deadline_) {
-        discarded_+=now+frame_seconds-deadline_;
-        deadline_=now+frame_seconds;
+        discarded_+=now+frame_seconds/speed_-deadline_;
+        deadline_=now+frame_seconds/speed_;
     }
     return count;
 }

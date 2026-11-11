@@ -99,6 +99,11 @@ int main() {try {
         };
         events();check(added,"real controller-added event handled");
         auto button=[&](SDL_GameControllerButton button,bool down){check(SDL_JoystickSetVirtualButton(joystick,button,down?1:0)==0,"virtual button update");SDL_JoystickUpdate();};
+        button(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,true);
+        check(real_controller.fast_forward(),"right shoulder reaches speed sampler");
+        neutral(sample_input(window,real_controller,enter),"right shoulder does not leak to gameplay");
+        button(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,false);
+        check(!real_controller.fast_forward(),"right shoulder release reaches speed sampler");
         button(SDL_CONTROLLER_BUTTON_Y,true);button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,true);
         input=sample_menu_input(window,real_controller);
         check(input.toggle&&input.right,"real controller Y and d-pad reach menu sampler");

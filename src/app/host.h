@@ -38,23 +38,40 @@ public:
     explicit Resampler(int device_hz);
     // Input periods are integrated, including fractional endpoints. State
     // persists across frames; rate changes begin at the next output period.
-    std::vector<std::int16_t> process(std::span<const std::int16_t> input,double adjustment=1);
+    std::vector<std::int16_t> process(std::span<const std::int16_t> input,double adjustment=1,unsigned speed=1);
     static double bounded_adjustment(double adjustment);
 private:
     double nominal_, width_, remaining_, sum_=0;
+    bool started_=false;
 };
 double rate_adjustment(double queued_seconds);
 inline constexpr double frame_seconds=59736.0/3579545.0;
 inline constexpr double audio_target_seconds=0.075;
+
+// A release must be observed in the focused context before a source arms.
+class SpeedShortcut {
+public:
+    bool update(bool focused,bool keyboard,bool shoulder,bool allowed);
+    bool keyboard_event(bool down,bool focused,bool allowed);
+    bool shoulder_event(bool down,bool focused,bool allowed);
+    void controller_changed() { shoulder_armed_=false; shoulder_previous_=false; }
+    void focus_lost() { keyboard_armed_=shoulder_armed_=keyboard_previous_=shoulder_previous_=false; }
+private:
+    bool keyboard_armed_=false,shoulder_armed_=false;
+    bool keyboard_previous_=false,shoulder_previous_=false;
+};
 
 // All time is supplied by the caller, so tests need no wall clock or SDL.
 class FrameClock {
 public:
     explicit FrameClock(double now):deadline_(now) {}
     unsigned due(double now);
+    void speed(unsigned value,double now);
+    unsigned speed() const { return speed_; }
     double deadline() const { return deadline_; }
     double discarded_seconds() const { return discarded_; }
 private:
     double deadline_, discarded_=0;
+    unsigned speed_=1;
 };
 }

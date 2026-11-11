@@ -37,6 +37,12 @@ New profiles use original rules, with the cartridge's picture, sound, controls a
 See [project status](docs/project-status.md) for the controls and
 [development](docs/development.md) for ROM test paths.
 
+Press Tab or the controller's right shoulder to cycle through 1x, 2x and
+4x speed. The indicator appears while accelerated, and all sound, including
+music and effects, is muted. Speed starts at 1x each session and returns to 1x on F5;
+recordings stay at 1x. Options and loss of focus temporarily use 1x, then
+restore the chosen speed.
+
 Press Escape or controller Y to open Options. Arrows or the d-pad select a
 row; Left/Right change a rate; Z/A saves both rates and closes;
 X/B or Escape/Y cancels. Enter/Start still press the original Pause button.

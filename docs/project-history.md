@@ -59,3 +59,12 @@ verified C++. Independent reviews and all 107 configured tests passed with
 no skips. After approving the functional test and playing the revised native
 interface, the maintainer accepted closure and authorized publication.
 [Plan](milestone-5-plan.md). Implementation: `d9ae7d7`; closed by `8e010dd`; private study: `8db0a92`.
+
+## Milestone 6 - Fast-forward (2026-11-11)
+
+Tab or the right shoulder toggles whole-game 1x/2x/4x speed, with a small
+indicator and unchanged emulated timing. Music and effects are muted while
+accelerated, following maintainer feedback; a future normal-tempo music study
+remains in the roadmap. Independent reviews and the final 109-test suite
+passed without skips. The maintainer played the revised build, approved it,
+and authorized closure and publication. [Plan](milestone-6-plan.md).

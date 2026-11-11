@@ -69,6 +69,12 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
         const auto start=now(); double next_report=start+10;
         FrameClock clock(start);
         std::uint64_t frames=0; bool quit=false,toggle_held=false;
+        unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
+        auto effective_speed=[&]() { return !recorder && SDL_GetKeyboardFocus()==window.get() && !driver.menu_active() ? chosen_speed : 1u; };
+        auto sync_speed=[&]() {
+            const unsigned speed=effective_speed();
+            if (clock.speed()!=speed) { clock.speed(speed,now()); audio.speed(speed); }
+        };
         std::string displayed_title;
         auto report=[&]() {
             const auto elapsed=now()-start;
@@ -79,9 +85,23 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
         };
         while (!quit) {
             SDL_Event event;
+            std::vector<SDL_Event> speed_events;
+            bool lost_focus=false,controller_changed=false,options_pressed=false,power_cycled=false;
             while (SDL_PollEvent(&event)) {
                 if (event.type==SDL_QUIT) quit=true;
-                if (event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) controller.refresh();
+                if ((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && event.key.windowID==SDL_GetWindowID(window.get()) &&
+                    event.key.keysym.scancode==SDL_SCANCODE_TAB && !event.key.repeat) speed_events.push_back(event);
+                if ((event.type==SDL_CONTROLLERBUTTONDOWN || event.type==SDL_CONTROLLERBUTTONUP) &&
+                    event.cbutton.button==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER && controller.owns(event.cbutton.which)) speed_events.push_back(event);
+                if (event.type==SDL_KEYDOWN && event.key.windowID==SDL_GetWindowID(window.get()) &&
+                    event.key.keysym.scancode==SDL_SCANCODE_ESCAPE && !event.key.repeat) options_pressed=true;
+                if (event.type==SDL_CONTROLLERBUTTONDOWN && event.cbutton.button==SDL_CONTROLLER_BUTTON_Y &&
+                    controller.owns(event.cbutton.which)) options_pressed=true;
+                if (event.type==SDL_WINDOWEVENT && event.window.windowID==SDL_GetWindowID(window.get()) &&
+                    event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { lost_focus=true; speed_shortcut.focus_lost(); }
+                if (event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) {
+                    controller_changed=true;controller.refresh();speed_shortcut.controller_changed();
+                }
                 if (event.type==SDL_AUDIODEVICEREMOVED && !event.adevice.iscapture) audio.removed(event.adevice.which);
                 if ((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && event.key.keysym.sym==SDLK_RETURN &&
                     enter.event(event.type==SDL_KEYDOWN,event.key.keysym.mod&KMOD_ALT,event.key.repeat)) {
@@ -89,11 +109,25 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
                     sdl_check(SDL_SetWindowFullscreen(window.get(),fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
                 }
                 if (event.type==SDL_KEYDOWN && !event.key.repeat) {
-                    if (event.key.keysym.sym==SDLK_F5 && !recorder && !driver.menu_active()) { report_save(driver.power_cycle()); audio.reset(); }
+                    if (event.key.keysym.sym==SDLK_F5 && !recorder && !driver.menu_active()) { report_save(driver.power_cycle()); chosen_speed=1; audio.reset(); power_cycled=true; }
                 }
             }
             if (quit) break;
             const auto menu_input=sample_menu_input(window.get(),controller);
+            const bool speed_allowed=!recorder && !driver.menu_active() && !menu_input.toggle && !options_pressed && !power_cycled;
+            if(!lost_focus) for(const auto& speed_event:speed_events) {
+                const bool keyboard=speed_event.type==SDL_KEYDOWN || speed_event.type==SDL_KEYUP;
+                if(!keyboard && controller_changed)continue;
+                const bool down=keyboard ? speed_event.type==SDL_KEYDOWN : speed_event.type==SDL_CONTROLLERBUTTONDOWN;
+                const bool pressed=keyboard ? speed_shortcut.keyboard_event(down,menu_input.focused,speed_allowed) :
+                    speed_shortcut.shoulder_event(down,menu_input.focused,speed_allowed);
+                if(pressed)chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+            }
+            const auto* keys=SDL_GetKeyboardState(nullptr);
+            if (speed_shortcut.update(menu_input.focused,menu_input.focused && keys[SDL_SCANCODE_TAB],
+                                      controller.fast_forward(),speed_allowed))
+                chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+            sync_speed();
             const bool opening=!driver.menu_active() && menu_input.toggle && !toggle_held;
             toggle_held=menu_input.toggle;
             if(opening && !recorder && menu_input.focused && !menu_input.up && !menu_input.down &&
@@ -122,17 +156,24 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
                     release.consume();
                 }
                 if(was_active && !driver.menu_active())release.consume();
+                // A menu may open or finish closing in this frame. Discard
+                // the remainder calculated at the previous effective speed.
+                if (clock.speed()!=effective_speed()) { sync_speed(); break; }
             }
             const auto& effective=driver.effective_options();
             const auto current_title=title+" - Encounters "+std::to_string(effective.encounter_percent)+
                 "% - Experience/Meseta "+std::to_string(effective.experience_percent)+"%"+
                 (driver.options_pending() ? " - CHANGES SAVED, WAITING FOR GAME" : "")+
-                " - Options: Esc / Y";
+                " - Speed "+std::to_string(clock.speed())+"X (Tab / RB) - Options: Esc / Y";
             if(current_title!=displayed_title) {SDL_SetWindowTitle(window.get(),current_title.c_str());displayed_title=current_title;}
             if ((count || menu.visible()) && !(SDL_GetWindowFlags(window.get())&SDL_WINDOW_MINIMIZED)) {
                 const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 std::transform(picture.begin(),picture.end(),pixels.begin(),rgb);
                 if(menu.visible())menu.render(pixels,font);
+                else if(clock.speed()>1) {
+                    for(int y=2;y<12;++y) for(int x=234;x<254;++x) pixels[y*256+x]=0xff000000;
+                    font.text(pixels,236,3,clock.speed()==2 ? "2X" : "4X",0xffffffff);
+                }
                 sdl_check(SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
                 int w,h; sdl_check(SDL_GetRendererOutputSize(renderer.get(),&w,&h)==0,"Reading output size");
                 const auto v=viewport(w,h); const SDL_Rect rect{v.x,v.y,v.width,v.height};

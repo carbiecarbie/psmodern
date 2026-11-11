@@ -122,6 +122,16 @@ the keyboard; full controller support with remapping and shortcuts is optional.
 The Enter press used for fullscreen stays consumed until Enter is released,
 even if Alt is released or pressed again first.
 
+Tab or the controller's right shoulder cycles 1x, 2x and 4x for the current
+session. F5 returns the choice to 1x; console Reset does not. Recording ignores
+the shortcut. The effective speed becomes 1x while unfocused or inside Options,
+then restores the chosen speed. A released key or shoulder must be observed
+before a new activation after focus loss or controller replacement. The host
+runs every emulated frame and drains its sound samples. At 2x and 4x all host
+audio is muted, including effects; the device is paused and its queue cleared.
+At 1x sound resumes from a fresh bounded queue. The indicator affects only the
+presented picture. The host clock rebases on speed changes; no choice is saved.
+
 Escape/controller Y opens Options during free exploration in towns, on the
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
@@ -170,7 +180,8 @@ options window closes. Quit remains available.
 
 **Inference.** The host uses a high-resolution wall clock at the machine rate,
 3,579,545 / 59,736 frames per second, independent of display refresh. It runs
-whole frames, at most three per iteration. When further behind it rebases the
+whole frames, at most three per iteration at 1x, six at 2x and twelve at 4x.
+When further behind it rebases the
 wall deadline; no machine frame is skipped or duplicated. The SDL renderer
 requests accelerated presentation with vsync and falls back to the previous
 accelerated renderer, then software. Vsync governs presentation only: a
