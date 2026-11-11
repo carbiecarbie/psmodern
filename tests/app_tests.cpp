@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
 #include "app/host.h"
+#include "game/routines.h"
 #include "temporary_cleanup.h"
 #include <algorithm>
 #include <chrono>
@@ -8,6 +9,8 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <vector>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -228,9 +231,71 @@ void pacing() {
         }
     }
 }
+// Command-line flags: ranges, rejected forms, refused combinations, explicit 100.
+void flags() {
+    auto parse=[](std::vector<const char*> words) {
+        words.insert(words.begin(),{"psmodern.exe","game.sms"});
+        return parse_app_arguments(static_cast<int>(words.size()),words.data());
+    };
+    auto message=[&](std::vector<const char*> words) {
+        try { parse(words); } catch (const std::runtime_error& e) { return std::string(e.what()); }
+        return std::string();
+    };
+    auto rejects=[&](std::vector<const char*> words,const char* expected) {
+        const auto text=message(words);
+        check(!text.empty() && text.find(expected)!=std::string::npos,expected);
+    };
+    const auto original=parse({});
+    check(original.options==game::Options{} && original.routines_enabled && !original.record_path && original.rom=="game.sms","no flags means original");
+    for (const auto* value:{"0","50","100","200"}) check(parse({"--encounter-rate",value}).options.encounter_percent==std::stoul(value),"encounter values");
+    for (const auto* value:{"100","200","400"}) check(parse({"--experience-rate",value}).options.experience_percent==std::stoul(value),"experience values");
+    const auto both=parse({"--experience-rate","400","--encounter-rate","50"});
+    check(both.options==game::Options{50,400},"both flags, any order");
+    check(parse({"--encounter-rate","050"}).options.encounter_percent==50,"leading zeros are plain digits");
+    for (const auto* flag:{"--encounter-rate","--experience-rate"}) {
+        rejects({flag},"needs a value");
+        for (const auto* bad:{"","-5","+5","5%","1.5"," 50","50 ","abc","0x10","--record"}) rejects({flag,bad},"whole number of percent");
+        rejects({flag,"99999999999999999999999"},"percent, got");
+        rejects({flag,"4294967296"},"percent, got");
+        rejects({flag,"200",flag,"200"},"more than once");
+        rejects({flag,"100",flag,"100"},"more than once");
+    }
+    // Values that used to be accepted (ranges) are refused, with the allowed values in the message.
+    for (const auto* old:{"1","25","99","101","150","400","401"}) rejects({"--encounter-rate",old},"must be one of 0, 50, 100 or 200 percent");
+    for (const auto* old:{"0","25","50","99","101","300","1000","1001"}) rejects({"--experience-rate",old},"must be one of 100, 200 or 400 percent");
+    rejects({"--bogus"},"Usage:");
+    // Non-default values are refused with --no-routines and --record, each flag on its own.
+    for (const auto* flag:{"--encounter-rate","--experience-rate"}) {
+        const char* value=std::string_view(flag)=="--encounter-rate" ? "50" : "400";
+        rejects({"--no-routines",flag,value},"cannot be combined with --no-routines");
+        rejects({flag,value,"--no-routines"},flag);
+        rejects({"--record","out.psrec",flag,value},"cannot be combined with --record");
+        rejects({flag,value,"--record","out.psrec","--no-routines"},"cannot be combined with --no-routines");
+        // Explicit 100 is original mode: accepted wherever no flag is, and identical to no flag.
+        const auto same=parse({"--no-routines","--record","out.psrec",flag,"100"});
+        check(same.options==game::Options{} && !same.routines_enabled && same.record_path==std::filesystem::path("out.psrec"),"explicit 100 with refused combinations");
+    }
+    check(parse({"--encounter-rate","100","--experience-rate","100"}).options==original.options,"explicit 100 equals no flags");
+    // Options reach registration: the driver passes them on, so a value outside its range is refused there.
+    Temporary folder;
+    refuses([&] { FrameDriver(program(),SaveStore(folder.path,RomVersion::us_rev_a),true,game::Options{100,0}); },"driver validates options");
+    for (const auto& options:{game::Options{},game::Options{50,400}}) {
+        FrameDriver driver(program(),SaveStore(folder.path,RomVersion::us_rev_a),true,options);
+        check(driver.routines().empty(),"unidentified image keeps an empty registry");
+    }
+    // Same registry contents with explicit 100 as without flags (identified image).
+    RoutineRegistry plain,explicit_100;
+    const auto digest="07fcf297be4f4c9d92cd3f119a7ac48467e06838";
+    check(game::register_routines(plain,digest) && game::register_routines(explicit_100,digest,parse({"--encounter-rate","100","--experience-rate","100"}).options),"identified image registers");
+    check(plain.entries().size()==explicit_100.entries().size(),"explicit 100 registers the same routines");
+    for (const auto& [entry,routine]:plain.entries()) {
+        const auto* other=explicit_100.find(entry);
+        check(other && other->spec.unit==routine.spec.unit && other->spec.exits==routine.spec.exits,"explicit 100 registers the same segments");
+    }
+}
 }
 int main() {
-    try { colours(); scaling(); inputs(); saves(); backups(); driver(); resampling(); pacing();
-        std::cout<<"App: 8 test groups passed (no SDL or ROM).\n"; return 0;
+    try { colours(); scaling(); inputs(); saves(); backups(); driver(); flags(); resampling(); pacing();
+        std::cout<<"App: 9 test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

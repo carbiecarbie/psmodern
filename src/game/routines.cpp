@@ -45,10 +45,14 @@ void poll_controller(RoutineContext& context) {
     context.finish_return(0x0345);
 }
 }
-bool register_routines(RoutineRegistry& registry, std::string_view digest) {
+bool register_routines(RoutineRegistry& registry, std::string_view digest, const Options& options) {
+    validate(options);
     try { (void)identify_digest(digest); }
     catch (const std::runtime_error&) { return false; }
     registry.add(controller_poll_entry,[](const Machine&) { return 70; },poll_controller);
+    register_random(registry);
+    register_encounters(registry,options);
+    register_experience(registry,options);
     return true;
 }
 }

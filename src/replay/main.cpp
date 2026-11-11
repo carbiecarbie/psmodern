@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "game/option_flags.h"
 #include "replay/recording.h"
 #include "replay/verification.h"
 #include "rom/sha1.h"
@@ -41,26 +42,31 @@ template<class Bytes>void binary(const std::filesystem::path& path,const Bytes& 
 }
 std::string hexbyte(std::uint8_t b) {std::ostringstream s;s<<std::hex<<std::setw(2)<<std::setfill('0')<<unsigned(b);return s.str();}
 int run(int argc,char** argv) {
-    if(argc<7)throw std::runtime_error("Usage: psmodern_replay <rom> <recording> --dump <frames|ranges|all> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording]");
+    if(argc<7)throw std::runtime_error("Usage: psmodern_replay <rom> <recording> --dump <frames|ranges|all> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording] "+game::OptionFlags::usage()+"\nThe rate flags change the game, so they cannot be combined with --no-routines, --lockstep-calls or --compare-recording; a rate flag run writes manifests and the census without comparing to references.");
     if(std::string_view(argv[3])!="--dump"||std::string_view(argv[5])!="--out")throw std::runtime_error("Invalid replay arguments.");
     RoutineRegistry routines;
     std::optional<std::filesystem::path> cart_path;
     bool lockstep_calls=false, compare_recording=false;
+    game::OptionFlags flags;
     for(int i=7;i<argc;++i) {
         const std::string_view arg=argv[i];
+        if(flags.take(argc,argv,i)) continue;
         if(arg=="--no-routines" && routines.enabled) routines.enabled=false;
         else if(arg=="--lockstep-calls" && !lockstep_calls) lockstep_calls=true;
         else if(arg=="--compare-recording" && !compare_recording) compare_recording=true;
         else if(arg=="--cart-ram" && !cart_path && i+1<argc) cart_path=argv[++i];
         else throw std::runtime_error("Invalid replay arguments.");
     }
+    if(!routines.enabled) flags.refuse_with("--no-routines","the options are carried out by the rewritten routines");
+    if(lockstep_calls) flags.refuse_with("--lockstep-calls","the game differs from the original by design, so calls cannot be compared");
+    if(compare_recording) flags.refuse_with("--compare-recording","the game differs from the original by design, so it cannot match the recording");
     if(compare_recording && !routines.enabled) throw std::runtime_error("--compare-recording requires routines enabled.");
     const auto recording=replay::read(argv[2]);const auto selected=dumps(argv[4],recording.frames);
     std::ifstream rom_file(argv[1],std::ios::binary);
     if(!rom_file)throw std::runtime_error("Cannot open ROM.");
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(rom_file),std::istreambuf_iterator<char>());
     if(rom_file.bad()||rom->size()!=512*1024||sha1(*rom)!=recording.rom_sha1)throw std::runtime_error("ROM SHA-1 mismatch or invalid ROM size.");
-    game::register_routines(routines,recording.rom_sha1);
+    game::register_routines(routines,recording.rom_sha1,flags.options);
     Memory::CartridgeRam cart{};
     if(cart_path) {
         std::ifstream f(*cart_path,std::ios::binary);

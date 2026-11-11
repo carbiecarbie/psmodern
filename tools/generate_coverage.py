@@ -6,7 +6,17 @@ import re
 
 CHECKPOINTS = ('opening', 'first-battle', 'first-dungeon', 'later-town', 'boss', 'deep-dungeon')
 REASONS = ('disabled', 'irq', 'nmi', 'frame', 'ei_delay', 'interrupt_delay', 'halted', 'unmapped_stack')
-COLUMNS = ('entry', 'cpp', 'fallback', *REASONS)
+FORCED_REASONS = tuple(f'forced_{reason}' for reason in REASONS)
+COUNTERS = ('cpp', 'fallback', 'forced', 'forced_failed', *REASONS, *FORCED_REASONS)
+COLUMNS = ('entry', 'unit', *COUNTERS)
+ENTRY = r'[0-1][0-9A-F]:[0-9A-B][0-9A-F]{3}'
+# An entry with at least MIN_CALLS calls needs MIN_SHARE of them in C++.
+MIN_CALLS = 20
+MIN_SHARE = 0.9
+# Entries allowed to run without a single C++ call although the recordings
+# reach them, each with its written reason. Empty on purpose: a segment the
+# recordings reach and never run in C++ is a defect until proven otherwise.
+NO_CPP_ALLOWED = {}
 
 
 def read_census(path):
@@ -17,55 +27,121 @@ def read_census(path):
         rows = {}
         for row in reader:
             entry = row['entry']
-            if not isinstance(entry, str) or not re.fullmatch(r'[0-1][0-9A-F]:[0-9A-B][0-9A-F]{3}', entry) or entry in rows:
+            if not isinstance(entry, str) or not re.fullmatch(ENTRY, entry) or entry in rows:
                 raise ValueError(f'Invalid or repeated routine entry: {path}')
-            if None in row or any(not re.fullmatch(r'0|[1-9][0-9]*', row[key] or '') for key in COLUMNS[1:]):
+            if None in row or not re.fullmatch(ENTRY, row['unit'] or ''):
+                raise ValueError(f'Invalid routine unit: {path}')
+            if any(not re.fullmatch(r'0|[1-9][0-9]*', row[key] or '') for key in COUNTERS):
                 raise ValueError(f'Invalid census counters: {path}')
-            counts = {key: int(row[key]) for key in COLUMNS[1:]}
+            counts = {key: int(row[key]) for key in COUNTERS}
+            counts['unit'] = row['unit']
             # Reasons can overlap on a call; they are not a partition.
             if any(counts[reason] > counts['fallback'] for reason in REASONS):
                 raise ValueError(f'Fallback reason exceeds fallback calls: {path}')
-            if counts['fallback'] and sum(counts[reason] for reason in REASONS) < counts['fallback']:
+            # A forced body rejected before its core step falls back with no reason, and counts
+            # as a forced failure instead.
+            if counts['fallback'] and sum(counts[reason] for reason in REASONS) + counts['forced_failed'] < counts['fallback']:
                 raise ValueError(f'Fallback call without a reason: {path}')
+            # Forced calls are a subset of C++ calls; a forced failure is a fallback call.
+            if counts['forced'] > counts['cpp'] or counts['forced_failed'] > counts['fallback']:
+                raise ValueError(f'Forced calls exceed their totals: {path}')
+            if any(counts[reason] > counts['forced'] for reason in FORCED_REASONS):
+                raise ValueError(f'Forced reason exceeds forced calls: {path}')
             rows[entry] = counts
         if not rows:
             raise ValueError(f'Empty checkpoint census: {path}')
         return rows
 
 
-def generate(root):
+def share(counts):
+    total = counts['cpp'] + counts['fallback']
+    return f"{100*counts['cpp']/total:.3f}%" if total else 'n/a'
+
+
+def table(header, rows):
+    columns = header.count('|') - 1
+    return [header, '| ' + ' | '.join('---:' if i > 1 else '---' for i in range(columns)) + ' |', *rows]
+
+
+def check_rules(censuses, totals, reached, allowed, allow_forced):
+    for entry in allowed:
+        if not totals[entry]['cpp'] + totals[entry]['fallback']:
+            raise ValueError(f'Allow-list entry is never called: {entry}')
+    for entry in reached:
+        if not allow_forced and (totals[entry]['forced'] or totals[entry]['forced_failed']):
+            raise ValueError(f'Forced calls in original mode: {entry}')
+        calls = totals[entry]['cpp'] + totals[entry]['fallback']
+        if calls >= MIN_CALLS and totals[entry]['cpp'] < MIN_SHARE*calls:
+            raise ValueError(f'C++ coverage below 90%: {entry}')
+        # The checkpoint tests apply the same gate to each recording.
+        for (version, name), rows in censuses.items():
+            counts = rows[entry]
+            total = counts['cpp'] + counts['fallback']
+            if total >= MIN_CALLS and counts['cpp'] < MIN_SHARE*total:
+                raise ValueError(f'C++ coverage below 90%: {version}/{name}/{entry}')
+        if not totals[entry]['cpp'] and entry not in allowed:
+            raise ValueError(f'Reached entry without a C++ call: {entry}')
+        if totals[entry]['cpp'] and entry in allowed:
+            raise ValueError(f'Allow-list entry has C++ calls: {entry}')
+
+
+def generate(root, allowed=None, allow_forced=False):
+    # allow_forced is for tests only: the twelve real censuses run in original mode.
+    allowed = NO_CPP_ALLOWED if allowed is None else allowed
     censuses = {(version, name): read_census(root/version/f'{name}.tsv')
                 for version in ('us', 'br') for name in CHECKPOINTS}
     entries = sorted(next(iter(censuses.values())))
     if any(sorted(rows) != entries for rows in censuses.values()):
         raise ValueError('Checkpoint censuses contain different routine sets')
+    units = {entry: next(iter(censuses.values()))[entry]['unit'] for entry in entries}
+    if any(rows[entry]['unit'] != units[entry] for rows in censuses.values() for entry in entries):
+        raise ValueError('Checkpoint censuses disagree on a routine unit')
+    for entry, reason in allowed.items():
+        if entry not in units or not reason.strip():
+            raise ValueError(f'Invalid allow-list entry: {entry}')
+    totals = {entry: {key: sum(rows[entry][key] for rows in censuses.values()) for key in COUNTERS}
+              for entry in entries}
+    reached = [entry for entry in entries if totals[entry]['cpp'] + totals[entry]['fallback']]
+    check_rules(censuses, totals, reached, allowed, allow_forced)
     lines = ['# Rewritten routine coverage', '',
              'Generated by `tools/generate_coverage.py` from the twelve checkpoint tests.',
              'Counts describe these recordings; they are not a census of all game code.',
              'The rest of the game still runs on the Z80.', '',
-             'Each C++ call passes the per-call full-machine comparison. Each recording',
-             'also compares routines on/off and the seven original reference components.', '',
-             'Fallback reasons can overlap, so their sum can exceed fallback calls.']
-    for entry in entries:
-        lines += ['', f'## {entry}', '',
-                  '| ROM | Recording | C++ | Fallback | C++ share |',
-                  '| --- | --- | ---: | ---: | ---: |']
-        totals = dict.fromkeys(COLUMNS[1:], 0)
-        for (version, name), rows in censuses.items():
-            counts = rows[entry]
-            total = counts['cpp'] + counts['fallback']
-            if not total or counts['cpp']/total < 0.9:
-                raise ValueError(f'C++ coverage below 90%: {version}/{name}/{entry}')
-            for key in totals:
-                totals[key] += counts[key]
-            lines.append(f"| {version.upper()} | {name} | {counts['cpp']:,} | {counts['fallback']:,} | {100*counts['cpp']/total:.3f}% |")
-        total = totals['cpp'] + totals['fallback']
-        lines += [f"| Total | All twelve | {totals['cpp']:,} | {totals['fallback']:,} | {100*totals['cpp']/total:.3f}% |", '',
-                  '| ROM | Recording | ' + ' | '.join(REASONS) + ' |',
-                  '| --- | --- | ' + ' | '.join('---:' for _ in REASONS) + ' |']
-        for (version, name), rows in censuses.items():
-            lines.append(f'| {version.upper()} | {name} | ' + ' | '.join(str(rows[entry][reason]) for reason in REASONS) + ' |')
-        lines.append('| Total | All twelve | ' + ' | '.join(str(totals[reason]) for reason in REASONS) + ' |')
+             'A routine is registered as one or more segments, grouped here under the routine',
+             '(the unit) they belong to. Each C++ call passes the per-call full-machine comparison.',
+             'Each recording also compares routines on/off and the seven original reference components.', '',
+             'Fallback reasons can overlap, so their sum can exceed fallback calls. Forced calls',
+             'are C++ calls of single-instruction segments admitted despite an interrupt or',
+             'frame boundary; they must be 0 in these recordings, which run in original mode.',
+             f'A segment with at least {MIN_CALLS} calls needs at least 90% C++ calls, and a segment',
+             'the recordings reach needs at least one C++ call' +
+             (' unless it is listed under "Allowed without C++ calls".' if allowed else '.')]
+    for unit in sorted({units[entry] for entry in reached}):
+        members = [entry for entry in reached if units[entry] == unit]
+        lines += ['', f'## {unit}']
+        for entry in members:
+            if members != [unit]:
+                lines += ['', f'### Segment {entry}']
+            lines += ['', *table('| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |',
+                [f"| {version.upper()} | {name} | {c['cpp']:,} | {c['fallback']:,} | {c['forced']:,} | {c['forced_failed']:,} | {share(c)} |"
+                 for (version, name), rows in censuses.items() for c in (rows[entry],)] +
+                [f"| Total | All twelve | {totals[entry]['cpp']:,} | {totals[entry]['fallback']:,} | "
+                 f"{totals[entry]['forced']:,} | {totals[entry]['forced_failed']:,} | {share(totals[entry])} |"])]
+            for group in (REASONS, FORCED_REASONS):
+                if group is FORCED_REASONS and not totals[entry]['forced']:
+                    continue
+                lines += ['', *table('| ROM | Recording | ' + ' | '.join(group) + ' |',
+                    [f'| {version.upper()} | {name} | ' + ' | '.join(str(rows[entry][reason]) for reason in group) + ' |'
+                     for (version, name), rows in censuses.items()] +
+                    ['| Total | All twelve | ' + ' | '.join(str(totals[entry][reason]) for reason in group) + ' |'])]
+    if allowed:
+        lines += ['', '## Allowed without C++ calls', '',
+                  *(f'- {entry}: {reason}' for entry, reason in sorted(allowed.items()))]
+    unreached = [entry for entry in entries if entry not in reached]
+    if unreached:
+        lines += ['', '## Covered by state probes only', '',
+                  'The twelve recordings never reach these segments; the ROM probe tests exercise them.', '',
+                  *(f'- {entry} (unit {units[entry]})' for entry in unreached)]
     return '\n'.join(lines) + '\n'
 
 

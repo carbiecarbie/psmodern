@@ -48,34 +48,63 @@ a character is alive.
 
 ## Giving experience after a battle
 
-**ROM static.** The battle reward is a two-byte amount at `$C2D0`.
-At `00:170D`, a zero reward ends the award immediately. Otherwise the game
-visits each record. At `00:1754`, it skips a record whose processing flag's
-lowest bit is clear. Every record that passes receives the full reward.
-The game does not divide that amount among the party.
+**ROM static.** The battle reward is a two-byte amount at `$C2D0`, worked
+out when the battle is set up. The award at `00:170D` first copies it to the
+place the message reads, so that the number on screen is the reward. A zero
+reward ends the award there and then. Otherwise the game shows the reward
+message and visits the four records in order (`00:171C` to `00:1754`).
 
-**ROM static.** The game adds the reward to the record's accumulated
-experience. If that addition goes beyond what the two-byte counter can
-hold, it stores the counter's largest value. It then ends processing for
-that record on this award, without checking for a level gain (`00:1754`).
+**ROM static.** Who receives it: every record whose processing flag's lowest
+bit is set (`00:1754`). Each of them receives the **full** reward. The game
+does not divide it among the party, and the number in the message is the same
+number every one of them gains.
 
-**ROM static.** Otherwise, the game checks the level limit. A record already
-at that limit keeps the added experience but gains no level. Below the
-limit, the game compares accumulated experience with the next threshold.
-Reaching or passing it raises the level once. It does not check again on
-the same award, even if enough experience remains for another level
-(`00:1754`). Experience is kept as a total; it is not spent on leveling.
+**ROM static.** The reward is added to the record's accumulated experience, a
+two-byte counter (`00:1773`). The counter has a ceiling of 65,535. If the sum
+goes beyond it, the game stores the ceiling and ends the work for that record
+on the spot, without looking at its level (`00:1774`). In the original, a
+character whose total has reached the ceiling below the top level therefore
+never gains another level, because every later award overflows again. This is
+kept in original mode; see [original quirks](../original-quirks.md).
+
+**ROM static.** Otherwise the game looks at the level. A record already at the
+top level (30) keeps the added experience and gains nothing more
+(`00:1774`). Below it, the game compares the total with the next threshold,
+which a table in the ROM gives for each character and level. Reaching or
+passing it raises the level by **one**. The comparison is not repeated on the
+same award, so a very large reward still gives a single level, and the
+surplus is not spent: experience is a running total, not a currency
+(`00:1774`, `00:179D`).
+
+**ROM static.** A gained level comes with the game's own messages and sound.
+Just before the level is raised, the game asks for a short sound and shows the
+level-up message (`00:1774`). After it, it raises the level and compares the
+two magic counts of the new level's row with the ones the record holds (the
+names are the [community's](#what-a-record-holds)); if either differs, a
+second message follows (`00:179D`).
 
 **ROM static.** Each character has a separate set of level rows in the
 player's ROM. The record's current level selects the row containing its
-next experience threshold. Character and current level decide that
-threshold, not the monster just defeated (`00:170D`, `00:1754`). After the
-award, battle code calls `00:17BA` to refresh the records for their levels.
+next threshold. Character and current level decide that threshold, not the
+monster just defeated (`00:1754`). After the award, battle code calls
+`00:17BA` to refresh the records for their levels.
 
-**ROM run.** In the six existing US recordings, the award ran after a
-battle in first-battle and in deep-dungeon. A level increment was reached
-in deep-dungeon. Those observations establish these cases; they do not
-exercise every flag state, counter overflow or level-limit case.
+**ROM run.** The award and its per-character routine now run as C++
+segments, checked against the original on every call. The text, the sound
+and the waiting between messages stay on the original code, which resumes the
+C++ at the next segment (`00:1710`, `00:171C`, `00:172A`, `00:1739`,
+`00:1748`, `00:1754`, `00:1773`, `00:1774`, `00:179D`). State probes in both
+versions cover every possible reward, every level and eligibility state of
+the helper, every total around each level's threshold and every outcome of
+the two magic comparisons, with the whole machine, cycle count included,
+compared with the original. In the six existing US
+recordings, the award ran after a battle in first-battle and in
+deep-dungeon, and a level increment was reached in deep-dungeon; both runs
+are identical with the C++ on and off. Those recordings do not exercise every
+flag state, counter overflow or level-limit case; the probes do.
+
+**ROM static, Inference.** The ceiling cannot be reached in the original game:
+see the quirk entry for the evidence.
 
 ## Shared possessions and party size
 
@@ -95,15 +124,42 @@ of members. Recruitment writes this field at `01:4C5C`, `00:247E` and
 Having four allocated records therefore does not mean all four characters
 have joined.
 
-## What changing experience gained would mean
+## The experience-rate option
 
-**Inference (from the award rule).** Changing the reward before it is
-given would change the amount each eligible record receives. The counter
-limit, the overflow exit, the level limit and the single level check would
-still matter. A larger award would not automatically grant every level
-whose threshold it crosses.
+**Maintainer decision.** Optional features are off by default and never change
+original mode ([design](../design.md)). **Maintainer decision (2026-11-11).**
+The option multiplies the experience gained. The command-line flag
+`--experience-rate` takes one of three whole percentages, 100, 200 or 400, and
+100, the default, plays the game as the cartridge does; 400 is the value for
+the pace of the Switch release (together with encounters at 50): with the option off the C++ runs the same instructions
+and no adjustment code runs.
 
-**Unknown.** Where an optional experience adjustment should act, and how it
-should interact with those limits, remains for milestone 4
-([roadmap](../roadmap.md)). This chapter describes the original rule and
-chooses no adjustment.
+**What it changes.** The reward is scaled once, rounded down, kept to at
+least 1 when the original reward is not zero, and at most 65,535. That one
+scaled value is what the message shows and what every eligible character
+gains, so the number on screen always equals each character's gain. The
+reward stored in memory is never altered, so nothing is scaled twice if the
+game reuses it.
+
+**What it does not change.** The thresholds, the level table, the rule that
+a record gains one level per award, the top level, who receives the reward,
+the messages and the timing. The option runs at two single instructions that
+the original Z80 still executes itself, so it adds no time: it works inside
+interrupts and frame boundaries as well.
+
+**The ceiling with the option on.** Maintainer decision (2026-11-11): when the
+scaled reward overflows the counter, the total is still set to 65,535 as in the
+original, but the game then carries on to the level test instead of leaving
+early. A character below level 30 therefore still gains one level per award,
+up to 30, even when large rewards push the total to the ceiling; at level 30
+nothing changes. The maintainer confirmed one level per award, including for a
+character already at the ceiling; several levels per award was declined.
+
+**Five-digit rewards.** With the option a reward above 9,999 is possible (a stored reward of 12,500 at 400 shows 50,000). The
+text code prints five digits in both versions: the US and the Brazilian
+message boxes stayed intact and showed all five (ROM run: a recorded award
+with the stored reward raised to a five-digit value, drawn by the original
+text code, in each version; the pictures were inspected by eye).
+
+**A saved game.** The option is not stored in a save. A save made with it on,
+loaded later without it, holds totals the cartridge alone might not produce.

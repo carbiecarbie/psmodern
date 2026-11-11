@@ -3,6 +3,7 @@
 #include "machine/machine.h"
 #include "rom/rom.h"
 #include "rom/sha1.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,14 +11,56 @@
 using namespace psmodern;
 namespace {
 void check(bool condition,const char* message) { if(!condition) throw std::runtime_error(message); }
+// Every registered entry must be one the game headers name; the routines
+// already rewritten must be present. No count is fixed, so later parts only
+// add their names.
+bool declared(RoutineEntry entry) {
+    auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
+    return entry==game::controller_poll_entry || entry==game::random_entry ||
+        in(game::encounter_entries) || in(game::experience_entries);
+}
 void catalog() {
     RoutineRegistry unknown;
     check(!game::register_routines(unknown,"authored fixture") && unknown.empty(),"unknown image gets no game routines");
-    for(auto digest:{"07fcf297be4f4c9d92cd3f119a7ac48467e06838","fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd"}) {
-        RoutineRegistry r;
-        check(game::register_routines(r,digest) && r.entries().size()==1,"both versions register the first routine");
-        check(r.find(game::controller_poll_entry)!=nullptr,"controller entry exists");
-    }
+    const game::Options variants[]{{},{0,200},{200,400},{50,400}};
+    for(auto digest:{"07fcf297be4f4c9d92cd3f119a7ac48467e06838","fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd"})
+        for(const auto& options:variants) {
+            RoutineRegistry r;
+            check(game::register_routines(r,digest,options),"both versions get game routines");
+            check(r.find(game::controller_poll_entry)!=nullptr,"controller entry exists");
+            const auto* random=r.find(game::random_entry);
+            check(random!=nullptr && random->spec.unit==game::random_entry,"random-number entry exists");
+            for(const auto& [entry,routine]:r.entries()) check(declared(entry),"registered entry is not declared by name");
+        }
+}
+// Option ranges and their validation, shared with the command line.
+void options() {
+    using game::Options;
+    check(game::original_mode(Options{}) && Options{}.encounter_percent==100 && Options{}.experience_percent==100,
+          "options default to the original");
+    const auto& encounters=game::encounter_percent_choices; const auto& experience=game::experience_percent_choices;
+    check(encounters.count==4 && encounters.values[0]==0 && encounters.values[1]==50 && encounters.values[2]==100 && encounters.values[3]==200 &&
+          experience.count==3 && experience.values[0]==100 && experience.values[1]==200 && experience.values[2]==400 &&
+          encounters.original==100 && experience.original==100,"allowed option values");
+    check(encounters.text()=="0, 50, 100 or 200" && experience.text()=="100, 200 or 400","allowed values as text");
+    check(game::switch_like_encounter_percent==50 && game::switch_like_experience_percent==400 &&
+          encounters.contains(game::switch_like_encounter_percent) && experience.contains(game::switch_like_experience_percent),
+          "the Switch-like values are allowed");
+    auto refused=[](Options o) {
+        try { game::validate(o); } catch(const std::invalid_argument&) { return true; }
+        return false;
+    };
+    for(unsigned e:{0u,50u,100u,200u}) for(unsigned x:{100u,200u,400u}) check(!refused(Options{e,x}),"every allowed combination is accepted");
+    for(Options o:{Options{25,100},Options{99,100},Options{101,100},Options{150,100},Options{400,100},Options{401,100},Options{100,0},Options{100,25},
+                   Options{100,50},Options{100,99},Options{100,101},Options{100,300},Options{100,1000},Options{100,1001}})
+        check(refused(o),"values that are not allowed are refused");
+    try { game::validate(Options{400,100}); check(false,"encounter 400 validated"); }
+    catch(const std::invalid_argument& e) { check(std::string(e.what()).find("must be one of 0, 50, 100 or 200 percent, got 400")!=std::string::npos,"encounter message lists the values"); }
+    try { game::validate(Options{100,1000}); check(false,"experience 1000 validated"); }
+    catch(const std::invalid_argument& e) { check(std::string(e.what()).find("must be one of 100, 200 or 400 percent, got 1000")!=std::string::npos,"experience message lists the values"); }
+    RoutineRegistry r;
+    try { (void)game::register_routines(r,"07fcf297be4f4c9d92cd3f119a7ac48467e06838",Options{100,0}); check(false,"invalid options registered"); }
+    catch(const std::invalid_argument&) { check(r.empty(),"invalid options register nothing"); }
 }
 void compare(const std::shared_ptr<const Memory::Rom>& rom,RoutineRegistry& registry,unsigned current,unsigned previous,unsigned mode=0) {
     Machine native(rom);
@@ -59,7 +102,7 @@ void compare(const std::shared_ptr<const Memory::Rom>& rom,RoutineRegistry& regi
 }
 }
 int main(int argc,char** argv) { try {
-    catalog();
+    catalog(); options();
     if(argc==1) return 0;
     if(argc!=3) return 1;
     if(!*argv[1] || !std::filesystem::exists(argv[1])) return 77;

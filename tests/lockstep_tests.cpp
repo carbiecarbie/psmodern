@@ -170,14 +170,149 @@ void clean() {
 void windows() {
     // Invoke the verifier directly to simulate a broken admission query.
     replay::CallVerifier verifier("window.psrec");
+    const SegmentSpec spec{{0,0},{}};
     Machine frame(program({0,0,0xc9})); entry(frame); frame.advance(Machine::frame_cycles-8);
     auto before=frame;
-    auto text=failure([&] { verifier.run(frame,{0,0},18,7,[]{throw std::runtime_error("Body must not run");}); });
+    auto text=failure([&] { verifier.run(frame,{0,0},spec,false,18,7,[]()->std::optional<SegmentExit> {throw std::runtime_error("Body must not run");}); });
     check(text.find("window-check failure: frame boundary")!=std::string::npos && frame.equivalent(before),"Shadow detects frame crossing without touching real state");
     Machine irq(program({0,0,0xc9})); entry(irq); irq.read_port(0xbf,0); irq.cpu().iff1=irq.cpu().iff2=1;
     irq.advance(43980); before=irq;
-    text=failure([&] { verifier.run(irq,{0,0},40,8,[]{}); });
+    text=failure([&] { verifier.run(irq,{0,0},spec,false,40,8,[]()->std::optional<SegmentExit> {return {};}); });
     check(text.find("window-check failure: interrupt accepted")!=std::string::npos && irq.equivalent(before),"Shadow independently detects native interrupt acceptance");
+}
+void exits() {
+    // A core_final exit one cycle before the frame end crosses it; the verifier
+    // rejects the window before the body runs.
+    replay::CallVerifier verifier("exits.psrec");
+    const SegmentSpec spec{{0,0},{{RoutineExit::core_final,0}},false,0,true};
+    const auto never=[]()->std::optional<SegmentExit> {throw std::runtime_error("Body must not run");};
+    Machine frame(program({0,0,0xc9})); entry(frame); frame.advance(Machine::frame_cycles-1);
+    auto before=frame;
+    auto text=failure([&] { verifier.run(frame,{0,0},spec,false,4,1,never); });
+    check(text.find("window-check failure: frame boundary")!=std::string::npos && frame.equivalent(before),
+          "A core_final step crossing the frame end is a window failure");
+    // The step costs 4 cycles: a bound of 3 is one cycle too small.
+    Machine over(program({0,0,0xc9})); entry(over); before=over;
+    text=failure([&] { verifier.run(over,{0,0},spec,false,3,1,never); });
+    check(text.find("understated bound")!=std::string::npos && over.equivalent(before),
+          "A core_final step over its bound is reported");
+    // Only a forced call may return no exit.
+    Machine missing(program({0,0,0xc9})); entry(missing);
+    text=failure([&] { verifier.run(missing,{0,0},spec,false,4,1,[]()->std::optional<SegmentExit> {return std::nullopt;}); });
+    check(text.find("missing exit")!=std::string::npos,"A non-forced body without an exit is a verifier failure");
+    Machine forced(program({0,0,0xc9})); entry(forced);
+    verifier.run(forced,{0,0},SegmentSpec{{0,0},{{RoutineExit::core_final,0}},false,0,true,true},true,4,1,
+        []()->std::optional<SegmentExit> {return std::nullopt;});
+}
+void returned_with(Machine& m, RoutineRegistry* r) {
+    for (unsigned n=0;n<1000;++n) {
+        if (m.cpu().pc.uint16_value==0x200 && m.cpu().sp.uint16_value==0xc102) return;
+        m.step({},r);
+    }
+    throw std::runtime_error("Synthetic segments did not return");
+}
+constexpr auto R=RoutineExit::returned;
+constexpr auto F=RoutineExit::core_final;
+SegmentSpec segment(std::initializer_list<SegmentExit> exits) { return {{0,0},exits}; }
+SegmentSpec forced_spec() { return {{0,0},{{F,0}},false,0,true,true}; }
+void nop(RoutineContext& c, std::uint16_t pc) { c.fetch_opcode(pc); c.advance(4); }
+auto image(const std::vector<std::pair<std::uint16_t,std::vector<std::uint8_t>>>& parts) {
+    auto rom=std::make_shared<Memory::Rom>(512*1024,0);
+    for (const auto& [at,bytes]:parts) std::copy(bytes.begin(),bytes.end(),rom->begin()+at);
+    return rom;
+}
+void catch_up(Machine& cpp, Machine& native, const char* message) {
+    while (native.cycles()<cpp.cycles()) native.step();
+    check(cpp.equivalent(native),message);
+    for (unsigned i=0;i<6;++i) check(cpp.step()==native.step() && cpp.equivalent(native),message);
+}
+void segments() {
+    replay::CallVerifier verifier("segments.psrec");
+    // Hand-off by CALL into a shared helper, resume at the next segment, a
+    // plain core instruction falling through into the helper, which returns.
+    Machine chain(image({{0,{0x00,0xcd,0x07,0x00,0x00,0x3e,0x42,0x00,0xc9}}})); entry(chain);
+    Machine native=chain;
+    RoutineRegistry r; r.verifier=&verifier;
+    r.add({0,0},segment({{F,1}}),cost(21),[](RoutineContext& c) { nop(c,0); c.finish_core(1); });
+    r.add({0,4},segment({{F,5}}),cost(11),[](RoutineContext& c) { nop(c,4); c.finish_core(5); });
+    r.add({0,7},SegmentSpec{{0,7},{{R,8}}},cost(14),[](RoutineContext& c) { nop(c,7); c.finish_return(8); });
+    returned_with(chain,&r); returned(native);
+    check(chain.equivalent(native) && r.find({0,7})->counters.cpp_calls==2,"Verified segment chain equals the original");
+
+    // Each exit kind ending exactly at a frame boundary is verified cleanly.
+    struct Shape { std::vector<std::uint8_t> code; SegmentExit exit; std::uint64_t bound; std::uint8_t flags; };
+    const Shape shapes[]{{{0,0,0xc9},{R,2},18,0},{{0,0xcd,0,1},{F,1},21,0},{{0,0xc4,0,1},{F,1},21,0},
+        {{0,0xc4,0,1},{F,1},14,0x40},{{0,0xc3,0,1},{F,1},14,0},{{0,0x3e,0x42},{F,1},11,0}};
+    for (const auto& shape:shapes) {
+        Machine m(image({{0,shape.code},{0x100,{0x00,0xc9}}})); entry(m); m.cpu().af.uint8_values.at_0=shape.flags;
+        m.advance(Machine::frame_cycles-shape.bound); native=m;
+        RoutineRegistry s; s.verifier=&verifier;
+        const auto exit=shape.exit;
+        s.add({0,0},segment({exit}),cost(shape.bound),[=](RoutineContext& c) {
+            nop(c,0);
+            if (exit.kind==R) { nop(c,1); c.finish_return(2); } else c.finish_core(1);
+        });
+        m.step(s);
+        check(s.find({0,0})->counters.cpp_calls==1 && m.cycles()%Machine::frame_cycles==0,
+              "Segment ending exactly at a frame boundary is admitted");
+        catch_up(m,native,"Frame boundary at a declared exit is outside the window");
+    }
+
+    // The original reaches its first declared exit; the replacement skips it.
+    Machine skip(program({0x3e,0x01,0x3e,0x01})); entry(skip);
+    RoutineRegistry two; two.verifier=&verifier;
+    two.add({0,0},segment({{F,2},{F,4}}),cost(14),[](RoutineContext& c) {
+        auto& z=c.cpu(); c.fetch_opcode(0); z.af.uint8_values.at_1=c.read(1); c.advance(7); c.finish_core(4);
+    });
+    auto text=failure([&] { skip.step(two); });
+    check(text.find("exit mismatch: original=core_final 0002, replacement=core_final 0004\n")!=std::string::npos,
+          "Different exits are reported");
+    // A core_final segment with a wrong result is reported by field.
+    Machine flag(program({0,0})); entry(flag);
+    RoutineRegistry wrong; wrong.verifier=&verifier;
+    wrong.add({0,0},segment({{F,1}}),cost(8),[](RoutineContext& c) {
+        nop(c,0); c.cpu().af.uint8_values.at_0^=1; c.finish_core(1);
+    });
+    text=failure([&] { flag.step(wrong); });
+    check(text.find("cpu.f:")!=std::string::npos && text.find("exit mismatch")==std::string::npos,
+          "Core-final divergence names the field");
+}
+void forced() {
+    replay::CallVerifier verifier("forced.psrec");
+    const auto single=program({0xc6,0x05});
+    auto body=[](RoutineContext& c) {
+        auto& z=c.cpu(); z.de.uint8_values.at_0^=0x3c; c.finish_core(0); z.de.uint8_values.at_0^=0x3c;
+    };
+    // IRQ, NMI and frame boundary at every cycle of the forced instruction.
+    for (unsigned event=0;event<3;++event) for (unsigned d=event==2 ? 1 : 0;d<=7;++d) {
+        Machine m(single); entry(m);
+        if (event==0) { m.read_port(0xbf,0); m.cpu().iff1=m.cpu().iff2=1; m.advance(43986-d); }
+        if (event==1) { m.set_pause(true); m.read_port(0xbf,0); m.advance(Machine::pause_sample_offset-d); }
+        if (event==2) m.advance(Machine::frame_cycles-d);
+        Machine native=m;
+        RoutineRegistry r; r.verifier=&verifier; r.add({0,0},forced_spec(),cost(7),body);
+        m.step(r);
+        const auto& n=r.find({0,0})->counters;
+        check(n.cpp_calls==1 && n.forced_calls==1 && n.forced_failed==0,"Forced instruction admitted and verified");
+        catch_up(m,native,"Forced instruction equals the original, also several steps later");
+    }
+    // A forced body that leaves a net register change diverges from the native step.
+    {
+        Machine m(single); entry(m);
+        RoutineRegistry r; r.verifier=&verifier;
+        r.add({0,0},forced_spec(),cost(7),[](RoutineContext& c) {
+            c.cpu().de.uint8_values.at_0^=0x3c; c.finish_core(0);
+        });
+        const auto text=failure([&] { m.step(r); });
+        check(text.find("routine 00:0000, call 1\n")!=std::string::npos && text.find("cpu.de:")!=std::string::npos &&
+              text.find("exit mismatch")==std::string::npos,"A forced body leaving a register change is a field divergence");
+    }
+    // A rejected forced body falls back without a verifier report.
+    Machine m(single); entry(m); Machine native=m;
+    RoutineRegistry r; r.verifier=&verifier;
+    r.add({0,0},forced_spec(),cost(7),[](RoutineContext& c) { c.advance(1); c.finish_core(0); });
+    m.step(r); native.step();
+    check(m.equivalent(native) && r.find({0,0})->counters.forced_failed==1,"Forced failure is native under verification");
 }
 void fields() {
     // An authored component models adding a field without updating its list.
@@ -246,7 +381,8 @@ int main(int argc,char** argv) {
     try {
         check(argc==2,"Expected test case"); const std::string_view test=argv[1];
         if (test=="dispatch") dispatch(); else if(test=="clean") clean();
-        else if(test=="windows") windows(); else if(test=="fields") fields(); else fault(test);
+        else if(test=="windows") windows(); else if(test=="fields") fields();
+        else if(test=="segments") segments(); else if(test=="forced") forced(); else if(test=="exits") exits(); else fault(test);
         std::cout<<"Lockstep test passed: "<<test<<'\n'; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

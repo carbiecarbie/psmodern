@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "machine/machine.h"
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
@@ -309,6 +310,269 @@ void scratch_overwrite() {
     b=a; b.cpu().q^=1; check(!a.equivalent(b),"Q remains compared");
     b=a; b.cpu().data.uint8_array[0]^=1; check(!a.equivalent(b),"last opcode remains compared");
 }
+constexpr auto R=RoutineExit::returned;
+constexpr auto F=RoutineExit::core_final;
+SegmentSpec segment(std::uint16_t unit, std::initializer_list<SegmentExit> exits) { return {{0,unit},exits}; }
+SegmentSpec forced_spec(std::uint16_t entry) { return {{0,entry},{{F,entry}},false,0,true,true}; }
+void nop(RoutineContext& c, std::uint16_t pc) { c.fetch_opcode(pc); c.advance(4); }
+std::shared_ptr<const Memory::Rom> image(const std::vector<std::pair<std::uint16_t,std::vector<std::uint8_t>>>& parts) {
+    auto rom=std::make_shared<Memory::Rom>(512*1024,0);
+    for (const auto& [at,bytes]:parts) std::copy(bytes.begin(),bytes.end(),rom->begin()+at);
+    return rom;
+}
+void until_return(Machine& m, RoutineRegistry* r=nullptr) {
+    for (unsigned i=0;i<1000;++i) {
+        if (m.cpu().pc.uint16_value==0x200 && m.cpu().sp.uint16_value==0xc102) return;
+        m.step({},r);
+    }
+    throw std::runtime_error("synthetic segments did not return");
+}
+// Native catch-up to the same boundary, then several native steps on both.
+void same_as_native(Machine& cpp, Machine& native, const char* message) {
+    while (native.cycles()<cpp.cycles()) native.step();
+    check(cpp.equivalent(native),message);
+    for (unsigned i=0;i<6;++i) check(cpp.step()==native.step() && cpp.equivalent(native),message);
+}
+void segments() {
+    // A chain: the entry hands off by CALL to a shared helper, which returns
+    // to the next segment; that one ends in a plain two-byte instruction on
+    // the core and falls through into the helper, which returns.
+    Machine cpp(image({{0,{0x00,0xcd,0x07,0x00,0x00,0x3e,0x42,0x00,0xc9}}})); stack(cpp);
+    Machine native=cpp;
+    RoutineRegistry r;
+    r.add({0,0},segment(0,{{F,1}}),cost(21),[](RoutineContext& c) {
+        nop(c,0); c.finish_core(1); check(c.last_exit()==SegmentExit{F,1},"call exit recorded");
+    });
+    r.add({0,4},segment(0,{{F,5}}),cost(11),[](RoutineContext& c) {
+        nop(c,4); c.finish_core(5); check(c.last_exit()==SegmentExit{F,5},"plain exit recorded");
+    });
+    r.add({0,7},segment(7,{{R,8}}),cost(14),[](RoutineContext& c) {
+        nop(c,7); c.finish_return(8); check(c.last_exit()==SegmentExit{R,8},"return exit recorded");
+    });
+    cpp.step(r);
+    check(cpp.cpu().pc.uint16_value==7 && cpp.cpu().sp.uint16_value==0xc0fe,"the core's CALL leaves the machine at the callee");
+    until_return(cpp,&r); until_return(native);
+    check(cpp.equivalent(native),"segment chain equals the original program");
+    check(r.find({0,0})->counters.cpp_calls==1 && r.find({0,4})->counters.cpp_calls==1 &&
+          r.find({0,7})->counters.cpp_calls==2 && r.find({0,7})->counters.fallback_calls==0,
+          "shared entry runs in C++ when reached by call and by fall-through");
+
+    for (bool taken:{true,false}) {
+        Machine m(image({{0,{0x00,0xc4,0x00,0x01,0x00,0xc9}},{0x100,{0x00,0xc9}}})); stack(m);
+        m.cpu().af.uint8_values.at_0=taken ? 0 : 0x40; native=m;
+        RoutineRegistry cc;
+        cc.add({0,0},segment(0,{{F,1}}),[](const Machine& x) { return x.cpu().af.uint8_values.at_0&0x40 ? 14 : 21; },
+            [](RoutineContext& c) { nop(c,0); c.finish_core(1); });
+        cc.add({0,4},segment(0,{{R,5}}),cost(14),[](RoutineContext& c) { nop(c,4); c.finish_return(5); });
+        m.step(cc);
+        check(m.cpu().pc.uint16_value==(taken ? 0x100 : 4),"conditional call taken and untaken on the core");
+        until_return(m,&cc); until_return(native);
+        check(m.equivalent(native) && cc.find({0,4})->counters.cpp_calls==1,"conditional call resumes at the next segment");
+    }
+    Machine jump(image({{0,{0x00,0xc3,0x00,0x01}},{0x100,{0x00,0xc9}}})); stack(jump); native=jump;
+    RoutineRegistry tail;
+    tail.add({0,0},segment(0,{{F,1}}),cost(14),[](RoutineContext& c) { nop(c,0); c.finish_core(1); });
+    jump.step(tail);
+    check(jump.cpu().pc.uint16_value==0x100 && jump.cpu().sp.uint16_value==0xc100,"tail jump keeps the caller's stack");
+    until_return(jump,&tail); until_return(native); check(jump.equivalent(native),"tail jump equals the original program");
+
+    // A declared slot-2 mapper write goes through the bus like the original's.
+    Machine mapper(program({0x3e,0x05,0x32,0xff,0xff,0x00})); stack(mapper); native=mapper;
+    RoutineRegistry slot;
+    slot.add({0,0},SegmentSpec{{0,0},{{F,5}},true},cost(24),[](RoutineContext& c) {
+        auto& z=c.cpu();
+        c.fetch_opcode(0); z.af.uint8_values.at_1=c.read(1); c.advance(7);
+        c.fetch_opcode(2); const auto lo=c.read(3), hi=c.read(4);
+        c.write(static_cast<std::uint16_t>(lo|(hi<<8)),z.af.uint8_values.at_1);
+        z.memptr.uint16_value=static_cast<std::uint16_t>((z.af.uint8_values.at_1<<8)|((lo+1)&0xff)); c.advance(13);
+        c.finish_core(5);
+    });
+    mapper.step(slot); for (unsigned i=0;i<3;++i) native.step();
+    check(mapper.equivalent(native) && mapper.memory().mapping(0x8000).bank==5,"declared slot-2 mapper write");
+
+    // Scratch stack traffic through the bus: a ROM stack reads back ROM bytes,
+    // a cartridge-RAM stack its own writes.
+    for (std::uint16_t top:{0x0100,0x8100}) {
+        Machine s(program({0xe5,0xe1,0x3c})); s.cpu().sp.uint16_value=top; s.cpu().hl.uint16_value=0x1234;
+        if (top==0x8100) s.memory().write(0xfffc,8);
+        native=s;
+        RoutineRegistry scratch;
+        scratch.add({0,0},SegmentSpec{{0,0},{{F,2}},false,2},cost(25),[](RoutineContext& c) {
+            auto& z=c.cpu(); const auto sp=z.sp.uint16_value;
+            c.fetch_opcode(0); c.write(static_cast<std::uint16_t>(sp-1),z.hl.uint8_values.at_1);
+            c.write(static_cast<std::uint16_t>(sp-2),z.hl.uint8_values.at_0); c.advance(11);
+            c.fetch_opcode(1); z.hl.uint8_values.at_0=c.read(static_cast<std::uint16_t>(sp-2));
+            z.hl.uint8_values.at_1=c.read(static_cast<std::uint16_t>(sp-1)); c.advance(10);
+            c.finish_core(2);
+        });
+        s.step(scratch); for (unsigned i=0;i<3;++i) native.step();
+        check(s.equivalent(native) && s.cpu().hl.uint16_value==(top==0x0100 ? 0 : 0x1234) &&
+              scratch.find({0,0})->counters.cpp_calls==1,"scratch stack in ROM and cartridge RAM through the bus");
+    }
+    // Scratch bytes reaching the mapper registers fall back; a normal stack does not.
+    for (std::uint16_t top:{0xfffe,0x0000,0x0001,0xc102}) {
+        Machine s(program({0xe5,0xe1,0x3c})); s.cpu().sp.uint16_value=top; native=s;
+        RoutineRegistry scratch;
+        scratch.add({0,0},SegmentSpec{{0,0},{{F,2}},false,2},cost(25),[](RoutineContext&) {
+            throw std::runtime_error("unexpected scratch body");
+        });
+        const bool fallback=top!=0xc102;
+        if (fallback) { s.step(scratch); native.step(); check(s.equivalent(native),"scratch fallback is native"); }
+        else rejects([&]{s.step(scratch);},"unexpected scratch body");
+        check(scratch.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack)==fallback,"scratch stack range checked");
+    }
+}
+void segment_faults() {
+    auto guard=[](std::shared_ptr<const Memory::Rom> rom, SegmentSpec spec, std::uint64_t bound,
+                  RegisteredRoutine::Body body, std::string_view diagnostic) {
+        Machine m(std::move(rom)); stack(m);
+        RoutineRegistry r; r.add({0,0},std::move(spec),cost(bound),std::move(body));
+        rejects([&]{m.step(r);},diagnostic);
+    };
+    const auto nops=program({0,0,0xc9});
+    guard(nops,segment(0,{{F,1}}),18,[](RoutineContext& c){nop(c,0);nop(c,1);c.finish_return(2);},"not declared");
+    guard(nops,segment(0,{{R,2}}),8,[](RoutineContext& c){nop(c,0);c.finish_core(1);},"not declared");
+    Machine legacy(nops); stack(legacy); RoutineRegistry old;
+    old.add({0,0},cost(8),[](RoutineContext& c){nop(c,0);c.finish_core(1);});
+    rejects([&]{legacy.step(old);},"not declared");
+    for (std::uint8_t op:{0xc9,0xc0,0xc2,0xe9,0x18,0x20,0x10,0xc7,0xff,0xdb,0xd3,0x32,0x22,0x02,0x12,0x34,0x35,
+                          0x36,0x77,0x70,0xe5,0xe3,0x76,0xf3,0xfb,0xcb,0xdd,0xed,0xfd,
+                          // SP-changing plain instructions: POP rr, LD SP,nn, INC SP, DEC SP, LD SP,HL
+                          0xc1,0xd1,0xe1,0xf1,0x31,0x33,0x3b,0xf9})
+        guard(image({{0,{op,0,0,0}}}),SegmentSpec{{0,0},{{F,0}},false,0,true},30,[](RoutineContext& c){c.finish_core(0);},"not allowed");
+    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){nop(c,0);--c.cpu().sp.uint16_value;c.finish_core(1);},"entry stack");
+    guard(nops,segment(0,{{R,2}}),18,[](RoutineContext& c){nop(c,0);nop(c,1);++c.cpu().sp.uint16_value;c.finish_return(2);},"entry stack");
+    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){nop(c,0);},"omitted");
+    guard(program({0,0xcd,0,1}),segment(0,{{F,1}}),20,[](RoutineContext& c){nop(c,0);c.finish_core(1);},"exceeded");
+    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){c.write(0xffff,3);},"mapper");
+    for (std::uint16_t address=0xfffc;address<0xffff;++address)
+        guard(nops,SegmentSpec{{0,0},{{F,1}},true},8,[=](RoutineContext& c){c.write(address,3);},"mapper");
+    // The power-on frame interrupt line is asserted; enabling it in C++ would
+    // make the core respond to it instead of executing the final instruction.
+    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){
+        nop(c,0); c.cpu().iff1=c.cpu().iff2=1; c.finish_core(1);
+    },"accepted interrupt");
+
+    const std::vector<std::function<void(RoutineContext&)>> uses{
+        [](RoutineContext& c){(void)c.read(0);}, [](RoutineContext& c){c.write(0xc000,1);},
+        [](RoutineContext& c){(void)c.fetch_opcode(0);}, [](RoutineContext& c){c.account_fetches(1);},
+        [](RoutineContext& c){c.advance(1);}, [](RoutineContext& c){(void)c.read_port(0xdc,0);},
+        [](RoutineContext& c){c.write_port(0x7f,0,0);}};
+    for (const auto& use:uses)
+        guard(nops,SegmentSpec{{0,0},{{F,0}},false,0,true},4,[=](RoutineContext& c){use(c);c.finish_core(0);},"single-instruction");
+    // A forced body that the context rejects before its core step falls back
+    // with its register changes undone; so do an undeclared exit and a missing finish.
+    auto failures=uses;
+    failures.push_back([](RoutineContext& c){c.finish_return(0);});
+    failures.push_back([](RoutineContext& c){c.cpu().sp.uint16_value^=2;});
+    for (const auto& use:failures) {
+        Machine m(nops); stack(m); Machine native=m;
+        RoutineRegistry r;
+        r.add({0,0},forced_spec(0),cost(4),[=](RoutineContext& c){
+            c.cpu().bc.uint16_value^=0x5a5a; use(c); c.finish_core(0);
+        });
+        m.step(r); native.step();
+        const auto& n=r.find({0,0})->counters;
+        check(m.equivalent(native) && n.forced_failed==1 && n.fallback_calls==1 && n.cpp_calls==0 && n.forced_calls==0,
+              "a rejected forced body falls back with its registers restored");
+        // Its fallback carries no window reason: the forced failure accounts for it.
+        check(std::all_of(n.reasons.begin(),n.reasons.end(),[](auto count){return count==0;}) &&
+              std::all_of(n.forced_reasons.begin(),n.forced_reasons.end(),[](auto count){return count==0;}),
+              "a forced body rejected before its step leaves no reason counted");
+    }
+
+    auto refused=[](RoutineEntry entry, SegmentSpec spec, std::string_view message) {
+        RoutineRegistry r;
+        rejects([&]{r.add(entry,std::move(spec),cost(4),[](RoutineContext& c){c.finish_core(0);});},message);
+    };
+    refused({0,0},{{0,0},{{F,0}},false,0,false,true},"Invalid registered segment");
+    refused({0,0},{{0,0},{{R,0}},false,0,true,true},"Invalid registered segment");
+    refused({0,0},{{0,0},{{F,1}},false,0,true,true},"Invalid registered segment");
+    refused({0,0},{{0,0},{{F,0},{R,0}},false,0,true,true},"Invalid registered segment");
+    refused({0,0},{{0,0},{{F,1}},false,0,true,false},"Invalid registered segment");
+    refused({0,0},{{0,0},{}},"Invalid registered segment");
+    refused({0,0},{{0,0},{{F,1},{F,1}}},"Invalid registered segment");
+    // A core_final exit at the entry is the whole segment and must be declared single-instruction.
+    refused({0,0},{{0,0},{{F,0}}},"Invalid registered segment");
+    refused({0,0},{{0,0},{{R,2},{F,0}}},"Invalid registered segment");
+    // The scratch stack is bounded.
+    refused({0,0},{{0,0},{{R,2}},false,max_scratch_stack+1},"Invalid registered segment");
+    refused({0,0},{{0,0},{{F,0xc000}}},"Invalid registered segment");
+    refused({0,0},{{32,0},{{F,1}}},"Invalid registered segment");
+    refused({0,0xc000},{{0,0},{{F,1}}},"Invalid registered routine");
+    RoutineRegistry accepted;
+    accepted.add({0,8},{{0,8},{{R,10}},false,max_scratch_stack},cost(4),[](RoutineContext& c){c.finish_return(10);});
+    accepted.add({0,0x10},{{0,0x10},{{F,0x10}},false,0,true},cost(4),[](RoutineContext& c){c.finish_core(0x10);});
+    accepted.add({0,0},forced_spec(0),cost(4),[](RoutineContext& c){c.finish_core(0);});
+    rejects([&]{accepted.add({0,0},segment(0,{{F,1}}),cost(4),[](RoutineContext& c){c.finish_core(1);});},"Duplicate");
+}
+enum class Event { irq, nmi, frame };
+Machine windowed(std::shared_ptr<const Memory::Rom> rom, Event event, std::uint64_t distance) {
+    Machine m(std::move(rom)); stack(m);
+    if (event==Event::irq) { m.read_port(0xbf,0); m.cpu().iff1=m.cpu().iff2=1; m.advance(43986-distance); }
+    if (event==Event::nmi) { m.set_pause(true); m.read_port(0xbf,0); m.advance(Machine::pause_sample_offset-distance); }
+    if (event==Event::frame) m.advance(Machine::frame_cycles-distance);
+    return m;
+}
+RoutineFallback reason_of(Event event) {
+    return event==Event::irq ? RoutineFallback::irq : event==Event::nmi ? RoutineFallback::nmi : RoutineFallback::frame;
+}
+void forced_body(RoutineContext& c) {
+    // An option-style adjustment around the core step, netting to nothing.
+    auto& z=c.cpu(); z.bc.uint8_values.at_1^=0x5a; c.finish_core(0); z.bc.uint8_values.at_1^=0x5a;
+}
+void segment_windows() {
+    // Two instructions in C++ and a CALL on the core: 25 cycles. Every event
+    // inside [entry,E) falls back; one at E is admitted.
+    const auto multi=image({{0,{0x00,0x00,0xcd,0x00,0x01}},{0x100,{0x00,0xc9}}});
+    const auto single=program({0xc6,0x05});
+    for (auto event:{Event::irq,Event::nmi,Event::frame}) {
+        const unsigned first=event==Event::frame ? 1 : 0;
+        for (unsigned d=first;d<=25;++d) {
+            Machine cpp=windowed(multi,event,d), native=cpp;
+            RoutineRegistry r;
+            r.add({0,0},segment(0,{{F,2}}),cost(25),[](RoutineContext& c){nop(c,0);nop(c,1);c.finish_core(2);});
+            cpp.step(r);
+            const auto& n=r.find({0,0})->counters;
+            const bool fallback=d<25;
+            check(n.cpp_calls==!fallback && n.fallback_calls==fallback && n.fallback(reason_of(event))==fallback,
+                  "multi-instruction segment falls back at every cycle of its window");
+            same_as_native(cpp,native,"segment window outcome equals the original");
+        }
+        // A forced single instruction is admitted at every cycle, with zero delay.
+        for (unsigned d=first;d<=7;++d) {
+            Machine cpp=windowed(single,event,d), native=cpp;
+            RoutineRegistry r; r.add({0,0},forced_spec(0),cost(7),forced_body);
+            cpp.step(r);
+            const auto& n=r.find({0,0})->counters;
+            check(n.cpp_calls==1 && n.forced_calls==1 && n.fallback_calls==0 && n.forced_failed==0 &&
+                  n.forced(reason_of(event))==(d<7) && n.fallback(reason_of(event))==0,"forced admission counted");
+            same_as_native(cpp,native,"forced instruction leaves the machine identical, also afterwards");
+        }
+    }
+    // EI just executed with the line asserted, and an unmapped stack: admitted.
+    Machine ei(image({{0,{0xc6,0x05}},{0x100,{0xfb}}})); stack(ei);
+    ei.cpu().pc.uint16_value=0x100; ei.step(); ei.cpu().pc.uint16_value=0;
+    Machine native=ei;
+    RoutineRegistry r; r.add({0,0},forced_spec(0),cost(7),forced_body);
+    ei.step(r);
+    check(r.find({0,0})->counters.forced(RoutineFallback::ei_delay)==1 && r.find({0,0})->counters.cpp_calls==1,"forced EI delay");
+    same_as_native(ei,native,"forced instruction after EI is accepted at the same boundary");
+    Machine unmapped(single); stack(unmapped); unmapped.memory().set_memory_control(0x10); native=unmapped;
+    unmapped.step(r);
+    check(r.find({0,0})->counters.forced(RoutineFallback::unmapped_stack)==1,"forced unmapped stack");
+    same_as_native(unmapped,native,"forced instruction with an unmapped stack");
+    // The NMI response's acceptance marker at 0066 is a forced failure.
+    Machine delay(image({{0x66,{0xc6,0x05}}})); stack(delay); delay.schedule_nmi(0); delay.advance(1); delay.step();
+    check(delay.cpu().pc.uint16_value==0x66,"NMI response reaches its handler");
+    native=delay;
+    RoutineRegistry handler; handler.add({0,0x66},forced_spec(0x66),cost(7),[](RoutineContext& c){c.finish_core(0x66);});
+    delay.step(handler);
+    const auto& n=handler.find({0,0x66})->counters;
+    check(n.forced_failed==1 && n.fallback_calls==1 && n.fallback(RoutineFallback::interrupt_delay)==1 &&
+          n.cpp_calls==0 && n.forced_calls==0,"interrupt delay at a forced entry is a counted forced failure");
+    same_as_native(delay,native,"forced failure runs natively");
+}
 void irq_query() {
     unsigned count=0, future=0, absent=0;
     for (unsigned line:{0,1,190,191,192,193,259,260,261})
@@ -347,7 +611,8 @@ void irq_query() {
 int main(int argc,char** argv) {
     try {
         if(argc==2 && std::string_view(argv[1])=="irq_query") irq_query();
-        else {results(); vdp_results(); windows(); registry_and_guards(); scratch_overwrite();}
+        else {results(); vdp_results(); windows(); registry_and_guards(); scratch_overwrite();
+            segments(); segment_faults(); segment_windows();}
         std::cout<<"Registered routine tests passed.\n"; return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n'; return 1;}
 }

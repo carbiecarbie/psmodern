@@ -113,31 +113,63 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     if (!bound || bound>std::numeric_limits<std::uint64_t>::max()-cycle_)
         throw std::runtime_error("Invalid registered routine cycle bound");
     const auto end=cycle_+bound;
-    bool fallback=false;
-    auto reason=[&](RoutineFallback why, bool applies) {
-        if (applies) { fallback=true; ++counters.reasons[static_cast<unsigned>(why)]; }
-    };
+    const auto& spec=routine->spec;
+    constexpr auto reason_count=static_cast<unsigned>(RoutineFallback::count);
+    std::array<bool,reason_count> applies{};
+    auto reason=[&](RoutineFallback why, bool applied) { applies[static_cast<unsigned>(why)]=applied; };
     reason(RoutineFallback::halted,cpu_.raw().halt_line!=0);
     reason(RoutineFallback::interrupt_delay,(cpu_.raw().request & Z80_REQUEST_REJECT_NMI)!=0);
     const auto sp=cpu_.raw().sp.uint16_value;
-    reason(RoutineFallback::unmapped_stack,memory_.mapping(sp).kind==Memory::Kind::unmapped ||
-        memory_.mapping(static_cast<std::uint16_t>(sp+1)).kind==Memory::Kind::unmapped);
+    // A scratch stack below SP also needs mapped bytes outside the mapper registers.
+    auto stack_byte=[&](unsigned offset) {
+        const auto address=static_cast<std::uint16_t>(sp+offset);
+        return memory_.mapping(address).kind==Memory::Kind::unmapped || (spec.scratch_stack && address>=0xfffc);
+    };
+    bool stack=stack_byte(0) || stack_byte(1);
+    for (unsigned i=1;i<=spec.scratch_stack;++i) stack=stack || stack_byte(0x10000-i);
+    reason(RoutineFallback::unmapped_stack,stack);
     reason(RoutineFallback::ei_delay,cpu_.raw().data.uint8_array[0]==0xfb);
     const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;
     const auto nmi=next_nmi();
     reason(RoutineFallback::irq,irq && *irq<end);
     reason(RoutineFallback::nmi,nmi && *nmi<end);
     reason(RoutineFallback::frame,frame_cycles-cycle_%frame_cycles<bound);
-    if (fallback) { ++counters.fallback_calls; return false; }
+    // A forced single instruction runs on the core with no added delay, so
+    // window reasons do not apply; the two the core itself must handle do.
+    const bool hard=applies[static_cast<unsigned>(RoutineFallback::halted)] ||
+        applies[static_cast<unsigned>(RoutineFallback::interrupt_delay)];
+    const bool forced=spec.force_admit && !hard;
+    if (spec.force_admit && hard) ++counters.forced_failed;
+    if (!forced && std::find(applies.begin(),applies.end(),true)!=applies.end()) {
+        for (unsigned i=0;i<reason_count;++i) counters.reasons[i]+=applies[i];
+        ++counters.fallback_calls; return false;
+    }
+    if (forced) { for (unsigned i=0;i<reason_count;++i) counters.forced_reasons[i]+=applies[i]; ++counters.forced_calls; }
     ++counters.cpp_calls;
-    auto body=[&] {
-        RoutineContext context(*this,bound);
-        routine->body(context);
+    bool fell_back=false;
+    auto body=[&]()->std::optional<SegmentExit> {
+        std::optional<Z80> saved;
+        if (forced) saved=cpu_.raw();
+        RoutineContext context(*this,bound,spec,forced);
+        try { routine->body(context); }
+        catch (const std::exception&) { if (!forced || context.stepped_) throw; }
+        if (forced && !context.stepped_) {
+            // Before its core step a forced body can only have changed registers.
+            cpu_.raw()=*saved; fell_back=true; return std::nullopt;
+        }
         context.check_bound();
         if (!context.finished_) throw std::runtime_error("Registered routine omitted its original return");
+        return context.exit_;
     };
-    if (routines.verifier) routines.verifier->run(*this,{mapping.bank,pc},bound,counters.cpp_calls+counters.fallback_calls,body);
+    if (routines.verifier) routines.verifier->run(*this,{mapping.bank,pc},spec,forced,bound,
+        counters.cpp_calls+counters.fallback_calls,body);
     else body();
+    if (fell_back) {
+        for (unsigned i=0;i<reason_count;++i) counters.forced_reasons[i]-=applies[i];
+        --counters.cpp_calls; --counters.forced_calls;
+        ++counters.fallback_calls; ++counters.forced_failed;
+        return false;
+    }
     return true;
 }
 bool Machine::interrupt_accepted_at_boundary() const {

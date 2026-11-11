@@ -109,7 +109,8 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
 
     Machine machine(rom, cart);
     RoutineRegistry routines;
-    game::register_routines(routines,recording.rom_sha1);
+    // A recognized ROM gets game routines; authored fixtures (any other digest) get none.
+    const bool recognized=game::register_routines(routines,recording.rom_sha1);
     replay::CallVerifier verifier(std::filesystem::path(recording_path).filename().string());
     routines.verifier=&verifier;
     Machine original(rom,cart);
@@ -145,11 +146,20 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     }
     for (std::size_t i = 0; i < names.size(); ++i)
         if (failures[i]) std::cout << names[i] << ": " << failures[i] << " differing frames\n";
+    // The controller (00:0339) must be reached and keeps 90% everywhere.
+    // With a recognized ROM the registry must hold routines and the controller must be reached.
+    if(recognized && routines.empty()) throw std::runtime_error("Recognized ROM registered no routines.");
+    const std::array required{RoutineEntry{0,0x0339}};
     for(const auto& [entry,routine]:routines.entries()) {
         const auto cpp=routine.counters.cpp_calls, fallback=routine.counters.fallback_calls;
-        if(cpp==0 || static_cast<double>(cpp)/(cpp+fallback)<0.9)
-            throw std::runtime_error("Checkpoint did not reach 90% C++ calls.");
-        std::cout<<"Routine C++ calls: "<<cpp<<", fallbacks: "<<fallback<<'\n';
+        std::cout<<"Routine "<<std::hex<<std::uppercase<<std::setfill('0')<<std::setw(2)<<entry.bank<<':'<<std::setw(4)<<entry.address
+                 <<std::dec<<std::setfill(' ')<<" C++ calls: "<<cpp<<", fallbacks: "<<fallback
+                 <<(cpp+fallback<replay::min_gated_calls?" (not gated)":"")<<'\n';
+    }
+    if(const auto problems=replay::checkpoint_problems(routines,recognized ? std::span<const RoutineEntry>(required) : std::span<const RoutineEntry>());!problems.empty()) {
+        std::string text="Checkpoint census rule failed:";
+        for(const auto& problem:problems) text+="\n  "+problem;
+        throw std::runtime_error(text);
     }
     if(census_path) {
         const std::filesystem::path path(census_path);

@@ -179,6 +179,7 @@ failed publication reports an error; a partial destination is never published.
 
 ```text
 psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording]
+                      [--encounter-rate <0|50|100|200>] [--experience-rate <100|200|400>]
 ```
 
 The runner links no SDL and reads no app save. It checks the ROM and initial
@@ -186,6 +187,9 @@ cartridge RAM SHA-1s before creating output. Missing `--cart-ram` supplies an
 8192-byte zero image; a supplied image must have exactly that size. The output
 folder must not exist. Selection is `all` or comma-separated one-based output
 frame numbers/ranges, such as `1,60-65,1200`, all within the recording.
+The two rate flags (see [Options](#options)) run the recording with an optional
+feature on: the game then differs from the recording, so the runner writes
+manifests and the census without comparing to anything.
 
 Manifest frame K is the boundary after call K-1, at the first complete CPU
 instruction boundary at or after K*59736 cycles. The picture is the completed
@@ -210,29 +214,87 @@ hex byte. Both PSG write and sample queues are drained after every call.
 Routines are enabled by default. `psmodern.exe <rom-path> --no-routines`
 and `psmodern_replay ... --no-routines` disable every replacement. The app
 option can be combined with `--record`; the runner option can be combined
-with `--cart-ram`. The first game routine is controller polling at `00:0339`,
-shared by the US Rev-A and Brazilian images. Its fixed bound is 70 cycles.
-Registration is gated by the verified ROM SHA-1: authored runner fixtures
-keep an empty registry. The game layer lives in `src/game/`; the
-[controller chapter](how-it-works/controls.md) explains this first routine.
+with `--cart-ram`. The routines are shared by the US Rev-A and Brazilian
+images: controller polling (`00:0339`, a fixed 70-cycle bound; see the
+[controller chapter](how-it-works/controls.md)), the random-number routine
+(`00:05B1`), the map encounter check (`01:5F63`), the monster-group choice
+(`01:5FD8`), the dungeon game-mode handler that holds its own check
+(`00:0F3C`) and the experience award (`00:170D`) with its per-character helper
+(`00:1754`). The last five are registered as several segments each (see
+Segments below); the
+[random numbers and encounters](how-it-works/random-numbers.md) and
+[party](how-it-works/party.md) chapters explain them. Registration is gated by
+the verified ROM SHA-1: authored runner fixtures keep an empty registry. The
+game layer lives in `src/game/`.
 
-Every replay writes `routine-census.tsv` beside its manifest, with C++ calls,
-fallback calls and each fallback reason per registered entry. An empty
+Every replay writes `routine-census.tsv` beside its manifest, one line per
+registered entry. The columns are `entry`, `unit` (the routine the entry
+belongs to), `cpp`, `fallback`, `forced`, `forced_failed`, then the eight
+fallback reasons, then the same eight reasons prefixed with `forced_`. An empty
 registry writes just the header. Counts contain no ROM bytes.
 
 The twelve checkpoint tests check every admitted C++ call, compare
 routines on/off frame by frame, and compare the resulting frames with the
-pinned milestone 1 reference. Every checkpoint requires at least 90% C++
-calls. The tests write counts to `build-rel/routine-census/{us,br}/`.
-Generate [the coverage chapter](coverage.md) after all twelve pass:
+pinned milestone 1 reference. In each checkpoint an entry with at least 20
+calls needs at least 90% C++ calls; entries with fewer calls are reported, not
+gated. `forced` and `forced_failed` must be 0 there, since the checkpoints run
+in original mode. The controller must be called in every checkpoint and keeps
+the 90% share whatever its call count. The tests write counts to
+`build-rel/routine-census/{us,br}/`. Generate [the coverage chapter](coverage.md)
+after all twelve pass:
 
 ```sh
 python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
 ```
 
+The generator groups segments under their unit and applies the same 90% rule
+to every entry with at least 20 calls, over the twelve censuses together and in
+each census. An entry with at least one call needs at least one C++ call,
+unless it is on the explicit allow-list in the generator, which carries a
+written reason per entry and is empty now. An allow-listed entry that has C++
+calls, or that no recording calls, is stale and an error. The generator also
+refuses forced calls: the twelve censuses run in original mode. Entries no
+recording reaches are listed as covered by state probes only.
+
 The ROM-only controller tests compare all 65,536 pairs of previous/new
 controller bytes in each version, including the whole machine, read timing,
-R and fetch count. The ROM-free catalog and coverage-generator tests run in CI.
+R and fetch count; the random, encounter and experience tests probe their
+segments against the original from many machine states. The ROM-free catalog
+and coverage-generator tests run in CI.
+
+Besides the twelve checkpoints, every recording has an `_options` test
+(`rom_us_<recording>_options`, `rom_br_<recording>_options`, label
+`checkpoint`; the script is `tests/replay_rom_tests.py <runner> <rom> <recording>
+options <reference-folder> [full|identity-only] [marker-file]`). Each test runs
+the replay runner without flags and with `--encounter-rate 100
+--experience-rate 100` and requires identical manifests, sound log, census and
+frame dump, and no forced call in the original-mode census. It then runs three
+enhanced passes (`--encounter-rate 50 --experience-rate 400`,
+`--encounter-rate 0 --experience-rate 200` and `--experience-rate 400`). The
+first two play differently from the recording by design, so only the census is
+read: the run completes without a runtime guard, every option segment whose
+option is on that the run reaches has no fallback, no failed forced call and
+`forced` equal to its call count, and the segment of an option left at 100 is
+never forced. The third leaves encounters alone, so the play stays the
+original's until the first award, and the experience segments must be reached
+wherever the original reached them. The recording is not compared in these
+passes. In the rate-0 pass the random-fight marker segments (`01:5FD8`,
+`01:5FEC`, `00:0F62`, `00:0F6D`: the group choice, and what follows the
+dungeon cell test) must have no calls, and each compare segment (`00:0F5B`,
+`01:5FB0`) that the original-mode run reached must be reached at least once
+(not as often: the play diverges, so the census cannot say how many compares
+the original needed up to its first passing one). To show that the zero-marker
+check can fail, each test records the marker calls of its original-mode run,
+and `rom_us_options_fights` and `rom_br_options_fights` require at least one
+recording of the version with a nonzero count (the `first-battle` and
+`deep-dungeon` recordings have one). A random fight needs a draw below the
+threshold at one of the two compares, then the group choice on the map or
+after the cell test in a dungeon; a fixed fight does not pass through them
+(Inference). At recording level the dungeon side proves only that the first
+compares run and no group choice follows with encounters off, because the
+play diverges soon after; the state probes cover the compare and the
+dungeon segments exhaustively. All twelve recordings take about 6 minutes
+of suite time.
 
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
@@ -282,7 +344,8 @@ their returning path. The step ends there. Missing returns, cost overruns
 (including the core return), writes to mapper addresses or memory-control
 ports, and VDP register 0, 1 or 10 commands are runtime errors in normal
 play too. VDP guards decode the actual latch, including a half-command at
-entry. Other VDP commands and I/O control remain available.
+entry. Other VDP commands and I/O control remain available. A segment
+may end with another kind of final instruction; see Segments below.
 
 Per-entry counters record C++ calls, fallback calls and reasons: disabled,
 IRQ, NMI, frame, `ei_delay`, `interrupt_delay` (the core's NMI-rejection
@@ -368,6 +431,128 @@ These tests use authored programs and need no game ROM.
 mapping, counters and scratch overwrites; `routine_irq_query` compares the
 cheap query against the exact query across counter, register, pending-flag
 and scanline states. Neither test needs a ROM.
+
+### Segments
+
+A routine can be registered as several segments instead of one. Each segment
+has its own entry (a mapped bank and address, as above) and its own bound and
+body, and belongs to a unit: the routine it is part of. A routine registered
+the old way, as one body ending in a return, is a segment whose unit is its own
+entry.
+
+A segment ends with its last instruction executed by the core, through
+`finish_return` or `finish_core`. The declared exits say which instruction that
+may be:
+
+- a return, executed by the core as before;
+- a call, a conditional call or a jump into original code. The
+  core takes or skips it, and the callee then runs wherever it lives, in the
+  original or in another registered segment;
+- a plain instruction with no port access, no memory write and no control
+  transfer, which is not a halt, an interrupt enable or an interrupt disable. The segment ends there and
+  the next instruction starts a new dispatch.
+
+The stack and the program counter are checked after that step against the
+declared exit, and the cost bound includes the step. C++ never fakes a step of
+the core, so cycles, the refresh register, interrupt sampling and the frame
+boundary come out exactly as on the Z80.
+
+Bare calls and returns between segments stay on the Z80: they need no
+rewriting, they are not registered, and the unit still counts as rewritten.
+
+Two permissions exist, declared per segment and off by default.
+`slot2_mapper` allows a write to `$FFFF` (the slot-2 bank register). Writes to
+the other mapper addresses stay runtime errors. `scratch_stack` names a number
+of bytes below the stack pointer that the body may use for its own pushes. They
+go through the bus like any write, so a stack in ROM or cartridge RAM behaves as
+on the original; dispatch falls back when those bytes are unmapped or fall on
+the mapper registers.
+
+A single-instruction segment is exactly one core step with register adjustments
+before and after it. It may be `force_admit`: its window reasons (interrupt,
+NMI, frame boundary, `ei_delay`, unmapped stack) never cause a fallback, because
+the core runs the instruction itself and the segment adds no delay. Such calls
+are counted as `forced` (and also as C++ calls), with the reasons they ran
+through in the `forced_` columns. A forced call that still has to fall back (a
+halted core or the NMI-rejection marker) counts `forced_failed`, and so does a
+forced body the context rejects before its step: bus, port or time use, an
+undeclared exit, a missing finish, a changed entry stack or an interrupt that
+would be accepted. Such a call falls back to the original with its register
+changes undone and counts no window reason, so a fallback with no reason is
+valid when `forced_failed` accounts for it. Every single-instruction segment,
+forced or not, refuses bus, port and time operations; only register adjustments
+and the final step are allowed. Forced admission exists for options that adjust a register around one
+instruction; original mode never uses it, so the checkpoint census requires
+both counts to be 0.
+
+The verifier recognises a `returned` exit by the return address it read from the
+stack at entry. A routine that overwrites its own return address is therefore
+reported as an understated bound, because the original never reaches that
+address.
+
+A segment that stores through an index register (the experience segments at
+`00:1774` and `00:179D`) raises a run-time error instead of falling back if the
+address is one of the mapping registers `$FFFC-$FFFF`. The game always points
+that register at a character record, so this cannot happen in play.
+
+A scratch stack is at most 16 bytes, and a core-final exit at the entry address
+is accepted only for a single-instruction segment. Plain instructions that
+change the stack pointer (pops, loads of SP, increments and decrements of SP)
+are refused as final instructions.
+
+### Options
+
+Two optional flags change the game; leaving both out, or giving both as 100,
+plays the original. They exist in `psmodern.exe` and `psmodern_replay`, share
+one parser (`src/game/option_flags.h`) and take their allowed values from
+`src/game/options.h`:
+
+| Flag | Allowed values | Effect |
+| --- | --- | --- |
+| `--encounter-rate <percent>` | 0, 50, 100 or 200; default 100 | Scales the random-encounter threshold on the map and in dungeons: threshold times the rate divided by 100, rounded down, at most 255. 0 turns random encounters off but still consumes the draw. Fixed and story fights are untouched |
+| `--experience-rate <percent>` | 100, 200 or 400; default 100 | Scales the experience reward once, rounded down, at most 65,535 and never zero when the original reward is not; the message and every character's gain use that value |
+
+A value must be a whole number of digits with no sign or space; a value
+that is not on the list, a missing value or a flag given twice is an error with
+a message listing the allowed values. A flag at any value other than 100 is refused with
+`--no-routines` (the options are carried out by the rewritten routines) and,
+in the app, with `--record` (recordings always play the original); in the
+runner it is also refused with `--lockstep-calls` and `--compare-recording`,
+because the game differs from the original by design and cannot be compared.
+An explicit 100 is accepted wherever omitting the flag is. The options are not
+stored in a save.
+
+**Maintainer decision (2026-11-11).** The options take fixed values, not
+ranges: encounters 0, 50, 100 or 200 percent and experience 100, 200 or 400
+percent, with 100 (the original game) as the default for both. The values for a
+pace like the Switch release are encounters 50 and experience 400; the
+constants for them are in `src/game/options.h` for a later selection screen.
+Reduced or off encounters still consume the random draw, a character at the
+experience ceiling keeps gaining one level per fight, and for now the options
+are set only by the command-line flags. The formulas are explained in the
+[random numbers](how-it-works/random-numbers.md#the-encounter-rate-option) and
+[party](how-it-works/party.md#the-experience-rate-option) chapters.
+
+To run a recording with the options on and read what ran, use the runner; it
+writes manifests and the census but compares nothing:
+
+```sh
+psmodern_replay <rom> <recording> --dump 1 --out <new-folder> [--cart-ram <file>]   --encounter-rate 50 --experience-rate 400
+```
+
+The census then has the four option segments: `00:0F5B` and `01:5FB0` (the
+two threshold comparisons) and `00:170D` and `00:1773` (the reward load and the
+per-character addition). A segment whose option is on is admitted at every
+moment, since it is one original instruction run by the core with a register
+adjusted around it and adds no time. Those calls count in `forced` (a subset
+of `cpp`) and in the `forced_` reason columns when an interrupt, a frame
+boundary or another window reason fell inside. A healthy enhanced census has
+`forced` equal to the call count and `fallback` and `forced_failed` 0 on these
+four; the other segments behave as in original mode. A forced call the
+mechanism cannot admit counts in `forced_failed` and falls back to the
+original instructions. In original mode the same four segments follow the
+ordinary window rule and `forced` is 0, which the checkpoint tests and the
+coverage generator require.
 
 ## Reference driver
 

@@ -7,8 +7,8 @@ namespace psmodern::replay {
 class CallVerifier final : public RoutineVerifier {
 public:
     explicit CallVerifier(std::string recording) : recording_(std::move(recording)) {}
-    void run(Machine&, RoutineEntry, std::uint64_t bound, std::uint64_t call,
-             const std::function<void()>& body) override;
+    void run(Machine&, RoutineEntry, const SegmentSpec&, bool forced, std::uint64_t bound,
+             std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override;
 private:
     std::string recording_;
 };

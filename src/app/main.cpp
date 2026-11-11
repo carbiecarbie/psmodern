@@ -11,13 +11,14 @@
 namespace {
 using namespace psmodern;
 using namespace psmodern::app;
-int play(const std::filesystem::path& path,const std::optional<std::filesystem::path>& record_path,bool routines_enabled) {
+int play(const std::filesystem::path& path,const std::optional<std::filesystem::path>& record_path,bool routines_enabled,
+         const game::Options& options) {
     const auto version=identify_rom(path);
     std::ifstream file(path,std::ios::binary);
     auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>());
     if (file.bad() || rom->size()!=512*1024 || identify_digest(sha1(*rom))!=version)
         throw std::runtime_error("ROM changed or could not be read completely while loading.");
-    FrameDriver driver(rom,SaveStore(production_save_folder(),version),routines_enabled);
+    FrameDriver driver(rom,SaveStore(production_save_folder(),version),routines_enabled,options);
     if(record_path && std::filesystem::exists(*record_path))
         throw std::runtime_error("Recording output already exists: "+record_path->string());
     if(record_path && !std::filesystem::is_directory(record_path->has_parent_path() ? record_path->parent_path() : std::filesystem::current_path()))
@@ -126,18 +127,9 @@ int play(const std::filesystem::path& path,const std::optional<std::filesystem::
 int main(int argc,char** argv) {
     SDL_SetMainReady();
     try {
-        const auto usage="Usage: psmodern.exe <rom-path> [--record <new-file>] [--no-routines]\nProvide an uncompressed US Rev-A or Brazilian .sms file.";
-        if (argc<2) throw std::runtime_error(usage);
-        std::optional<std::filesystem::path> record_path;
-        bool routines_enabled=true;
-        for (int i=2;i<argc;++i) {
-            const std::string_view arg=argv[i];
-            if (arg=="--no-routines" && routines_enabled) routines_enabled=false;
-            else if (arg=="--record" && !record_path && i+1<argc) record_path=argv[++i];
-            else throw std::runtime_error(usage);
-        }
+        const auto args=parse_app_arguments(argc,argv);
         sdl_check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"Starting SDL");
-        const auto result=play(argv[1],record_path,routines_enabled); SDL_Quit(); return result;
+        const auto result=play(args.rom,args.record_path,args.routines_enabled,args.options); SDL_Quit(); return result;
     } catch (const std::exception& e) {
         message(e.what()); SDL_Quit(); return 1;
     }

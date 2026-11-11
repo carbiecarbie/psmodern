@@ -48,3 +48,41 @@ text from the player's ROM.
 - This is why each version has its own input recordings. See
   [random numbers](how-it-works/random-numbers.md) and
   [why exact timing matters](how-it-works/master-system.md#why-exact-timing-matters-for-this-game).
+
+## Rules of the original game
+
+### A total at the experience ceiling stops levelling
+
+- **Where:** the addition and the exit that follows it, `00:1773`-`00:177F`
+  (the per-character routine of [the award](how-it-works/party.md#giving-experience-after-a-battle)).
+- **ROM static.** A character's experience is a two-byte total. When adding a
+  reward overflows it, the game stores the largest value and returns before it
+  tests the level. A character below level 30 whose total reaches the ceiling
+  stops levelling for good: every later award overflows again and exits early.
+  Original mode keeps this on purpose.
+- **ROM static, Inference. Not reachable in play.** The largest reward one
+  battle can produce is a few hundred points: the experience of any monster
+  the game can name (every group of every encounter pool, every fixed fight
+  set by a direct load, and every monster record up to the highest one named)
+  times the largest group the setup can build, which is eight for a random
+  group of a four-member party and a fixed number for a fixed fight. The
+  smallest margin between the last level's threshold and the ceiling is a few
+  thousand points, for one of the four characters, and far more for the
+  others. A character can hold a total above a level's threshold only by
+  carrying the surplus of an award that gave a single level, and the bound
+  below accounts for that: starting a character with the largest possible
+  surplus at every level, one award at a time, the total before an award plus
+  the largest reward stays under the ceiling for every character at every
+  level before 30. So no sequence of battles overflows the counter before the
+  top level. The bound reads the tables through the machine in
+  `tests/experience_tests.cpp` and fails if the ROM data would ever allow it.
+- **Unknown.** One fixed fight takes its monster from event data rather than
+  an immediate value (`01:69F7`); its identifiers were not enumerated. The
+  bound above covers every identifier up to the highest the game names, and
+  the records beyond that hold data of another shape (Inference from their
+  contents).
+- With the experience-rate option on, the ceiling is reachable (a rate of 400
+  makes big rewards), and PSModern deliberately differs there: the total
+  still saturates, and the character keeps gaining one level per award. This
+  is a maintainer decision (2026-11-11)
+  (see [party](how-it-works/party.md#the-experience-rate-option)).

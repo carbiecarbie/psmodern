@@ -370,10 +370,16 @@ study base (stage 3) shows how the code is organized.
   ([milestone 1 plan](milestone-1-plan.md#what-the-game-uses),
   [the console chapter](how-it-works/master-system.md#the-parts)).
   Whole-game absence is not established.
-- Defaults and ranges of the experience and encounter settings. The Switch
-  release is a reference for feel, not exact values, unless the maintainer
-  decides to examine the NSP with their own keys.
+- Defaults and values of the experience and encounter settings. Settled in
+  milestone 4 (Maintainer decision, 2026-11-11): encounters 0, 50, 100 or
+  200 percent and experience 100, 200 or 400 percent, with 100 (the original
+  game) as the default for both; the recommended pace, like the Switch
+  release, is encounters 50 and experience 400. The Switch release is a
+  reference for feel, not exact values, unless the maintainer decides to
+  examine the NSP with their own keys.
 - The exact design of the new interface and the minimap (each gets its own
   milestone).
 - How to store the new features' settings without changing the original save
-  format.
+  format. The maintainer wants the settings chosen inside the game and saved
+  with it (a later milestone); until then the options are set only by
+  command-line flags and are not saved.
