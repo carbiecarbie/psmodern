@@ -68,3 +68,4 @@ accelerated, following maintainer feedback; a future normal-tempo music study
 remains in the roadmap. Independent reviews and the final 109-test suite
 passed without skips. The maintainer played the revised build, approved it,
 and authorized closure and publication. [Plan](milestone-6-plan.md).
+Implementation and closure: `106ea66`.

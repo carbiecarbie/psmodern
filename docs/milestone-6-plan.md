@@ -1,6 +1,6 @@
 # Milestone 6 plan - Fast-forward
 
-**Tier A. Status: completed and accepted (2026-11-11).**
+**Tier A. Status: completed and accepted (2026-11-11), commit `106ea66`.**
 
 ## Delivered
 
