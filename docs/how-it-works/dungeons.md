@@ -310,7 +310,8 @@ record is keyed by a digest (SHA-256) of the saved game block, so saving stores
 the current exploration under that digest and Continue finds the one that
 matches the slot it loaded. A new game starts with an empty map, and a slot
 without a record starts empty. The file keeps at most the records of the used
-slots. A file that cannot be read is ignored whole.
+slots. A file that cannot be read gives an empty map; at the next save it is
+kept as a backup and a new file is written.
 
-**Unknown.** How the map feels in play is for the play-test; the tests settle
-only the reads.
+**Maintainer decision.** The maintainer played the map on 2026-11-12 and
+accepted these rules as built.

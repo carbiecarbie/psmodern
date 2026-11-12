@@ -86,3 +86,15 @@ export of the commit. An independent review's fixes were applied, and all 116
 configured tests passed without skips. The maintainer play-tested the release
 zip, found everything correct and authorized publication as GitHub release
 v0.1.0. [Plan](release-0.1.0-plan.md).
+
+## Milestone 7 - Dungeons and the automap (2026-11-11 to 2026-11-12)
+
+Dungeon walking runs in C++ (eleven routines in 53 pieces, three new exit
+kinds), checked call by call on fifteen recordings, three of them new, and
+by state probes. An optional automap, opened with M or controller X, shows
+the explored part of the current floor and is kept with each saved game;
+tracking changes nothing in the game. Independent reviews passed and all
+155 tests passed without skips. The maintainer played the US build, found
+everything right and accepted it on 2026-11-12, confirming the map's rules.
+[Plan](milestone-7-plan.md). Plan: `39f14a3`; implementation: `674c4fa`;
+closed by `{{CLOSURE_COMMIT}}`.
