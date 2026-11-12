@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix='psmodern-version-') as folder:
     done=subprocess.run([exe.resolve(),'--version'],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
     if done.returncode!=0:raise RuntimeError('--version exited with %d: %r'%(done.returncode,done.stderr))
     if not re.fullmatch(rb'PSModern \d+\.\d+\.\d+\r?\n',done.stdout):raise RuntimeError('Unexpected --version output: %r'%done.stdout)
-    if done.stdout.rstrip(b'\r\n')!=b'PSModern 0.1.0':raise RuntimeError('Unexpected version: %r'%done.stdout)
+    if done.stdout.rstrip(b'\r\n')!=b'PSModern 0.2.0':raise RuntimeError('Unexpected version: %r'%done.stdout)
     if done.stderr:raise RuntimeError('--version wrote to stderr: %r'%done.stderr)
     if list(Path(folder).iterdir()):raise RuntimeError('--version created files under APPDATA')
 print('--version prints the version and creates no PSModern folder')

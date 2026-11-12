@@ -147,7 +147,7 @@ void start_screen_entries() {
     check(StartScreen(rom_list("C:/us.sms",{}),A::play_br).selected()==0,"an absent entry leaves the cursor on the first");
     check(std::string(StartScreen::label(A::play_us))=="PLAY PHANTASY STAR (US)" && std::string(StartScreen::label(A::play_br))=="PLAY PHANTASY STAR (BR)" &&
           std::string(StartScreen::label(A::choose))=="CHOOSE ANOTHER ROM" && std::string(StartScreen::label(A::open_saves))=="OPEN SAVES FOLDER" &&
-          std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 0.1.0","labels and footer");
+          std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 0.2.0","labels and footer");
 }
 void start_screen_input() {
     const auto both=rom_list("C:/us.sms","C:/br.sms");

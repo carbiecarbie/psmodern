@@ -36,6 +36,7 @@ CONTROLS
   Power off and on     F5              -
   Speed 1x / 2x / 4x   Tab             Right shoulder (R / RB)
   Options window       Escape          Y
+  Dungeon map          M               X
   Fullscreen           Alt+Enter       -
 
 Keyboard and controller work together. Each press of Tab or RB cycles the
@@ -49,16 +50,22 @@ dungeon. Left/Right changes a value, Z or A saves and closes, X or B discards.
 
   Encounters   0, 50, 100 or 200 percent of the original random fights.
   Experience   100, 200 or 400 percent; battle meseta follows it.
+  Automap      Off or On; a map of the current dungeon floor (off by default).
 
 100 is the original game. Recommended: encounters 50, experience 400.
 Story and fixed fights never change.
+
+With Automap on, press M or controller X while walking in a dungeon to see the
+current floor. The game pauses and music continues. The map shows explored
+places, and is saved with each game. Exploration is recorded even while the
+option is off.
 
 SAVES
 
 The game saves through its own menu, as on the cartridge. Files are kept in
 %APPDATA%\PSModern (one per version): a cartridge-compatible raw save, a small
-companion settings file, and a .bak copy of the previous save made before the
-first write of each session. Only one copy of PSModern may use a save at a time.
+companion settings file, a dungeon map file, and a .bak copy of the previous
+save made before the first write of each session. Only one copy of PSModern may use a save at a time.
 
 COMMAND LINE
 
