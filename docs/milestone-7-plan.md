@@ -2,7 +2,7 @@
 
 **Tier A. Status: completed and accepted (2026-11-12).** Planned in
 `39f14a3` (independent Tier A plan review, 2026-11-11); implemented in
-`674c4fa`; closed by `{{CLOSURE_COMMIT}}`, which condensed this plan.
+`674c4fa`; closed by `391f1f1`, which condensed this plan.
 Seventh milestone of the [roadmap](roadmap.md); stage 5 of
 [design](design.md) section 8.
 

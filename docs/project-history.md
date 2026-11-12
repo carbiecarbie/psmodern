@@ -97,4 +97,4 @@ tracking changes nothing in the game. Independent reviews passed and all
 155 tests passed without skips. The maintainer played the US build, found
 everything right and accepted it on 2026-11-12, confirming the map's rules.
 [Plan](milestone-7-plan.md). Plan: `39f14a3`; implementation: `674c4fa`;
-closed by `{{CLOSURE_COMMIT}}`.
+closed by `391f1f1`.
