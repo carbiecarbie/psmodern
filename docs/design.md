@@ -11,7 +11,11 @@ recordings (section 5.5); section 3, stage 3 and section 9 were updated
 with the milestone 3 study of both disassemblies. Amended on 2026-11-10
 (factual updates, authorized by the maintainer): sections 5.1, 5.2 and 9
 mark the items milestones 1 and 2 settled and name the reference emulator
-in use; no decision changed. Changes
+in use; no decision changed. Amended on 2026-11-11 by the maintainer
+(milestone 7 planning): the automap is a map screen opened by a button that
+reads state the original keeps, so it no longer waits for the movement
+rewrite (sections 2, 5.1, 5.3, 8 and 9), and its 8x8 icons are a named
+exception to "No new art" (section 2). Changes
 to this design need the maintainer's approval and are recorded here.
 
 ## 1. What it is and why
@@ -58,7 +62,8 @@ for this project's organization and workflow.
   - **Adjustable experience** (a multiplier), in the spirit of the Switch
     release.
   - **Adjustable random encounters**, including turning them **off**.
-  - **Minimap / automap** in the dungeons.
+  - **Automap** in the dungeons: a map screen, opened by a button, of the
+    explored part of the current floor (see 5.3).
   - **Real widescreen** on the **world map and in towns** only, showing more
     of the area with the existing graphics.
   - **New interface** (menus and windows).
@@ -68,7 +73,13 @@ for this project's organization and workflow.
 
 ### Non-goals
 
-- **No new art.** Nothing that depends on drawing graphics.
+- **No new art.** Nothing that depends on drawing graphics. One named
+  exception (maintainer decision, 2026-11-11): the automap screen uses a few
+  simple 8x8 icons drawn for PSModern (party, chest, opened chest, stairs up,
+  stairs down, exit, door, pitfall; the plain, locked and magic doors are
+  the one door drawing in three colours). It covers those icons on that screen
+  only; it is not a licence for other new art, and any other exception needs
+  its own maintainer decision recorded here.
 - Widescreen in battles, 3D dungeons and portrait scenes: they keep their
   original size, centered.
 - A static recompiler (automatic Z80-to-C). Considered and rejected; see 4.
@@ -159,11 +170,12 @@ verifiable milestones.
    8 KiB RAM, the virtual hardware) and returns as the original would.
 4. **New-feature layer:** options that change behavior only outside original
    mode, for example the experience multiplier inside the rewritten
-   experience routine, or the minimap drawn from the dungeon state.
+   experience routine, or the automap drawn from the dungeon state the
+   original keeps.
 5. **Presentation:**
    - **Original renderer:** draws the virtual VDP at 256x192.
    - **Enhanced renderer:** the same source, with a wider area on the world
-     map and in towns, and overlays (minimap, new interface).
+     map and in towns, and overlays (the automap screen, new interface).
    - **Window, scaling, sound and controller** through SDL.
 
 ### 5.2 Verification (the heart of the project)
@@ -212,11 +224,18 @@ verifiable milestones.
 | --- | --- |
 | Adjustable / disabled encounters | The encounter roll |
 | Adjustable experience | Experience gain at the end of a battle |
-| Minimap / automap | Dungeon state (map, position, facing) and movement |
+| Automap | Nothing: it reads state the original keeps (see below) |
 | Language selection | The text system (encoding, pointers, font, windows) |
 | Widescreen on the world map and in towns | Map loading, scrolling, NPC activation and the camera |
 | New interface | Menus and windows |
 | Full controller support | Only the input layer; can come early |
+
+The automap reads the floor, position, facing and layout the original keeps
+in work RAM, and the object and exit tables of the player's ROM, at native
+points the original passes, and tracking changes nothing the game reads
+(maintainer decision, 2026-11-11, on the milestone 7 study). It is a screen
+opened by a button with the game held as for the Options window, never a
+permanent overlay.
 
 ### 5.4 Known widescreen issues
 
@@ -338,7 +357,8 @@ study base (stage 3) shows how the code is organized.
    roadmap (`docs/roadmap.md`) takes over the order of the stages below.
 4. **First win:** rewrite the encounter roll and experience gain. Ship the
    encounter option (adjustable/off) and the experience option.
-5. **Dungeons:** state and movement, then minimap and automap.
+5. **Dungeons:** state and movement, and the automap, which does not wait
+   for the rewrite (see 5.3).
 6. **Text:** the text system in both versions, reading the US/Brazilian text
    from the player's ROM, and language selection.
 7. **Full controller support:** remapping, shortcuts. May come earlier.
@@ -377,8 +397,8 @@ study base (stage 3) shows how the code is organized.
   release, is encounters 50 and experience 400. The Switch release is a
   reference for feel, not exact values, unless the maintainer decides to
   examine the NSP with their own keys.
-- The exact design of the new interface and the minimap (each gets its own
-  milestone).
+- The exact design of the new interface (its own milestone). The automap's
+  is set by the [milestone 7 plan](milestone-7-plan.md).
 - How to store the new features' settings without changing the original save
   format. The maintainer wants the settings chosen inside the game and saved
   with it (a later milestone); until then the options are set only by

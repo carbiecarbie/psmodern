@@ -72,7 +72,10 @@ below automatically, so read each one whose trigger applies before acting.
   the behavior of a rewritten routine only when its option is on. With every
   option off, a run must stay identical to the original, and a test proves
   it.
-- **No new art.** Nothing may depend on drawing new graphics.
+- **No new art.** Nothing may depend on drawing new graphics. The one
+  exception is the automap's 8x8 icons
+  ([design](docs/design.md#non-goals), maintainer decision 2026-11-11); it
+  is a deliberate deviation, not a precedent.
 - **No ROM data or original code in this repository.** Never commit a ROM,
   raw data banks, text, graphics, maps or music extracted from one, or any
   disassembly, assembly listing or decompiler output. ROM data is read from
