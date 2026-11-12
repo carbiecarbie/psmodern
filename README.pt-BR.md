@@ -32,9 +32,9 @@ No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 
 Dá para jogar o jogo inteiro, em inglês (versão americana) ou em português
 (versão brasileira da Tec Toy). A leitura do controle, os números aleatórios,
-a checagem de encontros aleatórios, a experiência, a preparação das batalhas e
-o dinheiro das batalhas já rodam em C++; o resto do jogo ainda roda no Z80
-virtual.
+a checagem de encontros aleatórios, a experiência, a preparação das batalhas,
+o dinheiro das batalhas e o caminhar nas masmorras já rodam em C++; o resto do
+jogo ainda roda no Z80 virtual.
 
 O que você tem hoje:
 
@@ -44,13 +44,13 @@ O que você tem hoje:
   tela cheia.
 - O chip de som original, com as músicas e os efeitos.
 - Teclado ou controle, ou os dois ao mesmo tempo.
-- Duas opções que você ajusta dentro do jogo: a frequência das lutas
-  aleatórias e quanto de experiência e dinheiro cada luta dá.
+- Três opções que você ajusta dentro do jogo: a frequência das lutas
+  aleatórias, quanto de experiência e dinheiro cada luta dá e um mapa das
+  masmorras.
 - Aceleração de 2x e 4x, com a música no ritmo normal.
 
-O [roteiro][roadmap] mostra o que vem depois: masmorras e um mapa automático,
-depois texto e escolha de idioma, suporte completo a controle e tela
-widescreen no mapa-múndi e nas cidades.
+O [roteiro][roadmap] mostra o que vem depois: texto e escolha de idioma,
+suporte completo a controle e tela widescreen no mapa-múndi e nas cidades.
 
 ## Baixar e jogar
 
@@ -87,6 +87,7 @@ avisar que o editor é desconhecido. Clique em **Mais informações** e depois e
 | Desligar e ligar | F5 | - |
 | Velocidade 1x / 2x / 4x | Tab | Botão de ombro direito (R / RB) |
 | Janela de opções | Escape | Y |
+| Mapa da masmorra (opção Automap ligada) | M | X |
 | Janela ou tela cheia | Alt+Enter | - |
 
 O PSModern usa o primeiro controle que encontrar, mesmo que ele seja
@@ -112,6 +113,7 @@ sem salvar. A cena continua atrás da janela e a música não para.
 | --- | --- | --- |
 | Encounters (encontros) | 0, 50, 100, 200% | Frequência das lutas aleatórias. 0 desliga. As lutas da história e as fixas não mudam. |
 | Experience / Meseta | 100, 200, 400% | Experiência e dinheiro de cada luta. Um personagem continua subindo no máximo um nível por luta. |
+| Automap (mapa automático) | Off, On | Um mapa do andar da masmorra onde você está. Desligado por padrão. |
 
 100% é o jogo original e aparece como DEFAULT. Encontros em 50% e experiência
 em 400% aparecem como RECOMMENDED; juntos, deixam o ritmo parecido com o do
@@ -123,6 +125,19 @@ mudança que ainda esteja esperando.
 A escolha fica salva para o arquivo de save inteiro daquela versão, então os
 cinco espaços de save do jogo usam a mesma.
 
+### Mapa automático
+
+Com a opção Automap ligada, aperte M (ou X no controle) enquanto anda numa
+masmorra para ver o mapa do andar onde você está; M, X, Escape ou B fecham o
+mapa. O jogo espera enquanto o mapa está aberto e a música continua tocando. O
+mapa mostra só o que você já viu: corredores, paredes, portas (comuns,
+trancadas e mágicas), escadas, saídas para fora e baús, abertos ou não. Um
+alçapão aparece depois que você cai nele, e uma passagem secreta depois que
+você passa por ela; os chefes e guardiões nunca são marcados. O mapa fica
+guardado com cada jogo salvo, então o Continue traz de volta o mapa daquele
+jogo, e um jogo novo começa com o mapa vazio. A exploração é registrada mesmo
+com a opção desligada, então ligar a opção depois mostra o que você já viu.
+
 ## Saves
 
 Você salva pelo menu do próprio jogo, como no cartucho. O PSModern guarda os
@@ -130,6 +145,7 @@ arquivos em `%APPDATA%\PSModern`, um conjunto por versão:
 
 - o save em si, no formato do cartucho, que outros emuladores conseguem ler;
 - um arquivo pequeno ao lado, com as suas opções;
+- um arquivo com os mapas das masmorras dos seus jogos salvos;
 - uma cópia `.bak` do save anterior, feita antes da primeira gravação de cada
   sessão.
 

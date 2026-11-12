@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
+#include "app/automap_store.h"
 #include "app/host.h"
 #include "game/routines.h"
 #include "temporary_cleanup.h"
@@ -179,6 +180,190 @@ void driver() {
         check(counts.cpp_calls==2*enabled && counts.fallback_calls==2*!enabled,"host registry counters survive power cycle");
     }
 }
+// The host-observed instructions stay native: activating routines fails at
+// once when any of them is a registered entry or a declared exit address.
+void guard() {
+    check(host_observed_instructions.size()==13,"thirteen observed instructions");
+    for (const auto address:{0x00af,0x0055,0x0085,0x0b14,0x0f48,0x2d93,0x02ed,0x02f5,0x1d2d,0x06b4,0x05f4})
+        check(std::count(host_observed_instructions.begin(),host_observed_instructions.end(),RoutineEntry{0,static_cast<std::uint16_t>(address)})==1,"bank 0 instruction observed");
+    for (const auto address:{0x8043,0x82ef})
+        check(std::count(host_observed_instructions.begin(),host_observed_instructions.end(),RoutineEntry{12,static_cast<std::uint16_t>(address)})==1,"tempo audio instruction observed");
+    const auto bound=[](const Machine&){return 10u;};
+    const auto body=[](RoutineContext& c){c.finish_return(0);};
+    RoutineRegistry clean; clean.add({0,0x1000},bound,body);
+    clean.add({1,0x6000},SegmentSpec{{1,0x6000},{SegmentExit{RoutineExit::core_final,0x6010}}},bound,body);
+    guard_observed_instructions(clean);
+    for (const auto watched:host_observed_instructions) {
+        RoutineRegistry entry; entry.add(watched,bound,body);
+        bool refused=false;
+        try { guard_observed_instructions(entry); } catch (const std::logic_error& e) {
+            refused=std::string(e.what()).find("registered entry")!=std::string::npos;
+        }
+        check(refused,"an observed instruction registered as an entry is refused");
+        for (const auto kind:{RoutineExit::core_final,RoutineExit::returned}) {
+            RoutineRegistry exit; exit.add({1,0x7000},SegmentSpec{{1,0x7000},{SegmentExit{kind,watched.address}}},bound,body);
+            refused=false;
+            try { guard_observed_instructions(exit); } catch (const std::logic_error& e) {
+                // The synthetic segment's name, built from its parts.
+                refused=std::string(e.what()).find("declared exit of "+std::string("01")+":"+"7000")!=std::string::npos;
+            }
+            check(refused,"an observed instruction declared as a segment exit is refused");
+        }
+    }
+    // Every registry the game registers (both ROMs share their code) passes,
+    // with every milestone 7 dungeon segment registered: entries and every
+    // declared exit address (conditional and loop exits included).
+    for (const auto& options:{game::Options{},game::Options{0,400}}) {
+        RoutineRegistry real;
+        check(game::register_routines(real,"07fcf297be4f4c9d92cd3f119a7ac48467e06838",options),"identified registry");
+        unsigned dungeon_entries=0,dungeon_exits=0;
+        for (const auto& [entry,routine]:real.entries())
+            if (entry.bank==1 && entry.address>=0x65ee && entry.address<0x6c06) { ++dungeon_entries; dungeon_exits+=static_cast<unsigned>(routine.spec.exits.size()); }
+        check(dungeon_entries==53 && dungeon_exits>dungeon_entries,"the 53 dungeon segments are registered");
+        for (const RoutineEntry entry:{RoutineEntry{1,0x65ee},RoutineEntry{1,0x661c},RoutineEntry{1,0x681b},RoutineEntry{1,0x68bc},
+                                        RoutineEntry{1,0x6963},RoutineEntry{1,0x6bca},RoutineEntry{1,0x6be9}})
+            check(real.find(entry)!=nullptr,"a dungeon routine entry is registered");
+        guard_observed_instructions(real);
+    }
+}
+// <save>.automap beside the save: write order, pruning, backup and every
+// failure case, with real temporary files and no ROM.
+void automap_files() {
+    using game::Exploration;
+    auto slot=[](const Memory::CartridgeRam& image,unsigned k) {
+        return automap_digest(std::span<const std::uint8_t,game::dungeon::game_block_bytes>(image.data()+k*0x400,game::dungeon::game_block_bytes));
+    };
+    auto read=[](const std::filesystem::path& p) { std::ifstream f(p,std::ios::binary); return std::string(std::istreambuf_iterator<char>(f),{}); };
+    Exploration explored{}; explored.floors[3].seen.set(17); explored.floors[3].found.set(18); explored.floors[60].seen.set(255);
+    Exploration later=explored; later.floors[4].seen.set(1);
+    Temporary t; const auto sav=t.path/save_name(RomVersion::us_rev_a);
+    auto map_path=sav; map_path+=".automap"; auto map_backup=map_path; map_backup+=".bak";
+    Memory::CartridgeRam disk{}; disk[0x201]=1; disk[0x400]=11;   // slot 1 used
+    atomic_save(sav,disk);
+    std::vector<std::string> order; bool fail_map=false,fail_backup=false; unsigned backups=0;
+    auto map_writer=[&](const std::filesystem::path& p,const std::string& text) {
+        order.push_back(p.filename().string()); if (p.extension()==".bak") ++backups;
+        if (fail_map && p.extension()==".automap") throw std::runtime_error("injected automap failure");
+        if (fail_backup && p.extension()==".bak") throw std::runtime_error("injected backup failure");
+        atomic_text(p,text);
+    };
+    auto raw_writer=[&](const std::filesystem::path& p,const Memory::CartridgeRam& image) { order.push_back(p.filename().string()); atomic_save(p,image); };
+    const auto map_name=map_path.filename().string(),sav_name=sav.filename().string();
+    // A save into slot 2: the image being written has slots 1 and 2 used.
+    auto image=disk; image[0x202]=1; image[0x800]=22;
+    {
+        SaveStore store(t.path,RomVersion::us_rev_a,raw_writer,atomic_settings,map_writer);
+        store.load_automap();
+        check(!store.automap_warning() && !store.automap_record(slot(disk,1)) && !std::filesystem::exists(map_path),"missing file is an empty image");
+        Memory memory(program(),image); change(memory,5);
+        check(!store.flush(memory) && order==std::vector<std::string>{sav_name} && !std::filesystem::exists(map_path),"no staged record, no automap file");
+        order.clear(); change(memory,6);
+        store.stage_automap(slot(image,2),explored);
+        store.stage_automap(std::string(64,'a'),later);   // no used slot holds it: pruned on purpose
+        check(store.automap_pending() && store.automap_record(slot(image,2)) && *store.automap_record(slot(image,2))==explored,"a staged record is visible at once");
+        check(!store.flush(memory) && order==std::vector<std::string>{map_name,sav_name},"the automap is written before the cartridge image");
+        check(!store.automap_pending() && store.automap_writes()==1 && !std::filesystem::exists(map_backup) && backups==0,"no backup without an earlier file");
+        auto parsed=parse_automap(read(map_path));
+        check(parsed.size()==1 && parsed.find(slot(image,2)) && *parsed.find(slot(image,2))==explored,"file holds the staged record of a used slot");
+        check(!store.automap_record(std::string(64,'a')) && !store.automap_record(slot(image,1)),"unknown digest gives an empty map");
+        // A failed write is reported once, never blocks the cartridge write,
+        // and is retried with a backoff even with a clean cartridge image:
+        // after 60 flushes, then 120; at once for a newly staged record or an
+        // explicit flush (exit, power cycle).
+        order.clear(); fail_map=true; change(memory,7); store.stage_automap(slot(image,2),later);
+        const auto error=store.flush(memory);
+        check(error && error->find("Automap write failed")!=std::string::npos && order==std::vector<std::string>{map_name,sav_name} &&
+              !memory.cartridge_ram_dirty() && store.load()[0]==7,"automap failure reported, cartridge still written");
+        check(store.automap_pending() && parse_automap(read(map_path))==parsed,"failed write keeps the old file and the staged record");
+        order.clear();
+        for (unsigned n=0;n<60;++n) check(!store.flush(memory),"silent during the backoff");
+        check(order.empty(),"no retry at every frame");
+        check(!store.flush(memory) && order==std::vector<std::string>{map_name},"retried after 60 flushes with a clean cartridge, reported only once");
+        order.clear();
+        for (unsigned n=0;n<120;++n) check(!store.flush(memory),"silent during the second backoff");
+        check(order.empty(),"the backoff doubles after a second failure");
+        check(!store.flush(memory) && order==std::vector<std::string>{map_name},"retried after 120 more flushes");
+        order.clear(); change(memory,70);
+        check(!store.flush(memory) && order==std::vector<std::string>{sav_name} && store.load()[0]==70,"the cartridge is written during the backoff, the map waits");
+        order.clear(); store.stage_automap(slot(image,2),later);
+        check(!store.flush(memory) && order==std::vector<std::string>{map_name} && store.automap_pending(),"a newly staged record is tried at once");
+        order.clear();
+        check(!store.flush(memory) && order.empty(),"and the backoff starts again");
+        fail_map=false;
+        check(!store.flush(memory,true) && order==std::vector<std::string>{map_name} && !store.automap_pending() && store.automap_writes()==2,
+              "an explicit flush retries at once; the retry succeeds");
+        check(*parse_automap(read(map_path)).find(slot(image,2))==later,"retried record written");
+        check(!store.flush(memory) && order.size()==1,"nothing pending, nothing written");
+    }
+    // Next session: one backup of the previous file, then pruning to the
+    // used slots of the image on disk and of the image being written.
+    {
+        order.clear(); backups=0;
+        const auto before=read(map_path);
+        SaveStore store(t.path,RomVersion::us_rev_a,raw_writer,atomic_settings,map_writer);
+        auto next=store.load(); next[0x800]=33;   // slot 2 saved again: a new digest
+        Memory memory(program(),next); change(memory,8);
+        store.stage_automap(slot(next,2),explored);
+        check(!store.flush(memory) && order==std::vector<std::string>{map_path.filename().string()+".bak",map_name,sav_name},"backup, automap, cartridge");
+        check(read(map_backup)==before && backups==1,"backup holds the previous file");
+        auto parsed=parse_automap(read(map_path));
+        check(parsed.size()==2 && parsed.find(slot(image,2)) && parsed.find(slot(next,2)),"union of the old and new used slots kept");
+        order.clear(); change(memory,9); store.stage_automap(slot(next,2),later);
+        check(!store.flush(memory) && backups==1 && order==std::vector<std::string>{map_name,sav_name},"one backup per session");
+        parsed=parse_automap(read(map_path));
+        check(parsed.size()==1 && parsed.find(slot(next,2)) && *parsed.find(slot(next,2))==later,"the overwritten slot's record is dropped once the disk no longer holds it");
+        // A destination that stops being a regular file: write error, retried.
+        std::filesystem::remove(map_path); std::filesystem::create_directory(map_path);
+        store.stage_automap(slot(next,2),explored);
+        check(store.flush(memory).has_value() && store.automap_pending(),"directory destination is a write error");
+        std::filesystem::remove(map_path);
+        check(!store.flush(memory,true) && !store.automap_pending() && *parse_automap(read(map_path)).find(slot(next,2))==explored,"retried after the obstacle is removed");
+    }
+    // An unusable file (newer version, corrupt, oversized): warning and an
+    // empty map; at the next save it is kept byte for byte as .automap.bak
+    // before the new file is written; the cartridge always saves.
+    const auto bak_name=map_name+".bak";
+    for (const auto& bad:{std::string("psmodern-automap 2\n"),std::string("garbage"),std::string(automap_max_bytes+1,'x')}) {
+        { std::ofstream f(map_path,std::ios::binary); f<<bad; }
+        {
+            order.clear(); backups=0;
+            SaveStore store(t.path,RomVersion::us_rev_a,raw_writer,atomic_settings,map_writer);
+            store.load_automap();
+            check(store.automap_warning() && store.automap_warning()->find(".automap.bak at the next save")!=std::string::npos,"unusable file warns");
+            auto current=store.load(); Memory memory(program(),current); change(memory,current[0]+1);
+            check(!store.automap_record(slot(current,1)) && !store.automap_record(slot(current,2)),"unusable file gives an empty map");
+            check(!store.flush(memory) && order==std::vector<std::string>{sav_name} && read(map_path)==bad,"no save of the map, no change to the file");
+            // The backup fails: nothing is written over the file; reported, retried.
+            order.clear(); fail_backup=true; change(memory,current[0]+2); store.stage_automap(slot(current,2),explored);
+            const auto error=store.flush(memory);
+            check(error && order==std::vector<std::string>{bak_name,sav_name} && read(map_path)==bad && store.automap_pending() &&
+                  !memory.cartridge_ram_dirty(),"a failed backup never replaces the unusable file nor blocks the save");
+            order.clear(); fail_backup=false;
+            check(!store.flush(memory,true) && order==std::vector<std::string>{bak_name,map_name} && read(map_backup)==bad,"retried: the unusable file kept as .automap.bak first");
+            check(*parse_automap(read(map_path)).find(slot(current,2))==explored,"then the new file is written");
+            order.clear(); store.stage_automap(slot(current,2),later);change(memory,current[0]+3);
+            check(!store.flush(memory) && order==std::vector<std::string>{map_name,sav_name} && read(map_backup)==bad,"one backup per session");
+        }
+        SaveStore again(t.path,RomVersion::us_rev_a);again.load_automap();
+        check(!again.automap_warning() && again.automap_record(slot(again.load(),2)),"the next session reads the new file");
+    }
+    // A folder in place of the file cannot be preserved: never replaced, the
+    // write fails (reported once, retried) and the cartridge still saves.
+    std::filesystem::remove(map_path); std::filesystem::create_directory(map_path);
+    {
+        order.clear();
+        SaveStore store(t.path,RomVersion::us_rev_a,raw_writer,atomic_settings,map_writer);
+        store.load_automap(); check(store.automap_warning().has_value(),"a folder in place of the file is unusable");
+        auto current=store.load(); Memory memory(program(),current); change(memory,current[0]+1);
+        store.stage_automap(slot(current,2),explored);
+        const auto error=store.flush(memory);
+        check(error && error->find("cannot preserve")!=std::string::npos && order==std::vector<std::string>{sav_name} &&
+              std::filesystem::is_directory(map_path) && store.automap_pending(),"an unpreservable destination is never replaced");
+        check(!store.flush(memory,true) && std::filesystem::is_directory(map_path),"retried silently");
+        std::filesystem::remove(map_path); order.clear();
+        check(!store.flush(memory,true) && order==std::vector<std::string>{map_name} && !store.automap_pending(),"written once the folder is gone");
+    }
+}
 void resampling() {
     const auto n=static_cast<std::size_t>(Psg::cpu_hz/Psg::sample_cycles);
     std::vector<std::int16_t> dc(n,12345);
@@ -355,12 +540,12 @@ void flags() {
     check(plain.entries().size()==explicit_100.entries().size(),"explicit 100 registers the same routines");
     for (const auto& [entry,routine]:plain.entries()) {
         const auto* other=explicit_100.find(entry);
-        check(other && other->spec.unit==routine.spec.unit && other->spec.exits==routine.spec.exits,"explicit 100 registers the same segments");
+        check(other && other->spec.unit==routine.spec.unit && std::equal(other->spec.exits.begin(),other->spec.exits.end(),routine.spec.exits.begin(),routine.spec.exits.end(),[](const SegmentExit& x,const SegmentExit& y){return x.same_declaration(y);}),"explicit 100 registers the same segments");
     }
 }
 }
 int main() {
-    try { colours(); scaling(); inputs(); saves(); backups(); driver(); flags(); resampling(); pacing();
-        std::cout<<"App: 9 test groups passed (no SDL or ROM).\n"; return 0;
+    try { colours(); scaling(); inputs(); saves(); backups(); driver(); flags(); guard(); automap_files(); resampling(); pacing();
+        std::cout<<"App: 11 test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

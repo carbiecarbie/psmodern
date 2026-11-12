@@ -16,8 +16,10 @@ void check(bool condition,const char* message) { if(!condition) throw std::runti
 // add their names.
 bool declared(RoutineEntry entry) {
     auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
+    auto dungeon=[&](const auto& list) { return std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry; }); };
     return entry==game::controller_poll_entry || entry==game::random_entry || entry==game::money_add_unit ||
-        in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries);
+        in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries) ||
+        dungeon(game::dungeon::cell_segments) || dungeon(game::dungeon::movement_segments) || dungeon(game::dungeon::object_segments);
 }
 void catalog() {
     RoutineRegistry unknown;
@@ -34,6 +36,14 @@ void catalog() {
             for(const auto entry:game::battle_setup_entries)
                 check(r.find(entry)!=nullptr && r.find(entry)->spec.unit==game::battle_setup_unit,
                       "battle-setup segment exists and belongs to its unit");
+            // The dungeon cell readers (milestone 7); the movement and object
+            // segments, once registered, belong to the units their lists name.
+            for(const auto& [entry,unit]:game::dungeon::cell_segments)
+                check(r.find(entry)!=nullptr && r.find(entry)->spec.unit==unit,"dungeon cell reader exists and is its own unit");
+            auto unit_ok=[&](const auto& segments) {
+                for(const auto& [entry,unit]:segments) if(const auto* found=r.find(entry)) check(found->spec.unit==unit,"dungeon segment belongs to its listed unit");
+            };
+            unit_ok(game::dungeon::movement_segments); unit_ok(game::dungeon::object_segments);
             for(const auto& [entry,routine]:r.entries()) check(declared(entry),"registered entry is not declared by name");
         }
 }

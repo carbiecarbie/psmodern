@@ -41,6 +41,9 @@ Buttons Controller::sample() const {
 bool Controller::options() const {
     return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_Y);
 }
+bool Controller::map() const {
+    return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_X);
+}
 bool Controller::owns(SDL_JoystickID instance) const {
     return controller_ && SDL_GameControllerGetAttached(controller_) &&
         SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller_))==instance;
@@ -50,13 +53,14 @@ bool Controller::fast_forward() const {
 }
 MenuInput sample_menu_input(SDL_Window* window,const Controller& controller) {
     const auto pad=controller.sample().pad;
-    MenuInput input{pad.up,pad.down,pad.left,pad.right,pad.one,pad.two,controller.options()};
+    MenuInput input{pad.up,pad.down,pad.left,pad.right,pad.one,pad.two,controller.options(),controller.map()};
     input.focused=SDL_GetKeyboardFocus()==window;
     if(input.focused) {
         const auto* keys=SDL_GetKeyboardState(nullptr);
         input.up|=keys[SDL_SCANCODE_UP];input.down|=keys[SDL_SCANCODE_DOWN];
         input.left|=keys[SDL_SCANCODE_LEFT];input.right|=keys[SDL_SCANCODE_RIGHT];
         input.accept|=keys[SDL_SCANCODE_Z];input.cancel|=keys[SDL_SCANCODE_X];input.toggle|=keys[SDL_SCANCODE_ESCAPE];
+        input.map|=keys[SDL_SCANCODE_M];
     }
     return input;
 }

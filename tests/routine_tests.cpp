@@ -630,6 +630,314 @@ void absolute_store_segment() {
     auto invalid=forced_spec(0); invalid.absolute_wram_store=0x8000;
     rejects([&]{RoutineRegistry bad; bad.add({0,0},invalid,cost(16),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
 }
+// Milestone 7 mechanism: held stack words, conditional final jumps and loop exits.
+SegmentSpec spec_of(std::uint16_t unit, std::initializer_list<SegmentExit> exits, unsigned scratch=0, unsigned inherited=0) {
+    SegmentSpec spec{{0,unit},exits}; spec.scratch_stack=scratch; spec.inherited_stack=inherited; return spec;
+}
+void push_word(RoutineContext& c, std::uint16_t pc, std::uint16_t value) {
+    auto& z=c.cpu(); const auto sp=z.sp.uint16_value;
+    c.fetch_opcode(pc);
+    c.write(static_cast<std::uint16_t>(sp-1),static_cast<std::uint8_t>(value>>8));
+    c.write(static_cast<std::uint16_t>(sp-2),static_cast<std::uint8_t>(value));
+    z.sp.uint16_value=static_cast<std::uint16_t>(sp-2); c.advance(11);
+}
+std::uint16_t pop_word(RoutineContext& c, std::uint16_t pc) {
+    auto& z=c.cpu(); const auto sp=z.sp.uint16_value;
+    c.fetch_opcode(pc);
+    const auto lo=c.read(sp), hi=c.read(static_cast<std::uint16_t>(sp+1));
+    z.sp.uint16_value=static_cast<std::uint16_t>(sp+2); c.advance(10);
+    return static_cast<std::uint16_t>(lo|(hi<<8));
+}
+// PUSH HL [PUSH DE], then a core CALL into native code (or a plain LD A,n held
+// over), then a segment inheriting the words: [POP DE] POP HL, RET.
+struct Held { std::shared_ptr<const Memory::Rom> rom; std::uint16_t final, next; };
+Held held_program(unsigned words, bool plain) {
+    std::vector<std::uint8_t> code{0xe5};
+    if (words==2) code.push_back(0xd5);
+    const auto final=static_cast<std::uint16_t>(code.size());
+    if (plain) code.insert(code.end(),{0x3e,0x42}); else code.insert(code.end(),{0xcd,0x00,0x01});
+    const auto next=static_cast<std::uint16_t>(code.size());
+    if (words==2) code.push_back(0xd1);
+    code.insert(code.end(),{0xe1,0xc9});
+    // The native callee clobbers HL and DE before returning.
+    return {image({{0,code},{0x100,{0x21,0,0,0x11,0,0,0xc9}}}),final,next};
+}
+void add_held(RoutineRegistry& r, const Held& p, unsigned words, bool plain) {
+    const auto offset=static_cast<std::int8_t>(2*words);
+    r.add({0,0},spec_of(0,{{F,p.final,static_cast<std::int8_t>(-offset)}},2*words),cost(11*words+(plain ? 7 : 17)),
+        [=](RoutineContext& c) {
+            push_word(c,0,c.cpu().hl.uint16_value);
+            if (words==2) push_word(c,1,c.cpu().de.uint16_value);
+            c.finish_core(p.final);
+        });
+    r.add({0,p.next},spec_of(0,{{R,static_cast<std::uint16_t>(p.next+words),offset}},0,2*words),cost(10*words+10),
+        [=](RoutineContext& c) {
+            if (words==2) c.cpu().de.uint16_value=pop_word(c,p.next);
+            c.cpu().hl.uint16_value=pop_word(c,static_cast<std::uint16_t>(p.next+words-1));
+            c.finish_return(static_cast<std::uint16_t>(p.next+words));
+        });
+}
+void held_words() {
+    for (unsigned words:{1u,2u}) for (bool plain:{false,true}) {
+        const auto p=held_program(words,plain);
+        Machine cpp(p.rom); stack(cpp); cpp.cpu().hl.uint16_value=0x1234; cpp.cpu().de.uint16_value=0x5678;
+        Machine native=cpp;
+        RoutineRegistry r; add_held(r,p,words,plain);
+        cpp.step(r);
+        check(cpp.cpu().sp.uint16_value==static_cast<std::uint16_t>(0xc100-2*words-(plain ? 0 : 2)),"held words stay on the stack across the core step");
+        until_return(cpp,&r); until_return(native);
+        check(cpp.equivalent(native) && cpp.cpu().hl.uint16_value==0x1234 && cpp.cpu().de.uint16_value==(words==2 || plain ? 0x5678 : 0),
+              "held and inherited words equal the original program");
+        check(r.find({0,0})->counters.cpp_calls==1 && r.find({0,p.next})->counters.cpp_calls==1 &&
+              r.find({0,p.next})->counters.fallback_calls==0,"both held-word segments ran in C++");
+    }
+    // A finish at an SP other than the declared offset is refused, for both finishes.
+    const auto p=held_program(1,false);
+    Machine m(p.rom); stack(m);
+    RoutineRegistry pushed;
+    pushed.add({0,0},spec_of(0,{{F,1,-2}},2),cost(28),[](RoutineContext& c) {
+        auto& z=c.cpu(); c.fetch_opcode(0); c.write(0xc0ff,z.hl.uint8_values.at_1); c.write(0xc0fe,z.hl.uint8_values.at_0);
+        c.advance(11); c.finish_core(1); // SP was not lowered
+    });
+    rejects([&]{m.step(pushed);},"declared stack offset");
+    Machine pop(p.rom); stack(pop); pop.cpu().sp.uint16_value=0xc0fe; pop.cpu().pc.uint16_value=4;
+    RoutineRegistry popped;
+    popped.add({0,4},spec_of(0,{{R,5,2}},0,2),cost(20),[](RoutineContext& c) {
+        c.fetch_opcode(4); c.advance(10); c.finish_return(5); // SP was not raised
+    });
+    rejects([&]{pop.step(popped);},"declared stack offset");
+    // A stack-0 finish keeps its existing message at a held-word segment too.
+    Machine zero(p.rom); stack(zero);
+    RoutineRegistry entry_stack;
+    entry_stack.add({0,0},spec_of(0,{{F,1}},2),cost(28),[](RoutineContext& c) {
+        push_word(c,0,c.cpu().hl.uint16_value); c.finish_core(1);
+    });
+    rejects([&]{zero.step(entry_stack);},"entry stack");
+
+    // Admission: every inherited byte mapped and below the mapper registers.
+    struct Case { std::uint16_t sp; unsigned inherited; bool ram_off, fallback; };
+    for (const auto& k:{Case{0xbffe,2,true,true},Case{0xbffe,0,true,false},Case{0xbffc,2,true,false},
+                        Case{0xfff8,4,false,true},Case{0xfff8,2,false,false},Case{0xfffa,2,false,true},
+                        Case{0xdffc,8,false,false},Case{0xfff2,8,false,false},Case{0xfff4,8,false,true}}) {
+        Machine s(program({0xe1,0xc9})); s.cpu().sp.uint16_value=k.sp;
+        if (k.ram_off) s.memory().set_memory_control(0x10);
+        Machine n=s;
+        RoutineRegistry r;
+        r.add({0,0},spec_of(0,{{R,1,static_cast<std::int8_t>(k.inherited ? 2 : 0)}},0,k.inherited),cost(20),[](RoutineContext&) {
+            throw std::runtime_error("unexpected inherited body");
+        });
+        if (k.fallback) { s.step(r); n.step(); check(s.equivalent(n),"inherited-stack fallback is native"); }
+        else rejects([&]{s.step(r);},"unexpected inherited body");
+        check(r.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack)==k.fallback,"inherited stack range checked");
+    }
+    // Inherited words in ROM and in cartridge RAM are read through the bus;
+    // held words pushed into ROM are written through it like the original's.
+    for (bool rom_stack:{true,false}) {
+        auto rom=std::make_shared<Memory::Rom>(512*1024,0);
+        (*rom)[0]=0xe1; (*rom)[1]=0xc9;
+        const std::uint8_t words[]{0x34,0x12,0x00,0x02};
+        std::copy(std::begin(words),std::end(words),rom->begin()+0x2000);
+        Machine s(rom); s.cpu().sp.uint16_value=rom_stack ? 0x2000 : 0x8100;
+        if (!rom_stack) { s.memory().write(0xfffc,8); for (unsigned i=0;i<4;++i) s.memory().write(0x8100+i,words[i]^(i<2 ? 0x44 : 0)); }
+        Machine n=s;
+        RoutineRegistry r;
+        r.add({0,0},spec_of(0,{{R,1,2}},0,2),cost(20),[](RoutineContext& c) {
+            c.cpu().hl.uint16_value=pop_word(c,0); c.finish_return(1);
+        });
+        s.step(r); n.step(); n.step();
+        check(s.equivalent(n) && s.cpu().pc.uint16_value==0x200 && s.cpu().hl.uint16_value==(rom_stack ? 0x1234 : 0x5670),
+              "inherited words in ROM and cartridge RAM through the bus");
+    }
+    for (bool rom_stack:{true,false}) {
+        Machine s(p.rom); s.cpu().sp.uint16_value=rom_stack ? 0x3000 : 0x8100; s.cpu().hl.uint16_value=0x1234;
+        if (!rom_stack) s.memory().write(0xfffc,8);
+        Machine n=s;
+        RoutineRegistry r; add_held(r,p,1,false);
+        s.step(r); n.step(); n.step();
+        check(s.equivalent(n) && s.cpu().pc.uint16_value==0x100,"held words pushed into ROM and cartridge RAM through the bus");
+    }
+
+    // Declaration refusals.
+    auto refused=[](SegmentSpec spec) {
+        RoutineRegistry r;
+        rejects([&]{r.add({0,0},std::move(spec),cost(4),[](RoutineContext& c){c.finish_core(1);});},"Invalid registered segment");
+    };
+    refused(spec_of(0,{{F,1,-1}},2));                 // odd offset
+    refused(spec_of(0,{{F,1,1}},0,2));                // odd offset above
+    refused(spec_of(0,{{F,1,-4}},2));                 // below the scratch stack
+    refused(spec_of(0,{{F,1,2}},0,0));                // above the inherited bytes
+    refused(spec_of(0,{{F,1,4}},0,2));
+    refused(spec_of(0,{{R,1,-2}},2));                 // a return cannot hold a pushed word
+    refused(spec_of(0,{{F,1},{F,1,-2}},2));           // one declaration per kind and address
+    refused(spec_of(0,{{F,1,0,true},{F,1}}));
+    refused(spec_of(0,{{R,1}},0,3));                  // odd inherited bytes
+    refused(spec_of(0,{{R,1}},0,10));                 // more than eight
+    {   auto single=spec_of(0,{{F,0,-2}},2); single.single_instruction=true; refused(single); }
+    {   auto single=spec_of(0,{{F,0}},0,2); single.single_instruction=true; refused(single); }
+    {   auto forced=forced_spec(0); forced.inherited_stack=2; refused(forced); }
+    {   auto forced=forced_spec(0); forced.exits[0].stack=2; forced.inherited_stack=2; refused(forced); }
+    refused(spec_of(0,{{R,1,0,false,1}}));            // a loop threshold on a return
+    refused(spec_of(0,{{F,1,0,false,max_exit_after+1}}));
+    refused(spec_of(0,{{R,1,0,true}}));               // a conditional return
+    {   auto single=spec_of(0,{{F,0,0,true}}); single.single_instruction=true; refused(single); }
+    {   auto single=spec_of(0,{{F,0,0,false,4}}); single.single_instruction=true; refused(single); }
+    {   auto forced=forced_spec(0); forced.exits[0].conditional=true; refused(forced); }
+    {   auto forced=forced_spec(0); forced.exits[0].after=4; refused(forced); }
+    RoutineRegistry accepted;
+    accepted.add({0,0},spec_of(0,{{F,1,-16},{R,2,8},{F,3,0,true,max_exit_after}},max_scratch_stack,max_inherited_stack),
+        cost(4),[](RoutineContext& c){c.finish_core(1);});
+}
+// JP cc,nn (8), JR cc,e (4) and DJNZ at an exit declared conditional. The
+// target is 0x10 in every form; the untaken path is the next instruction.
+struct Conditional { std::vector<std::uint8_t> code; unsigned length; bool taken; std::uint8_t flags, b; std::uint64_t cycles; };
+std::vector<Conditional> conditional_cases() {
+    constexpr unsigned bits[]{6,0,2,7};
+    std::vector<Conditional> cases;
+    for (bool taken:{true,false}) {
+        for (unsigned condition=0;condition<8;++condition) {
+            const auto flag=static_cast<std::uint8_t>(((condition&1)==static_cast<unsigned>(taken))<<bits[condition/2]);
+            cases.push_back({{static_cast<std::uint8_t>(0xc2+8*condition),0x10,0x00},3,taken,flag,0,10});
+            if (condition<4) cases.push_back({{static_cast<std::uint8_t>(0x20+8*condition),0x0d},2,taken,flag,0,taken ? 12u : 7u});
+        }
+        cases.push_back({{0x10,0x0d},2,taken,0,static_cast<std::uint8_t>(taken ? 5 : 1),taken ? 13u : 8u});
+    }
+    cases.push_back({{0x10,0x0d},2,true,0,0,13}); // DJNZ with B=0 wraps to 255 and is taken
+    return cases;
+}
+std::shared_ptr<const Memory::Rom> conditional_program(const Conditional& k) {
+    std::vector<std::uint8_t> code{0x00};
+    code.insert(code.end(),k.code.begin(),k.code.end()); code.push_back(0xc9);
+    return image({{0,code},{0x10,{0x00,0xc9}}});
+}
+void conditional_exits() {
+    for (const auto& k:conditional_cases()) {
+        Machine cpp(conditional_program(k)); stack(cpp);
+        cpp.cpu().af.uint8_values.at_0=k.flags; cpp.cpu().bc.uint8_values.at_1=k.b;
+        Machine native=cpp;
+        RoutineRegistry r;
+        r.add({0,0},segment(0,{{F,1,0,true}}),cost(4+k.cycles),[](RoutineContext& c){nop(c,0);c.finish_core(1);});
+        cpp.step(r);
+        check(r.find({0,0})->counters.cpp_calls==1 && cpp.cpu().pc.uint16_value==(k.taken ? 0x10 : 1+k.length),
+              "conditional final jump taken or untaken by the core");
+        same_as_native(cpp,native,"conditional final jump equals the original");
+    }
+    auto refused=[](std::vector<std::uint8_t> code, bool conditional) {
+        Machine m(image({{0,code}})); stack(m);
+        RoutineRegistry r; r.add({0,0},segment(0,{{F,1,0,conditional}}),cost(30),[](RoutineContext& c){nop(c,0);c.finish_core(1);});
+        rejects([&]{m.step(r);},"not allowed");
+    };
+    // Conditional opcodes need the declaration...
+    for (std::uint8_t op:{0xc2,0xca,0xd2,0xda,0xe2,0xea,0xf2,0xfa,0x20,0x28,0x30,0x38,0x10})
+        refused({0x00,op,0x10,0x00},false);
+    // ...and a conditional exit takes nothing else: plain, calls, unconditional
+    // and indirect jumps, returns and prefixes.
+    for (std::uint8_t op:{0x00,0x3e,0x23,0xcd,0xc4,0xc3,0x18,0xe9,0xc9,0xc0,0xc7,0xdd,0xfd,0xed,0xcb,0x76})
+        refused({0x00,op,0xe9,0x00},true);
+}
+// Authored table scans, split by loop exits.
+//   plain at base: LD A,(HL); CP C; JR Z,+3; INC HL; JR -7; RET
+//   push  at base: PUSH BC; LD A,(HL); CP C; JR Z,+4; INC HL; JR -7; NOP; POP BC; RET
+// The plain scan re-enters its own entry through the native JR. The push scan
+// holds BC: its first segment ends at INC HL with stack -2, and the
+// continuation at the JR inherits the word, ending at INC HL or at the RET [+2].
+std::vector<std::uint8_t> scan_code(bool push) {
+    if (push) return {0xc5,0x7e,0xb9,0x28,0x04,0x23,0x18,0xf9,0x00,0xc1,0xc9};
+    return {0x7e,0xb9,0x28,0x03,0x23,0x18,0xf9,0xc9};
+}
+std::uint8_t compare_flags(std::uint8_t a, std::uint8_t v) {
+    const auto result=static_cast<std::uint8_t>(a-v);
+    return static_cast<std::uint8_t>((result&0x80) | (result ? 0 : 0x40) | (v&0x28) | ((a^v^result)&0x10) |
+        (((a^v)&(a^result)&0x80) ? 0x04 : 0) | 0x02 | (a<v ? 0x01 : 0));
+}
+enum class Start { plain, push, resume };
+std::uint16_t loop_of(std::uint16_t base, Start start) { return start==Start::plain ? base : static_cast<std::uint16_t>(base+1); }
+// The exact cost of the chunk this state takes, read with peek.
+std::uint64_t scan_cost(const Machine& m, Start start, std::uint16_t after) {
+    std::uint64_t cycles=start==Start::push ? 11 : start==Start::resume ? 12 : 0;
+    auto hl=m.cpu().hl.uint16_value; const auto c=m.cpu().bc.uint8_values.at_0;
+    for (;;) {
+        cycles+=11;
+        if (m.peek(hl)==c) return cycles+12+(start==Start::plain ? 0 : 10)+10;
+        cycles+=7;
+        if (cycles>=after) return cycles+6;
+        cycles+=18; ++hl;
+    }
+}
+// late: stop one qualifying arrival later; early: one arrival before the first qualifying.
+enum class Stop { first, late, early };
+void scan_body(RoutineContext& c, std::uint16_t base, Start start, std::uint16_t after, Stop stop=Stop::first) {
+    auto& z=c.cpu();
+    const auto loop=loop_of(base,start);
+    if (start==Start::push) push_word(c,base,z.bc.uint16_value);
+    if (start==Start::resume) {
+        const auto jr=static_cast<std::uint16_t>(base+6);
+        c.fetch_opcode(jr); (void)c.read(static_cast<std::uint16_t>(jr+1)); z.memptr.uint16_value=loop; c.advance(12);
+    }
+    bool skipped=false;
+    for (;;) {
+        c.fetch_opcode(loop); z.af.uint8_values.at_1=c.read(z.hl.uint16_value); c.advance(7);
+        c.fetch_opcode(static_cast<std::uint16_t>(loop+1));
+        z.af.uint8_values.at_0=compare_flags(z.af.uint8_values.at_1,z.bc.uint8_values.at_0); c.advance(4);
+        const auto jz=static_cast<std::uint16_t>(loop+2);
+        c.fetch_opcode(jz); const auto offset=static_cast<std::int8_t>(c.read(static_cast<std::uint16_t>(jz+1)));
+        if (z.af.uint8_values.at_0&0x40) {
+            z.memptr.uint16_value=static_cast<std::uint16_t>(jz+2+offset); c.advance(12);
+            if (start==Start::plain) { c.finish_return(static_cast<std::uint16_t>(base+7)); return; }
+            z.bc.uint16_value=pop_word(c,static_cast<std::uint16_t>(base+9));
+            c.finish_return(static_cast<std::uint16_t>(base+10)); return;
+        }
+        c.advance(7);
+        const auto exit=static_cast<std::uint16_t>(loop+4);
+        const bool qualifies=c.elapsed()>=after;
+        if ((stop==Stop::first && qualifies) || (stop==Stop::late && qualifies && skipped) ||
+            (stop==Stop::early && c.elapsed()+36>=after)) { c.finish_core(exit); return; }
+        skipped=skipped || qualifies;
+        c.fetch_opcode(exit); ++z.hl.uint16_value; c.advance(6);
+        c.fetch_opcode(static_cast<std::uint16_t>(exit+1)); (void)c.read(static_cast<std::uint16_t>(exit+2));
+        z.memptr.uint16_value=loop; c.advance(12);
+    }
+}
+void add_scan(RoutineRegistry& r, std::uint16_t base, bool push, std::uint16_t after, Stop stop=Stop::first) {
+    const auto exit=static_cast<std::uint16_t>(loop_of(base,push ? Start::push : Start::plain)+4);
+    const std::uint64_t extra=stop==Stop::late ? 36 : 0;
+    if (!push) {
+        r.add({0,base},spec_of(base,{{F,exit,0,false,after},{R,static_cast<std::uint16_t>(base+7)}}),
+            [=](const Machine& m){return scan_cost(m,Start::plain,after)+extra;},
+            [=](RoutineContext& c){scan_body(c,base,Start::plain,after,stop);});
+        return;
+    }
+    r.add({0,base},spec_of(base,{{F,exit,-2,false,after},{R,static_cast<std::uint16_t>(base+10)}},2),
+        [=](const Machine& m){return scan_cost(m,Start::push,after)+extra;},
+        [=](RoutineContext& c){scan_body(c,base,Start::push,after,stop);});
+    r.add({0,static_cast<std::uint16_t>(base+6)},spec_of(base,{{F,exit,0,false,after},{R,static_cast<std::uint16_t>(base+10),2}},0,2),
+        [=](const Machine& m){return scan_cost(m,Start::resume,after)+extra;},
+        [=](RoutineContext& c){scan_body(c,base,Start::resume,after,stop);});
+}
+Machine scan_machine(bool push, unsigned records) {
+    Machine m(image({{0x40,scan_code(push)}})); stack(m); m.cpu().pc.uint16_value=0x40;
+    for (unsigned i=0;i<records;++i) m.memory().write(static_cast<std::uint16_t>(0xc200+i),static_cast<std::uint8_t>(0x10+i%7));
+    m.memory().write(static_cast<std::uint16_t>(0xc200+records),0x99);
+    m.cpu().hl.uint16_value=0xc200; m.cpu().bc.uint16_value=0x7799;
+    return m;
+}
+void loop_exits() {
+    for (bool push:{false,true}) for (std::uint16_t after:{0,1,40,100,128,1000}) for (unsigned records:{0u,1u,5u,12u}) {
+        Machine cpp=scan_machine(push,records), native=cpp;
+        RoutineRegistry r; add_scan(r,0x40,push,after);
+        until_return(cpp,&r); until_return(native);
+        check(cpp.equivalent(native),"split scan equals the original program");
+        std::uint64_t calls=0;
+        for (const auto& [entry,routine]:r.entries()) {
+            check(routine.counters.fallback_calls==0,"split scan never falls back away from a boundary");
+            calls+=routine.counters.cpp_calls;
+        }
+        check(calls>=1 && (records<2 || after>=1000 || calls>1),"the scan is split into chunks");
+    }
+    // A body taking the loop exit before its declared cycles is refused.
+    Machine early=scan_machine(false,12);
+    RoutineRegistry r; add_scan(r,0x40,false,128,Stop::early);
+    rejects([&]{early.step(r);},"loop exit before its declared cycles");
+}
 void irq_query() {
     unsigned count=0, future=0, absent=0;
     for (unsigned line:{0,1,190,191,192,193,259,260,261})
@@ -669,7 +977,8 @@ int main(int argc,char** argv) {
     try {
         if(argc==2 && std::string_view(argv[1])=="irq_query") irq_query();
         else {results(); vdp_results(); windows(); registry_and_guards(); scratch_overwrite();
-            segments(); segment_faults(); segment_windows(); absolute_store_segment();}
+            segments(); segment_faults(); segment_windows(); absolute_store_segment();
+            held_words(); conditional_exits(); loop_exits();}
         std::cout<<"Registered routine tests passed.\n"; return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n'; return 1;}
 }

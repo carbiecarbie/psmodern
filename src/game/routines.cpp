@@ -56,6 +56,9 @@ bool register_routines(RoutineRegistry& registry, std::string_view digest, const
     register_experience(registry,options);
     register_money_add(registry);
     register_battle_setup(registry,options);
+    register_dungeon_cells(registry);
+    register_dungeon_movement(registry);
+    register_dungeon_objects(registry);
     return true;
 }
 }

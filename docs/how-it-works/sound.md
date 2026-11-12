@@ -107,7 +107,7 @@ A power cycle discards it. A session that never accelerates uses only the
 original output.
 
 **ROM static; ROM run.** Sound execution uses bank `0C`, sound records within
-`$C000–$C1FF`, and PSG writes. Some indirect data reads also reach the fixed
+`$C001–$C1ED`, and PSG writes. Some indirect data reads also reach the fixed
 ROM bank. The separate path therefore keeps the player's complete ROM
 mapping and uses its original CPU and chip implementations. It retains
 oscillator phase and the unsubmitted audio before capture. Native calls

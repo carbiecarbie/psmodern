@@ -105,8 +105,8 @@ void RomFont::window(std::span<std::uint32_t> pixels,int x,int y,int width,int h
     for(int tx=x+8;tx<x+width-8;tx+=8){tile(2,tx,y);tile(2,tx,y+height-8,false,true);}
     for(int ty=y+8;ty<y+height-8;ty+=8){tile(ty==cursor_y ? 0 : 3,x,ty);tile(3,x+width-8,ty,true);}
 }
-void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording) {
-    game::validate(options);draft_=options;restricted_=restricted;pending_=pending;
+void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording,bool automap) {
+    game::validate(options);draft_=options;restricted_=restricted;pending_=pending;automap_=automap;
     visible_=true;armed_=false;failed_=false;recording_=recording;selected_=0;previous_={};next_repeat_=0;
 }
 MenuAction OptionsMenu::update(const MenuInput& input,double now) {
@@ -125,7 +125,8 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(cancel)return MenuAction::close;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
-        if(input.up!=input.down)selected_=(selected_+1)%2;
+        if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : 2))%3;
+        if(!restricted_ && selected_==2 && input.left!=input.right)automap_=!automap_;
         if(!restricted_ && selected_<2 && input.left!=input.right) {
             const auto& choices=selected_==0 ? game::encounter_percent_choices : game::experience_percent_choices;
             auto& current=selected_==0 ? draft_.encounter_percent : draft_.experience_percent;
@@ -137,17 +138,22 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     return MenuAction::none;
 }
 void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font) const {
-    font.window(pixels,24,40,208,120,selected_==0 ? 72 : 112);
+    // Three label rows on the cursor tiles 56, 88 and 120, each value one
+    // blank line below (design notes, section 4, "Keys, hold and options").
+    static constexpr int rows[]{56,88,120};
+    font.window(pixels,24,24,208,152,rows[selected_]);
     auto text=[&](int x,int y,std::string_view label){font.text(pixels,x,y,label,0xffffffff);};
     auto value=[](unsigned percent,unsigned recommended) {
         return std::to_string(percent)+"%"+(percent==100 ? " (DEFAULT)" : percent==recommended ? " (RECOMMENDED)" : "");
     };
-    text(100,48,"OPTIONS");
-    text(40,72,"ENCOUNTERS");text(48,88,value(draft_.encounter_percent,50));
-    text(40,112,"EXPERIENCE / MESETA");text(48,128,value(draft_.experience_percent,400));
-    if(failed_)text(40,144,"SAVE FAILED - RETRY");
-    else if(restricted_)text(40,144,recording_ ? "RECORDING - READ ONLY" : "Z80 MODE - READ ONLY");
-    else if(pending_)text(40,144,"SAVED - WAITING");
+    text(100,32,"OPTIONS");
+    text(40,rows[0],"ENCOUNTERS");text(48,rows[0]+16,value(draft_.encounter_percent,50));
+    text(40,rows[1],"EXPERIENCE / MESETA");text(48,rows[1]+16,value(draft_.experience_percent,400));
+    text(40,rows[2],"AUTOMAP");text(48,rows[2]+16,automap_ ? "ON" : "OFF (DEFAULT)");
+    // The pending state concerns the routine options only.
+    if(failed_)text(40,152,"SAVE FAILED - RETRY");
+    else if(restricted_)text(40,152,recording_ ? "RECORDING - READ ONLY" : "Z80 MODE - READ ONLY");
+    else if(pending_)text(40,152,"SAVED - WAITING");
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {
     if(!waiting_)return input;

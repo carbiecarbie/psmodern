@@ -35,12 +35,30 @@ struct RoutineCounters {
 // returned: the core executes the returning instruction at address.
 // core_final: the core executes the instruction at address as the segment's
 // last instruction: CALL nn, CALL cc,nn, JP nn, or an unprefixed instruction
-// without I/O, memory write or control transfer that is not HALT, EI or DI.
+// without I/O, memory write or control transfer that is not HALT, EI or DI;
+// at a conditional exit only JP cc,nn, JR cc,e or DJNZ.
 enum class RoutineExit : unsigned { returned, core_final };
+inline constexpr unsigned max_inherited_stack=8;
+inline constexpr std::uint16_t max_exit_after=16384;
 struct SegmentExit {
     RoutineExit kind;
     std::uint16_t address;
-    bool operator==(const SegmentExit&) const = default;
+    // SP before the final instruction minus the entry SP, in bytes (even).
+    // Negative: words the segment pushed and holds across its final
+    // instruction; positive: inherited words it popped.
+    std::int8_t stack=0;
+    // core_final only: the final instruction is JP cc,nn, JR cc,e or DJNZ,
+    // and nothing else.
+    bool conditional=false;
+    // core_final only: taken at the first arrival with at least this many
+    // cycles elapsed since entry (a loop exit); 0 is the first arrival.
+    std::uint16_t after=0;
+    // An exit is identified by kind and address; the other fields are its
+    // properties. same_declaration compares every field.
+    bool operator==(const SegmentExit& other) const { return kind==other.kind && address==other.address; }
+    bool same_declaration(const SegmentExit& other) const {
+        return *this==other && stack==other.stack && conditional==other.conditional && after==other.after;
+    }
 };
 // A segment of the rewritten routine `unit`. An empty exit list (only from the
 // three-argument add) accepts any returning instruction, as in milestone 2.
@@ -61,6 +79,10 @@ struct SegmentSpec {
     // allowed. If RAM is disabled the forced body is rejected before the
     // step and the unchanged original instruction runs natively.
     std::optional<std::uint16_t> absolute_wram_store=std::nullopt;
+    // Bytes above the entry SP that belong to the unit (pushed by an earlier
+    // segment): even, at most max_inherited_stack. Dispatch falls back when
+    // any of them is unmapped or on the mapper registers.
+    unsigned inherited_stack=0;
 };
 
 // A capability for one replacement call. Bus operations must follow the original
@@ -91,7 +113,7 @@ private:
     void bus() const;
     void at_offset(std::uint64_t offset);
     void check_bound() const;
-    void prepare_final(SegmentExit exit);
+    SegmentExit prepare_final(SegmentExit exit);
     void final_step();
     Machine& machine_;
     const SegmentSpec& spec_;

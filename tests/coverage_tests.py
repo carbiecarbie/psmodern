@@ -3,7 +3,10 @@ from pathlib import Path
 import sys
 import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from generate_coverage import CHECKPOINTS, COLUMNS, COUNTERS, generate
+from generate_coverage import ALL, COLUMNS, COUNTERS, checkpoints, generate
+
+# The number of checkpoint censuses (six per version and the US-only ones).
+N = len(checkpoints('us')) + len(checkpoints('br'))
 
 
 def check(condition, detail):
@@ -39,7 +42,7 @@ def write_all(root, text, special=None):
     """Write `text` to every checkpoint; `special` maps (version, name) to other text."""
     for version in ('us', 'br'):
         (root/version).mkdir(exist_ok=True)
-        for name in CHECKPOINTS:
+        for name in checkpoints(version):
             (root/version/f'{name}.tsv').write_text(HEADER+(special or {}).get((version, name), text), encoding='ascii')
 
 
@@ -58,7 +61,7 @@ with tempfile.TemporaryDirectory() as directory:
     controller = row(CTRL, CTRL, 99, 1, reasons={'irq': 1, 'frame': 1})
     write_all(root, controller)
     output = generate(root)
-    check('| Total | All twelve | 1,188 | 12 | 0 | 0 | 99.000% |' in output, 'Wrong coverage totals')
+    check(f'| Total | {ALL} | {99*N:,} | {N} | 0 | 0 | 99.000% |' in output, 'Wrong coverage totals')
     check('| Forced | Forced failed |' in output, 'Forced columns missing')
     check('## 00:0339\n\n| ROM' in output, 'A lone self-unit entry needs no segment heading')
     check('Forced reasons' not in output and 'forced_irq' not in output, 'Forced reasons shown without forced calls')
@@ -92,7 +95,7 @@ with tempfile.TemporaryDirectory() as directory:
             row('01:5FD8', '01:5FD8') +
             row('01:5FEC', '01:5FD8'))
     write_all(root, rows)
-    # The twelve real censuses run in original mode: forced calls are refused unless a test says otherwise.
+    # The real censuses run in original mode: forced calls are refused unless a test says otherwise.
     rejects(root, 'Forced calls in original mode')
     output = generate(root, allow_forced=True)
     check(output.count(f'## {UNIT}\n') == 1 and f'## {OPT}' not in output and f'## {PROBE}' not in output,
@@ -100,15 +103,15 @@ with tempfile.TemporaryDirectory() as directory:
     check(f'### Segment {UNIT}' in output and f'### Segment {OPT}' in output, 'Segment headings missing')
     check(output.index(f'### Segment {OPT}') < output.index(f'### Segment {UNIT}') < output.index('## Covered by state probes only'),
           'Unit sections out of order')
-    check('| Total | All twelve | 480 | 0 | 36 | 0 | 100.000% |' in output, 'Forced totals missing')
+    check(f'| Total | {ALL} | {40*N:,} | 0 | {3*N} | 0 | 100.000% |' in output, 'Forced totals missing')
     check('| ROM | Recording | forced_disabled | forced_irq | forced_nmi | forced_frame |' in output, 'Forced reasons missing')
-    check('| Total | All twelve | 0 | 12 | 0 | 24 | 0 | 0 | 0 | 0 |' in output, 'Forced reason totals wrong')
+    check(f'| Total | {ALL} | 0 | {N} | 0 | {2*N} | 0 | 0 | 0 | 0 |' in output, 'Forced reason totals wrong')
     tail = output[output.index('## Covered by state probes only'):]
     for entry, unit in ((PROBE, UNIT), ('01:5FD8', '01:5FD8'), ('01:5FEC', '01:5FD8')):
         check(f'- {entry} (unit {unit})' in tail, f'Unreached entry not listed: {entry}')
         check(f'Segment {entry}' not in output and f'## {entry}' not in output, f'Unreached entry has a table: {entry}')
     check(f'- {OPT}' not in tail and f'- {CTRL}' not in tail, 'Reached entry listed as unreached')
-    # Units must agree across the twelve censuses.
+    # Units must agree across the censuses.
     (root/'us'/'boss.tsv').write_text(HEADER+rows.replace(OPT+'	'+UNIT, OPT+'	'+PROBE), encoding='ascii')
     rejects(root, 'disagree')
     # A forced body that fell back before its core step has a fallback with no window reason;
@@ -124,7 +127,7 @@ with tempfile.TemporaryDirectory() as directory:
     write_all(root, row(CTRL, CTRL, 99, 3, forced_failed=1, reasons={'irq': 1}))
     rejects(root, 'without a reason', allow_forced=True)
 
-# The 20-call gate and the one-C++-call rule, over all twelve censuses.
+# The 20-call gate and the one-C++-call rule, over all the censuses.
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     base = row(CTRL, CTRL, 99, 1, reasons={'irq': 1})
@@ -145,7 +148,7 @@ with tempfile.TemporaryDirectory() as directory:
     generate(root)
     census({opening: (4, 16)})       # 20 calls again
     rejects(root, f'below 90%: {OPT}')
-    # The total over the twelve gates, though no recording reaches 20 calls.
+    # The total over all the censuses gates, though no recording reaches 20 calls.
     census({('us', 'opening'): (5, 6), ('us', 'first-battle'): (5, 6), ('br', 'boss'): (5, 6)})
     rejects(root, f'below 90%: {OPT}')
     # Each recording is also gated on its own at 20 calls, whatever the total.
@@ -169,4 +172,12 @@ with tempfile.TemporaryDirectory() as directory:
     # An entry that is never reached needs neither: it is listed for state probes.
     write_all(root, nothing)
     check(f'- {OPT} (unit {UNIT})' in generate(root), 'Never-reached entry not listed')
+# The US-only dungeon recordings are required for the US version and absent for the Brazilian one.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    write_all(root, row(CTRL, CTRL, 99, 1, reasons={'irq': 1}))
+    check(not (root/'br'/'dungeon-walk-1.tsv').exists(), 'No Brazilian dungeon-walk census expected')
+    generate(root)
+    (root/'us'/'dungeon-continue.tsv').unlink()
+    rejects(root, 'dungeon-continue.tsv')
 print('Coverage fixtures passed')

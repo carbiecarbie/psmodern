@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "game/dungeon.h"
 #include "game/encounters.h"
 #include "game/experience.h"
 #include "game/money.h"
@@ -19,4 +20,11 @@ bool register_routines(RoutineRegistry& registry, std::string_view rom_sha1, con
 // Each game system registers its own segments (random.cpp, encounters.cpp,
 // experience.cpp); register_routines calls them for an identified image.
 void register_random(RoutineRegistry& registry);
+// The milestone 7 dungeon routines (entries in game/dungeon.h): the cell
+// readers (dungeon_cells.cpp), the handler with its pitfall, steps and turns
+// (dungeon_movement.cpp), and the door, exit lookup and object check
+// (dungeon_objects.cpp).
+void register_dungeon_cells(RoutineRegistry& registry);
+void register_dungeon_movement(RoutineRegistry& registry);
+void register_dungeon_objects(RoutineRegistry& registry);
 }

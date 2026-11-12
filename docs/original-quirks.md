@@ -86,3 +86,111 @@ text from the player's ROM.
   still saturates, and the character keeps gaining one level per award. This
   is a maintainer decision (2026-11-11)
   (see [party](how-it-works/party.md#the-experience-rate-option)).
+
+## Dungeons
+
+How these work is in [dungeons](how-it-works/dungeons.md). Original mode keeps
+every entry below on purpose; the counts come from reading the tables of the
+US Rev-A ROM (the Brazilian tables are identical here).
+
+### Dead fight records
+
+- **Where:** the object table of bank `03`, read by `01:6963` and `01:65EE`.
+- **ROM static.** Five fixed-fight records (one on floor 12, four on floor 41)
+  name cells whose value is not the object marker, and every path that reads the
+  table first requires exactly that value, so the fights can never start.
+
+### Shadowed second records
+
+- **Where:** the scan in `01:6963` (and the same scan in `01:65EE`).
+- **ROM static.** Ten cells carry two records (nine pairs of money chests and
+  one item chest with a money chest). The scan stops at the first record, even a
+  done one, so the second record and its done flag are never used.
+
+### The dead exit record
+
+- **Where:** the exit table, read by `01:68BC`.
+- **ROM static.** One record (kind FFh) names an open floor cell. The lookup is
+  reached only for stairs and doors with the exit bit, so it never runs.
+
+### Exit cells without a record
+
+- **Where:** `01:68BC`, no-record ending.
+- **ROM static.** 16 cells (10 stairs up and 6 doors) carry the exit bit but
+  have no record; the game mode becomes the world map and the party returns to
+  where it entered. **ROM run.** The entrance stairs of Maharu Cave did this.
+
+### Exit cells that start a scene, an interaction or an event
+
+- **Where:** `01:68BC`, kinds of 80h or more.
+- **ROM static.** 33 of the 64 exit-bit cells with a record do not lead out
+  (30 FFh, one each FEh, FDh and FCh): kind FFh runs a scene, FEh and FDh an
+  interaction, FCh an event alone; the event then runs and the party may stay
+  in the dungeon. Only 31 lead to the world map through a record. Of the 80
+  exit-bit cells in all, 16 have no record. A 31st FFh record names a plain
+  open cell and is never reached.
+
+### A chest behind the party does nothing
+
+- **Where:** `01:6963`, the return at `01:69C7`-`01:69CA`.
+- **ROM static.** After a back step the object check also looks at the cell
+  behind. For a chest there it prepares the reward and the pending byte and
+  returns before the dialogue, so the chest stays closed. A fixed fight or an
+  event behind turns the party around first and then runs.
+
+### Stairs approaches that land inside a wall
+
+- **Where:** the stairs path of `01:65EE` (`01:6715`, `01:6734`).
+- **ROM static.** Stairs put the party two cells forward on the next floor
+  without testing that cell. Three approaches from open cells (one on floor 10,
+  two on floor 55) land on a wall of the floor above. Every stairs cell has its
+  opposite at the same place, so no other landing differs.
+
+### A pitfall that lands inside a wall
+
+- **Where:** `01:661C`.
+- **ROM static.** The fall keeps the cell and lowers the floor by one. The
+  pitfall on floor 25 lands on a wall cell of floor 24. Of the 33 pitfalls, 28
+  land on open floor.
+
+### Cascading pits
+
+- **Where:** `01:65EE` and `01:661C`.
+- **ROM static.** The pitfalls on floors 49 to 52 share one cell, so each fall
+  lands on another pitfall and the next handler call starts another fall, down
+  to floor 47.
+
+### The fake wall's unchecked second step
+
+- **Where:** `01:6755` calling `01:6758`.
+- **ROM static.** The call is to the very next instruction, so the step runs
+  twice and the second run never reads the cell beyond. **ROM run.** The party
+  crossed a fake wall in two steps.
+
+### Doors close on every floor reload
+
+- **Where:** the opened-door bit set at `01:6823`; the layout expanded by
+  `01:6D56`.
+- **ROM static.** The bit is only in the RAM copy of the floor, rebuilt from the
+  ROM at each load: stairs, a pitfall, a resume and re-entering all close every
+  door. Chest, fight and event flags are saved and stay.
+
+### A back step towards stairs does nothing
+
+- **Where:** `01:677A`.
+- **ROM static, ROM run.** A back step needs open floor behind; stairs, doors
+  and walls do nothing. Observed at the entrance of Maharu Cave.
+
+### Encounters armed by turns and back steps
+
+- **Where:** `01:6A58` (sets `$C2D2`) and `00:0F4B`.
+- **ROM static.** Every turn and step goes through the animation routine that
+  arms the encounter check, and finding an unfinished record arms it too.
+  **ROM run.** Turns and a back step triggered fights while the recordings were
+  made.
+
+### Fights and events start when their cell is ahead
+
+- **Where:** `01:6963`.
+- **ROM static, ROM run.** The object check reads the cell ahead, not the one
+  stood on, so a fixed fight or event begins when the party faces it.

@@ -16,12 +16,15 @@ public:
     void refresh();
     Buttons sample() const;
     bool options() const;
+    bool map() const;   // the X button opens and closes the automap
     bool fast_forward() const;
     bool owns(SDL_JoystickID instance) const;
 private:
     SDL_GameController* controller_=nullptr;
 };
 FrameInput sample_input(SDL_Window* window,const Controller& controller,const EnterKey& enter);
+// Host menu input: arrows / d-pad, Z / A accept, X / B cancel, Esc / Y
+// toggle (Options), M / X map.
 MenuInput sample_menu_input(SDL_Window* window,const Controller& controller);
 // The game window and what draws the 256x192 picture into it.
 struct Display {

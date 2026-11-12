@@ -38,12 +38,11 @@ one play-test; the automap reads state the original keeps (design 5.3).
 
 1. **Maintainer decisions (2026-11-11).** The map shows explored cells only.
    Pitfalls and fake walls appear only once found; fixed fights (the bosses
-   and guardians waiting on a fixed cell) are never marked, which replaced
-   the first wording that would have shown them after the fight. A seen cell
-   shows its true kind as soon as it enters the view, side doors, stairs up
-   or down and locked or magic doors included, which is slightly more than
-   the 3D view shows. A fake wall walked through is drawn as ordinary floor.
-   A button opens the map of the current floor with the game held (music
+   and guardians waiting on a fixed cell) are never marked. A seen cell shows
+   its true kind as soon as it enters the view, side doors, stairs up or
+   down, locked or magic doors and chests included, which is slightly more
+   than the 3D view shows. A fake wall walked through is drawn as floor. A
+   button opens the map of the current floor with the game held (music
    continues, no encounter); it is never shown permanently. Exploration is
    recorded even while the option is off. The map uses new simple 8x8
    icons, the doors one drawing in three colours (plain, locked, magic), a
@@ -78,22 +77,23 @@ one play-test; the automap reads state the original keeps (design 5.3).
    the cells the 3D view drew, cut at the first wall ahead, plus every cell
    stood on (ROM static on `01:6AED`; a test runs the original drawing to
    prove an unseen cell never changes the picture). A fake wall shows as wall
-   until walked through. An object cell shows as floor until found: a
-   pitfall when stood on, a chest when it is directly ahead, the only case in
-   which the game announces it (ROM static). Opened chests show as opened;
-   events get no marker. The game's first-match rule is used, so dead and
-   shadowed records never show. The exit marker appears on a seen exit cell
-   that leads to the world map; cells whose record starts a scene or
-   interaction instead (33 cells) show as plain stairs or doors (ROM static).
-   Opened doors are not marked: the game closes them on every reload.
+   until walked through; a pitfall shows as floor until stood on. A chest
+   shows once seen, though the game announces it only directly ahead
+   (Maintainer decision, 2026-11-11; ROM static); opened chests show as
+   opened; events get no marker. Dead and shadowed records never show (the
+   game's first-match rule). The exit marker appears on a seen exit cell
+   that leads to the world map; of the 80 exit-bit cells, the 33 whose
+   record starts a scene or interaction show as plain stairs or doors (ROM
+   static). Opened doors are not marked: the game closes them on reload.
 7. **Kept with each saved game** (provisional). `<save>.automap` holds one
    record per saved game, keyed by the SHA-256 of the 1 KiB game block
    (`$C300-$C6FF`). Stored after the save completes (`00:1D2D`), restored
    after Continue (`00:06B4`), cleared on a new game (`00:05F4`), all native
    points (ROM static, ROM run). The first cartridge write after a save comes
    after the map's write; a failed map write is retried and never blocks the
-   save; an unknown game gives an empty map, never a wrong one. Its limits
-   are derived so the program never writes a file it would refuse to read.
+   save; an unknown game or an unusable file gives an empty map, never a
+   wrong one; the next save keeps an unusable file as `.automap.bak` and
+   replaces it (Maintainer decision, 2026-11-11); no file it writes is refused.
 8. **Keys and option** (provisional). M on the keyboard, X on a controller,
    at the dungeon's walking wait; M, X, Esc or cancel close. The game is held
    as for Options: opening and cancelling the game's own field menu, a legal
@@ -157,5 +157,6 @@ Each part ends with the complete suite green; parallel parts share no file.
   with routines on and off.
 - **Play-test** (one session, US). Only what needs a person: how the map
   looks and reads; whether the found rules feel right in play; how M and X
-  feel with the game held; save, Continue and power cycle with real files;
-  the Options row. The provisional decisions are confirmed or changed there.
+  feel with the game held; the Options row; one smoke save and Continue in the
+  real settings folder (the suite settles save, Continue and power cycle with
+  real files). The provisional decisions are confirmed or changed there.

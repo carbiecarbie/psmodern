@@ -39,12 +39,14 @@ target_include_directories(psmodern_hw PUBLIC src)
 target_link_libraries(psmodern_hw PUBLIC redcode_z80)
 add_library(psmodern_rom src/rom/rom.cpp src/rom/sha1.cpp src/rom/sha256.cpp)
 target_include_directories(psmodern_rom PUBLIC src)
-add_library(psmodern_game src/game/routines.cpp src/game/random.cpp src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp)
+add_library(psmodern_game src/game/routines.cpp src/game/random.cpp src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp
+  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp)
 target_link_libraries(psmodern_game PUBLIC psmodern_hw psmodern_rom)
 add_library(psmodern_replay src/replay/recording.cpp src/replay/verification.cpp src/replay/census.cpp)
 target_link_libraries(psmodern_replay PUBLIC psmodern_game)
 configure_file(cmake/PSModernVersion.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/PSModernVersion.h @ONLY)
-add_library(psmodern_app src/app/host.cpp src/app/settings.cpp src/app/rom_list.cpp src/app/start_screen.cpp src/app/save_store.cpp src/app/frame_driver.cpp src/app/tempo_audio.cpp src/app/options_menu.cpp)
+add_library(psmodern_app src/app/host.cpp src/app/settings.cpp src/app/rom_list.cpp src/app/start_screen.cpp src/app/save_store.cpp src/app/frame_driver.cpp src/app/tempo_audio.cpp src/app/options_menu.cpp
+  src/app/automap_store.cpp src/app/automap_screen.cpp)
 target_link_libraries(psmodern_app PUBLIC psmodern_hw psmodern_rom psmodern_replay)
 target_include_directories(psmodern_app PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_executable(psmodern_replay_runner src/replay/main.cpp)
@@ -142,6 +144,25 @@ if(BUILD_TESTING)
     add_test(NAME ${system}_catalog COMMAND psmodern_${system}_tests)
     set_tests_properties(${system}_catalog PROPERTIES LABELS fast)
   endforeach()
+  # Milestone 7 (dungeon routines and automap). Without arguments each runs its
+  # ROM-free checks; the ROM runs are declared in psmodern_rom_test below.
+  foreach(system dungeon_cells dungeon_movement dungeon_objects)
+    add_executable(psmodern_${system}_tests tests/${system}_tests.cpp)
+    target_link_libraries(psmodern_${system}_tests PRIVATE psmodern_replay)
+    add_test(NAME ${system}_catalog COMMAND psmodern_${system}_tests)
+    set_tests_properties(${system}_catalog PROPERTIES LABELS fast)
+  endforeach()
+  add_executable(psmodern_automap_tests tests/automap_tests.cpp)
+  target_link_libraries(psmodern_automap_tests PRIVATE psmodern_game)
+  add_test(NAME automap_unit COMMAND psmodern_automap_tests)
+  add_executable(psmodern_automap_store_tests tests/automap_store_tests.cpp)
+  target_link_libraries(psmodern_automap_store_tests PRIVATE psmodern_app)
+  add_test(NAME automap_store_unit COMMAND psmodern_automap_store_tests)
+  set_tests_properties(automap_unit automap_store_unit PROPERTIES LABELS fast)
+  add_executable(psmodern_automap_view_tests tests/automap_view_tests.cpp)
+  target_link_libraries(psmodern_automap_view_tests PRIVATE psmodern_replay)
+  add_executable(psmodern_automap_session tests/automap_session.cpp src/app/sdl_host.cpp)
+  target_link_libraries(psmodern_automap_session PRIVATE psmodern_app SDL2::SDL2)
   add_test(NAME routine_coverage_tools COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/coverage_tests.py)
   set_tests_properties(routine_coverage_tools PROPERTIES LABELS fast)
   add_executable(psmodern_replay_tests tests/replay_tests.cpp)
@@ -278,7 +299,13 @@ if(BUILD_TESTING)
       set_tests_properties("${name}_record" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       add_test(NAME "${name}_replay" COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/replay_rom_tests.py $<TARGET_FILE:psmodern_replay_runner> "${path}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}/short.psrec")
       set_tests_properties("${name}_replay" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
-      foreach(checkpoint opening first-battle first-dungeon later-town boss deep-dungeon)
+      # Milestone 7 added three US dungeon recordings (a walk in two parts and a
+      # Continue that leaves the dungeon); the Brazilian checkpoints stay six.
+      set(checkpoints opening first-battle first-dungeon later-town boss deep-dungeon)
+      if(version STREQUAL "us")
+        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue)
+      endif()
+      foreach(checkpoint IN LISTS checkpoints)
         set(manifest "")
         if(PSMODERN_REFERENCE_DIR)
           set(manifest "${PSMODERN_REFERENCE_DIR}/${version}/${checkpoint}/manifest.txt")
@@ -304,6 +331,55 @@ if(BUILD_TESTING)
       add_test(NAME "${name}_options_fights" COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/replay_rom_tests.py
         fights "${CMAKE_CURRENT_BINARY_DIR}/option-fights/${version}")
       set_tests_properties("${name}_options_fights" PROPERTIES SKIP_RETURN_CODE 77 LABELS "checkpoint;rom" FIXTURES_REQUIRED "options_${version}")
+      # Milestone 7: cell-reader probes, table facts (compared with the other
+      # version's tables when its ROM is configured), the movement and object
+      # probes, the automap view and the automap session (its own work folder).
+      if(version STREQUAL "us")
+        set(other_rom "${PSMODERN_ROM_BR}")
+      else()
+        set(other_rom "${PSMODERN_ROM_US}")
+      endif()
+      add_test(NAME "${name}_dungeon_cells" COMMAND psmodern_dungeon_cells_tests "${path}" "${version}" cells)
+      add_test(NAME "${name}_dungeon_tables" COMMAND psmodern_dungeon_cells_tests "${path}" "${version}" tables "${other_rom}")
+      add_test(NAME "${name}_dungeon_movement" COMMAND psmodern_dungeon_movement_tests "${path}" "${version}")
+      add_test(NAME "${name}_dungeon_objects" COMMAND psmodern_dungeon_objects_tests "${path}" "${version}")
+      # The view test runs in three parts: the table checks and two halves of
+      # the mutation of the original view drawing (states 0-199 and 200-399).
+      add_test(NAME "${name}_automap_view" COMMAND psmodern_automap_view_tests "${path}" "${version}" tables)
+      add_test(NAME "${name}_automap_mutation_0" COMMAND psmodern_automap_view_tests "${path}" "${version}" mutation-0)
+      add_test(NAME "${name}_automap_mutation_1" COMMAND psmodern_automap_view_tests "${path}" "${version}" mutation-1)
+      set_tests_properties("${name}_dungeon_cells" "${name}_dungeon_tables" "${name}_dungeon_movement" "${name}_dungeon_objects"
+        "${name}_automap_view" "${name}_automap_mutation_0" "${name}_automap_mutation_1" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      # Each part has its own subfolder of the work folder. The session runs two
+      # drivers on two threads and each passivity test four on four, so ctest -j
+      # counts them as two and four processors.
+      set(automap_session psmodern_automap_session "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}"
+        "${PSMODERN_REFERENCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/automap-session-${version}")
+      add_test(NAME "${name}_automap_session" COMMAND ${automap_session} session)
+      set_tests_properties("${name}_automap_session" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 2)
+      # Brazilian boss (19,550 frames) is left out: alone it takes about 45 s.
+      set(passivity_recordings first-dungeon deep-dungeon)
+      if(version STREQUAL "us")
+        list(APPEND passivity_recordings boss dungeon-walk-1 dungeon-walk-2 dungeon-continue)
+        # The wrong-map paths: a new game and Continues after exploring, in
+        # one driver, from the walk recordings.
+        add_test(NAME "${name}_automap_wrong_map" COMMAND ${automap_session} wrong-map)
+        set_tests_properties("${name}_automap_wrong_map" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
+        # The walk chain plays the three walk recordings in one save folder,
+        # one link each, in order: each Continue finds the previous save's map.
+        foreach(link 1 2 3)
+          add_test(NAME "${name}_automap_chain_${link}" COMMAND ${automap_session} chain ${link})
+          set_tests_properties("${name}_automap_chain_${link}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom FIXTURES_SETUP "automap_chain_${link}")
+          if(link GREATER 1)
+            math(EXPR previous "${link} - 1")
+            set_tests_properties("${name}_automap_chain_${link}" PROPERTIES FIXTURES_REQUIRED "automap_chain_${previous}")
+          endif()
+        endforeach()
+      endif()
+      foreach(recording IN LISTS passivity_recordings)
+        add_test(NAME "${name}_automap_passivity_${recording}" COMMAND ${automap_session} passivity ${recording})
+        set_tests_properties("${name}_automap_passivity_${recording}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 4)
+      endforeach()
       add_test(NAME "${name}" COMMAND psmodern_rom_tests "${path}" "${version}")
       set_tests_properties("${name}" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       if(version STREQUAL "us")

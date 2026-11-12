@@ -71,7 +71,7 @@ int main(int argc, char** argv) { try {
     probe::Harness harness(*rom);
     const auto& spec=harness.routine(game::random_entry).spec;
     check(spec.unit==game::random_entry && spec.scratch_stack==2 && !spec.slot2_mapper &&
-          spec.exits==std::vector<SegmentExit>{{RoutineExit::returned,0x05CF}},"random segment declaration");
+          spec.exits.size()==1 && spec.exits[0].same_declaration({RoutineExit::returned,0x05CF}),"random segment declaration");
     // The recovery state is the operand of the instruction at 00:05C5.
     Probe p{harness,static_cast<std::uint16_t>(rom->byte(0,0x05C6)|(rom->byte(0,0x05C7)<<8)),
         static_cast<std::uint16_t>(rom->byte(0,0x05B3)|(rom->byte(0,0x05B4)<<8))};

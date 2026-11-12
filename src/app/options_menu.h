@@ -6,8 +6,9 @@
 namespace psmodern::app {
 struct MenuInput {
     bool up=false,down=false,left=false,right=false,accept=false,cancel=false,toggle=false;
+    bool map=false;   // M on the keyboard, X on a controller (the automap)
     bool focused=true;
-    bool any() const { return up||down||left||right||accept||cancel||toggle; }
+    bool any() const { return up||down||left||right||accept||cancel||toggle||map; }
 };
 class RomFont {
 public:
@@ -23,10 +24,13 @@ private:
 enum class MenuAction { none,apply,close };
 class OptionsMenu {
 public:
-    void open(game::Options options,bool restricted,bool pending,bool recording=false);
+    // Three rows: encounters, experience/meseta and the automap switch. The
+    // automap switch never shows the pending-routines state.
+    void open(game::Options options,bool restricted,bool pending,bool recording=false,bool automap=false);
     bool visible() const { return visible_; }
     void close() { visible_=false; }
     const game::Options& draft() const { return draft_; }
+    bool automap_draft() const { return automap_; }
     unsigned selected() const { return selected_; }
     MenuAction update(const MenuInput& input,double now);
     void render(std::span<std::uint32_t> pixels,const RomFont& font) const;
@@ -35,7 +39,7 @@ private:
     game::Options draft_;
     MenuInput previous_;
     unsigned selected_=0;
-    bool visible_=false,armed_=false,restricted_=false,pending_=false,failed_=false,recording_=false;
+    bool visible_=false,armed_=false,restricted_=false,pending_=false,failed_=false,recording_=false,automap_=false;
     double next_repeat_=0;
 };
 // Menu buttons are consumed until every gameplay button is released.

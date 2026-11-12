@@ -150,20 +150,25 @@ must not be narrowed to an assumed vehicle or named effect.
 
 **ROM static.** The dungeon routine at `00:0F3C` is the dungeon's game-mode
 update. It first waits while the game is paused, then waits for a frame
-interrupt, calls a helper (this study has not established what it does) and
-only then runs the encounter check. Its path also requires the pending byte
+interrupt, calls the dungeon handler at `01:65EE` (it reads the controller and
+walks the party; see [dungeons](dungeons.md)) and only then runs the encounter
+check. Its path also requires the pending byte
 at `$C2D2` to be nonzero, then clears it. It reads its threshold from
 `$C2E3`. The draw at `00:0F58` must be strictly below that threshold. This
 comparison uses the threshold directly.
 
 **ROM static.** Even a passing draw must pass a local-space check, called
-at `00:0F5F`. The helper at `01:6BCA` uses position and direction to select
-a nearby dungeon cell. The lowest three bits of that cell must all be
-clear. A nonzero result stops the encounter path before pool selection.
+at `00:0F5F`. The helper at `01:6BCA` reads the kind of the cell directly
+ahead of the party (the lowest three bits of its value). Only kind 0, open
+floor, lets the encounter go on; a wall, stairs, a door or a fake wall ahead
+stops the path before pool selection. A cell with the object marker (value 8)
+counts as open floor here, because only the low three bits are read.
 
-**Unknown.** The cell check is established as a code rule. Calling it a
-specific wall, door or corridor rule would need further evidence about the
-dungeon data.
+**ROM static.** The pending byte at `$C2D2` is set by the walking code, not by
+the loop: every forward step, back step and turn sets it, and so does the object
+check when it finds a record that is not done. So turns and back steps give a
+chance of an encounter as well as forward steps. See
+[dungeons](dungeons.md#how-random-encounters-hook-into-walking).
 
 ## Which monsters, and how many
 

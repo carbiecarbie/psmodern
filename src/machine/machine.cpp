@@ -132,6 +132,12 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     };
     bool stack=stack_byte(0) || stack_byte(1);
     for (unsigned i=1;i<=spec.scratch_stack;++i) stack=stack || stack_byte(0x10000-i);
+    // Inherited words above SP are popped by the body or the core: every byte
+    // from SP to SP+inherited+1 must be mapped and off the mapper registers.
+    if (spec.inherited_stack) for (unsigned i=0;i<spec.inherited_stack+2;++i) {
+        const auto address=static_cast<std::uint16_t>(sp+i);
+        stack=stack || memory_.mapping(address).kind==Memory::Kind::unmapped || address>=0xfffc;
+    }
     reason(RoutineFallback::unmapped_stack,stack);
     reason(RoutineFallback::ei_delay,cpu_.raw().data.uint8_array[0]==0xfb);
     const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;

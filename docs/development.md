@@ -152,6 +152,111 @@ replace it. Raw saves still work while the unrecognized companion is preserved.
 Copying raw SRAM to a cartridge/emulator retains earned totals but carries no
 options. Importing a raw image without matching metadata defaults original.
 
+## Automap
+
+The automap (milestone 7) records which dungeon cells the party has seen and
+shows a map of the current floor on request. Tracking runs for an identified
+ROM with routines on and outside recording mode, even while the Automap option
+is off; the option only gates the screen. Recording mode and `--no-routines`
+neither track, show a map nor read or write its file.
+
+**Tracking points.** `FrameDriver` owns the dungeon tables (read from the
+player's ROM at start, `src/game/dungeon_tables.cpp`) and an
+`ExplorationTracker` (`src/game/automap.cpp`). Its existing native-instruction
+hook watches four points in bank 0 and reads the machine only with `peek`:
+
+| Point | When | What the tracker does |
+| --- | --- | --- |
+| `00:0F48` in game mode `$0B` | the dungeon walking wait | samples floor, position, facing and the floor layout at `$CB00` |
+| `00:1D2D` | a save has completed | stages the exploration under the SHA-256 of the game block `$C300-$C6FF` |
+| `00:06B4` | Continue has copied a slot | restores the record of that block's digest, or an empty map |
+| `00:05F4` | a new game starts | clears the map (also at power-on and F5) |
+
+A sample marks the cell stood on and the cells the 3D view drew (cut at the
+first wall ahead), a pitfall once stood on and a fake wall once walked
+through. The view shows each seen cell's true kind, an unopened chest as soon
+as its cell is seen (Maintainer decision, 2026-11-11), an opened chest from
+the game's flag byte, and the exit marker only on exit cells that lead to the
+world map. The milestone 7 plan, decisions 5 and 6, gives the rules. A
+watched instruction must stay native: activating the routines throws
+`std::logic_error` when any of the 13 host-observed instructions
+(`host_observed_instructions` in `src/app/frame_driver.h`: the Options
+boundary, the frame-wait watch, the field waits, the menu cancel, the
+tempo-audio points and these four) is a registered entry or a declared exit
+address of any segment. A watched address rendered inside a segment body is
+caught instead by the passivity tests below, which compare the map's events
+with routines on and off.
+
+**The `.automap` file.** `<save name>.automap` beside the `.sav`, under the
+same lock, is text: the header `psmodern-automap 1`, then for each saved game
+a `record <digest> <n>` line followed by `n` lines
+`floor <id> <seen> <found>` (two hex digits, then 32 bytes of each cell set
+as hex; byte k holds cells 8k to 8k+7, cell 8k in bit 0). Records are kept
+only for the used slots of the cartridge image on disk and of the image being
+written, so the file holds at most 10 records and 85,559 bytes; the reader
+accepts at most 10 records and 98,304 bytes and refuses anything malformed
+whole (`src/app/automap_store.h`). A staged record is written at the next
+flush, before `.options` and the `.sav`, so the first `.sav` write after
+`00:1D2D` follows it; `.automap.bak` receives the previous file once per
+session. A failed write is reported once and never prevents the `.sav`
+write; it is retried with a backoff, even with a clean cartridge image: after
+60 frames, then twice as long after each further failure, up to a minute, at
+once when the next save stages a new record, and at once at exit or power
+cycle. A missing file is an empty map. An unusable file (unknown header or
+version, corrupt, too large, not a regular file) gives a warning at start and
+an empty map at Continue; the next save keeps it as `.automap.bak` and
+replaces it, and a file that cannot be kept that way is never replaced
+(Maintainer decision, 2026-11-11). Because `.automap.bak` is written once per
+session from whatever file is there, a preserved unusable file lasts only
+until the first save of the next session, which replaces that backup with the
+file it finds then. Two games with byte-identical game blocks share one record.
+
+**Settings format 2.** The `.options` companion is written as
+`psmodern-options 2`, each record `<label> <sha256> <encounter> <experience>
+<automap>` with automap `0` or `1`. Format 1 files (no automap field) are
+read with the map off. Release 0.1.0 refuses a format 2 file with a warning
+and plays with the original settings until new ones are applied. The automap
+switch sits beside the routine options, never inside them: it never reaches
+`register_routines` and never makes a change pending.
+
+**Keys.** M on the keyboard or X on a controller opens the map at the dungeon
+walking wait with the option on (`request_menu(HostMenu::map)`); elsewhere,
+with the option off, while recording or with `--no-routines`, the press is
+ignored and never reaches the game. The game is held exactly as for Options:
+the host runs and cancels the game's own field menu, which clears the two
+bytes the field menu always clears, as that original action does, so opening
+the map is not invisible to the game. The `MapView` is built once when the hold begins and
+drawn over the captured picture (`src/app/automap_screen.cpp`); M, X, Escape
+or cancel close it. The Options window has a third row, AUTOMAP OFF (DEFAULT)
+or ON, and the window title adds `Map: M / X` while the option is on.
+
+**Tests.** `automap_unit` and `automap_store_unit` (ROM-free) cover the model
+and the file; `rom_<version>_automap_view` the real tables, and
+`rom_<version>_automap_mutation_0` and `_1` run the original view drawing
+(`01:6AED`) in 400 states with every unseen cell changed, which must leave the
+machine identical (states 0-199 and 200-399 of one random stream). The
+`psmodern_automap_session` program has five parts:
+`rom_<version>_automap_session` (the screen pixels, admission, the hold
+against the Options hold, power cycle, Continue, new game and an unusable
+file on `first-dungeon`); `rom_us_automap_wrong_map` (one driver, the
+console's reset button between phases: a new game after exploring gives an
+empty map, a Continue of another recorded game gives exactly its record, a
+Continue of a game without a record after exploring gives an empty map, a
+dungeon departure forgets the fake-wall sample, and the mode test at
+`00:0F48` refuses mode `$2B`); `rom_<version>_automap_passivity_<recording>`
+(`first-dungeon` and `deep-dungeon` of each version, US `boss` and the three
+US dungeon recordings), in which four drivers play the recording on four
+threads: recording mode, the option off, the option on but never opened, and
+routines off with a tracker; their machines must be equal after every frame
+and at the end, and the three trackers must log the same events (samples with
+their values and cycles, stage, Continue, reset, leave) and hold the same
+exploration after every frame; and `rom_us_automap_chain_1` to `_3`, which
+play the three US dungeon recordings in one save folder in order, each
+Continue restoring the record the previous walk saved, and check that an
+unopened chest shows on the map before the party reaches it.
+`psmodern_automap_session ... frames <folder>` writes inspection frames (PPM)
+from the dungeon recordings instead.
+
 ## Input
 
 The arrows are the directional pad; Z and X are buttons 1 and 2, Enter is
@@ -187,8 +292,8 @@ Escape/controller Y opens Options during free exploration in towns, on the
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Enter/Start remains the original Pause. Up/Down
-selects one of the two rates and Left/Right changes it. Z/A persists both
-rates and closes; X/B or Escape/Y discards the draft. The screen marks each
+selects one of the two rates or the Automap row and Left/Right changes it.
+Z/A persists the three values and closes; X/B or Escape/Y discards the draft. The screen marks each
 100% value as DEFAULT, encounters 50% as RECOMMENDED and experience/meseta
 400% as RECOMMENDED; other values have no marker. Only restrictions, pending
 activation or a failed save add a status message inside the window. A failed
@@ -360,7 +465,17 @@ images: controller polling (`00:0339`, a fixed 70-cycle bound; see the
 (`00:1754`). The last five are registered as several segments each (see
 Segments below); the
 [random numbers and encounters](how-it-works/random-numbers.md) and
-[party](how-it-works/party.md) chapters explain them. Registration is gated by
+[party](how-it-works/party.md) chapters explain them. Milestone 7 adds dungeon
+walking as 53 segments in eleven units: the dungeon input handler
+(`01:65EE`), the pitfall (`01:661C`), the forward step (`01:6758`), the step
+back (`01:6792`), the turns (`01:67B7`, `01:67E2`), opening a door
+(`01:681B`), the exit lookup (`01:68BC`), the object check (`01:6963`) and the
+two cell readers (`01:6BCA`, `01:6BE9`), in `src/game/dungeon_cells.cpp`,
+`dungeon_movement.cpp` and `dungeon_objects.cpp` with their shared helpers in
+`dungeon_kit.h`; they use the held-word, conditional and loop exits below, and
+the [dungeons chapter](how-it-works/dungeons.md) explains them. Their state
+probes are `rom_<version>_dungeon_cells`, `_dungeon_tables`,
+`_dungeon_movement` and `_dungeon_objects`. Registration is gated by
 the verified ROM SHA-1: authored runner fixtures keep an empty registry. The
 game layer lives in `src/game/`.
 
@@ -368,9 +483,14 @@ Every replay writes `routine-census.tsv` beside its manifest, one line per
 registered entry. The columns are `entry`, `unit` (the routine the entry
 belongs to), `cpp`, `fallback`, `forced`, `forced_failed`, then the eight
 fallback reasons, then the same eight reasons prefixed with `forced_`. An empty
-registry writes just the header. Counts contain no ROM bytes.
+registry writes just the header. Counts contain no ROM bytes. A dungeon segment
+refused because its stack does not give back a pushed return address (stack
+bytes in ROM, reached only by the state probes) is filed under the `frame`
+reason, since its bound is set above one frame; such refusals never occur in a
+recording.
 
-The twelve checkpoint tests check every admitted C++ call, compare
+The fifteen checkpoint tests (six per version and the three US dungeon
+recordings) check every admitted C++ call, compare
 routines on/off frame by frame, and compare the resulting frames with the
 pinned milestone 1 reference. In each checkpoint an entry with at least 20
 calls needs at least 90% C++ calls; entries with fewer calls are reported, not
@@ -378,19 +498,19 @@ gated. `forced` and `forced_failed` must be 0 there, since the checkpoints run
 in original mode. The controller must be called in every checkpoint and keeps
 the 90% share whatever its call count. The tests write counts to
 `build-rel/routine-census/{us,br}/`. Generate [the coverage chapter](coverage.md)
-after all twelve pass:
+after all fifteen pass:
 
 ```sh
 python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
 ```
 
 The generator groups segments under their unit and applies the same 90% rule
-to every entry with at least 20 calls, over the twelve censuses together and in
+to every entry with at least 20 calls, over the fifteen censuses together and in
 each census. An entry with at least one call needs at least one C++ call,
 unless it is on the explicit allow-list in the generator, which carries a
 written reason per entry and is empty now. An allow-listed entry that has C++
 calls, or that no recording calls, is stale and an error. The generator also
-refuses forced calls: the twelve censuses run in original mode. Entries no
+refuses forced calls: the censuses run in original mode. Entries no
 recording reaches are listed as covered by state probes only.
 
 The ROM-only controller tests compare all 65,536 pairs of previous/new
@@ -399,7 +519,7 @@ R and fetch count; the random, encounter and experience tests probe their
 segments against the original from many machine states. The ROM-free catalog
 and coverage-generator tests run in CI.
 
-Besides the twelve checkpoints, every recording has an `_options` test
+Besides the fifteen checkpoints, every checkpoint recording has an `_options` test
 (`rom_us_<recording>_options`, `rom_br_<recording>_options`, label
 `checkpoint`; the script is `tests/replay_rom_tests.py <runner> <rom> <recording>
 options <reference-folder> [full|identity-only] [marker-file]`). Each test runs
@@ -430,7 +550,7 @@ after the cell test in a dungeon; a fixed fight does not pass through them
 (Inference). At recording level the dungeon side proves only that the first
 compares run and no group choice follows with encounters off, because the
 play diverges soon after; the state probes cover the compare and the
-dungeon segments exhaustively. All twelve recordings take about 6 minutes
+dungeon segments exhaustively. All fifteen recordings take about 7 minutes
 of suite time.
 
 `RoutineRegistry` is owned by the frame driver or runner and passed to
@@ -564,8 +684,14 @@ field comparison and deliberate faults in cycles, R, fetch count, flags,
 MEMPTR, Q, RAM, VDP/PSG timing, the control latch, open bus and the bound.
 These tests use authored programs and need no game ROM.
 
+`lockstep_segments` also verifies held-word chains, conditional final jumps
+(every condition, taken and untaken, also ending at a frame boundary), split
+table scans (clean, one record late, one early, and crossing a frame boundary
+against a run without routines) and the return rules for inherited words.
+
 `routine_unit` covers synthetic replacements, E-1 window edges, guards,
-mapping, counters and scratch overwrites; `routine_irq_query` compares the
+mapping, counters, scratch overwrites and the held-word, conditional and
+loop exits with their refusals; `routine_irq_query` compares the
 cheap query against the exact query across counter, register, pending-flag
 and scanline states. Neither test needs a ROM.
 
@@ -647,6 +773,67 @@ A scratch stack is at most 16 bytes, and a core-final exit at the entry address
 is accepted only for a single-instruction segment. Plain instructions that
 change the stack pointer (pops, loads of SP, increments and decrements of SP)
 are refused as final instructions.
+
+#### Held stack words, conditional exits and loop exits
+
+Three exit properties let a segment end inside a routine that keeps words on
+the stack, branches, or loops. Each defaults to the value that selects the
+behaviour above, and no segment registered before milestone 7 uses one. An
+exit is identified by its kind and address; `stack`, `conditional` and
+`after` are properties of that one declaration (`SegmentExit::operator==`
+compares kind and address, `same_declaration` every field). `add` refuses two
+exits with the same kind and address.
+
+- **Held words** (`SegmentExit::stack`, `SegmentSpec::inherited_stack`). An
+  exit's `stack` is SP before the final instruction minus the entry SP, in
+  even bytes. Negative: words the segment pushed and holds across the core's
+  final step (typically a CALL into original code); it may not go below the
+  declared `scratch_stack`. Positive: words the segment popped that an earlier
+  segment of the unit pushed; it may not exceed `inherited_stack`, the bytes
+  above the entry SP that belong to the unit (even, at most 8). A returned exit
+  cannot hold a pushed word, and a single-instruction or forced segment can
+  declare neither. `finish_core` and `finish_return` require SP equal to the
+  entry SP plus the exit's offset before the step, and check the step's
+  result relative to that SP (a return raises it by 2, a taken call lowers it
+  by 2, anything else leaves it). The body reads and writes these words
+  through the context's bus, so a stack in ROM or cartridge RAM behaves as in
+  the original. Dispatch falls back with `unmapped_stack` when any byte from
+  SP to SP + `inherited_stack` + 1 is unmapped or in `$FFFC-$FFFF`.
+- **Conditional exits** (`SegmentExit::conditional`, core-final only). At such
+  an exit the final instruction must be `JP cc,nn`, `JR cc,e` or `DJNZ`, and
+  nothing else; without the flag those opcodes stay refused, as do `JR e`,
+  `JP (HL)`, `JP (IX)` and `JP (IY)` everywhere. The core decides the outcome
+  from the flags and B that the body left; the step must end at the target or
+  at the next instruction with SP unchanged.
+- **Loop exits** (`SegmentExit::after`, core-final only, at most 16,384). The
+  exit is taken at the first arrival at its address with at least `after`
+  cycles elapsed since the entry. `finish_core` refuses an earlier arrival.
+  With 0 it is the first arrival, as before.
+
+What the per-call verifier compares, and why a divergence cannot hide:
+
+- The native copy stops at a boundary at a declared core-final address only
+  when SP is the entry SP plus that exit's offset and, for a loop exit, at
+  least `after` cycles have passed. The context refuses an earlier arrival
+  in C++; a body that stops a record late reaches the same address with other
+  cycles and registers, and the whole-machine comparison names them. Held words stay in memory, so the
+  words pushed by one segment are compared at every later exit of the chain.
+- The stop at a return to the word read at the entry SP (SP = entry + 2)
+  applies as before, except in a segment with `inherited_stack` above 0 that
+  declares no returned exit at offset 0: there that word is held data, and a
+  pop leaving PC equal to it must not end the copy. For each returned exit at
+  offset s above 0, the copy also stops when the instruction at that address,
+  started at a boundary with SP = entry + s, leaves SP = entry + s + 2 and PC
+  equal to the word that was at that SP. An untaken conditional return there
+  continues.
+- The exit the copy stopped at is the declared exit, offset included, and it
+  must equal the body's exit in every field; a different address, kind or
+  offset is reported as `exit mismatch` (offsets are printed as `stack -2`).
+  A native path that returns at an undeclared offset never stops and fails as
+  `understated bound` or at the frame boundary. A conditional exit needs no
+  new rule: the copy stops at the declared address and steps once, and a body
+  that left the wrong flags or B ends at another PC, which the comparison
+  names together with the flags or B.
 
 ### Options
 
@@ -814,7 +1001,8 @@ ranges justified by the run rather than assuming every high RAM address is stack
 
 Each version has its own inputs under `recordings/us/` or `recordings/br/`.
 The first three checkpoints start at power-on with zero cartridge RAM. The
-other three load slot 1 from a cartridge RAM image after power-on.
+other three, and the three US-only dungeon recordings, load slot 1 from a
+cartridge RAM image after power-on.
 
 | Recording | Play covered |
 | --- | --- |
@@ -824,10 +1012,17 @@ other three load slot 1 from a cartridge RAM image after power-on.
 | `later-town` | Load Paseo, walk to the hospital, talk to its attendant and open the town menu. |
 | `boss` | Load the path to the governor, hand over the Shortcake, receive the letter, sleep and finish the Saccubus battle. |
 | `deep-dungeon` | Load near Maharu Cave, enter, use a Flash and follow corridors around several turns, fighting any encounters. |
+| `dungeon-walk-1` (US) | Continue in Maharu Cave: steps, a step back, the item and money chests, the pitfall to the floor below, the fake wall both ways, stairs down and up, a plain door opened and passed both ways, then save in the dungeon. |
+| `dungeon-walk-2` (US) | Continue from that save: win the fixed fight ahead and open its chest, five steps back, stairs up, then save in the dungeon. |
+| `dungeon-continue` (US) | Continue from that save: steps, a step back, and out through the stairs-up exit to the world map. |
 
-The images were made by playing in the reference with SMS1, export NTSC,
-zero-filled power-on RAM, FM off and two SMS controllers, then saving through
-the game's menu. Each Brazilian image was loaded and saved again by the
+The images of the six shared checkpoints were made by playing in the
+reference with SMS1, export NTSC, zero-filled power-on RAM, FM off and two SMS
+controllers, then saving through the game's menu. The three dungeon
+recordings form a chain of game-made saves, none edited: the first image is
+the deep-dungeon image after a preparatory run of its own inputs that saves
+in Maharu Cave, and each later image is the previous recording's final
+cartridge RAM, identical in PSModern and in the reference. Each Brazilian image was loaded and saved again by the
 Brazilian game in the reference. Keep each initial image at
 `<PSMODERN_REFERENCE_DIR>/<us-or-br>/<recording-stem>/cart-ram.bin`.
 Supply that image with `--cart-ram` when regenerating its manifest.

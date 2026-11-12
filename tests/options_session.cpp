@@ -62,7 +62,7 @@ int checked_upload(const Machine& machine,unsigned speed,bool visible,bool activ
         }
         if(machine.cycles()>last_modal_cycle){last_modal_cycle=machine.cycles();++modal_frames;}
         for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x)
-            if((x<24||x>=232||y<40||y>=160) && rendered[y*256+x]!=app::rgb(background[y*256+x]))
+            if((x<24||x>=232||y<24||y>=176) && rendered[y*256+x]!=app::rgb(background[y*256+x]))
                 throw std::runtime_error("Options changed pixels outside its window");
     }else if(!active){
         if(speed==4 && !was_active && !saved_game && mode_under_test==0) {

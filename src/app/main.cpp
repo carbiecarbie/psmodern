@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/sdl_host.h"
+#include "app/automap_screen.h"
 #include "app/frame_driver.h"
 #include "app/start_loop.h"
 #include "app/windows_platform.h"
@@ -22,7 +23,7 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
          const game::OptionOverrides& overrides) {
     const auto version=loaded.version; const auto& rom=loaded.rom;
     FrameDriver driver(rom,SaveStore(production_save_folder(),version),routines_enabled,overrides,record_path.has_value());
-    RomFont font(*rom);OptionsMenu menu;InputRelease release;
+    RomFont font(*rom);OptionsMenu menu;MapScreen map_screen;InputRelease release;
     if(launcher_display) release.consume();
     if(record_path && std::filesystem::exists(*record_path))
         throw std::runtime_error("Recording output already exists: "+record_path->string());
@@ -39,6 +40,7 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
         last_save_error=error;
     };
     report_save(driver.store().settings_warning());
+    if(driver.store().automap_warning())report_save(driver.store().automap_warning());
     try {
         const auto title=std::string("PSModern - Phantasy Star (")+rom_name(version)+")"+
             (recorder ? " - RECORDING (F5 disabled)" : "");
@@ -55,7 +57,7 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
         audio.submit({},now()); // Open and prime the device before starting the frame clock.
         const auto start=now(); double next_report=start+10;
         FrameClock clock(start);
-        std::uint64_t frames=0; bool quit=false,toggle_held=false;
+        std::uint64_t frames=0; bool quit=false,toggle_held=false,map_held=false;
         unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
         auto effective_speed=[&]() { return !recorder && SDL_GetKeyboardFocus()==window && !driver.menu_active() ? chosen_speed : 1u; };
         auto sync_speed=[&]() {
@@ -122,10 +124,24 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
                 if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu())
                     menu_background=driver.machine().picture();
             }
+            // M or a controller's X opens the automap at the dungeon walking
+            // wait, holding the game as Options does; with the option off the
+            // press does nothing. The key never reaches the game's pad.
+            const bool map_opening=!driver.menu_active() && menu_input.map && !map_held;
+            map_held=menu_input.map;
+            if(map_opening && !recorder && driver.automap_enabled() && menu_input.focused && !menu_input.up && !menu_input.down &&
+                !menu_input.left && !menu_input.right && !menu_input.accept && !menu_input.cancel && !menu_input.toggle) {
+                const auto input=sample_input(window,controller,enter);
+                if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu(HostMenu::map))
+                    menu_background=driver.machine().picture();
+            }
+            if(map_screen.visible() && map_screen.update(menu_input)==MenuAction::close) {
+                map_screen.close();driver.close_menu();release.consume();
+            }
             if(menu.visible()) {
                 const auto action=menu.update(menu_input,now());
                 if(action==MenuAction::apply) {
-                    if(const auto error=driver.choose_options(menu.draft())) { report_save(error);menu.failed(); }
+                    if(const auto error=driver.choose_options(menu.draft(),menu.automap_draft())) { report_save(error);menu.failed(); }
                     else { menu.close();driver.close_menu();report_save({});release.consume(); }
                 } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
             }
@@ -139,7 +155,8 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
                 if(output.audio_error)std::cerr<<*output.audio_error<<'\n';
                 audio.submit(output.playback ? output.playback->values : output.samples.values,now());
                 if(!was_active && driver.menu_active()) {
-                    menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false);
+                    if(driver.menu_purpose()==HostMenu::map) map_screen.open();
+                    else menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false,driver.automap_option());
                     release.consume();
                 }
                 if(was_active && !driver.menu_active())release.consume();
@@ -151,12 +168,14 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
             const auto current_title=title+" - Encounters "+std::to_string(effective.encounter_percent)+
                 "% - Experience/Meseta "+std::to_string(effective.experience_percent)+"%"+
                 (driver.options_pending() ? " - CHANGES SAVED, WAITING FOR GAME" : "")+
-                " - Speed "+std::to_string(clock.speed())+"X (Tab / RB) - Options: Esc / Y";
+                " - Speed "+std::to_string(clock.speed())+"X (Tab / RB) - Options: Esc / Y"+
+                (driver.automap_enabled() ? " - Map: M / X" : "");
             if(current_title!=displayed_title) {SDL_SetWindowTitle(window,current_title.c_str());displayed_title=current_title;}
-            if ((count || menu.visible()) && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
+            if ((count || menu.visible() || map_screen.visible()) && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
                 const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 std::transform(picture.begin(),picture.end(),pixels.begin(),rgb);
                 if(menu.visible())menu.render(pixels,font);
+                else if(map_screen.visible() && driver.map_view())render_automap(pixels,font,*driver.map_view());
                 else if(clock.speed()>1) {
                     for(int y=2;y<12;++y) for(int x=234;x<254;++x) pixels[y*256+x]=0xff000000;
                     font.text(pixels,236,3,clock.speed()==2 ? "2X" : "4X",0xffffffff);

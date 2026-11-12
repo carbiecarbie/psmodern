@@ -6,6 +6,7 @@
 #include "replay/checkpoint.h"
 #include "rom/sha1.h"
 #include "temporary_cleanup.h"
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <sstream>
@@ -76,7 +77,7 @@ int main() {
                 RoutineRegistry plain,hundred;
                 check(game::register_routines(plain,digest)&&game::register_routines(hundred,digest,parsed({"--experience-rate","100","--encounter-rate","100"}).options));
                 check(plain.entries().size()==hundred.entries().size());
-                for(const auto& [entry,routine]:plain.entries()){const auto* other=hundred.find(entry);check(other&&other->spec.unit==routine.spec.unit&&other->spec.exits==routine.spec.exits);}
+                for(const auto& [entry,routine]:plain.entries()){const auto* other=hundred.find(entry);check(other&&other->spec.unit==routine.spec.unit&&std::equal(other->spec.exits.begin(),other->spec.exits.end(),routine.spec.exits.begin(),routine.spec.exits.end(),[](const SegmentExit& x,const SegmentExit& y){return x.same_declaration(y);}));}
                 RoutineRegistry changed;check(game::register_routines(changed,digest,parsed({"--encounter-rate","50","--experience-rate","400"}).options));
             }
         }

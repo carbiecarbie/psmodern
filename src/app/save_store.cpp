@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/save_store.h"
 #include "rom/sha256.h"
+#include <algorithm>
+#include <atomic>
 #include <span>
 #include <fstream>
 #include <stdexcept>
@@ -36,8 +38,9 @@ std::filesystem::path production_save_folder() {
     throw std::runtime_error("Production save location currently requires Windows %APPDATA%.");
 #endif
 }
-SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer,SettingsWriter settings_writer)
-    :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)),settings_writer_(std::move(settings_writer)) {}
+SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer,SettingsWriter settings_writer,SettingsWriter automap_writer)
+    :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)),settings_writer_(std::move(settings_writer)),
+     automap_writer_(std::move(automap_writer)) {}
 struct SaveStore::Lock {
 #ifdef _WIN32
     HANDLE handle=INVALID_HANDLE_VALUE;
@@ -94,7 +97,7 @@ static void publish_bytes(const std::filesystem::path& path,std::span<const std:
     std::filesystem::path temp;
     HANDLE handle=INVALID_HANDLE_VALUE;
     for (unsigned attempt=0;attempt<100 && handle==INVALID_HANDLE_VALUE;++attempt) {
-        static unsigned sequence=0;
+        static std::atomic<unsigned> sequence=0;   // several drivers may save at once (tests)
         temp=path; temp+=L".tmp-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(++sequence);
         handle=CreateFileW(temp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
         if (handle==INVALID_HANDLE_VALUE && GetLastError()!=ERROR_FILE_EXISTS)
@@ -154,14 +157,14 @@ namespace {
 std::string read_settings_file(const std::filesystem::path& path) { return read_text_file(path,1024,"settings file"); }
 }
 game::Options SaveStore::load_preferences(const Memory::CartridgeRam& image) {
-    ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};
+    ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};automap_preference_=false;
     const auto digest=sha256(image);settings_={{digest,{}},{},{}};
     if(!std::filesystem::exists(settings_path()))return preferences_;
     try {
         settings_=parse_settings(read_settings_file(settings_path()));
-        const auto selected=settings_.matching(digest);
+        const auto selected=settings_.select(digest);
         if(!selected)throw std::runtime_error("Settings do not match the cartridge image.");
-        preferences_=*selected;
+        preferences_=selected->options;automap_preference_=selected->automap;
     } catch(const std::exception& e) {
         settings_blocked_=true;
         settings_warning_="Using original settings; companion preserved until explicit Apply: "+settings_path().string()+": "+e.what();
@@ -173,7 +176,8 @@ void SaveStore::ensure_backup() {
     const auto original=load();
     if(!settings_loaded_)load_preferences(original);
     const auto digest=sha256(original);
-    session_backup_=SettingsRecord{digest,settings_blocked_ ? game::Options{} : settings_.matching(digest).value_or(game::Options{})};
+    session_backup_=settings_blocked_ ? SettingsRecord{digest,{}} : settings_.select(digest).value_or(SettingsRecord{digest,{}});
+    session_backup_->digest=digest;
     // Publish the companion snapshot first. It is deliberately independent of
     // raw backup publication; digest selection prevents a mismatched restore.
     if(!settings_blocked_ && std::filesystem::exists(settings_path())) {
@@ -191,25 +195,101 @@ void SaveStore::ensure_backup() {
 void SaveStore::stage(const Memory::CartridgeRam& image,const game::Options& preferences) {
     const auto disk=load();
     const auto digest=sha256(disk);
-    SettingsImage next{{digest,settings_.matching(digest).value_or(game::Options{})},
-        SettingsRecord{sha256(image),preferences},session_backup_ ? session_backup_ : settings_.backup};
+    auto committed=settings_.select(digest).value_or(SettingsRecord{digest,{}});committed.digest=digest;
+    SettingsImage next{committed,SettingsRecord{sha256(image),preferences,automap_preference_},
+        session_backup_ ? session_backup_ : settings_.backup};
     settings_writer_(settings_path(),write_settings(next));
     settings_=std::move(next);
 }
 std::optional<std::string> SaveStore::choose(const game::Options& options,const Memory::CartridgeRam& image) {
     game::validate(options);
+    try { ensure_lock();if(!settings_loaded_)load_preferences(load()); }
+    catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
+    return choose(options,automap_preference_,image);
+}
+std::optional<std::string> SaveStore::choose(const game::Options& options,bool automap,const Memory::CartridgeRam& image) {
+    game::validate(options);
     try {
         ensure_lock();if(!settings_loaded_)load_preferences(load());
         ensure_backup();
         const auto disk=load();
-        SettingsImage next{{sha256(disk),options},SettingsRecord{sha256(image),options},
+        SettingsImage next{{sha256(disk),options,automap},SettingsRecord{sha256(image),options,automap},
             session_backup_ ? session_backup_ : settings_.backup};
         settings_writer_(settings_path(),write_settings(next));settings_=std::move(next);
-        preferences_=options;settings_blocked_=false;settings_warning_.reset();return {};
+        preferences_=options;automap_preference_=automap;settings_blocked_=false;settings_warning_.reset();return {};
     } catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
 }
-std::optional<std::string> SaveStore::flush(Memory& memory) {
-    if (!retry_ && !memory.cartridge_ram_dirty()) return {};
+void SaveStore::load_automap() {
+    if(automap_loaded_)return;
+    ensure_lock();
+    automap_loaded_=true;
+    try {
+        const auto status=std::filesystem::status(automap_path());
+        if(status.type()==std::filesystem::file_type::not_found)return;
+        automap_=parse_automap(read_text_file(automap_path(),automap_max_bytes,"automap file"));
+    } catch(const std::exception& e) {
+        automap_={};automap_blocked_=true;
+        automap_warning_="Automap file unusable; maps start empty, and the file is kept as .automap.bak at the next save: "+
+            automap_path().string()+": "+e.what();
+    }
+}
+const game::Exploration* SaveStore::automap_record(std::string_view digest) {
+    load_automap();
+    return automap_.find(digest);
+}
+void SaveStore::stage_automap(std::string digest,const game::Exploration& exploration) {
+    load_automap();
+    automap_.put(std::move(digest),exploration);automap_dirty_=true;
+    automap_wait_=automap_backoff_=0;   // a new record is tried at the next flush
+}
+std::optional<std::string> SaveStore::flush_automap(const Memory::CartridgeRam& image) {
+    try {
+        load_automap();
+        // Keep the records of every used slot of the image on disk (the old
+        // save) and of the image about to be written (the new one): a crash
+        // between this write and the cartridge write loses neither.
+        auto keep=used_slot_digests(load());keep.merge(used_slot_digests(image));
+        auto next=automap_;next.prune(keep);
+        const auto text=write_automap(next);
+        // Once per session, before anything is written, the current file
+        // becomes .automap.bak, an unusable one byte for byte (any size). A
+        // file that cannot be preserved (not a regular file, unreadable) is
+        // never replaced: the write fails, is reported and retried.
+        if(!automap_backup_done_) {
+            const auto status=std::filesystem::symlink_status(automap_path());
+            if(status.type()!=std::filesystem::file_type::not_found) {
+                if(!std::filesystem::is_regular_file(status))
+                    throw std::runtime_error("cannot preserve the existing automap file as a backup: not a regular file");
+                std::ifstream file(automap_path(),std::ios::binary);
+                std::string bytes(std::istreambuf_iterator<char>(file),{});
+                if(file.bad() || bytes.size()!=std::filesystem::file_size(automap_path()))
+                    throw std::runtime_error("cannot preserve the existing automap file as a backup: read failed");
+                auto backup=automap_path();backup+=".bak";
+                automap_writer_(backup,bytes);
+            }
+            automap_backup_done_=true;
+        }
+        automap_writer_(automap_path(),text);
+        automap_=std::move(next);automap_dirty_=automap_reported_=automap_blocked_=false;++automap_writes_;
+        automap_wait_=automap_backoff_=0;
+        return {};
+    } catch(const std::exception& e) {
+        automap_backoff_=automap_backoff_ ? std::min(automap_backoff_*2,3600u) : 60u;
+        automap_wait_=automap_backoff_;
+        if(automap_reported_)return {};
+        automap_reported_=true;
+        return "Automap write failed; retrying later and at the next save: "+automap_path().string()+": "+e.what();
+    }
+}
+std::optional<std::string> SaveStore::flush(Memory& memory,bool retry_now) {
+    const bool raw=retry_ || memory.cartridge_ram_dirty();
+    if (!raw && !automap_dirty_) return {};
+    std::optional<std::string> map_error;
+    if (automap_dirty_) {
+        if (retry_now || !automap_wait_) map_error=flush_automap(memory.cartridge_ram());
+        else --automap_wait_;
+    }
+    if (!raw) return map_error;
     retry_=true;
     try {
         ensure_lock();
@@ -220,9 +300,9 @@ std::optional<std::string> SaveStore::flush(Memory& memory) {
         if(!settings_blocked_)stage(memory.cartridge_ram(),preferences_);
         writer_(path_,memory.cartridge_ram());
         backup_done_=true;
-        memory.clear_cartridge_ram_dirty(); retry_=false; ++writes_; return {};
+        memory.clear_cartridge_ram_dirty(); retry_=false; ++writes_; return map_error;
     } catch (const std::exception& e) {
-        return "Save write failed; retrying next frame: "+path_.string()+": "+e.what();
+        return "Save write failed; retrying next frame: "+path_.string()+": "+e.what()+(map_error ? "\n"+*map_error : std::string());
     }
 }
 }

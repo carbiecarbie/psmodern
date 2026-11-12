@@ -2,6 +2,7 @@
 #include "app/frame_driver.h"
 #include "game/routines.h"
 #include "rom/sha1.h"
+#include "app/automap_store.h"
 #include <fstream>
 #include <stdexcept>
 
@@ -48,6 +49,22 @@ AppArguments parse_app_arguments(int argc,const char* const* argv) {
     result.overrides=flags.overrides();
     return result;
 }
+void guard_observed_instructions(const RoutineRegistry& registry) {
+    auto name=[](RoutineEntry entry) {
+        static constexpr char hex[]="0123456789ABCDEF";
+        std::string text{hex[(entry.bank>>4)&15],hex[entry.bank&15],':'};
+        for(int shift=12;shift>=0;shift-=4)text+=hex[(entry.address>>shift)&15];
+        return text;
+    };
+    for(const auto watched:host_observed_instructions) {
+        if(registry.find(watched))
+            throw std::logic_error("Host-observed instruction "+name(watched)+" must remain a native instruction (it is a registered entry).");
+        for(const auto& [entry,routine]:registry.entries())
+            for(const auto& exit:routine.spec.exits)
+                if(exit.address==watched.address)
+                    throw std::logic_error("Host-observed instruction "+name(watched)+" must remain a native instruction (it is a declared exit of "+name(entry)+").");
+    }
+}
 FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,bool routines_enabled,game::OptionOverrides overrides,bool original_only)
     :rom_(std::move(rom)),store_(std::move(store)),machine_(std::make_unique<Machine>(rom_,store_.load())),original_only_(original_only) {
     routines_.enabled=routines_enabled;
@@ -55,24 +72,82 @@ FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,
     game::validate(chosen_);
     if(options_restricted())chosen_={};
     activate(chosen_);
+    // The automap: tables from the player's identified ROM; never in recording
+    // mode or with --no-routines, which neither track nor read the file.
+    bool identified=false;
+    try { identify_digest(sha1(*rom_));identified=true; } catch(const std::exception&) {}
+    if(identified && !options_restricted()) {
+        tables_=std::make_unique<game::DungeonTables>(std::span<const std::uint8_t>(*rom_));
+        tracker_=std::make_unique<game::ExplorationTracker>(*tables_);
+        store_.load_automap();
+        automap_=store_.automap_preference();
+    }
 }
 void FrameDriver::activate(const game::Options& options) {
     RoutineRegistry next;next.enabled=routines_.enabled;next.verifier=routines_.verifier;
     game::register_routines(next,sha1(*rom_),options);
-    if(next.find({0,0x00af}))throw std::logic_error("Options boundary must remain a native instruction.");
+    guard_observed_instructions(next);
     routines_=std::move(next);effective_=options;
+}
+// Passive: reads the machine with peek at native instructions of bank 0 and
+// never writes machine state.
+void FrameDriver::track(std::uint16_t pc) {
+    namespace dungeon=game::dungeon;
+    auto block=[&] {
+        std::array<std::uint8_t,dungeon::game_block_bytes> bytes{};
+        for(unsigned i=0;i<bytes.size();++i)bytes[i]=machine_->peek(static_cast<std::uint16_t>(dungeon::game_block+i));
+        return bytes;
+    };
+    if(pc==dungeon::sample.address) {
+        // 00:0F48 lies in the dungeon pass (00:0F3C), which the main loop
+        // dispatches on the mode's low five bits; only a mode of exactly 0Bh
+        // is a dungeon walk (tested with mode 2Bh in automap_session).
+        if(machine_->peek(dungeon::game_mode)!=dungeon::dungeon_mode)return;
+        game::DungeonSample sample{machine_->peek(dungeon::floor),machine_->peek(dungeon::position),
+            static_cast<std::uint8_t>(machine_->peek(dungeon::facing)&3),{}};
+        for(unsigned i=0;i<sample.layout.size();++i)sample.layout[i]=machine_->peek(static_cast<std::uint16_t>(dungeon::layout+i));
+        tracker_->observe(sample);
+        log({MapEvent::Kind::sample,machine_->cycles(),sample.floor,sample.cell,sample.facing});
+    } else if(pc==dungeon::after_save.address) {
+        auto digest=automap_digest(block());
+        store_.stage_automap(digest,tracker_->exploration());
+        log({MapEvent::Kind::stage,machine_->cycles(),0,0,0,std::move(digest)});
+    } else if(pc==dungeon::after_load.address) {
+        auto digest=automap_digest(block());
+        const auto* saved=store_.automap_record(digest);
+        if(saved)tracker_->replace(*saved); else tracker_->reset();
+        log({MapEvent::Kind::replace,machine_->cycles(),0,0,0,std::move(digest),saved!=nullptr});
+    } else if(pc==dungeon::after_new_game.address) {
+        tracker_->reset();
+        log({MapEvent::Kind::reset,machine_->cycles()});
+    } else if(pc==dungeon::pass_end.address) {
+        // Between two walking passes the mode stays 0Bh (0Ah on a reload);
+        // anything else means the party left the dungeon.
+        const auto mode=machine_->peek(dungeon::game_mode);
+        if(mode!=dungeon::dungeon_mode && mode!=dungeon::dungeon_load_mode && tracker_->leave())
+            log({MapEvent::Kind::leave,machine_->cycles()});
+    }
 }
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options) {
     if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
     if(auto error=store_.choose(options,machine_->memory().cartridge_ram()))return error;
     chosen_=options;return {};
 }
-bool FrameDriver::request_menu() {
-    if (original_only_ || menu_active_ || !exploration_wait_ || machine_->peek(0xc212) ||
+std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap) {
+    if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
+    if(auto error=store_.choose(options,automap,machine_->memory().cartridge_ram()))return error;
+    chosen_=options;automap_=automap;return {};
+}
+bool FrameDriver::request_menu(HostMenu purpose) {
+    // One request per frame: a second (Options and the map pressed together)
+    // never replaces the first.
+    if (original_only_ || menu_active_ || menu_request_ || !exploration_wait_ || machine_->peek(0xc212) ||
         machine_->peek(0xc204) || machine_->peek(0xc205)) return false;
+    if (purpose==HostMenu::map && (!automap_enabled() || *exploration_wait_!=game::dungeon::sample.address ||
+        machine_->peek(game::dungeon::floor)>=game::dungeon::floor_count)) return false;
     if (machine_->peek(0xc202)!=(*exploration_wait_==0x0b14 ? 9 : 11)) return false;
     if (*exploration_wait_==0x0b14 && machine_->peek(0xc265)) return false;
-    menu_request_=exploration_wait_;
+    menu_request_=exploration_wait_;requested_purpose_=purpose;
     return true;
 }
 void FrameDriver::speed(unsigned value) {
@@ -87,6 +162,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         audio_error=std::string("Normal-tempo audio unavailable; accelerated audio is muted until power cycle: ")+error.what();
     };
     Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
+        if(tracker_ && mapping==Memory::Mapping{Memory::Kind::rom,0})track(pc);
         if(!original_only_ && !audio_failed_)try {
             if(pc==0x8043 && mapping==Memory::Mapping{Memory::Kind::rom,12}) {
                 if(tempo_audio_)tempo_audio_->update(machine_->cycles(),0x80);
@@ -138,15 +214,30 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
             bool stack_room=sp>=0xc080 && sp<=0xfffb;
             for(unsigned depth=1;stack_room && depth<=128;++depth)
                 stack_room=memory.mapping(static_cast<std::uint16_t>(sp-depth)).kind==Memory::Kind::ram;
+            // The map's floor is checked with the rest of the admission, before
+            // anything is held (request_menu already refused floor 61 or more).
             if (stack_room && memory.mapping(lo).kind==Memory::Kind::ram && memory.mapping(hi).kind==Memory::Kind::ram &&
                 lo<0xfffc && hi<0xfffc && sp==static_cast<std::uint16_t>(exploration_sp_+2) &&
+                (requested_purpose_!=HostMenu::map || machine_->peek(game::dungeon::floor)<game::dungeon::floor_count) &&
                 machine_->peek(0xc202)==(pc==0x0b14 ? 9 : 11) &&
                 (pc!=0x0b14 || !machine_->peek(0xc265)) &&
                 !machine_->peek(0xc212) && !machine_->peek(0xc204) && !machine_->peek(0xc205)) {
                 menu_caller_=cpu;menu_return_=pc;
                 menu_saved_={machine_->peek(0xc204),machine_->peek(0xc205),machine_->peek(0xc800),machine_->peek(0xc900),machine_->peek(lo),machine_->peek(hi)};
+                if(requested_purpose_==HostMenu::map) {
+                    // Built once from the state at the wait, before the native
+                    // field menu runs (it changes nothing the view reads).
+                    namespace dungeon=game::dungeon;
+                    const auto floor=machine_->peek(dungeon::floor);
+                    game::DungeonLayout layout{};
+                    for(unsigned i=0;i<layout.size();++i)layout[i]=machine_->peek(static_cast<std::uint16_t>(dungeon::layout+i));
+                    std::array<std::uint8_t,dungeon::game_block_bytes> block{};
+                    for(unsigned i=0;i<block.size();++i)block[i]=machine_->peek(static_cast<std::uint16_t>(dungeon::game_block+i));
+                    map_view_=game::build_view(*tables_,tracker_->exploration().floors[floor],floor,layout,
+                        machine_->peek(dungeon::position),static_cast<std::uint8_t>(machine_->peek(dungeon::facing)&3),block);
+                }
                 memory.write(lo,pc&0xff);memory.write(hi,pc>>8);cpu.sp.uint16_value=lo;
-                menu_active_=true;menu_closing_=menu_cancel_seen_=false;
+                menu_active_=true;menu_closing_=menu_cancel_seen_=false;menu_purpose_=requested_purpose_;
                 return 0x1be1;
             }
         }
@@ -172,13 +263,14 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     if(tempo_audio_)try {playback=tempo_audio_->finish(machine_->cycles());}
         catch(const std::exception& error) {audio_failure(error);}
     if(!playback && speed_>1)playback=PsgSamples{};
-    return {std::move(writes),std::move(samples),flush(),std::move(playback),std::move(audio_error)};
+    return {std::move(writes),std::move(samples),store_.flush(machine_->memory()),std::move(playback),std::move(audio_error)};
 }
 std::optional<std::string> FrameDriver::power_cycle() {
     auto error=flush();
     machine_=std::make_unique<Machine>(rom_,machine_->memory().cartridge_ram());
     exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
     tempo_audio_.reset();audio_failed_=false;sound_request_.reset();speed_=1;
+    if(tracker_) { tracker_->reset();log({MapEvent::Kind::reset,0}); }
     if(options_pending())activate(chosen_);
     return error;
 }

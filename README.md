@@ -30,8 +30,8 @@ the way the project writes down [how the game works inside][how-it-works].
 
 The whole game can be played, in English (US) or Portuguese (Brazilian Tec
 Toy release). Controller polling, the random numbers, the random-encounter
-checks, experience, battle setup and battle money already run in C++; the
-rest of the game still runs on the virtual Z80.
+checks, experience, battle setup, battle money and walking in the dungeons
+already run in C++; the rest of the game still runs on the virtual Z80.
 
 What you get today:
 
@@ -40,13 +40,13 @@ What you get today:
   fullscreen.
 - The original sound chip, music and effects.
 - Keyboard or game controller, both at the same time if you like.
-- Two options you set inside the game: how often random fights happen, and
-  how much experience and battle money each fight gives.
+- Three options you set inside the game: how often random fights happen,
+  how much experience and battle money each fight gives, and a map of the
+  dungeons.
 - 2x and 4x fast-forward, with the music kept at its normal tempo.
 
-The [roadmap][roadmap] lists what comes next: dungeons and an automap, then
-text and language selection, full controller support, and widescreen on the
-world map and in towns.
+The [roadmap][roadmap] lists what comes next: text and language selection,
+full controller support, and widescreen on the world map and in towns.
 
 ## Download and play
 
@@ -82,6 +82,7 @@ unknown publisher. Click **More info**, then **Run anyway**.
 | Power off and on | F5 | - |
 | Speed 1x / 2x / 4x | Tab | Right shoulder (R / RB) |
 | Options window | Escape | Y |
+| Dungeon map (Automap option on) | M | X |
 | Window or fullscreen | Alt+Enter | - |
 
 The first controller found is used, including one plugged in during play.
@@ -105,6 +106,7 @@ scene stays behind the window and the music keeps playing.
 | --- | --- | --- |
 | Encounters | 0, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
 | Experience / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
+| Automap | Off, On | A map of the dungeon floor you are on. Off by default. |
 
 100% is the original game and is marked DEFAULT. Encounters at 50% and
 experience at 400% are marked RECOMMENDED; together they give a pace close
@@ -115,6 +117,19 @@ rates. The window title shows the active rates and any change still waiting.
 The choice is saved for that version's whole save file, so all five of the
 game's save slots share it.
 
+### Automap
+
+With the Automap option on, press M (or X on a controller) while walking in a
+dungeon to see a map of the floor you are on; M, X, Escape or B close it. The
+game waits while the map is open and the music keeps playing. The map shows
+only what you have seen: corridors, walls, doors (plain, locked and magic),
+stairs, exits to the outside, and chests, opened or not. A pitfall appears
+once you have fallen through it and a hidden passage once you have walked
+through it; the bosses and guardians are never marked. The map is kept with
+each saved game, so Continue brings back the map of that game, and a new game
+starts with an empty one. Exploration is recorded even while the option is
+off, so turning it on later shows what you have already seen.
+
 ## Saves
 
 You save through the game's own menu, as on the cartridge. PSModern keeps
@@ -122,6 +137,7 @@ its files in `%APPDATA%\PSModern`, one set per version:
 
 - the save itself, in the cartridge's format, so other emulators can read it;
 - a small companion file with your options;
+- a file with the dungeon maps of your saved games;
 - a `.bak` copy of the previous save, made before the first write of each
   session.
 

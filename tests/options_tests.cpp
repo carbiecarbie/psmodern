@@ -28,6 +28,25 @@ void codec(){
  image.pending->digest=a;image.backup->digest=a;check(image.matching(a)==game::Options{50,400},"pending wins digest tie");
  image.pending.reset();check(image.matching(a)==game::Options{},"committed wins backup tie");
  refuses([&]{parse_settings("");});refuses([&]{parse_settings("psmodern-options 2\n");});refuses([&]{parse_settings(text+"junk\n");});
+ refuses([&]{parse_settings("psmodern-options 3\ncommitted "+a+" 100 100 0\npending -\nbackup -\n");});
+ // Format 2 always written; the automap switch sits beside the options.
+ check(text.rfind("psmodern-options 2\n",0)==0,"settings are written as format 2");
+ {
+  SettingsImage with_map{{a,{50,400},true},SettingsRecord{b,{0,200},false},std::nullopt};
+  const auto written=write_settings(with_map);
+  check(written=="psmodern-options 2\ncommitted "+a+" 50 400 1\npending "+b+" 0 200 0\nbackup -\n","format 2 records");
+  check(parse_settings(written)==with_map && parse_settings(written).select(a)->automap && !parse_settings(written).select(b)->automap,"format 2 round trip keeps the automap switch");
+  // Format 1 (release 0.1.0) reads as automap off.
+  const auto old=parse_settings("psmodern-options 1\ncommitted "+a+" 50 400\npending -\nbackup "+c+" 0 200\n");
+  check(old.committed==SettingsRecord{a,{50,400},false} && old.backup==SettingsRecord{c,{0,200},false},"format 1 reads with automap off");
+  check(write_settings(old).rfind("psmodern-options 2\n",0)==0,"format 1 is rewritten as format 2");
+  for(const auto& token:{std::string("2"),std::string("01"),std::string("-1"),std::string("on"),std::string("")}) {
+   auto bad="psmodern-options 2\ncommitted "+a+" 50 400 "+token+"\npending -\nbackup -\n";
+   refuses([&]{parse_settings(bad);});
+  }
+  refuses([&]{parse_settings("psmodern-options 2\ncommitted "+a+" 50 400 1 1\npending -\nbackup -\n");});
+  refuses([&]{parse_settings("psmodern-options 1\ncommitted "+a+" 50 400 1\npending -\nbackup -\n");});
+ }
  for(const auto& bad:{std::string("-4294967196"),std::string("+100"),std::string("4294967396"),std::string("100x")}) {
   auto invalid=text;invalid.replace(invalid.find("100"),3,bad);refuses([&]{parse_settings(invalid);});
  }
@@ -42,9 +61,15 @@ void persistence(){
   check(store.load_preferences(store.load())==game::Options{},"missing metadata original");
   check(!store.choose({50,400},initial),"settings-only apply");check(read(name).size()==8192 && store.load()==initial && store.writes()==0,"settings-only raw unchanged");
   check(!store.choose({0,200},initial),"second settings-only apply");
+  check(!store.automap_preference() && !store.choose({0,200},true,initial) && store.automap_preference(),"automap switch applied beside the options");
+  check(!store.choose({0,200},initial) && store.automap_preference(),"applying options alone keeps the automap switch");
  }
  {
-  SaveStore store(t.path,RomVersion::us_rev_a);check(store.load_preferences(store.load())==game::Options{0,200},"settings restart");
+  SaveStore store(t.path,RomVersion::us_rev_a);check(store.load_preferences(store.load())==game::Options{0,200} && store.automap_preference(),"automap switch survives restart");
+  check(!store.choose({0,200},false,store.load()) && !store.automap_preference(),"automap off applied");
+ }
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);check(store.load_preferences(store.load())==game::Options{0,200} && !store.automap_preference(),"settings restart");
   Memory memory(program(),initial);change(memory,7);check(!store.flush(memory),"raw with settings");
   change(memory,8);check(!store.flush(memory),"second raw with settings");change(memory,9);check(!store.flush(memory),"third raw with settings");
   auto backup=store.path();backup+=".bak";check(read(backup)==std::string(reinterpret_cast<const char*>(initial.data()),initial.size()),"session backup raw");
@@ -125,6 +150,11 @@ void driver(){
   check(!driver.choose_options({0,200}),"new Apply supersedes pending");
   driver.machine().cpu().pc.uint16_value=0xaf;driver.run({});check(!driver.options_pending() && driver.effective_options()==game::Options{0,200},"dispatcher activates newest choice");
   check(!driver.choose_options({50,400}) && !driver.power_cycle() && driver.effective_options()==game::Options{50,400},"F5 starts latest chosen settings");
+  // The automap switch takes effect when applied and never makes routine
+  // options pending; an unidentified image has no tracker, so no map.
+  check(!driver.choose_options({50,400},true) && driver.automap_option() && !driver.options_pending(),"automap Apply never pending");
+  check(!driver.automap_tracking() && !driver.automap_enabled() && !driver.request_menu(HostMenu::map),"no tracker without an identified image");
+  check(!driver.choose_options({50,400},false) && !driver.automap_option(),"automap off applied");
  }
  for(bool routines:{true,false}) {
   game::OptionOverrides overrides;overrides.experience=100;
@@ -132,7 +162,7 @@ void driver(){
   check(driver.configured_options()==game::Options{50,400},"stored preferences retained");
   check(driver.effective_options()==(routines?game::Options{50,100}:game::Options{}),"per-field explicit100 or restricted originals");
   change(driver.machine().memory(),routines?1:2);check(!driver.flush(),"session SRAM flush");
-  if(!routines)check(driver.choose_options({0,400}).has_value(),"restricted changes refused");
+  if(!routines)check(driver.choose_options({0,400}).has_value() && driver.choose_options({},true).has_value(),"restricted changes refused");
  }
  {
   FrameDriver recording(program(),SaveStore(t.path,RomVersion::us_rev_a),true,{},true);
@@ -149,10 +179,21 @@ void navigation(){
  menu.update({.right=true},2.4);check(menu.draft().encounter_percent==0,"held repeat bounded");menu.update({},3);
  menu.update({.down=true},4);menu.update({},5);menu.update({.right=true},6);check(menu.draft().experience_percent==200,"XP choices");
  check(menu.update({.accept=true},6.1)==MenuAction::apply,"confirm persists from experience row");
- menu.update({},6.2);menu.update({.down=true},6.3);check(menu.selected()==0,"two settings wrap without action or preset rows");
- menu.update({},6.4);check(menu.update({.accept=true},6.5)==MenuAction::apply,"confirm persists from encounter row");
+ menu.update({},6.2);menu.update({.down=true},6.3);check(menu.selected()==2 && !menu.automap_draft(),"third row is the automap switch, off by default");
+ menu.update({},6.31);menu.update({.right=true},6.32);check(menu.automap_draft() && menu.draft()==game::Options{0,200},"right turns the automap on and leaves the rates");
+ menu.update({},6.33);menu.update({.left=true},6.34);check(!menu.automap_draft(),"left turns it off");
+ menu.update({},6.35);menu.update({.left=true},6.36);check(menu.automap_draft(),"either direction toggles");
+ check(menu.update({.accept=true},6.37)==MenuAction::apply,"confirm from the automap row");
+ menu.update({},6.38);menu.update({.down=true},6.39);check(menu.selected()==0,"three settings wrap down without action or preset rows");
+ menu.update({},6.40);menu.update({.up=true},6.41);check(menu.selected()==2,"three settings wrap up");
+ menu.update({},6.42);menu.update({.up=true},6.43);check(menu.selected()==1,"up moves back");
+ menu.update({},6.44);menu.update({.up=true},6.45);check(menu.selected()==0,"up reaches the first row");
+ menu.update({},6.46);check(menu.update({.map=true},6.47)==MenuAction::none,"the map key does nothing in Options");
+ menu.update({},6.48);check(menu.update({.accept=true},6.5)==MenuAction::apply,"confirm persists from encounter row");
  menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::close,"options toggle cancels draft");
  menu.open({},true,false);menu.update({},7);menu.update({.right=true},8);check(menu.draft()==game::Options{},"restricted menu read only");
+ menu.update({},8.01);menu.update({.down=true},8.02);menu.update({},8.03);menu.update({.down=true},8.04);menu.update({},8.05);menu.update({.right=true},8.06);
+ check(menu.selected()==2 && !menu.automap_draft(),"restricted automap row read only");
  check(menu.update({.accept=true},8.1)==MenuAction::close,"read-only confirmation closes without applying");
  check(menu.update({.cancel=true},9)==MenuAction::close,"restricted menu escapable");
  InputRelease release;release.consume();FrameInput held;held.pause=true;held.reset=true;held.pads[0].one=true;
@@ -198,11 +239,25 @@ void rom(const char* path,const char* output){
   }
  }
  OptionsMenu menu;
- for(bool restricted:{false,true})for(bool pending:{false,true})for(auto choices:{game::Options{},game::Options{50,400},game::Options{0,200},game::Options{200,100}}){menu.open(choices,restricted,pending);menu.render(pixels,font);}
+ for(bool restricted:{false,true})for(bool pending:{false,true})for(bool automap:{false,true})for(auto choices:{game::Options{},game::Options{50,400},game::Options{0,200},game::Options{200,100}}){menu.open(choices,restricted,pending,false,automap);menu.render(pixels,font);}
+ // The third row: AUTOMAP on the third cursor tile, its value below; the
+ // status line under it.
+ {
+  std::array<std::uint32_t,256*192> off{},on{},label{};
+  menu.open({},false,false,false,false);menu.render(off,font);menu.open({},false,false,false,true);menu.render(on,font);
+  font.text(label,40,120,"AUTOMAP",0xffffffff);
+  for(unsigned y=120;y<128;++y)for(unsigned x=40;x<96;++x)check(off[y*256+x]==on[y*256+x] && (label[y*256+x]!=0)==(off[y*256+x]==0xffffffff),"AUTOMAP label row");
+  std::array<std::uint32_t,256*192> on_text{},off_text{};font.text(on_text,48,136,"ON",0xffffffff);font.text(off_text,48,136,"OFF (DEFAULT)",0xffffffff);
+  for(unsigned y=136;y<144;++y)for(unsigned x=48;x<152;++x)
+   check((on[y*256+x]==0xffffffff)==(on_text[y*256+x]!=0) && (off[y*256+x]==0xffffffff)==(off_text[y*256+x]!=0),"automap value text");
+  menu.open({},false,true,false,true);std::array<std::uint32_t,256*192> pending{};menu.render(pending,font);
+  std::array<std::uint32_t,256*192> waiting{};font.text(waiting,40,152,"SAVED - WAITING",0xffffffff);
+  for(unsigned y=152;y<160;++y)for(unsigned x=40;x<160;++x)check((pending[y*256+x]==0xffffffff)==(waiting[y*256+x]!=0),"pending status line below the third row");
+ }
  pixels.fill(0xff123456);menu.open({50,400},false,false);menu.render(pixels,font);
  for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x) {
   const auto pixel=pixels[y*256+x];
-  if(x<24||x>=232||y<40||y>=160)check(pixel==0xff123456,"menu preserves current backdrop outside its window");
+  if(x<24||x>=232||y<24||y>=176)check(pixel==0xff123456,"menu preserves current backdrop outside its window");
   else check(pixel==0xff000000||pixel==0xffffffff,"menu retains original black and white palette");
  }
  menu.failed();menu.render(pixels,font);menu.open({50,400},false,false);menu.render(pixels,font);

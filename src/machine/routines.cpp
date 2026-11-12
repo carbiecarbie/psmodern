@@ -26,6 +26,19 @@ void RoutineRegistry::add(RoutineEntry entry, SegmentSpec spec, RegisteredRoutin
         spec.exits[0]==SegmentExit{RoutineExit::core_final,entry.address};
     if (spec.absolute_wram_store) valid=valid && spec.single_instruction &&
         *spec.absolute_wram_store>=0xc000 && *spec.absolute_wram_store<0xdfff;
+    // Held and inherited stack words: even, within the scratch stack below and
+    // the inherited bytes above the entry SP; a return pops no held word.
+    valid=valid && spec.inherited_stack%2==0 && spec.inherited_stack<=max_inherited_stack;
+    if (spec.single_instruction || spec.force_admit) valid=valid && spec.inherited_stack==0;
+    for (const auto& exit:spec.exits) {
+        const int stack=exit.stack;
+        valid=valid && stack%2==0 && stack>=-static_cast<int>(spec.scratch_stack) &&
+            stack<=static_cast<int>(spec.inherited_stack);
+        if (exit.kind==RoutineExit::returned) valid=valid && stack>=0 && !exit.conditional && exit.after==0;
+        // A single instruction has no loop and no branch to declare.
+        if (spec.single_instruction || spec.force_admit) valid=valid && stack==0 && !exit.conditional && exit.after==0;
+        valid=valid && exit.after<=max_exit_after;
+    }
     if (!valid) throw std::invalid_argument("Invalid registered segment");
     insert(entry,std::move(spec),std::move(bound),std::move(body));
 }
@@ -116,11 +129,14 @@ void RoutineContext::write_port(std::uint16_t port, std::uint8_t value, std::uin
     }
     at_offset(offset); machine_.write_port(port,value,machine_.cycles());
 }
-void RoutineContext::prepare_final(SegmentExit exit) {
+SegmentExit RoutineContext::prepare_final(SegmentExit exit) {
     active();
-    const bool declared=spec_.exits.empty() ? exit.kind==RoutineExit::returned :
-        std::find(spec_.exits.begin(),spec_.exits.end(),exit)!=spec_.exits.end();
-    if (!declared) throw std::runtime_error("Registered routine exit is not declared");
+    // Exits are found by kind and address; the declaration found carries the
+    // stack offset, conditional flag and loop threshold.
+    if (spec_.exits.empty() && exit.kind==RoutineExit::returned) return exit;
+    const auto found=std::find(spec_.exits.begin(),spec_.exits.end(),exit);
+    if (found==spec_.exits.end()) throw std::runtime_error("Registered routine exit is not declared");
+    return *found;
 }
 void RoutineContext::final_step() {
     // Admission keeps interrupts out of the window: the core must execute the
@@ -131,7 +147,8 @@ void RoutineContext::final_step() {
     do { machine_.step(); check_bound(); } while (machine_.cpu().resume==Z80_RESUME_XY);
 }
 void RoutineContext::finish_return(std::uint16_t address) {
-    prepare_final({RoutineExit::returned,address});
+    const auto exit=prepare_final({RoutineExit::returned,address});
+    const auto before=static_cast<std::uint16_t>(stack_+exit.stack);
     // Validate the instruction without bus side effects; the core performs all
     // real fetches and stack reads below. Ignored index prefixes are supported.
     auto opcode_address=address;
@@ -153,44 +170,56 @@ void RoutineContext::finish_return(std::uint16_t address) {
         const auto flag=(machine_.cpu().af.uint16_value>>bits[condition/2])&1;
         returning=flag==(condition&1);
     }
-    if (!returning || machine_.cpu().sp.uint16_value!=stack_)
-        throw std::runtime_error("Registered routine must execute its returning instruction with the entry stack");
+    if (!returning || machine_.cpu().sp.uint16_value!=before)
+        throw std::runtime_error(exit.stack ? "Registered routine must execute its returning instruction at its declared stack offset" :
+            "Registered routine must execute its returning instruction with the entry stack");
     machine_.cpu().pc.uint16_value=address;
     final_step();
     // The validated taken return performs the real bus reads, including open
     // bus if the stack is unmapped. Peeking Memory here would predict a
     // different target in that case; the core alone determines the caller PC.
-    if (machine_.cpu().sp.uint16_value!=static_cast<std::uint16_t>(stack_+2))
+    if (machine_.cpu().sp.uint16_value!=static_cast<std::uint16_t>(before+2))
         throw std::runtime_error("Registered routine did not return to its caller");
-    exit_=SegmentExit{RoutineExit::returned,address};
+    exit_=exit;
     finished_=true;
 }
 void RoutineContext::finish_core(std::uint16_t address) {
-    prepare_final({RoutineExit::core_final,address});
+    const auto exit=prepare_final({RoutineExit::core_final,address});
     if (machine_.memory().mapping(address).kind!=Memory::Kind::rom)
         throw std::runtime_error("Registered routine final instruction must be in ROM");
     const auto code=machine_.memory().read(address);
     const bool call=code==0xcd, call_cc=(code&0xc7)==0xc4, jump=code==0xc3;
+    // Conditional transfers, accepted only at an exit declared conditional:
+    // JP cc,nn; JR cc,e and DJNZ (relative, displacement peeked below).
+    const bool jump_cc=(code&0xc7)==0xc2, relative=code==0x10 || code==0x20 || code==0x28 || code==0x30 || code==0x38;
     const auto operand=static_cast<std::uint16_t>(machine_.peek(static_cast<std::uint16_t>(address+1))|
         (machine_.peek(static_cast<std::uint16_t>(address+2))<<8));
     const bool store=spec_.absolute_wram_store && code==0x22 && operand==*spec_.absolute_wram_store &&
         machine_.memory().mapping(operand).kind==Memory::Kind::ram &&
         machine_.memory().mapping(static_cast<std::uint16_t>(operand+1)).kind==Memory::Kind::ram;
-    const unsigned length=call || call_cc || jump || store ? 3 : plain_length(code);
+    const unsigned length=exit.conditional ? (jump_cc ? 3 : relative ? 2 : 0) :
+        call || call_cc || jump || store ? 3 : plain_length(code);
     if (spec_.absolute_wram_store && !store) throw std::runtime_error("Registered final store must target its declared work RAM address");
     if (!length) throw std::runtime_error("Registered routine final instruction is not allowed");
-    if (machine_.cpu().sp.uint16_value!=stack_)
-        throw std::runtime_error("Registered routine must execute its final instruction with the entry stack");
+    const auto before=static_cast<std::uint16_t>(stack_+exit.stack);
+    if (machine_.cpu().sp.uint16_value!=before)
+        throw std::runtime_error(exit.stack ? "Registered routine must execute its final instruction at its declared stack offset" :
+            "Registered routine must execute its final instruction with the entry stack");
+    // A loop exit is taken at the first arrival with its declared cycles
+    // elapsed; the verifier stops the original copy by the same rule.
+    if (elapsed()<exit.after)
+        throw std::runtime_error("Registered routine took its loop exit before its declared cycles");
     // Side-effect-free operand peek; the core performs the real fetches.
-    const auto target=operand;
+    const auto target=relative ? static_cast<std::uint16_t>(address+2+static_cast<std::int8_t>(operand&0xff)) : operand;
     machine_.cpu().pc.uint16_value=address;
     final_step();
     const auto pc=machine_.cpu().pc.uint16_value, sp=machine_.cpu().sp.uint16_value;
-    const bool taken=pc==target && sp==static_cast<std::uint16_t>(stack_-2);
-    const bool next=pc==static_cast<std::uint16_t>(address+length) && sp==stack_;
-    const bool reached=call ? taken : call_cc ? taken || next : jump ? pc==target && sp==stack_ : next;
+    const bool taken=pc==target && sp==static_cast<std::uint16_t>(before-2);
+    const bool next=pc==static_cast<std::uint16_t>(address+length) && sp==before;
+    const bool reached=exit.conditional ? sp==before && (pc==target || next) :
+        call ? taken : call_cc ? taken || next : jump ? pc==target && sp==before : next;
     if (!reached) throw std::runtime_error("Registered routine final instruction did not reach its declared result");
-    exit_=SegmentExit{RoutineExit::core_final,address};
+    exit_=exit;
     finished_=true;
 }
 }

@@ -43,7 +43,7 @@ for phase in ('backup-before','backup-after','metadata-before','metadata-after',
         rows=metadata.read_text(encoding='ascii').splitlines()
         selected=next((record for role in ('pending','committed','backup') for row in rows[1:]
                        if row.split()[0]==role and (record:=row.split()[1:])[0]==hashlib.sha256(expected).hexdigest()),None)
-        if selected is None or selected[1:]!=['50','400']:
+        if selected is None or selected[1:3]!=['50','400'] or selected[3:] not in ([],['0']):  # format 1, or 2 with automap off
             raise RuntimeError(f'{phase}: companion cannot recover options matching the durable SRAM')
         backup=Path(str(raw)+'.bak')
         if backup.exists() and backup.read_bytes()!=original:

@@ -12,25 +12,35 @@ void valid(const SettingsRecord& record) {
     game::validate(record.options);
 }
 }
+std::optional<SettingsRecord> SettingsImage::select(std::string_view digest) const {
+    if(pending && pending->digest==digest)return pending;
+    if(committed.digest==digest)return committed;
+    if(backup && backup->digest==digest)return backup;
+    return {};
+}
 std::optional<game::Options> SettingsImage::matching(std::string_view digest) const {
-    if(pending && pending->digest==digest)return pending->options;
-    if(committed.digest==digest)return committed.options;
-    if(backup && backup->digest==digest)return backup->options;
+    if(const auto record=select(digest))return record->options;
     return {};
 }
 SettingsImage parse_settings(std::string_view text) {
     if(text.empty() || text.size()>1024)throw std::runtime_error("Invalid settings file size.");
     std::istringstream input{std::string(text)};std::string line;
-    if(!std::getline(input,line) || line!="psmodern-options 1")throw std::runtime_error("Unsupported settings format or version.");
+    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2"))
+        throw std::runtime_error("Unsupported settings format or version.");
+    const bool format2=line.back()=='2';
     auto record=[&](std::string_view name,bool optional)->std::optional<SettingsRecord> {
         if(!std::getline(input,line))throw std::runtime_error("Incomplete settings file.");
         std::istringstream row(line);std::string label,digest,extra;SettingsRecord result;
         if(!(row>>label>>digest) || label!=name)throw std::runtime_error("Invalid settings record.");
         if(optional && digest=="-") {if(row>>extra)throw std::runtime_error("Invalid empty settings record.");return {};}
         result.digest=digest;
-        std::string encounter,experience;
-        if(!(row>>encounter>>experience) || (row>>extra))
-            throw std::runtime_error("Invalid settings percentages.");
+        std::string encounter,experience,automap;
+        if(!(row>>encounter>>experience))throw std::runtime_error("Invalid settings percentages.");
+        if(format2) {
+            if(!(row>>automap) || (automap!="0" && automap!="1"))throw std::runtime_error("Invalid settings automap token.");
+            result.automap=automap=="1";
+        }
+        if(row>>extra)throw std::runtime_error("Trailing settings record data.");
         auto percent=[](const std::string& text) {
             unsigned value=0;
             if(text.empty() || text.find_first_not_of("0123456789")!=std::string::npos ||
@@ -47,12 +57,12 @@ SettingsImage parse_settings(std::string_view text) {
     return result;
 }
 std::string write_settings(const SettingsImage& image) {
-    std::string result="psmodern-options 1\n";
+    std::string result="psmodern-options 2\n";
     auto record=[&](std::string_view name,const std::optional<SettingsRecord>& value) {
         result+=name;result+=' ';
         if(!value){result+="-\n";return;}
         valid(*value);result+=value->digest+" "+std::to_string(value->options.encounter_percent)+" "+
-            std::to_string(value->options.experience_percent)+"\n";
+            std::to_string(value->options.experience_percent)+" "+(value->automap ? "1" : "0")+"\n";
     };
     record("committed",image.committed);record("pending",image.pending);record("backup",image.backup);return result;
 }
