@@ -78,6 +78,12 @@ int main() {try {
     // events rather than scripting sample_menu_input or Controller::sample.
     // Keep a player's attached hardware and real window focus outside this
     // test: only this process's virtual VID/PID may be selected by refresh.
+    // The VID/PID filter alone does not hide a connected Xbox pad: SDL 2.32
+    // still lists it (isGC=1) through the Windows RawInput driver, so refresh()
+    // opened the player's hardware first. Switch off every hardware back-end
+    // before SDL_Init; only the virtual device is then ever enumerated.
+    for(const char* driver:{SDL_HINT_JOYSTICK_RAWINPUT,SDL_HINT_JOYSTICK_HIDAPI,SDL_HINT_JOYSTICK_WGI,SDL_HINT_XINPUT_ENABLED,SDL_HINT_DIRECTINPUT_ENABLED})
+        check(SDL_SetHintWithPriority(driver,"0",SDL_HINT_OVERRIDE)==SDL_TRUE,"hardware joystick back-end disabled");
     check(SDL_SetHintWithPriority(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT,"0xffff/0x5053",SDL_HINT_OVERRIDE)==SDL_TRUE,"isolated virtual-controller filter");
     SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,"1",SDL_HINT_OVERRIDE);
     check(SDL_Init(SDL_INIT_GAMECONTROLLER)==0,"controller subsystem");
@@ -87,7 +93,9 @@ int main() {try {
         descriptor.axis_mask=(1u<<SDL_CONTROLLER_AXIS_LEFTX)|(1u<<SDL_CONTROLLER_AXIS_LEFTY);
         descriptor.vendor_id=0xffff;descriptor.product_id=0x5053;
         descriptor.button_mask=(1u<<SDL_CONTROLLER_BUTTON_MAX)-1;descriptor.name="PSModern input test controller";
+        check(SDL_NumJoysticks()==0,"no hardware joystick enumerated before the virtual attach");
         const auto index=SDL_JoystickAttachVirtualEx(&descriptor);check(index>=0,"virtual controller attachment");
+        check(SDL_NumJoysticks()==1&&SDL_JoystickIsVirtual(index),"only the virtual controller is enumerated");
         auto joystick=SDL_JoystickOpen(index);check(joystick!=nullptr,"virtual joystick state access");
         Controller real_controller;bool added=false,removed=false;
         auto events=[&] {
