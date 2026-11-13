@@ -1,8 +1,9 @@
 # Milestone 9 plan - Text and language selection
 
 **Tier A. Status: completed and accepted (2026-11-13).**
-Accepted from the implementation based on `966c21f`; implementation and
-closure are not yet committed. Ninth milestone of the [roadmap](roadmap.md).
+Implemented and accepted in `778aebf`, based on `966c21f`; private text
+annotations are in `psmodern-re` commit `1b98bc5`. Ninth milestone of the
+[roadmap](roadmap.md).
 
 ## Scope delivered
 

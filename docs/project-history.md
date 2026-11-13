@@ -136,5 +136,5 @@ one PLAY entry and shared saves, options and automap; one-time legacy import
 preserves both originals. Independent Tier A reviews approved the work;
 178 tests passed without skips, and the ROM-free CI configuration passed.
 The maintainer completed the isolated play-test and reported everything
-correct on 2026-11-13. [Plan](milestone-9-plan.md). Accepted implementation
-is based on `966c21f`; implementation and closure are not yet committed.
+correct on 2026-11-13. [Plan](milestone-9-plan.md). Implementation and
+acceptance: `778aebf`; private text annotations: `1b98bc5` in `psmodern-re`.
