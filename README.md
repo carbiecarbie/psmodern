@@ -113,7 +113,7 @@ runs at 1x and then goes back to the speed you chose.
 
 Press Escape (or Y on a controller, or whatever you set) while walking around
 a town, the world map or a dungeon. Up and down pick a row, left and right change its value. Z
-(or A) saves and closes, and X or B (or Escape/Y) closes without saving. The
+(or A), X or B, and Escape/Y all save the displayed values and close. The
 scene stays behind the window and the music keeps playing.
 
 | Option | Values | What it does |
@@ -183,10 +183,10 @@ psmodern.exe --version
 
 `--encounter-rate` takes 0, 25, 50, 100 or 200 and `--experience-rate` takes 100,
 200 or 400. A flag you leave out uses the saved choice, and an explicit 100
-overrides a saved one. Flags are only saved if you confirm them in the
-Options window. The developer modes `--record` and `--no-routines` always
-use the original rules and refuse any other value; [development][development]
-has the details.
+overrides a saved one. Opening and then leaving the Options window saves its
+displayed values, including launch flags. The developer modes `--record` and
+`--no-routines` always use the original rules and refuse any other value;
+[development][development] has the details.
 
 ## About the project
 

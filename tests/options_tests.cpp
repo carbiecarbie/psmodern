@@ -215,7 +215,7 @@ void navigation(){
  check(menu.selected()==0 && menu.first_visible()==0,"up reaches first row and scrolls back");
  menu.update({},6.51);check(menu.update({.map=true},6.52)==MenuAction::none,"the map key does nothing in Options");
  menu.update({},6.53);check(menu.update({.accept=true},6.54)==MenuAction::apply,"confirm persists from encounter row");
- menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::close,"options toggle cancels draft");
+ menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::apply,"options toggle saves draft on exit");
  menu.open({},true,false);menu.update({},7);menu.update({.right=true},8);check(menu.draft()==game::Options{},"restricted menu read only");
  menu.update({},8.01);menu.update({.down=true},8.02);menu.update({},8.03);menu.update({.down=true},8.04);menu.update({},8.05);menu.update({.right=true},8.06);
  check(menu.selected()==2 && !menu.automap_draft(),"restricted automap row read only");
@@ -228,11 +228,21 @@ void navigation(){
  menu.resume();check(menu.visible() && menu.selected()==3 && menu.draft().encounter_percent==200,"resume keeps row and draft");
  check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for neutral input");
  menu.update({},10.7);check(menu.update({.accept=true},10.8)==MenuAction::controls,"re-armed after resume");
- menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::close,"Options closes after round trip");
+ menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::apply,"Options saves on exit after round trip");
  menu.open({},true,false);menu.update({},12);menu.update({.up=true},12.1);
  check(menu.selected()==4 && menu.update({.accept=true},12.2)==MenuAction::close,"Language unavailable in restricted session");
  menu.update({},12.3);menu.update({.up=true},12.4);
  check(menu.update({.accept=true},12.5)==MenuAction::controls,"Controls opens also when read-only");
+ // Both exit bindings save all three displayed values from every row,
+ // including the child-screen entries. Restricted sessions only close.
+ for(bool restricted:{false,true})for(bool toggle:{false,true})for(unsigned row=0;row<5;++row) {
+  menu.open({50,400},restricted,false,false,true);menu.update({},20);
+  menu.update({.right=true},21);menu.update({},22);
+  for(unsigned i=0;i<row;++i){menu.update({.down=true},23+i*2);menu.update({},24+i*2);}
+  const MenuInput exit=toggle ? MenuInput{.toggle=true} : MenuInput{.cancel=true};
+  check(menu.update(exit,40)==(restricted ? MenuAction::close : MenuAction::apply),"exit saves from every editable row and only closes when read-only");
+  check(menu.draft()==game::Options{restricted ? 50u : 100u,400} && menu.automap_draft(),"exit retains the displayed rates and automap");
+ }
  InputRelease release;release.consume();FrameInput held;held.pause=true;held.reset=true;held.pads[0].one=true;
  auto consumed=release.filter(held);check(!consumed.pause&&!consumed.reset&&!consumed.pads[0].one,"menu pause reset actions consumed");
  release.filter({});check(release.filter(held).pause,"fresh game input restored");

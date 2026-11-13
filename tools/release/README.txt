@@ -54,8 +54,8 @@ resizable window.
 OPTIONS (off by default)
 
 Press Escape (or Y on a controller, or the buttons you set) while exploring a
-town, the world map or a dungeon. Left/Right changes a value, Z or A saves and
-closes, X or B discards.
+town, the world map or a dungeon. Left/Right changes a value. Leaving with
+Z/A, X/B or Escape/Y automatically saves the displayed values.
 
   Encounters   0, 25, 50, 100 or 200 percent of the original random fights.
   Experience   100, 200 or 400 percent; battle meseta follows it.

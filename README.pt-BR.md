@@ -120,8 +120,8 @@ você escolheu.
 
 Aperte Escape (ou Y no controle, ou o que você configurou) enquanto anda por
 uma cidade, pelo mapa-múndi ou por uma masmorra. Para cima e para baixo escolhem a linha, esquerda e
-direita mudam o valor. Z (ou A) salva e fecha, e X ou B (ou Escape/Y) fecha
-sem salvar. A cena continua atrás da janela e a música não para.
+direita mudam o valor. Ao sair com Z/A, X/B ou Escape/Y, os valores exibidos
+são salvos automaticamente. A cena continua atrás da janela e a música não para.
 
 | Opção | Valores | O que faz |
 | --- | --- | --- |
@@ -192,10 +192,10 @@ psmodern.exe --version
 
 O `--encounter-rate` aceita 0, 25, 50, 100 ou 200 e o `--experience-rate` aceita
 100, 200 ou 400. Uma opção que você não passar usa o valor salvo, e um 100
-explícito ignora o valor salvo. Os valores da linha de comando só ficam salvos
-se você confirmar na janela de opções. Os modos de desenvolvimento `--record`
-e `--no-routines` usam sempre as regras originais e recusam qualquer outro
-valor; os detalhes estão em [desenvolvimento][development].
+explícito ignora o valor salvo. Abrir e depois sair da janela de opções salva
+os valores exibidos, incluindo os da linha de comando. Os modos de
+desenvolvimento `--record` e `--no-routines` usam sempre as regras originais e
+recusam qualquer outro valor; os detalhes estão em [desenvolvimento][development].
 
 ## Sobre o projeto
 

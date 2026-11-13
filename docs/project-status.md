@@ -77,8 +77,8 @@ automap, fast-forward, changeable controls and live language selection.
   afterward. New sessions and F5 start at 1x; recording remains at 1x.
 - **Language:** Language has its own SAVE/CANCEL, in the launcher and in
   Options during free exploration. English and Portuguese each require the
-  corresponding ROM. A saved choice is global; cancelling parent Options does
-  not undo it. The game ROM changes after native Options closes, preserving
+  corresponding ROM. A saved choice is global; leaving Options keeps it.
+  The game ROM changes after native Options closes, preserving
   the current scene and progress. If a preferred ROM is absent, the available
   language is used with a warning and the preference is kept.
 - **Saves:** the game's own save menu writes one shared cartridge file,
@@ -117,8 +117,8 @@ automap, fast-forward, changeable controls and live language selection.
   default) opens the scrolling five-entry window during free exploration in towns, on
   the world map and in dungeons, with released controls. The scene stays
   behind it and music continues. Combat, title, dialogue and other menus
-  ignore the shortcut. Left/Right changes a row; button 1 saves and closes,
-  button 2 or the Options shortcut discards the draft. Each 100% is DEFAULT;
+  ignore the shortcut. Left/Right changes a row; leaving with button 1,
+  button 2 or the Options shortcut saves the displayed values. Each 100% is DEFAULT;
   encounters 25% and experience/meseta 400% are RECOMMENDED, the pace of the
   Switch release's easy mode; the third row is AUTOMAP OFF (DEFAULT) or ON;
   the fourth, CONTROLS, opens Controls, and the fifth, LANGUAGE, opens Language.

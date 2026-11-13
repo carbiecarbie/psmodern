@@ -98,7 +98,7 @@ int scripted_poll(SDL_Event* event) {
             check(child_saved && tested->active_language()==target_language && !tested->language_pending(),"parent close lost child Save");
             check(tested->language_changes()==1,"child Save applied more than once");
         }
-        check(tested->chosen_options()==(mode==1 ? game::Options{0,100} : game::Options{}),"parent Save/Cancel changed wrong rate draft");
+        check(tested->chosen_options()==(mode==1 ? game::Options{0,100} : mode==3 ? game::Options{} : game::Options{200,100}),"parent exit saved the wrong rate draft");
         finished=quit_sent=true;*event={};event->type=SDL_QUIT;return 1;
     }
     return 0;
@@ -161,7 +161,7 @@ void script() {
     commands.push_back({{}});               // re-arm parent on Language
     if(mode==1) {
         tap({.down=true});tap({.right=true});tap({.accept=true}); // parent Apply 200 -> 0
-    } else if(mode!=3)tap({.cancel=true});   // mode 3 quits with the parent held
+    } else if(mode!=3)tap({.cancel=true});   // saves parent rates; mode 3 quits with the parent held
 }
 }
 
@@ -248,7 +248,7 @@ int main(int argc,char** argv) {try {
         check(mode!=2 || failed_shown,"failed Save was not visibly reported before retry");
         {
             auto saved=SaveStore::shared(host_folder);
-            check(saved.load_preferences(saved.load())==(mode==1 ? game::Options{0,100} : game::Options{}),"parent Cancel/Apply persisted the wrong rates");
+            check(saved.load_preferences(saved.load())==(mode==1 ? game::Options{0,100} : mode==3 ? game::Options{} : game::Options{200,100}),"parent exit persisted the wrong rates");
         }
         if(mode==0) {
             check(prompts==1 && std::filesystem::is_directory(host_folder/"shared"),"migration chooser repeated or shared store missing");
@@ -280,5 +280,5 @@ int main(int argc,char** argv) {try {
         SDL_Quit();
     }
     test::remove_temporary_folder(root);
-    std::cout<<"Actual main UI: child Save with parent Cancel/Apply, failed Save retry, pending exit with clean restart and fixed profile ownership passed.\n";return 0;
+    std::cout<<"Actual main UI: child Save with parent save on exit, failed Save retry, pending exit with clean restart and fixed profile ownership passed.\n";return 0;
 } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';SDL_Quit();return 1;}}

@@ -123,7 +123,7 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     const bool direction=input.up||input.down||input.left||input.right;
     const bool move=direction && (fresh||now>=next_repeat_);
     previous_=input;
-    if(cancel)return MenuAction::close;
+    if(cancel)return restricted_ ? MenuAction::close : MenuAction::apply;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
         if(input.up!=input.down) {
@@ -168,7 +168,10 @@ void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Lan
     if(failed_)text(40,152,label(UiText::save_failed));
     else if(restricted_)text(40,152,label(recording_ ? UiText::recording_read_only : UiText::z80_read_only));
     else if(pending_)text(40,152,label(UiText::saved_waiting));
-    font.text(pixels,40,160,label(top_ ? UiText::more_above : UiText::more_below),0xffaaaaaa);
+    auto footer=std::string(label(top_ ? UiText::more_above : UiText::more_below));
+    if(!failed_ && !restricted_ && !pending_)
+        footer=std::string(label(UiText::saves_on_exit))+(top_ ? " 2/2" : " 1/2");
+    font.text(pixels,40,160,footer,0xffaaaaaa);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {
     if(!waiting_)return input;

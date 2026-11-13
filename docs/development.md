@@ -133,8 +133,9 @@ before play; later language changes perform no file reads of the ROMs.
 Language has its own SAVE/CANCEL, like Controls. Its Save does not apply or
 discard the parent's encounter/experience/automap draft. A saved language
 updates host labels immediately and changes game text after native Options
-cleanup. Parent Cancel does not undo that independent Save. A failed language
-write leaves the screen open and the previous choice intact. Quitting before
+cleanup. Leaving the parent saves its rates and automap setting and keeps
+that independent Save. A failed language write leaves the screen open and
+the previous choice intact. Quitting before
 cleanup keeps the saved preference for the next launch. Power cycle remains
 unavailable while a host menu is open.
 
@@ -406,16 +407,17 @@ unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Pause remains the original Pause. Up/Down
 selects one of the five rows (the two rates, Automap, CONTROLS and LANGUAGE);
 four rows fit, so the list scrolls. Left/Right changes a value.
-Button 1 persists the three values and closes;
-Button 2 or the Options binding discards the draft. On the CONTROLS row Button
+Button 1, Button 2 or the Options binding persists the three displayed values
+and closes; there is no separate confirmation step. On the CONTROLS row Button
 1 opens the [Controls screen](#controls-screen) instead, also in the read-only
 modes, because controls never touch the game. LANGUAGE opens the
 [Language screen](#language), with its own Save/Cancel; recording and raw-Z80
 sessions cannot change language. The screen marks each
 100% value as DEFAULT, encounters 25% as RECOMMENDED and experience/meseta
 400% as RECOMMENDED; other values have no marker. Only restrictions, pending
-activation or a failed save add a status message inside the window. A failed
-save keeps the draft open so confirmation can retry.
+activation or a failed save replace the SAVES ON EXIT footer; otherwise the
+footer also indicates which of the two list positions is visible.
+A failed save keeps the draft open; either exit binding retries the save.
 
 The screen consumes opening and closing inputs until all gameplay buttons
 are released. Focus loss does not count as a physical release: the menu
@@ -1028,7 +1030,8 @@ An explicit 100 is accepted in restricted modes too. App recording and
 `--no-routines` force original execution, retaining configured preferences
 even when SRAM changes. Recording ignores the Options binding; raw-Z80
 sessions can open Options read-only during exploration. CLI overrides remain
-session-only until an explicit in-game Apply, which supersedes launch flags.
+session-only until the player opens and leaves Options, which saves the
+displayed values and supersedes launch flags.
 
 **Maintainer decision (2026-11-11).** The options take fixed values, not
 ranges: encounters 0, 50, 100 or 200 percent and experience 100, 200 or 400
@@ -1051,7 +1054,9 @@ share one rate. Activation uses the instruction hook forwarded through
 routine or accepted interrupt. Registry replacement preserves enabled/verifier policy and occurs
 only at the unregistered dispatcher. Reset reaches that dispatcher; F5 creates
 a new machine with the latest chosen values. Quit/restart loads the durable
-choice. No runtime SRAM restore is added. Opening/cancelling changes nothing.
+choice. No runtime SRAM restore is added. Opening alone changes nothing;
+leaving Options saves the displayed rates and automap setting (maintainer
+decision, 2026-11-13), including when Button 2 or the Options binding closes it.
 
 To run a recording with the options on and read what ran, use the runner; it
 writes manifests and the census but compares nothing:

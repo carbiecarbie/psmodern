@@ -11,13 +11,16 @@ using namespace psmodern;
 unsigned sampled=0,stage=0,modal_frames=0,mode_under_test=0,speed_stage=0;
 bool release_speed=false;
 bool sent_quit=false,toggle_sent=false,was_active=false,restored_speed=false,saved_menu=false,saved_game=false;
-// Mode 3: Options -> CONTROLS -> back to Options -> Apply.
+// Mode 3: Options -> CONTROLS -> back to Options -> Button 2 saves on exit.
 unsigned controls_calls=0,controls_frames=0;bool awaiting_controls=false,controls_closed=false;
 // Mode 4: as mode 3, but the Controls screen sets BUTTON 1 to K, the first
 // SAVE fails (controls.txt is a folder) and the second succeeds. While it is
 // open the power-cycle key and pad input, the pad fullscreen input and the
 // speed key are pressed; none of them may act.
 std::filesystem::path controls_folder;
+// Mode 5: change all values, fail to save on Button 2, then retry with Options.
+std::filesystem::path blocked_options;
+bool checked_options_failure=false;
 app::Bindings mode4_start;
 SDL_JoystickID virtual_pad=-1;
 unsigned power_cycles=0,fullscreen_toggles=0,shortcut_events=0;
@@ -84,7 +87,29 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
     if(mode_under_test>=3) {
         // Two ups reach CONTROLS through LANGUAGE; accept opens Controls. Back in
         // Options (re-armed by a neutral snapshot), two downs wrap to ENCOUNTERS,
-        // right changes 200 to 0 and accept applies.
+        // right changes 200 to 0 and either exit binding saves.
+        if(mode_under_test==5) {
+            switch(stage++) {
+                case 1:return {.right=true};
+                case 3:return {.down=true};
+                case 5:return {.right=true};
+                case 7:return {.down=true};
+                case 9:return {.right=true};
+                case 11:
+                    blocked_options=tested->store().path();blocked_options+=".options";
+                    std::filesystem::rename(blocked_options,controls_folder/"held-options");
+                    std::filesystem::create_directory(blocked_options);
+                    return {.cancel=true};
+                case 13:
+                    if(tested->chosen_options()!=game::Options{200,100} || tested->automap_option())
+                        throw std::runtime_error("Failed exit changed the active Options choice");
+                    checked_options_failure=true;
+                    std::filesystem::remove(blocked_options);
+                    std::filesystem::rename(controls_folder/"held-options",blocked_options);
+                    return {.toggle=true};
+                default:return {};
+            }
+        }
         if(awaiting_controls && !controls_closed)return {};
         switch(stage++){
             case 1:return {.up=true};
@@ -93,7 +118,7 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
             case 7:return {.down=true};
             case 9:return {.down=true};
             case 11:return {.right=true};
-            case 13:return {.accept=true};
+            case 13:return mode_under_test==3 ? MenuInput{.cancel=true} : MenuInput{.toggle=true};
             default:return {};
         }
     }
@@ -101,7 +126,7 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
         case 0:return {};
         case 1:return mode_under_test==0 ? MenuInput{.right=true} : MenuInput{};
         case 2:return {};
-        case 3:return {.accept=true};
+        case 3:return mode_under_test==2 ? MenuInput{.cancel=true} : MenuInput{.accept=true};
         default:return {};
     }
 }
@@ -257,10 +282,11 @@ int main(int argc,char**argv){try{
     const auto version=identify_rom(argv[1]);
     image_dir=std::filesystem::current_path()/(version==RomVersion::us_rev_a ? "options-us" : "options-br");std::filesystem::create_directories(image_dir);
     controls_folder=root/"PSModern";
-    for(mode_under_test=0;mode_under_test<5;++mode_under_test){
+    for(mode_under_test=0;mode_under_test<6;++mode_under_test){
         sampled=stage=modal_frames=speed_stage=0;release_speed=false;sent_quit=toggle_sent=was_active=restored_speed=saved_menu=saved_game=false;last_modal_cycle=0;tested=nullptr;
         controls_calls=controls_frames=0;awaiting_controls=controls_closed=false;
         power_cycles=fullscreen_toggles=shortcut_events=0;send_shortcuts=hold_tab=checked_failed_save=checked_new_binding=false;
+        checked_options_failure=false;
         if(mode_under_test==4){
             // A controls file with the power cycle and fullscreen on the stick
             // buttons, and a virtual controller (hardware back-ends off, as in
@@ -285,7 +311,9 @@ int main(int argc,char**argv){try{
         char* normal[]{argv[0],argv[1],rate,value};char* recording_args[]{argv[0],argv[1],record,recording.data()};char* raw_args[]{argv[0],argv[1],raw};
         const auto result=options_app_main(mode_under_test==2?3:4,mode_under_test==1?recording_args:mode_under_test==2?raw_args:normal);
         if(result || (mode_under_test==1 ? was_active : !was_active || modal_frames==0 || !restored_speed))throw std::runtime_error("Scripted options app session failed");
-        if(mode_under_test>=3 && (!controls_closed || controls_frames==0 || stage<14))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
+        if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<14))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
+        if(mode_under_test==5 && (!checked_options_failure || stage<14))
+            throw std::runtime_error("Failed Options exit did not keep all values for a successful retry");
         if(mode_under_test==4){
             SDL_Quit();   // balances the test's own SDL_Init; the virtual controller goes with it
             const auto saved=app::load_bindings(controls_folder);
@@ -296,7 +324,8 @@ int main(int argc,char**argv){try{
         }
         if(std::filesystem::exists(root/"PSModern"/app::bindings_file_name))throw std::runtime_error("Closing the Controls screen wrote the controls file");
         auto store=app::SaveStore::shared(root/"PSModern");
-        if(store.load_preferences(store.load())!=game::Options{0,100})throw std::runtime_error("App Apply or restricted session changed preferences incorrectly");
+        if(store.load_preferences(store.load())!=(mode_under_test==5 ? game::Options{0,200} : game::Options{0,100}) || store.automap_preference()!=(mode_under_test==5))
+            throw std::runtime_error("Options exit or restricted session persisted the wrong rates or automap");
     }
     {   // The start screen (video only: no controller is opened).
         app::RomList list;list.set(version,argv[1]);app::save_rom_list(controls_folder,list);
@@ -306,5 +335,5 @@ int main(int argc,char**argv){try{
         display.reset();SDL_Quit();
         if(chosen || launcher_sessions!=2 || !checked_launcher_save)throw std::runtime_error("Start screen -> Controls -> SAVE -> Controls -> back -> quit incomplete");
     }
-    test::remove_temporary_folder(root);std::cout<<"SDL options sessions: Apply, recording ignored, raw-Z80 readonly, live sound, backdrop, the Controls screen (cancel, failed and good SAVE, shortcuts held off) and its start screen flow passed.\n";return 0;
+    test::remove_temporary_folder(root);std::cout<<"SDL options sessions: both exit bindings save, failed exit retries all values, recording ignored, raw-Z80 readonly, live sound, backdrop, the Controls screen (cancel, failed and good SAVE, shortcuts held off) and its start screen flow passed.\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

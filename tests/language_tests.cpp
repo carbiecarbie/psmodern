@@ -152,6 +152,7 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
     OptionsMenu menu;menu.open({25,400},false,false,false,true);menu.update({},0);
     for(unsigned row=0;row<5;++row) {
         Frame pixels(256*192,0xff123456);menu.render(pixels,font,language);
+        check(shows(pixels,font,40,160,std::string(ui_text(UiText::saves_on_exit,language))+(menu.first_visible() ? " 2/2" : " 1/2"),0xffaaaaaa),"Options footer explains save on exit and viewport in the current language");
         check(menu.selected()>=menu.first_visible() && menu.selected()<menu.first_visible()+4,"Options cursor remains visible");
         Frame cursor(256*192);font.window(cursor,24,24,208,152,48+32*int(menu.selected()-menu.first_visible()));
         for(int y=32;y<168;++y)for(int x=24;x<32;++x)check(pixels[y*256+x]==cursor[y*256+x],"Options cursor matches visible selected row");

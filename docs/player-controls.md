@@ -57,9 +57,10 @@ The start screen and Options also offer Language. It changes the game and
 PSModern's own screens between English and Portuguese when the corresponding
 ROM is available. During play, finish the current dialogue or battle first;
 the game changes language after Options closes, without restarting.
-Language has its own Save/Cancel, like Controls: cancelling the parent Options
-screen does not undo a language already saved. This preference is global;
-all languages use the same saved games, options and automap. The start screen
+Language has its own Save/Cancel, like Controls. Leaving Options saves its
+displayed rates and automap setting and keeps a language already saved.
+This preference is global; all languages use the same saved games, options
+and automap. The start screen
 has one PLAY entry; ADD ROM makes another language available.
 
 ## Opening the Controls screen
@@ -155,7 +156,8 @@ fullscreen key says ALT ENTER IS FIXED, for clearing and for setting.
 
 The Options window and the dungeon map use your controls: the four direction
 inputs move, Button 1 chooses and Button 2 goes back, and the Options and Map
-keys close their own screens (Button 2 closes the map too). The window title
+keys close their own screens (Button 2 closes the map too). Leaving Options
+automatically saves its displayed rates and Automap setting. The window title
 lists the current keys for Speed and Options, and for Map while the Automap
 option is on, for example `Speed 1X (TAB / RB)`; an action with no key or
 button set is left out.

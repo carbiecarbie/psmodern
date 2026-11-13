@@ -10,7 +10,7 @@ enum class PadInput : std::uint8_t;
 enum class UiText {
     none, options, encounters, experience_meseta, automap, controls, language,
     on, off_default, default_suffix, recommended_suffix, save_failed, recording_read_only,
-    z80_read_only, saved_waiting, more_above, more_below, play,
+    z80_read_only, saved_waiting, saves_on_exit, more_above, more_below, play,
     choose_rom, open_saves, quit, keyboard, gamepad, restore_defaults, save, cancel,
     no_binding, controller_connected, no_controller, press_key_for, press_button_for,
     key_unavailable, swapped_with, key_used_by, button_used_by, needs_key,

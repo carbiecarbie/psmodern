@@ -66,7 +66,7 @@ int main() {try {
     check(menu.draft().encounter_percent==200,"held direction does not repeat across focus regain");
     keys={};menu.update(sample_menu_input(window,controller),now++);
     keys[SDL_SCANCODE_X]=keys[SDL_SCANCODE_Z]=keys[SDL_SCANCODE_RETURN]=keys[SDL_SCANCODE_BACKSPACE]=1;
-    check(menu.update(sample_menu_input(window,controller),now++)==MenuAction::close,"fresh keyboard X closes after focus regain");
+    check(menu.update(sample_menu_input(window,controller),now++)==MenuAction::apply,"fresh keyboard X saves on exit after focus regain");
     menu.close();release.consume();input=sample_menu_input(window,controller);
     neutral(release.filter(sample_input(window,controller,enter),input.any(),input.focused),"held close/game/Pause/Reset keys do not leak");
     focused=nullptr;input=sample_menu_input(window,controller);
@@ -184,7 +184,7 @@ int main() {try {
         check(!input.any(),"detached controller leaves no stuck Y or direction");
         neutral(sample_input(window,real_controller,enter),"detached controller leaves no gameplay input");
         menu.update(input,now++);keys[SDL_SCANCODE_X]=1;
-        check(menu.update(sample_menu_input(window,real_controller),now++)==MenuAction::close,"keyboard closes modal after controller removal");
+        check(menu.update(sample_menu_input(window,real_controller),now++)==MenuAction::apply,"keyboard saves on exit after controller removal");
         menu.close();release.consume();input=sample_menu_input(window,real_controller);
         neutral(release.filter(sample_input(window,real_controller,enter),input.any(),input.focused),"keyboard close does not leak after detach");
         keys={};input=sample_menu_input(window,real_controller);release.filter(sample_input(window,real_controller,enter),input.any(),input.focused);
