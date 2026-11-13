@@ -15,7 +15,11 @@ in use; no decision changed. Amended on 2026-11-11 by the maintainer
 (milestone 7 planning): the automap is a map screen opened by a button that
 reads state the original keeps, so it no longer waits for the movement
 rewrite (sections 2, 5.1, 5.3, 8 and 9), and its 8x8 icons are a named
-exception to "No new art" (section 2). Changes
+exception to "No new art" (section 2). Amended on 2026-11-13 by the
+maintainer (milestone 8 closure): encounters also accept 25 and the
+recommended pace is encounters 25 with experience 400 (section 9); full
+controller support is delivered, and its default is the original mapping
+(section 2 and stage 7). Changes
 to this design need the maintainer's approval and are recorded here.
 
 ## 1. What it is and why
@@ -58,7 +62,8 @@ for this project's organization and workflow.
   loads) and the frame on which each button is read are kept. See 5.2.
 - **Original mode in English (US Rev-A ROM) and in Portuguese (Tec Toy's
   Brazilian ROM)**, each identical to its own cartridge. See 5.5.
-- **Optional features**, all off by default:
+- **Optional features**, all off by default (for the controls, the default
+  is the original mapping):
   - **Adjustable experience** (a multiplier), in the spirit of the Switch
     release.
   - **Adjustable random encounters**, including turning them **off**.
@@ -69,7 +74,8 @@ for this project's organization and workflow.
   - **New interface** (menus and windows).
   - **Language selection in the options**: English and Portuguese to begin
     with.
-  - **Full controller support.**
+  - **Full controller support**: every key and controller button can be
+    changed, and nothing changes until the player saves a choice.
 
 ### Non-goals
 
@@ -228,7 +234,7 @@ verifiable milestones.
 | Language selection | The text system (encoding, pointers, font, windows) |
 | Widescreen on the world map and in towns | Map loading, scrolling, NPC activation and the camera |
 | New interface | Menus and windows |
-| Full controller support | Only the input layer; can come early |
+| Full controller support | Only the input layer; delivered in milestone 8 |
 
 The automap reads the floor, position, facing and layout the original keeps
 in work RAM, and the object and exit tables of the player's ROM, at native
@@ -361,7 +367,8 @@ study base (stage 3) shows how the code is organized.
    for the rewrite (see 5.3).
 6. **Text:** the text system in both versions, reading the US/Brazilian text
    from the player's ROM, and language selection.
-7. **Full controller support:** remapping, shortcuts. May come earlier.
+7. **Full controller support:** remapping, shortcuts. Done in milestone 8,
+   ahead of stage 6.
 8. **World map and towns:** then widescreen.
 9. **Menus and windows:** then the new interface.
 10. **The rest:** battle, 3D dungeon drawing, the sound driver, scenes, the
