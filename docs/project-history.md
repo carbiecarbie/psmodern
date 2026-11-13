@@ -106,3 +106,15 @@ C++ and the optional automap, off by default. The release notes gained the
 map's key and option. All 155 tests passed without skips, and the published
 zip is the package the maintainer play-tested. Published as GitHub release
 v0.2.0. Prepared by `222fa76`.
+
+## Milestone 8 - Full controller support (2026-11-13)
+
+Every key and controller button can be changed on an in-game Controls
+screen, reached from the start screen and from a new CONTROLS row of the
+Options window, and kept in `controls.txt`; the triggers can be set like
+buttons, and with no file the game plays exactly as release 0.2.0. Encounters
+gained a 25% choice, now recommended with experience 400, and the automap
+names each floor. An independent review's fixes were applied and all 159
+tests passed without skips. The maintainer played the US build, found
+everything right and accepted it on 2026-11-13. [Plan](milestone-8-plan.md).
+Implementation: `a645dcd`.

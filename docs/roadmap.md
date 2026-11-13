@@ -4,7 +4,8 @@
 with the maintainer on 2026-11-13.** It orders the stages of
 [design](design.md) section 8 and names what each needs; it starts nothing.
 The maintainer starts each milestone explicitly, and each gets its own plan.
-It is revised at each milestone closure.
+It is revised at each milestone closure, most recently that of milestone 8
+(2026-11-13).
 
 ## Done so far
 
@@ -18,6 +19,7 @@ It is revised at each milestone closure.
 | 5 | In-game options saved beside the unchanged cartridge save; battle meseta follows the experience rate |
 | 6 | Fast-forward (1x/2x/4x) with music at normal tempo |
 | 7 | Dungeon walking in C++ and the automap |
+| 8 | Full controller support: the Controls screen and `controls.txt`; encounters at 25% and the floor label |
 
 Releases: 0.1.0 (start screen, 2026-11-11) and 0.2.0 (adds the automap,
 2026-11-12). Releases do not change the milestone numbering.
@@ -25,19 +27,9 @@ Releases: 0.1.0 (start screen, 2026-11-11) and 0.2.0 (adds the automap,
 ## Next milestones
 
 The numbers are the milestones'. The order was decided on 2026-11-13:
-controller support moved ahead of text, as design section 8 allows.
+controller support (milestone 8, now done) moved ahead of text, as design
+section 8 allows.
 
-8. **Full controller support.** Remapping and shortcuts. Touches only the
-   input layer. Creates `docs/player-controls.md`. Two small decided items
-   ride along:
-   - **Encounters at 25%.** The choices become 0, 25, 50, 100 and 200, and
-     the recommended pace becomes encounters 25 with experience 400. A
-     study of the Switch release (kept outside this repository) found that
-     its easy mode uses a quarter of the encounters, not half, with four
-     times the experience and battle money. The design, the README, the
-     development notes and the party chapter, which call 50 and 400 the
-     Switch pace, are corrected in the same change.
-   - **A floor label** on the automap screen.
 9. **Text and language selection.** Rewrite the text system and read the US
    and Brazilian text from the player's ROM. Known so far: text uses a word
    dictionary and control codes; the Brazilian control codes change where

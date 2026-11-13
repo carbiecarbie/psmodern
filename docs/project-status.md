@@ -1,7 +1,8 @@
 # PSModern - Project Status
 
-**Milestone 7 (dungeons and the automap) is complete,** accepted on
-2026-11-12 ([plan](milestone-7-plan.md)). **Release 0.1.0**, the first
+**Milestone 8 (full controller support) is complete,** accepted on
+2026-11-13 ([plan](milestone-8-plan.md)): every key and controller button
+can be changed on an in-game Controls screen. **Release 0.1.0**, the first
 public Windows release, added a start screen that remembers the player's
 ROMs ([plan](release-0.1.0-plan.md)); **release 0.2.0** (2026-11-12) added
 the automap.
@@ -10,10 +11,10 @@ the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup, money award
 and walking in the dungeons now run in C++; the rest of the original program
 runs on the virtual Z80. Optional features include saved encounter and
-experience/battle-meseta rates, a dungeon automap, and session-only 2x/4x
-fast-forward. New profiles use original rates with the automap off;
-acceleration starts at 1x. Milestones 1 to 6 were accepted between
-2026-11-08 and 2026-11-11.
+experience/battle-meseta rates, a dungeon automap, session-only 2x/4x
+fast-forward and changeable controls. New profiles use original rates with
+the automap off and the 0.2.0 controls; acceleration starts at 1x.
+Milestones 1 to 7 were accepted between 2026-11-08 and 2026-11-12.
 
 Replacements are checked against the original, call by call and frame by
 frame, with exact state and timing. A private study base explains how the
@@ -24,19 +25,21 @@ milestone explicitly.
 ## What can be played
 
 The whole game, as on the cartridge, plus saved rate settings, a dungeon
-automap and fast-forward.
+automap, fast-forward and changeable controls.
 
 - **Starting:** double-click `psmodern.exe` (no arguments) to reach the start
   screen: the first time, pick an uncompressed `.sms` file of the US Rev-A or
   the Brazilian Tec Toy cartridge; it is remembered, and any other file is
-  refused with a message. Or run `psmodern.exe <rom-path>` from a terminal.
+  refused with a message. The start screen also opens the Controls screen.
+  Or run `psmodern.exe <rom-path>` from a terminal.
   The window title names the version, active rates and any pending change.
   See [development](development.md#start-screen) for both paths.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
 - **Sound:** the original sound chip, resampled for the computer's audio
   device. Music and effects keep normal tempo and pitch while running at 2x/4x.
-- **Controls:**
+- **Controls:** [controls](player-controls.md) lists every key and button
+  for players. The defaults are those of release 0.2.0:
 
   | Console | Keyboard | Game controller |
   | --- | --- | --- |
@@ -45,13 +48,24 @@ automap and fast-forward.
   | Pause | Enter | Start |
   | Reset | Backspace | Back |
   | Power off and on | F5 | - |
-  | Speed: 1x / 2x / 4x | Tab | Right shoulder (R/RB) |
+  | Speed: 1x / 2x / 4x | Tab | Right shoulder (RB) |
   | Options window | Escape | Y |
   | Dungeon map (Automap option on) | M | X |
+  | Window or fullscreen | Alt+Enter | - |
 
   Keyboard and controller work together. The first controller found is used,
-  also when it is plugged in during play.
-- **Fast-forward:** each Tab/RB press cycles 1x, 2x, 4x, then 1x; holding
+  also when it is plugged in during play. Button names are positional (A is
+  the bottom button, whatever is printed on the pad).
+- **Changing the controls:** the Controls screen (from the start screen or
+  the Options window) sets one key and one controller input for each of 13
+  actions: the eight console inputs, Speed, Options, Map, Power cycle and
+  Fullscreen. A key already in use swaps; the triggers can be set like
+  buttons. Alt+Enter and the left stick are fixed, the keys of the
+  directions and buttons 1 and 2 cannot be emptied, and the start and
+  Controls screens answer fixed keys, so no choice locks the player out.
+  SAVE applies the controls at once, menus and the map included.
+- **Fast-forward:** each Speed press (Tab or RB by default) cycles 1x, 2x,
+  4x, then 1x; holding
   does not repeat. An indicator appears while accelerated. Music and effects
   keep normal tempo at 2x/4x and continue smoothly when returning to 1x,
   without an audio backlog.
@@ -62,7 +76,10 @@ automap and fast-forward.
   a session, the previous file is copied to a `.bak` file. Only one running
   copy of PSModern may use a save file; a second one is refused. Two
   companion files sit beside it without changing the cartridge format: the
-  options, and the dungeon maps of the saved games (`.automap`).
+  options, and the dungeon maps of the saved games (`.automap`). The same
+  folder holds `roms.txt`, the start screen's remembered ROMs, and
+  `controls.txt`, written only when the player saves on the Controls screen;
+  without it the defaults apply, and a damaged file never stops the game.
 - **Automap:** with the option on, M or controller X while walking in a
   dungeon opens a map of the current floor; M, X, Escape or B close it. The
   game waits and the music continues. The map shows only what the party has
@@ -71,30 +88,36 @@ automap and fast-forward.
   the party has stood on it, a fake wall becomes floor once walked through,
   and bosses, guardians and scripted events are never marked. Exploration is
   recorded even with the option off and kept with each saved game: Continue
-  brings back that game's map, a new game starts empty. There is no floor
-  label and no view of other floors.
+  brings back that game's map, a new game starts empty. A floor label names
+  the floor: FLOOR 1 is the lowest floor with an exit to the outside, FLOOR
+  2 and up above it, FLOOR B1 and down below it (a PSModern convention, not
+  something the original shows). There is no view of other floors.
 - **Options (off by default):** two flags after the ROM path, each a
   percentage of the original, where 100 is the original game.
-  - `--encounter-rate 0`, `50`, `100` or `200`: how often random fights
-    start, on the map and in dungeons. 0 turns random fights off, 50 halves
-    them, 200 doubles them. Story and fixed fights do not change.
+  - `--encounter-rate 0`, `25`, `50`, `100` or `200`: how often random
+    fights start, on the map and in dungeons. 0 turns random fights off, 25
+    keeps a quarter, 50 halves them, 200 doubles them. Story and fixed
+    fights do not change.
   - `--experience-rate 100`, `200` or `400`: how much experience each fight
     gives. The number on screen is what every character gains. A character
     still gains at most one level per fight.
 
   Any other value is refused. New profiles use 100/100. Saved choices load on
   startup; explicit flags override only their corresponding field.
-- **In-game options:** Escape or controller Y opens the three-row window
-  during free exploration in towns, on the world map and in dungeons, with
-  released controls. The scene stays behind it and music continues. Combat,
-  title, dialogue and other menus ignore the shortcut. Left/Right changes a
-  row; Z/A saves and closes, X/B or Escape/Y discards the draft. Each 100% is
-  DEFAULT; encounters 50% and experience/meseta 400% are RECOMMENDED; the
-  third row is AUTOMAP OFF (DEFAULT) or ON.
+- **In-game options:** the Options shortcut (Escape or controller Y by
+  default) opens the four-row window during free exploration in towns, on
+  the world map and in dungeons, with released controls. The scene stays
+  behind it and music continues. Combat, title, dialogue and other menus
+  ignore the shortcut. Left/Right changes a row; button 1 saves and closes,
+  button 2 or the Options shortcut discards the draft. Each 100% is DEFAULT;
+  encounters 25% and experience/meseta 400% are RECOMMENDED, the pace of the
+  Switch release's easy mode; the third row is AUTOMAP OFF (DEFAULT) or ON;
+  the fourth, CONTROLS, opens the Controls screen and comes back.
 - **Persistence:** a companion file retains preferences without changing the
   cartridge save format; since milestone 7 it is written in format 2, with
   the automap choice, which release 0.1.0 refuses (it then plays with the
-  original settings). Battle meseta follows the experience rate; other money
+  original settings); release 0.2.0 likewise refuses a file saved with
+  encounters 25. Battle meseta follows the experience rate; other money
   sources remain unchanged. Recording ignores the shortcuts, uses original
   rules and keeps no map; raw-Z80 mode exposes read-only options and keeps
   no map. Details are in [development](development.md#options) and
@@ -110,7 +133,7 @@ layer.
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
 | Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money, dungeon walking), the options, the dungeon tables and the automap's exploration model |
-| Program | `src/app/` | SDL window, sound, input, save files and their companions, the Options window and the map screen, frame pacing, command-line options |
+| Program | `src/app/` | SDL window, sound, input and its bindings, save files and their companions, the start, Options, Controls and map screens, frame pacing, command-line options |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
 | Tests | `tests/` | Unit, conformance, ROM, probe and checkpoint tests |
@@ -215,7 +238,10 @@ the game.
   interrupt and frame boundaries forced at each cycle, and by running the
   twelve recordings with the options on. At 100 the game is byte-identical to
   the original.
-- **The complete suite** has 155 tests; at the closure of milestone 7 all
+- **The default controls are release 0.2.0's:** a test checks every
+  combination of the default keys and controller buttons; recordings and
+  replay never see the bindings.
+- **The complete suite** has 159 tests; at the closure of milestone 8 all
   passed with none skipped.
 - **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
   the VDPTest results for the SMS1 video chip.
@@ -227,8 +253,14 @@ the game.
 ## Known gaps
 
 - **Options remain deliberately small.** Encounter and experience/meseta
-  rates and the automap are available in-game and saved. Remapping and
-  other features remain later work on the [roadmap](roadmap.md).
+  rates, the automap and the controls are available in-game and saved.
+  Other features remain later work on the [roadmap](roadmap.md).
+- **Controls have one key and one controller input per action,** and only
+  the first controller found is used; there is no second pad and no
+  shortcut back to the start screen during play. A damaged `controls.txt`
+  is reported only on the console, not in the window. A trigger held when a
+  controller connects is ignored only on a best-effort basis: some drivers
+  may still deliver it as a press.
 - **Recording coverage is thin where the new routines act.** The recordings
   reach few encounter paths and one level gain. Thirteen dungeon pieces are
   reached by no recording and are covered by state probes only: locked and
@@ -269,7 +301,6 @@ the game.
   labels them Unknown. The game reaches two of them, video memory accesses
   at two moments of the US recordings, where PSModern matches the reference
   but the real console's behavior is not known.
-- **Controls are fixed.** Remapping and the second pad are later work, as
-  is aspect correction of the picture.
+- **No aspect correction of the picture** yet.
 - **Rare sound stalls are not ruled out.** One of three measured sessions
   had stalls of about 90 ms; their cause is not known.
