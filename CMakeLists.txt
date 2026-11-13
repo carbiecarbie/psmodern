@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # Keep assertions in the optimized validation build, as in MMModern.
 set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
-project(PSModern VERSION 0.3.0 LANGUAGES C CXX)
+project(PSModern VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

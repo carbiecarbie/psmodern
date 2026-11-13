@@ -152,7 +152,7 @@ void start_screen_entries() {
     check(std::string(StartScreen::label(A::play))=="PLAY" && std::string(StartScreen::label(A::play,Language::portuguese))=="JOGAR" &&
           std::string(StartScreen::label(A::choose))=="ADD ROM" && std::string(StartScreen::label(A::choose,Language::portuguese))=="ADICIONAR ROM" &&
           std::string(StartScreen::label(A::controls))=="CONTROLS" && std::string(StartScreen::label(A::open_saves))=="OPEN SAVES FOLDER" &&
-          std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 0.3.0","labels and footer");
+          std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 0.4.0","labels and footer");
 }
 void start_screen_input() {
     const auto both=rom_list("C:/us.sms","C:/br.sms");
