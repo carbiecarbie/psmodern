@@ -118,3 +118,12 @@ names each floor. An independent review's fixes were applied and all 159
 tests passed without skips. The maintainer played the US build, found
 everything right and accepted it on 2026-11-13. [Plan](milestone-8-plan.md).
 Implementation: `a645dcd`; closed by `0b34074`.
+
+## Release 0.3.0 - Changeable controls released (2026-11-13)
+
+The third public Windows release carries milestone 8: the Controls screen
+and `controls.txt`, triggers and controller shortcuts, encounters at 25%
+and the automap's floor label. The player's README and the start screen
+picture follow. All 159 tests passed without skips. The maintainer asked
+to publish without a release play-test, having played the milestone 8
+build. Published as GitHub release v0.3.0. Prepared by `488a43f`.

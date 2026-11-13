@@ -5,7 +5,7 @@
 can be changed on an in-game Controls screen. **Release 0.1.0**, the first
 public Windows release, added a start screen that remembers the player's
 ROMs ([plan](release-0.1.0-plan.md)); **release 0.2.0** (2026-11-12) added
-the automap.
+the automap and **release 0.3.0** (2026-11-13) the changeable controls.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup, money award

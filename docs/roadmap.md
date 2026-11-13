@@ -21,8 +21,8 @@ It is revised at each milestone closure, most recently that of milestone 8
 | 7 | Dungeon walking in C++ and the automap |
 | 8 | Full controller support: the Controls screen and `controls.txt`; encounters at 25% and the floor label |
 
-Releases: 0.1.0 (start screen, 2026-11-11) and 0.2.0 (adds the automap,
-2026-11-12). Releases do not change the milestone numbering.
+Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
+2026-11-12) and 0.3.0 (adds the changeable controls, 2026-11-13). Releases do not change the milestone numbering.
 
 ## Next milestones
 
