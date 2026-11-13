@@ -6,7 +6,8 @@ can change during exploration, and one PLAY entry uses shared saved progress.
 Milestone 8 added changeable controls. **Release 0.1.0**, the first
 public Windows release, added a start screen that remembers the player's
 ROMs ([plan](release-0.1.0-plan.md)); **release 0.2.0** (2026-11-12) added
-the automap and **release 0.3.0** (2026-11-13) the changeable controls.
+the automap, **release 0.3.0** (2026-11-13) the changeable controls, and
+**release 0.4.0** (2026-11-13) language selection and shared saves.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup, money award,
@@ -17,7 +18,7 @@ fast-forward, changeable controls and language selection. Without saved
 settings, rates are original, the automap is off and controls follow 0.2.0;
 acceleration starts at 1x.
 Milestones 1 to 7 were accepted between 2026-11-08 and 2026-11-12.
-Release 0.3.0 remains the latest published version; milestone 9 is not released.
+Release 0.4.0 is the latest published version.
 
 Replacements are checked against the original, call by call and frame by
 frame, with exact state and timing. A private study base explains how the

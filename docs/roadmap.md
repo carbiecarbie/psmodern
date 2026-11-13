@@ -23,7 +23,9 @@ It is revised at each milestone closure, most recently that of milestone 9
 | 9 | Text in C++, live English/Portuguese switching, localized host screens and shared saves with preserved legacy progress |
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
-2026-11-12) and 0.3.0 (adds the changeable controls, 2026-11-13). Releases do not change the milestone numbering.
+2026-11-12), 0.3.0 (adds the changeable controls, 2026-11-13) and 0.4.0
+(adds language selection and shared saves, 2026-11-13). Releases do not change
+the milestone numbering.
 
 ## Next milestones
 

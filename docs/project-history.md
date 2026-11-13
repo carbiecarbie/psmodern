@@ -138,3 +138,10 @@ preserves both originals. Independent Tier A reviews approved the work;
 The maintainer completed the isolated play-test and reported everything
 correct on 2026-11-13. [Plan](milestone-9-plan.md). Implementation and
 acceptance: `778aebf`; private text annotations: `1b98bc5` in `psmodern-re`.
+
+## Release 0.4.0 - Language selection and shared saves (2026-11-13)
+
+The Windows release carries milestone 9 and saves Options automatically on
+exit. All 178 tests passed without skips. At the maintainer's request the
+exact release zip was published without a manual release play-test. Published
+as GitHub release v0.4.0 from `98d6a8f`.
