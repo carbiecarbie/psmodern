@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory() as folder:
     # values run without any comparison (the plain mode), explicit 100 equals no flags.
     def flagged(extra,name):
         return [str(runner),str(rom),str(rec),'--dump','1','--out',str(root/name),*extra]
-    for extra,diagnostic in ((['--encounter-rate'],'needs a value'),(['--encounter-rate','25'],'one of 0, 50, 100 or 200'),(['--encounter-rate','400'],'one of 0, 50, 100 or 200'),
+    for extra,diagnostic in ((['--encounter-rate'],'needs a value'),(['--encounter-rate','24'],'one of 0, 25, 50, 100 or 200'),(['--encounter-rate','400'],'one of 0, 25, 50, 100 or 200'),
             (['--experience-rate','25'],'one of 100, 200 or 400'),(['--experience-rate','1000'],'one of 100, 200 or 400'),(['--experience-rate','0'],'one of 100, 200 or 400'),
             (['--encounter-rate','-1'],'whole number'),(['--experience-rate',''],'whole number'),
             (['--encounter-rate','50','--encounter-rate','50'],'more than once'),

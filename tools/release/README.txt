@@ -20,45 +20,65 @@ HOW TO START
 1. Unzip the folder anywhere you like.
 2. Double-click psmodern.exe.
 3. The first time, pick your .sms file in the Open dialog. PSModern remembers it.
-4. A start screen offers: PLAY (US/BR), CHOOSE ANOTHER ROM, OPEN SAVES FOLDER
-   and QUIT.
+4. A start screen offers: PLAY (US/BR), CHOOSE ANOTHER ROM, CONTROLS, OPEN
+   SAVES FOLDER and QUIT.
 
 Windows SmartScreen may warn about an unknown publisher because the program is
 not digitally signed. Click "More info", then "Run anyway".
 
 CONTROLS
 
+These are the defaults. Every key and button can be changed on the Controls
+screen: choose CONTROLS on the start screen, or on the Options window while
+playing.
+
   Console              Keyboard        Game controller
   Directional pad      Arrow keys      D-pad or left stick
   Button 1 / Button 2  Z / X           A / B
   Pause                Enter           Start
   Reset                Backspace       Back
-  Power off and on     F5              -
+  Power off and on     F5              not set
   Speed 1x / 2x / 4x   Tab             Right shoulder (R / RB)
   Options window       Escape          Y
   Dungeon map          M               X
-  Fullscreen           Alt+Enter       -
+  Fullscreen           Alt+Enter       not set (Alt+Enter is fixed)
 
-Keyboard and controller work together. Each press of Tab or RB cycles the
+Keyboard and controller work together. The first controller found is used.
+The start screen always uses the defaults (arrows, Z or Enter, Escape; D-pad,
+A or Start), so CONTROLS stays within reach. Controller buttons are named by position: A is the bottom button, whatever is
+printed on your pad. Each press of Tab or RB cycles the
 speed 1x, 2x, 4x, then 1x again; music keeps its normal tempo. The picture is
 the original 256x192, scaled in whole steps in a resizable window.
 
 OPTIONS (off by default)
 
-Press Escape (or Y on a controller) while exploring a town, the world map or a
-dungeon. Left/Right changes a value, Z or A saves and closes, X or B discards.
+Press Escape (or Y on a controller, or the buttons you set) while exploring a
+town, the world map or a dungeon. Left/Right changes a value, Z or A saves and closes, X or B discards.
 
-  Encounters   0, 50, 100 or 200 percent of the original random fights.
+  Encounters   0, 25, 50, 100 or 200 percent of the original random fights.
   Experience   100, 200 or 400 percent; battle meseta follows it.
   Automap      Off or On; a map of the current dungeon floor (off by default).
+  Controls     Opens the Controls screen.
 
-100 is the original game. Recommended: encounters 50, experience 400.
+100 is the original game. Recommended: encounters 25, experience 400.
 Story and fixed fights never change.
 
 With Automap on, press M or controller X while walking in a dungeon to see the
-current floor. The game pauses and music continues. The map shows explored
-places, and is saved with each game. Exploration is recorded even while the
+current floor, labelled at the top FLOOR 1, 2... (FLOOR 1 is the lowest floor
+with an exit outside) or FLOOR B1... below it. The game pauses and music
+continues. The map shows explored places, and is saved with each game. Exploration is recorded even while the
 option is off.
+
+CHANGING THE CONTROLS
+
+On the Controls screen move with the arrow keys (or D-pad), press Enter, Z or A
+on a cell, then press the new key or button. A key already in use trades places
+with the entry you change. Backspace, Delete or X clears a cell; Escape, X or B
+leaves without saving. Choose RESTORE DEFAULTS, SAVE or CANCEL at the bottom.
+SAVE writes controls.txt in %APPDATA%\PSModern, next to roms.txt; delete it to
+return to the defaults. A damaged file never stops the game: lines it cannot
+use are skipped and the defaults fill the gaps. The full list is in
+docs/player-controls.md of the source.
 
 SAVES
 

@@ -29,6 +29,12 @@ void codec(){
  image.pending.reset();check(image.matching(a)==game::Options{},"committed wins backup tie");
  refuses([&]{parse_settings("");});refuses([&]{parse_settings("psmodern-options 2\n");});refuses([&]{parse_settings(text+"junk\n");});
  refuses([&]{parse_settings("psmodern-options 3\ncommitted "+a+" 100 100 0\npending -\nbackup -\n");});
+ // A saved 25 (the recommended encounter rate) and an older saved 50 are both valid; 24 is not.
+ {
+  SettingsImage rates{{a,{25,400},false},SettingsRecord{b,{50,400},false},std::nullopt};
+  check(parse_settings(write_settings(rates))==rates,"25 and 50 both round trip");
+  refuses([&]{parse_settings("psmodern-options 2\ncommitted "+a+" 24 400 0\npending -\nbackup -\n");});
+ }
  // Format 2 always written; the automap switch sits beside the options.
  check(text.rfind("psmodern-options 2\n",0)==0,"settings are written as format 2");
  {
@@ -171,6 +177,18 @@ void driver(){
  }
  {FrameDriver driver(program(),SaveStore(t.path,RomVersion::us_rev_a));check(driver.effective_options()==game::Options{50,400},"CLI and forced sessions never stored overrides");}
 }
+// The encounter row visits 0, 25, 50, 100 and 200 in order, in both directions.
+void encounter_choices(){
+ OptionsMenu menu;menu.open({},false,false);menu.update({},1);
+ double now=2;
+ for(unsigned expected:{200u,0u,25u,50u,100u}){menu.update({.right=true},now);now+=1;menu.update({},now);now+=1;check(menu.draft().encounter_percent==expected,"right walks the encounter choices");}
+ for(unsigned expected:{50u,25u,0u,200u,100u}){menu.update({.left=true},now);now+=1;menu.update({},now);now+=1;check(menu.draft().encounter_percent==expected,"left walks the encounter choices back");}
+ // A saved 50 from before the 25 choice opens on 50 and still steps to its neighbours.
+ menu.open({50,400},false,false);menu.update({},now);now+=1;
+ menu.update({.right=true},now);now+=1;menu.update({},now);now+=1;check(menu.draft().encounter_percent==100,"saved 50 steps to 100");
+ menu.update({.left=true},now);now+=1;menu.update({},now);now+=1;menu.update({.left=true},now);now+=1;menu.update({},now);now+=1;
+ check(menu.draft().encounter_percent==25,"saved 50 steps back to 25");
+}
 void navigation(){
  OptionsMenu menu;menu.open({},false,false);
  check(menu.update({.accept=true},0)==MenuAction::none,"opening held buttons consumed");menu.update({},1);
@@ -184,10 +202,13 @@ void navigation(){
  menu.update({},6.33);menu.update({.left=true},6.34);check(!menu.automap_draft(),"left turns it off");
  menu.update({},6.35);menu.update({.left=true},6.36);check(menu.automap_draft(),"either direction toggles");
  check(menu.update({.accept=true},6.37)==MenuAction::apply,"confirm from the automap row");
- menu.update({},6.38);menu.update({.down=true},6.39);check(menu.selected()==0,"three settings wrap down without action or preset rows");
- menu.update({},6.40);menu.update({.up=true},6.41);check(menu.selected()==2,"three settings wrap up");
- menu.update({},6.42);menu.update({.up=true},6.43);check(menu.selected()==1,"up moves back");
- menu.update({},6.44);menu.update({.up=true},6.45);check(menu.selected()==0,"up reaches the first row");
+ menu.update({},6.38);menu.update({.down=true},6.39);check(menu.selected()==3,"the fourth row is CONTROLS");
+ menu.update({},6.391);menu.update({.right=true},6.392);menu.update({},6.393);menu.update({.left=true},6.394);
+ check(menu.automap_draft() && menu.draft()==game::Options{0,200},"left and right do nothing on CONTROLS");
+ menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==0,"four rows wrap down without action or preset rows");
+ menu.update({},6.40);menu.update({.up=true},6.41);check(menu.selected()==3,"four rows wrap up");
+ menu.update({},6.42);menu.update({.up=true},6.43);check(menu.selected()==2,"up moves back");
+ menu.update({},6.431);menu.update({.up=true},6.432);menu.update({},6.44);menu.update({.up=true},6.45);check(menu.selected()==0,"up reaches the first row");
  menu.update({},6.46);check(menu.update({.map=true},6.47)==MenuAction::none,"the map key does nothing in Options");
  menu.update({},6.48);check(menu.update({.accept=true},6.5)==MenuAction::apply,"confirm persists from encounter row");
  menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::close,"options toggle cancels draft");
@@ -196,6 +217,16 @@ void navigation(){
  check(menu.selected()==2 && !menu.automap_draft(),"restricted automap row read only");
  check(menu.update({.accept=true},8.1)==MenuAction::close,"read-only confirmation closes without applying");
  check(menu.update({.cancel=true},9)==MenuAction::close,"restricted menu escapable");
+ // CONTROLS opens the Controls screen, also read-only; resume() keeps the
+ // draft and the row and waits for a neutral snapshot, as on opening.
+ menu.open({},false,false);menu.update({},10);menu.update({.right=true},10.1);menu.update({},10.2);menu.update({.up=true},10.3);
+ check(menu.selected()==3 && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on CONTROLS opens the Controls screen");
+ menu.resume();check(menu.visible() && menu.selected()==3 && menu.draft().encounter_percent==200,"resume keeps the row and the draft");
+ check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for a neutral snapshot");
+ menu.update({},10.7);check(menu.update({.accept=true},10.8)==MenuAction::controls,"re-armed after resume");
+ menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::close,"Options closes after the round trip");
+ menu.open({},true,false);menu.update({},12);menu.update({.up=true},12.1);
+ check(menu.update({.accept=true},12.2)==MenuAction::controls,"CONTROLS opens also when read-only");
  InputRelease release;release.consume();FrameInput held;held.pause=true;held.reset=true;held.pads[0].one=true;
  auto consumed=release.filter(held);check(!consumed.pause&&!consumed.reset&&!consumed.pads[0].one,"menu pause reset actions consumed");
  release.filter({});check(release.filter(held).pause,"fresh game input restored");
@@ -239,20 +270,28 @@ void rom(const char* path,const char* output){
   }
  }
  OptionsMenu menu;
- for(bool restricted:{false,true})for(bool pending:{false,true})for(bool automap:{false,true})for(auto choices:{game::Options{},game::Options{50,400},game::Options{0,200},game::Options{200,100}}){menu.open(choices,restricted,pending,false,automap);menu.render(pixels,font);}
+ for(bool restricted:{false,true})for(bool pending:{false,true})for(bool automap:{false,true})for(auto choices:{game::Options{},game::Options{25,400},game::Options{50,400},game::Options{0,200},game::Options{200,100}}){menu.open(choices,restricted,pending,false,automap);menu.render(pixels,font);}
  // The third row: AUTOMAP on the third cursor tile, its value below; the
- // status line under it.
+ // fourth, CONTROLS, without a value; the status line under it.
  {
   std::array<std::uint32_t,256*192> off{},on{},label{};
   menu.open({},false,false,false,false);menu.render(off,font);menu.open({},false,false,false,true);menu.render(on,font);
-  font.text(label,40,120,"AUTOMAP",0xffffffff);
-  for(unsigned y=120;y<128;++y)for(unsigned x=40;x<96;++x)check(off[y*256+x]==on[y*256+x] && (label[y*256+x]!=0)==(off[y*256+x]==0xffffffff),"AUTOMAP label row");
-  std::array<std::uint32_t,256*192> on_text{},off_text{};font.text(on_text,48,136,"ON",0xffffffff);font.text(off_text,48,136,"OFF (DEFAULT)",0xffffffff);
-  for(unsigned y=136;y<144;++y)for(unsigned x=48;x<152;++x)
+  font.text(label,40,112,"AUTOMAP",0xffffffff);
+  for(unsigned y=112;y<120;++y)for(unsigned x=40;x<96;++x)check(off[y*256+x]==on[y*256+x] && (label[y*256+x]!=0)==(off[y*256+x]==0xffffffff),"AUTOMAP label row");
+  std::array<std::uint32_t,256*192> on_text{},off_text{};font.text(on_text,48,128,"ON",0xffffffff);font.text(off_text,48,128,"OFF (DEFAULT)",0xffffffff);
+  for(unsigned y=128;y<136;++y)for(unsigned x=48;x<152;++x)
    check((on[y*256+x]==0xffffffff)==(on_text[y*256+x]!=0) && (off[y*256+x]==0xffffffff)==(off_text[y*256+x]!=0),"automap value text");
+  label.fill(0);font.text(label,40,144,"CONTROLS",0xffffffff);
+  for(unsigned y=136;y<152;++y)for(unsigned x=32;x<224;++x)
+   check((off[y*256+x]==0xffffffff)==(label[y*256+x]!=0),"CONTROLS label row, no value line");
+  for(char c:std::string_view("CONTROLS"))check(font.supports(c),"CONTROLS label in the ROM font");
+  // The cursor tile follows the selected row, CONTROLS included.
+  menu.update({},0);menu.update({.up=true},0.1);check(menu.selected()==3,"cursor on CONTROLS");
+  menu.render(on_text,font);font.window(off_text,24,24,208,152,144);
+  for(unsigned y=32;y<168;++y)for(unsigned x=24;x<32;++x)check(on_text[y*256+x]==off_text[y*256+x],"cursor tile at y=144");
   menu.open({},false,true,false,true);std::array<std::uint32_t,256*192> pending{};menu.render(pending,font);
   std::array<std::uint32_t,256*192> waiting{};font.text(waiting,40,152,"SAVED - WAITING",0xffffffff);
-  for(unsigned y=152;y<160;++y)for(unsigned x=40;x<160;++x)check((pending[y*256+x]==0xffffffff)==(waiting[y*256+x]!=0),"pending status line below the third row");
+  for(unsigned y=152;y<160;++y)for(unsigned x=40;x<160;++x)check((pending[y*256+x]==0xffffffff)==(waiting[y*256+x]!=0),"pending status line below the CONTROLS row");
  }
  pixels.fill(0xff123456);menu.open({50,400},false,false);menu.render(pixels,font);
  for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x) {
@@ -281,6 +320,6 @@ int crash_worker(const char* folder,std::string_view phase){
 }
 int main(int argc,char**argv){try{
  if(argc==4 && std::string_view(argv[1])=="--crash-worker")return crash_worker(argv[2],argv[3]);
- if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;rom(argv[1],argc>2?argv[2]:nullptr);}else{codec();persistence();failures();driver();navigation();}
+ if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;rom(argv[1],argc>2?argv[2]:nullptr);}else{codec();persistence();failures();driver();encounter_choices();navigation();}
  std::cout<<"Options tests passed.\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

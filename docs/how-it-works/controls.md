@@ -6,6 +6,11 @@ buttons are held now, and which have just been pressed. The routine at
 the first game routine rewritten in C++; the rest of the controls still
 run as original Z80 code.
 
+The keys and buttons a player presses are turned into the console's buttons
+before the game reads the port, and can be changed; see
+[player controls](../player-controls.md). This chapter is about what the game
+does with those buttons.
+
 ## Holding a button and pressing it
 
 **ROM static.** The routine reads controller port `$DC`, where a zero bit

@@ -10,14 +10,14 @@ namespace psmodern::game {
 // An option given as a percentage of the original: the short list of values it
 // accepts and the value that leaves the original behavior untouched.
 struct PercentChoices {
-    std::array<unsigned,4> values;
+    std::array<unsigned,5> values;
     std::size_t count;
     unsigned original;
     constexpr bool contains(unsigned percent) const {
         for (std::size_t i=0;i<count;++i) if (values[i]==percent) return true;
         return false;
     }
-    // "0, 50, 100 or 200": the allowed values, for messages.
+    // "0, 25, 50, 100 or 200": the allowed values, for messages.
     std::string text() const {
         std::string out;
         for (std::size_t i=0;i<count;++i) {
@@ -28,13 +28,14 @@ struct PercentChoices {
     }
 };
 // Maintainer decision (2026-11-11): fixed values, not ranges.
-// Random encounters: 0 turns them off, 50 halves them, 200 doubles them.
-inline constexpr PercentChoices encounter_percent_choices{{0,50,100,200},4,100};
+// Random encounters: 0 turns them off, 25 and 50 reduce them to a quarter and a half, 200 doubles them.
+inline constexpr PercentChoices encounter_percent_choices{{0,25,50,100,200},5,100};
 // Experience gained: the original reward, or two or four times as much.
 inline constexpr PercentChoices experience_percent_choices{{100,200,400},3,100};
-// The values that give the pace of the Switch release; the in-game
-// selection shows them next to the default (100 for both).
-inline constexpr unsigned switch_like_encounter_percent=50;
+// The recommended pace (Maintainer decision, 2026-11-13): a quarter of the
+// encounters with four times the experience, as the Switch release's easy
+// mode; the in-game selection shows them next to the default (100 for both).
+inline constexpr unsigned switch_like_encounter_percent=25;
 inline constexpr unsigned switch_like_experience_percent=400;
 
 // Optional features, all off by default (original mode).

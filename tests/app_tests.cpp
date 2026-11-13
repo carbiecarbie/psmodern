@@ -497,7 +497,7 @@ void flags() {
 #endif
     }
     check(original.options==game::Options{} && original.routines_enabled && !original.record_path && original.rom=="game.sms","no flags means original");
-    for (const auto* value:{"0","50","100","200"}) check(parse({"--encounter-rate",value}).options.encounter_percent==std::stoul(value),"encounter values");
+    for (const auto* value:{"0","25","50","100","200"}) check(parse({"--encounter-rate",value}).options.encounter_percent==std::stoul(value),"encounter values");
     for (const auto* value:{"100","200","400"}) check(parse({"--experience-rate",value}).options.experience_percent==std::stoul(value),"experience values");
     const auto both=parse({"--experience-rate","400","--encounter-rate","50"});
     check(both.options==game::Options{50,400},"both flags, any order");
@@ -511,7 +511,7 @@ void flags() {
         rejects({flag,"100",flag,"100"},"more than once");
     }
     // Values that used to be accepted (ranges) are refused, with the allowed values in the message.
-    for (const auto* old:{"1","25","99","101","150","400","401"}) rejects({"--encounter-rate",old},"must be one of 0, 50, 100 or 200 percent");
+    for (const auto* old:{"1","24","26","99","101","150","400","401"}) rejects({"--encounter-rate",old},"must be one of 0, 25, 50, 100 or 200 percent");
     for (const auto* old:{"0","25","50","99","101","300","1000","1001"}) rejects({"--experience-rate",old},"must be one of 100, 200 or 400 percent");
     rejects({"--bogus"},"Usage:");
     // Non-default values are refused with --no-routines and --record, each flag on its own.

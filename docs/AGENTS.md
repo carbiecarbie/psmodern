@@ -29,13 +29,7 @@ exception is `README.pt-BR.md`, the Brazilian Portuguese translation of
 | `docs/coverage.md` | Generated census of rewritten vs Z80 routines (`tools/generate_coverage.py`) | Generated |
 | `docs/roadmap.md` | Next milestones and longer-term direction | Short |
 | `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates; one short entry each, with evidence and location | As needed |
-
-Not created yet. The task that first needs it creates it and moves its row
-to the table above in that change:
-
-| Document | Responsibility | Created by |
-| --- | --- | --- |
-| `docs/player-controls.md` | Every button and key for players | When controls become configurable |
+| `docs/player-controls.md` | Every button and key for players: defaults, the Controls screen, the `controls.txt` file | As needed |
 
 `docs/roadmap.md` orders the next milestones; `docs/design.md` section 8
 gives the stages they belong to.

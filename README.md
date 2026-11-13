@@ -39,14 +39,15 @@ What you get today:
 - The original 256x192 picture, scaled in whole steps, in a window or
   fullscreen.
 - The original sound chip, music and effects.
-- Keyboard or game controller, both at the same time if you like.
+- Keyboard or game controller, both at the same time if you like, with every
+  key and button changeable on an in-game Controls screen.
 - Three options you set inside the game: how often random fights happen,
   how much experience and battle money each fight gives, and a map of the
   dungeons.
 - 2x and 4x fast-forward, with the music kept at its normal tempo.
 
-The [roadmap][roadmap] lists what comes next: full controller support,
-text and language selection, and widescreen on the world map and in towns.
+The [roadmap][roadmap] lists what comes next: text and language selection,
+and widescreen on the world map and in towns.
 
 ## Download and play
 
@@ -66,12 +67,17 @@ PSModern refuses any other file and tells you why.
 3. Double-click `psmodern.exe`. The first time, pick your `.sms` file in the
    Open dialog; PSModern remembers it.
 4. On the start screen, choose the version to play. The same screen lets you
-   pick another ROM, open the saves folder or quit.
+   pick another ROM, open the Controls screen, open the saves folder or quit.
 
 The program is not digitally signed, so Windows SmartScreen may warn about an
 unknown publisher. Click **More info**, then **Run anyway**.
 
 ## Controls
+
+The table shows the defaults. Every key and button can be changed on the
+Controls screen, from the start screen or from the Options window, and your
+choice is kept in `controls.txt`. [Controls][controls] has the full list and
+the steps.
 
 | Console | Keyboard | Game controller |
 | --- | --- | --- |
@@ -86,6 +92,10 @@ unknown publisher. Click **More info**, then **Run anyway**.
 | Window or fullscreen | Alt+Enter | - |
 
 The first controller found is used, including one plugged in during play.
+The start screen always uses the defaults (arrows, Z or Enter, Escape; D-pad,
+A or Start), so CONTROLS stays within reach whatever you set.
+Controller buttons are named by position: A is the bottom one, whatever is
+printed on your pad.
 
 ### Fast-forward
 
@@ -97,20 +107,22 @@ runs at 1x and then goes back to the speed you chose.
 
 ## Options
 
-Press Escape (or Y on a controller) while walking around a town, the world
-map or a dungeon. Up and down pick a row, left and right change its value. Z
+Press Escape (or Y on a controller, or whatever you set) while walking around
+a town, the world map or a dungeon. Up and down pick a row, left and right change its value. Z
 (or A) saves and closes, and X or B (or Escape/Y) closes without saving. The
 scene stays behind the window and the music keeps playing.
 
 | Option | Values | What it does |
 | --- | --- | --- |
-| Encounters | 0, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
+| Encounters | 0, 25, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
 | Experience / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
 | Automap | Off, On | A map of the dungeon floor you are on. Off by default. |
+| CONTROLS | - | Opens the Controls screen to change keys and buttons. |
 
-100% is the original game and is marked DEFAULT. Encounters at 50% and
-experience at 400% are marked RECOMMENDED; together they give a pace close
-to the Nintendo Switch release. A change applies once the current action
+100% is the original game and is marked DEFAULT. Encounters at 25% and
+experience at 400% are marked RECOMMENDED; together they give the pace of
+the Nintendo Switch release's easy mode (a quarter of the encounters, four
+times the experience and money). A change applies once the current action
 ends, so a battle in progress, its rewards included, finishes under the old
 rates. The window title shows the active rates and any change still waiting.
 
@@ -120,8 +132,10 @@ game's save slots share it.
 ### Automap
 
 With the Automap option on, press M (or X on a controller) while walking in a
-dungeon to see a map of the floor you are on; M, X, Escape or B close it. The
-game waits while the map is open and the music keeps playing. The map shows
+dungeon to see a map of the floor you are on, with a floor label at the top
+of the map (FLOOR 1 is the lowest floor that has an exit to the outside,
+FLOOR 2 above it, FLOOR B1 below it); M, X, Escape or B close it. The game
+waits while the map is open and the music keeps playing. The map shows
 only what you have seen: corridors, walls, doors (plain, locked and magic),
 stairs, exits to the outside, and chests, opened or not. A pitfall appears
 once you have fallen through it and a hidden passage once you have walked
@@ -153,11 +167,11 @@ a time. To make PSModern forget your ROMs, delete `roms.txt` from that folder.
 that session only:
 
 ```sh
-psmodern.exe "path/to/your-game.sms" --encounter-rate 50 --experience-rate 400
+psmodern.exe "path/to/your-game.sms" --encounter-rate 25 --experience-rate 400
 psmodern.exe --version
 ```
 
-`--encounter-rate` takes 0, 50, 100 or 200 and `--experience-rate` takes 100,
+`--encounter-rate` takes 0, 25, 50, 100 or 200 and `--experience-rate` takes 100,
 200 or 400. A flag you leave out uses the saved choice, and an explicit 100
 overrides a saved one. Flags are only saved if you confirm them in the
 Options window. The developer modes `--record` and `--no-routines` always
@@ -210,4 +224,5 @@ your option, any later version (GPL-3.0-or-later). The release zip's
 [quirks]: docs/original-quirks.md
 [design]: docs/design.md
 [dependencies]: docs/dependencies.md
+[controls]: docs/player-controls.md
 [development]: docs/development.md

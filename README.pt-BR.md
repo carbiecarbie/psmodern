@@ -43,14 +43,15 @@ O que você tem hoje:
 - A imagem original de 256x192, ampliada em passos inteiros, em janela ou em
   tela cheia.
 - O chip de som original, com as músicas e os efeitos.
-- Teclado ou controle, ou os dois ao mesmo tempo.
+- Teclado ou controle, ou os dois ao mesmo tempo, com todas as teclas e
+  botões configuráveis numa tela de Controles dentro do jogo.
 - Três opções que você ajusta dentro do jogo: a frequência das lutas
   aleatórias, quanto de experiência e dinheiro cada luta dá e um mapa das
   masmorras.
 - Aceleração de 2x e 4x, com a música no ritmo normal.
 
-O [roteiro][roadmap] mostra o que vem depois: suporte completo a controle,
-texto e escolha de idioma e tela widescreen no mapa-múndi e nas cidades.
+O [roteiro][roadmap] mostra o que vem depois: texto e escolha de idioma e
+tela widescreen no mapa-múndi e nas cidades.
 
 ## Baixar e jogar
 
@@ -70,13 +71,19 @@ O PSModern recusa qualquer outro arquivo e diz o motivo.
 3. Dê dois cliques em `psmodern.exe`. Na primeira vez, escolha o seu arquivo
    `.sms` na janela de abrir arquivo; o PSModern guarda essa escolha.
 4. Na tela inicial, escolha a versão que quer jogar. A mesma tela permite
-   escolher outra ROM, abrir a pasta de saves ou sair.
+   escolher outra ROM, abrir a tela de Controles, abrir a pasta de saves ou
+   sair.
 
 O programa não tem assinatura digital, então o SmartScreen do Windows pode
 avisar que o editor é desconhecido. Clique em **Mais informações** e depois em
 **Executar assim mesmo**.
 
 ## Controles
+
+A tabela mostra os padrões. Todas as teclas e botões podem ser mudados na tela
+de Controles (CONTROLS), na tela inicial ou na janela de opções, e a sua
+escolha fica guardada em `controls.txt`. A lista completa e o passo a passo
+estão em [Controles][controls] (em inglês).
 
 | Console | Teclado | Controle |
 | --- | --- | --- |
@@ -91,7 +98,10 @@ avisar que o editor é desconhecido. Clique em **Mais informações** e depois e
 | Janela ou tela cheia | Alt+Enter | - |
 
 O PSModern usa o primeiro controle que encontrar, mesmo que ele seja
-conectado no meio do jogo.
+conectado no meio do jogo. Os botões do controle são chamados pela posição: A
+é o de baixo, seja qual for a letra impressa no seu controle. A tela inicial
+usa sempre os padrões (setas, Z ou Enter, Escape; D-pad, A ou Start), para que
+o CONTROLS esteja sempre ao alcance, seja qual for a sua configuração.
 
 ### Aceleração
 
@@ -104,20 +114,22 @@ você escolheu.
 
 ## Opções
 
-Aperte Escape (ou Y no controle) enquanto anda por uma cidade, pelo mapa-múndi
-ou por uma masmorra. Para cima e para baixo escolhem a linha, esquerda e
+Aperte Escape (ou Y no controle, ou o que você configurou) enquanto anda por
+uma cidade, pelo mapa-múndi ou por uma masmorra. Para cima e para baixo escolhem a linha, esquerda e
 direita mudam o valor. Z (ou A) salva e fecha, e X ou B (ou Escape/Y) fecha
 sem salvar. A cena continua atrás da janela e a música não para.
 
 | Opção | Valores | O que faz |
 | --- | --- | --- |
-| Encounters (encontros) | 0, 50, 100, 200% | Frequência das lutas aleatórias. 0 desliga. As lutas da história e as fixas não mudam. |
+| Encounters (encontros) | 0, 25, 50, 100, 200% | Frequência das lutas aleatórias. 0 desliga. As lutas da história e as fixas não mudam. |
 | Experience / Meseta | 100, 200, 400% | Experiência e dinheiro de cada luta. Um personagem continua subindo no máximo um nível por luta. |
 | Automap (mapa automático) | Off, On | Um mapa do andar da masmorra onde você está. Desligado por padrão. |
+| CONTROLS (controles) | - | Abre a tela de Controles para mudar teclas e botões. |
 
-100% é o jogo original e aparece como DEFAULT. Encontros em 50% e experiência
-em 400% aparecem como RECOMMENDED; juntos, deixam o ritmo parecido com o do
-relançamento para Nintendo Switch. Uma mudança vale quando a ação atual
+100% é o jogo original e aparece como DEFAULT. Encontros em 25% e experiência
+em 400% aparecem como RECOMMENDED; juntos, dão o ritmo do modo fácil do
+relançamento para Nintendo Switch (um quarto dos encontros, quatro vezes a
+experiência e o dinheiro). Uma mudança vale quando a ação atual
 termina, então uma batalha em andamento, recompensas incluídas, termina com os
 valores antigos. O título da janela mostra os valores ativos e qualquer
 mudança que ainda esteja esperando.
@@ -128,9 +140,10 @@ cinco espaços de save do jogo usam a mesma.
 ### Mapa automático
 
 Com a opção Automap ligada, aperte M (ou X no controle) enquanto anda numa
-masmorra para ver o mapa do andar onde você está; M, X, Escape ou B fecham o
-mapa. O jogo espera enquanto o mapa está aberto e a música continua tocando. O
-mapa mostra só o que você já viu: corredores, paredes, portas (comuns,
+masmorra para ver o mapa do andar onde você está, com o andar escrito no alto
+do mapa (FLOOR 1 é o andar mais baixo que tem saída para fora, FLOOR 2 fica
+acima dele e FLOOR B1 abaixo); M, X, Escape ou B fecham o mapa. O jogo espera
+enquanto o mapa está aberto e a música continua tocando. O mapa mostra só o que você já viu: corredores, paredes, portas (comuns,
 trancadas e mágicas), escadas, saídas para fora e baús, abertos ou não. Um
 alçapão aparece depois que você cai nele, e uma passagem secreta depois que
 você passa por ela; os chefes e guardiões nunca são marcados. O mapa fica
@@ -161,11 +174,11 @@ O `psmodern.exe` também aceita o caminho da ROM e as duas opções, que então
 valem só para aquela sessão:
 
 ```sh
-psmodern.exe "caminho/para/o-seu-jogo.sms" --encounter-rate 50 --experience-rate 400
+psmodern.exe "caminho/para/o-seu-jogo.sms" --encounter-rate 25 --experience-rate 400
 psmodern.exe --version
 ```
 
-O `--encounter-rate` aceita 0, 50, 100 ou 200 e o `--experience-rate` aceita
+O `--encounter-rate` aceita 0, 25, 50, 100 ou 200 e o `--experience-rate` aceita
 100, 200 ou 400. Uma opção que você não passar usa o valor salvo, e um 100
 explícito ignora o valor salvo. Os valores da linha de comando só ficam salvos
 se você confirmar na janela de opções. Os modos de desenvolvimento `--record`
@@ -221,4 +234,5 @@ licenças delas.
 [quirks]: docs/original-quirks.md
 [design]: docs/design.md
 [dependencies]: docs/dependencies.md
+[controls]: docs/player-controls.md
 [development]: docs/development.md

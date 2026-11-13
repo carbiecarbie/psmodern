@@ -178,8 +178,13 @@ void screen_test(const app::RomFont& font,const std::filesystem::path& frames) {
     for(unsigned i=0;i<std::size(kinds);++i)view.cells[16+i].kind=kinds[i];
     view.cells[48]={MapKind::stairs_up,true};view.cells[49]={MapKind::door,true};
     view.cells[80].kind=MapKind::floor;view.party_cell=80;
+    check(app::floor_label_text(1)=="FLOOR 1" && app::floor_label_text(12)=="FLOOR 12" && app::floor_label_text(-1)=="FLOOR B1" &&
+          app::floor_label_text(-12)=="FLOOR B12" && app::floor_label_text(0).empty(),"floor label text");
+    unsigned variant=0;
     for(const std::int8_t ahead:{std::int8_t{-16},std::int8_t{1},std::int8_t{16},std::int8_t{-1}}) {
         view.party_ahead=ahead;
+        static constexpr std::int8_t levels[]{1,12,-12,0};   // the label: shortest, longest above, longest below, none
+        view.floor_level=levels[variant++];
         std::array<std::uint32_t,256*192> pixels;pixels.fill(0xff123456);
         app::render_automap(pixels,font,view);
         auto at=[&](unsigned cell,int x,int y){return pixels[(layout::grid_y+cell/16*8+y)*256+layout::grid_x+cell%16*8+x];};
@@ -187,11 +192,17 @@ void screen_test(const app::RomFont& font,const std::filesystem::path& frames) {
             if(x<8||x>=248||y<8||y>=184)check(pixels[y*256+x]==0xff123456,"the map changed a pixel outside its window");
         // Every interior pixel outside the grid, title and legend is black.
         for(int y=16;y<176;++y)for(int x=16;x<240;++x) {
-            const bool grid=x>=24 && x<152 && y>=32 && y<160,legend=x>=168 && y>=32 && y<32+14*9+8,title=y>=16 && y<24 && x>=24 && x<48;
+            const bool grid=x>=24 && x<152 && y>=32 && y<160,legend=x>=168 && y>=32 && y<32+14*9+8,title=y>=16 && y<24 && ((x>=24 && x<48) || x>=layout::floor_label_x);
             if(!grid && !legend && !title)check(pixels[y*256+x]==colors::black,"stray pixel in the map window");
         }
         std::array<std::uint32_t,256*192> text{};font.text(text,24,16,"MAP",0xffffffff);
         for(int y=16;y<24;++y)for(int x=24;x<48;++x)check((pixels[y*256+x]==colors::white)==(text[y*256+x]!=0),"title");
+        {   // The floor label shares the title row, in the legend's columns, inside the window's border.
+            const auto label_text=app::floor_label_text(view.floor_level);
+            std::array<std::uint32_t,256*192> label{};font.text(label,layout::floor_label_x,layout::title_y,label_text,0xffffffff);
+            for(int y=16;y<24;++y)for(int x=layout::floor_label_x;x<240;++x)check((pixels[y*256+x]==colors::white)==(label[y*256+x]!=0),"floor label");
+            check(layout::floor_label_x+8*static_cast<int>(label_text.size())<=240 && layout::floor_label_x>=48,"the label fits the title row beside MAP");
+        }
         for(unsigned i=0;i<std::size(kinds);++i) {
             const auto icon=[&]()->std::optional<app::MapIcon> {
                 switch(kinds[i]) {

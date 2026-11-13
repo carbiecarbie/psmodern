@@ -9,11 +9,14 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string>
 
 namespace psmodern::app {
 namespace automap_layout {
 inline constexpr int window_x=8, window_y=8, window_width=240, window_height=176;
 inline constexpr int title_x=24, title_y=16;
+// The floor label ("FLOOR 2", "FLOOR B1") shares the title row, starting over the legend column.
+inline constexpr int floor_label_x=168;
 inline constexpr int grid_x=24, grid_y=32, cell_size=8;
 inline constexpr int legend_icon_x=168, legend_label_x=180, legend_y=32, legend_step=14;
 }
@@ -30,6 +33,8 @@ using IconPixels=std::array<std::array<std::uint32_t,8>,8>;
 IconPixels automap_icon(MapIcon icon);
 // The cell's background colour (door kinds on the wall colour, unknown black).
 std::uint32_t automap_background(game::MapKind kind);
+// "FLOOR 1", "FLOOR 2"... for a level above zero, "FLOOR B1"... below it, empty for 0.
+std::string floor_label_text(int level);
 void render_automap(std::span<std::uint32_t> pixels, const RomFont& font, const game::MapView& view);
 
 // The map screen's own input: arms once every button is released (as the

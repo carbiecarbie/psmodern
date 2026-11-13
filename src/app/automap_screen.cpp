@@ -69,6 +69,11 @@ std::uint32_t automap_background(game::MapKind kind) {
         default: return colors::floor;
     }
 }
+std::string floor_label_text(int level) {
+    if(level>0)return "FLOOR "+std::to_string(level);
+    if(level<0)return "FLOOR B"+std::to_string(-level);
+    return {};
+}
 void render_automap(std::span<std::uint32_t> pixels,const RomFont& font,const game::MapView& view) {
     namespace layout=automap_layout;
     using game::MapKind;
@@ -76,6 +81,7 @@ void render_automap(std::span<std::uint32_t> pixels,const RomFont& font,const ga
     // No cursor: -1 matches no tile row.
     font.window(pixels,layout::window_x,layout::window_y,layout::window_width,layout::window_height,-1);
     font.text(pixels,layout::title_x,layout::title_y,"MAP",colors::white);
+    font.text(pixels,layout::floor_label_x,layout::title_y,floor_label_text(view.floor_level),colors::white);
     const auto party_turns=turns(view.party_ahead);
     for(unsigned cell=0;cell<view.cells.size();++cell) {
         const auto& map=view.cells[cell];

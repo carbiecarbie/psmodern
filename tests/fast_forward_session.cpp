@@ -46,7 +46,11 @@ int scripted_poll(SDL_Event* e) {
         e->type=quick_event++==0 ? SDL_KEYDOWN : SDL_KEYUP;e->key.windowID=SDL_GetWindowID(focus_window);
         e->key.repeat=0;e->key.keysym.scancode=SDL_SCANCODE_TAB;e->key.keysym.sym=SDLK_TAB;return 1;
     }
-    if(!record_mode && sampled>=460 && !sent_f5){sent_f5=true;e->type=SDL_KEYDOWN;e->key.repeat=0;e->key.keysym.sym=SDLK_F5;return 1;}
+    if(!record_mode && sampled>=460 && !sent_f5){
+        // The power-cycle binding is matched by scancode in the game window.
+        sent_f5=true;e->type=SDL_KEYDOWN;e->key.windowID=SDL_GetWindowID(focus_window);e->key.repeat=0;
+        e->key.keysym.scancode=SDL_SCANCODE_F5;e->key.keysym.sym=SDLK_F5;e->key.keysym.mod=KMOD_NONE;return 1;
+    }
     if(sampled>=(record_mode ? 80u : 500u) && !sent_quit){sent_quit=true;e->type=SDL_QUIT;return 1;}return 0;
 }
 const Uint8* scripted_keys(int*) {

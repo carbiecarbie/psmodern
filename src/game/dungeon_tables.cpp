@@ -40,6 +40,30 @@ DungeonTables::DungeonTables(std::span<const std::uint8_t> rom) {
     const auto layouts=dungeon::image_offset(dungeon::layouts_table);
     layouts_.assign(rom.begin()+static_cast<std::ptrdiff_t>(layouts),
                     rom.begin()+static_cast<std::ptrdiff_t>(layouts+dungeon::floor_count*dungeon::layout_bytes));
+    // Stairs without the exit bit join floor n to n+1 (up from n, down from n+1);
+    // the floors they join form a stack and the height inside it is the floor number.
+    std::array<bool,dungeon::floor_count> joined_up{}, leaves{};
+    for (unsigned f=0;f<dungeon::floor_count;++f) {
+        const auto cells=layout(f);
+        for (unsigned c=0;c<cells.size();++c) {
+            const auto v=cells[c];
+            if (dungeon::object_cell(v)) continue;
+            const auto kind=dungeon::kind(v);
+            if (kind==dungeon::CellKind::stairs_up && !dungeon::exit_bit(v)) joined_up[f]=true;
+            if (!dungeon::exit_bit(v) || kind<dungeon::CellKind::stairs_up || kind>dungeon::CellKind::magic_door) continue;
+            const auto record=exit_at(static_cast<std::uint8_t>(f),static_cast<std::uint8_t>(c));
+            if (!record || record->kind<dungeon::world_map_kinds_end) leaves[f]=true;
+        }
+    }
+    for (unsigned first=0;first<dungeon::floor_count;) {
+        unsigned last=first;
+        while (last+1<dungeon::floor_count && joined_up[last]) ++last;
+        unsigned base=first;
+        for (unsigned f=last+1;f-->first;) if (leaves[f]) base=f;
+        for (unsigned f=first;f<=last;++f)
+            levels_[f]=static_cast<std::int8_t>(f>=base ? static_cast<int>(f-base)+1 : static_cast<int>(f)-static_cast<int>(base));
+        first=last+1;
+    }
 }
 
 std::optional<ObjectRecord> DungeonTables::object_at(std::uint8_t floor, std::uint8_t cell) const {

@@ -13,69 +13,130 @@ void message(const std::string& text,SDL_Window* window) {
     if (SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"PSModern",text.c_str(),window)!=0)
         std::cerr<<"Cannot show error dialog: "<<SDL_GetError()<<'\n';
 }
+// The pure bindings model (bindings.h) names SDL's values without SDL.
+static_assert(key_slots==SDL_NUM_SCANCODES);
+static_assert(int(PadInput::a)==SDL_CONTROLLER_BUTTON_A && int(PadInput::b)==SDL_CONTROLLER_BUTTON_B &&
+    int(PadInput::x)==SDL_CONTROLLER_BUTTON_X && int(PadInput::y)==SDL_CONTROLLER_BUTTON_Y &&
+    int(PadInput::back)==SDL_CONTROLLER_BUTTON_BACK && int(PadInput::guide)==SDL_CONTROLLER_BUTTON_GUIDE &&
+    int(PadInput::start)==SDL_CONTROLLER_BUTTON_START && int(PadInput::left_stick)==SDL_CONTROLLER_BUTTON_LEFTSTICK &&
+    int(PadInput::right_stick)==SDL_CONTROLLER_BUTTON_RIGHTSTICK && int(PadInput::left_shoulder)==SDL_CONTROLLER_BUTTON_LEFTSHOULDER &&
+    int(PadInput::right_shoulder)==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER && int(PadInput::dpad_up)==SDL_CONTROLLER_BUTTON_DPAD_UP &&
+    int(PadInput::dpad_down)==SDL_CONTROLLER_BUTTON_DPAD_DOWN && int(PadInput::dpad_left)==SDL_CONTROLLER_BUTTON_DPAD_LEFT &&
+    int(PadInput::dpad_right)==SDL_CONTROLLER_BUTTON_DPAD_RIGHT && int(PadInput::misc1)==SDL_CONTROLLER_BUTTON_MISC1 &&
+    int(PadInput::paddle1)==SDL_CONTROLLER_BUTTON_PADDLE1 && int(PadInput::paddle2)==SDL_CONTROLLER_BUTTON_PADDLE2 &&
+    int(PadInput::paddle3)==SDL_CONTROLLER_BUTTON_PADDLE3 && int(PadInput::paddle4)==SDL_CONTROLLER_BUTTON_PADDLE4 &&
+    int(PadInput::touchpad)==SDL_CONTROLLER_BUTTON_TOUCHPAD && pad_button_count==SDL_CONTROLLER_BUTTON_MAX);
+namespace {
+constexpr SDL_Scancode sdl_key_table[]={
+    SDL_SCANCODE_A,SDL_SCANCODE_B,SDL_SCANCODE_C,SDL_SCANCODE_D,SDL_SCANCODE_E,SDL_SCANCODE_F,SDL_SCANCODE_G,SDL_SCANCODE_H,
+    SDL_SCANCODE_I,SDL_SCANCODE_J,SDL_SCANCODE_K,SDL_SCANCODE_L,SDL_SCANCODE_M,SDL_SCANCODE_N,SDL_SCANCODE_O,SDL_SCANCODE_P,
+    SDL_SCANCODE_Q,SDL_SCANCODE_R,SDL_SCANCODE_S,SDL_SCANCODE_T,SDL_SCANCODE_U,SDL_SCANCODE_V,SDL_SCANCODE_W,SDL_SCANCODE_X,
+    SDL_SCANCODE_Y,SDL_SCANCODE_Z,SDL_SCANCODE_1,SDL_SCANCODE_2,SDL_SCANCODE_3,SDL_SCANCODE_4,SDL_SCANCODE_5,SDL_SCANCODE_6,
+    SDL_SCANCODE_7,SDL_SCANCODE_8,SDL_SCANCODE_9,SDL_SCANCODE_0,SDL_SCANCODE_RETURN,SDL_SCANCODE_ESCAPE,SDL_SCANCODE_BACKSPACE,
+    SDL_SCANCODE_TAB,SDL_SCANCODE_SPACE,SDL_SCANCODE_MINUS,SDL_SCANCODE_EQUALS,SDL_SCANCODE_LEFTBRACKET,SDL_SCANCODE_RIGHTBRACKET,
+    SDL_SCANCODE_BACKSLASH,SDL_SCANCODE_SEMICOLON,SDL_SCANCODE_APOSTROPHE,SDL_SCANCODE_GRAVE,SDL_SCANCODE_COMMA,SDL_SCANCODE_PERIOD,
+    SDL_SCANCODE_SLASH,SDL_SCANCODE_CAPSLOCK,SDL_SCANCODE_F1,SDL_SCANCODE_F2,SDL_SCANCODE_F3,SDL_SCANCODE_F4,SDL_SCANCODE_F5,
+    SDL_SCANCODE_F6,SDL_SCANCODE_F7,SDL_SCANCODE_F8,SDL_SCANCODE_F9,SDL_SCANCODE_F10,SDL_SCANCODE_F11,SDL_SCANCODE_F12,
+    SDL_SCANCODE_INSERT,SDL_SCANCODE_HOME,SDL_SCANCODE_PAGEUP,SDL_SCANCODE_DELETE,SDL_SCANCODE_END,SDL_SCANCODE_PAGEDOWN,
+    SDL_SCANCODE_RIGHT,SDL_SCANCODE_LEFT,SDL_SCANCODE_DOWN,SDL_SCANCODE_UP,SDL_SCANCODE_KP_DIVIDE,SDL_SCANCODE_KP_MULTIPLY,
+    SDL_SCANCODE_KP_MINUS,SDL_SCANCODE_KP_PLUS,SDL_SCANCODE_KP_ENTER,SDL_SCANCODE_KP_1,SDL_SCANCODE_KP_2,SDL_SCANCODE_KP_3,
+    SDL_SCANCODE_KP_4,SDL_SCANCODE_KP_5,SDL_SCANCODE_KP_6,SDL_SCANCODE_KP_7,SDL_SCANCODE_KP_8,SDL_SCANCODE_KP_9,SDL_SCANCODE_KP_0,
+    SDL_SCANCODE_KP_PERIOD,SDL_SCANCODE_NONUSBACKSLASH,SDL_SCANCODE_INTERNATIONAL1,SDL_SCANCODE_LCTRL,SDL_SCANCODE_LSHIFT,
+    SDL_SCANCODE_RCTRL,SDL_SCANCODE_RSHIFT};
+constexpr bool key_table_matches_sdl() {
+    if (std::size(sdl_key_table)!=key_table_size) return false;
+    for (std::size_t i=0;i<key_table_size;++i) if (key_table[i].key!=sdl_key_table[i]) return false;
+    return true;
+}
+static_assert(key_table_matches_sdl(),"every key-table entry is its SDL scancode");
+constexpr SDL_GameControllerAxis trigger_axis[2]={SDL_CONTROLLER_AXIS_TRIGGERLEFT,SDL_CONTROLLER_AXIS_TRIGGERRIGHT};
+}
 Controller::~Controller() { if (controller_) SDL_GameControllerClose(controller_); }
 void Controller::refresh() {
     if (controller_ && !SDL_GameControllerGetAttached(controller_)) {
-        SDL_GameControllerClose(controller_); controller_=nullptr;
+        SDL_GameControllerClose(controller_); controller_=nullptr; trigger_down_={};
     }
     if (!controller_) {
         for (int i=0;i<SDL_NumJoysticks();++i) {
             if (SDL_IsGameController(i)) {
-                controller_=SDL_GameControllerOpen(i);
-                if (controller_) break;
+                controller_=SDL_GameControllerOpen(i); trigger_down_={};
+                if (controller_) {
+                    // SDL 2 rests the triggers of a freshly opened controller
+                    // until its driver reports again: read the device once so
+                    // the seed sees a trigger already held.
+                    SDL_GameControllerUpdate();
+                    for (std::size_t t=0;t<2;++t) trigger_down_[t]=SDL_GameControllerGetAxis(controller_,trigger_axis[t])>trigger_threshold;
+                    break;
+                }
                 std::cerr<<"Cannot open controller: "<<SDL_GetError()<<'\n';
             }
         }
     }
 }
-Buttons Controller::sample() const {
-    if (!controller_ || !SDL_GameControllerGetAttached(controller_)) return {};
-    auto b=[&](SDL_GameControllerButton button) { return SDL_GameControllerGetButton(controller_,button)!=0; };
-    return controller({{b(SDL_CONTROLLER_BUTTON_DPAD_UP),b(SDL_CONTROLLER_BUTTON_DPAD_DOWN),
-                        b(SDL_CONTROLLER_BUTTON_DPAD_LEFT),b(SDL_CONTROLLER_BUTTON_DPAD_RIGHT),
-                        b(SDL_CONTROLLER_BUTTON_A),b(SDL_CONTROLLER_BUTTON_B)},
-                       b(SDL_CONTROLLER_BUTTON_START),b(SDL_CONTROLLER_BUTTON_BACK)},
-                      SDL_GameControllerGetAxis(controller_,SDL_CONTROLLER_AXIS_LEFTX),
-                      SDL_GameControllerGetAxis(controller_,SDL_CONTROLLER_AXIS_LEFTY));
-}
-bool Controller::options() const {
-    return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_Y);
-}
-bool Controller::map() const {
-    return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_X);
-}
 bool Controller::owns(SDL_JoystickID instance) const {
     return controller_ && SDL_GameControllerGetAttached(controller_) &&
         SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller_))==instance;
 }
-bool Controller::fast_forward() const {
-    return controller_ && SDL_GameControllerGetAttached(controller_) && SDL_GameControllerGetButton(controller_,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+bool Controller::connected() const { return controller_ && SDL_GameControllerGetAttached(controller_); }
+bool Controller::held(PadInput input) const {
+    if (!connected() || input>=PadInput::count) return false;
+    if (input<PadInput::left_trigger) return SDL_GameControllerGetButton(controller_,SDL_GameControllerButton(input))!=0;
+    return trigger_down_[std::size_t(input)-pad_button_count];
+}
+void Controller::snapshot(InputSnapshot& into) const {
+    into.pad.reset(); into.stick_x=into.stick_y=0; into.controller=connected();
+    if (!into.controller) return;
+    for (std::size_t i=0;i<pad_input_count;++i) into.pad[i]=held(PadInput(i));
+    into.stick_x=SDL_GameControllerGetAxis(controller_,SDL_CONTROLLER_AXIS_LEFTX);
+    into.stick_y=SDL_GameControllerGetAxis(controller_,SDL_CONTROLLER_AXIS_LEFTY);
+}
+std::optional<Controller::PadChange> Controller::translate(const SDL_Event& event) {
+    if ((event.type==SDL_CONTROLLERBUTTONDOWN || event.type==SDL_CONTROLLERBUTTONUP) && owns(event.cbutton.which) &&
+        event.cbutton.button<pad_button_count)
+        return PadChange{PadInput(event.cbutton.button),event.type==SDL_CONTROLLERBUTTONDOWN};
+    if (event.type==SDL_CONTROLLERAXISMOTION && owns(event.caxis.which)) {
+        for (std::size_t i=0;i<2;++i) {
+            if (event.caxis.axis!=trigger_axis[i]) continue;
+            const bool down=trigger_down_[i] ? event.caxis.value>=trigger_release_threshold : event.caxis.value>trigger_threshold;
+            if (down==trigger_down_[i]) return std::nullopt;
+            trigger_down_[i]=down;
+            return PadChange{PadInput(pad_button_count+i),down};
+        }
+    }
+    return std::nullopt;
+}
+std::optional<bool> key_change(const SDL_Event& event,SDL_Window* window,Key key) {
+    if ((event.type!=SDL_KEYDOWN && event.type!=SDL_KEYUP) || event.key.repeat || event.key.keysym.scancode!=key ||
+        event.key.windowID!=SDL_GetWindowID(window)) return std::nullopt;
+    return event.type==SDL_KEYDOWN;
+}
+namespace {
+// One keyboard read, only while the window has keyboard focus: every key,
+// then the Return rule (0.2.0's rule for Pause, now for whatever action
+// Return is bound to): never while an Alt key is held and, given the
+// EnterKey, never while Alt+Enter consumes it. Then the controller.
+InputSnapshot held_input(SDL_Window* window,const Controller& controller,const EnterKey* enter) {
+    InputSnapshot input;
+    input.focused=SDL_GetKeyboardFocus()==window;
+    if (input.focused) {
+        // SDL's keyboard state always holds SDL_NUM_SCANCODES entries.
+        const auto* keys=SDL_GetKeyboardState(nullptr);
+        for (std::size_t i=0;i<key_slots;++i) input.keys[i]=keys[i]!=0;
+        if ((enter && !enter->pause(input.keys[SDL_SCANCODE_RETURN])) || input.keys[SDL_SCANCODE_LALT] || input.keys[SDL_SCANCODE_RALT])
+            input.keys[SDL_SCANCODE_RETURN]=false;
+    }
+    controller.snapshot(input);
+    return input;
+}
+}
+InputSnapshot sample_controls_input(SDL_Window* window,const Controller& controller,const EnterKey& enter) {
+    return held_input(window,controller,&enter);
 }
 MenuInput sample_menu_input(SDL_Window* window,const Controller& controller) {
-    const auto pad=controller.sample().pad;
-    MenuInput input{pad.up,pad.down,pad.left,pad.right,pad.one,pad.two,controller.options(),controller.map()};
-    input.focused=SDL_GetKeyboardFocus()==window;
-    if(input.focused) {
-        const auto* keys=SDL_GetKeyboardState(nullptr);
-        input.up|=keys[SDL_SCANCODE_UP];input.down|=keys[SDL_SCANCODE_DOWN];
-        input.left|=keys[SDL_SCANCODE_LEFT];input.right|=keys[SDL_SCANCODE_RIGHT];
-        input.accept|=keys[SDL_SCANCODE_Z];input.cancel|=keys[SDL_SCANCODE_X];input.toggle|=keys[SDL_SCANCODE_ESCAPE];
-        input.map|=keys[SDL_SCANCODE_M];
-    }
-    return input;
+    return menu_input(controller.bindings(),held_input(window,controller,&controller.enter()));
 }
 MenuInput sample_start_input(SDL_Window* window,const Controller& controller,const EnterKey& enter) {
-    const auto buttons=controller.sample();
-    MenuInput input{buttons.pad.up,buttons.pad.down,buttons.pad.left,buttons.pad.right,buttons.pad.one || buttons.pause};
-    input.focused=SDL_GetKeyboardFocus()==window;
-    if(input.focused) {
-        const auto* keys=SDL_GetKeyboardState(nullptr);
-        input.up|=keys[SDL_SCANCODE_UP];input.down|=keys[SDL_SCANCODE_DOWN];
-        input.left|=keys[SDL_SCANCODE_LEFT];input.right|=keys[SDL_SCANCODE_RIGHT];
-        input.accept|=keys[SDL_SCANCODE_Z] || (enter.pause(keys[SDL_SCANCODE_RETURN]) && !(keys[SDL_SCANCODE_LALT] || keys[SDL_SCANCODE_RALT]));
-        input.cancel|=keys[SDL_SCANCODE_ESCAPE];
-    }
-    return input;
+    return start_input(held_input(window,controller,&enter));
 }
 Display open_display(const std::string& title) {
     Display display;
@@ -116,14 +177,7 @@ void toggle_fullscreen(SDL_Window* window) {
 }
 FrameInput sample_input(SDL_Window* window,const Controller& c,const EnterKey& enter) {
     SDL_PumpEvents(); // Exactly one snapshot for this emulated frame.
-    Keys keys{};
-    if (SDL_GetKeyboardFocus()==window) {
-        const auto* k=SDL_GetKeyboardState(nullptr);
-        keys={k[SDL_SCANCODE_UP]!=0,k[SDL_SCANCODE_DOWN]!=0,k[SDL_SCANCODE_LEFT]!=0,k[SDL_SCANCODE_RIGHT]!=0,
-              k[SDL_SCANCODE_Z]!=0,k[SDL_SCANCODE_X]!=0,
-              enter.pause(k[SDL_SCANCODE_RETURN]) && !(k[SDL_SCANCODE_LALT]||k[SDL_SCANCODE_RALT]),k[SDL_SCANCODE_BACKSPACE]!=0};
-    }
-    return combine(keyboard(keys),c.sample());
+    return frame_input(c.bindings(),held_input(window,c,&enter));
 }
 Audio::Audio() {
     if (SDL_InitSubSystem(SDL_INIT_AUDIO)!=0) {

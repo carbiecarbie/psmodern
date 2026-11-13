@@ -21,14 +21,19 @@ private:
     std::array<std::array<std::uint8_t,8>,96> glyphs_{};
     std::array<std::array<std::uint8_t,8>,12> window_tiles_{};
 };
-enum class MenuAction { none,apply,close };
+enum class MenuAction { none,apply,close,controls };
 class OptionsMenu {
 public:
-    // Three rows: encounters, experience/meseta and the automap switch. The
-    // automap switch never shows the pending-routines state.
+    // Four rows: encounters, experience/meseta, the automap switch and
+    // CONTROLS, which opens the Controls screen (MenuAction::controls, also
+    // when read-only: controls never touch the game). The automap switch never
+    // shows the pending-routines state.
     void open(game::Options options,bool restricted,bool pending,bool recording=false,bool automap=false);
     bool visible() const { return visible_; }
     void close() { visible_=false; }
+    // Back from the Controls screen: draft and row kept, waits for a neutral
+    // snapshot as on opening.
+    void resume() { armed_=false; previous_={}; }
     const game::Options& draft() const { return draft_; }
     bool automap_draft() const { return automap_; }
     unsigned selected() const { return selected_; }

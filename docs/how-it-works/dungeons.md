@@ -185,6 +185,40 @@ and cell. The result decides what happens:
 One exit record names a plain open cell, which the lookup never reaches. It is
 a dead record.
 
+### Floors in stacks, and the map's floor label
+
+**ROM static** (the dungeon tables read by the automap; both ROMs give the
+same figures; checked by `automap_view_tests`). Stairs without the exit bit
+always join floor number n to n+1, in the same cell on both: every stairs up
+has a stairs down in the same cell one floor higher, all 60 pairs, and none
+leads below floor 0 or above floor 60. So the direction between two floors is
+the same from both sides and never reverses, and floors fall into **stacks**
+of consecutive numbers joined by stairs: 21 stacks on the 61 floors, the
+largest being floors 3 to 15. The floor number is therefore the height inside
+its stack.
+
+**ROM static.** Where the party enters each dungeon is not in these tables, and
+the exits to the world map (cells with the exit bit whose record kind is below
+80h, or with no record) do not mark one floor per stack: they lie on floors 4
+and 11 (stack 3 to 15), floors 20 and 21, and floors 47 to 50 and 52 (stack 47
+to 52); three stacks have none (floors 31, 32 and 59-60, the last two being the
+credits walk's floors). Floors can also be reached by pitfalls, scenes and
+events, which this study did not follow.
+
+**Maintainer decision (2026-11-13).** The map window shows a floor label that is
+PSModern's own convention, not something the original shows. The lowest floor
+of a stack that has an exit to the world map is `FLOOR 1`; floors above it are
+`FLOOR 2`, `FLOOR 3` and so on, and floors below it `FLOOR B1`, `FLOOR B2`. A
+stack without such an exit starts at its lowest floor. The label is computed
+when the tables are read and nothing the game reads changes. The result, by
+stack (first to last floor, label of the first and of the last floor): 0, 1 and
+2 alone (1); 3-15 (B1 to 12); 16-19 (B3 to 1); 20-21 (1 to 2); 22 (1);
+23-27 (1 to 5); 28-30 (B2 to 1); 31, 32 and 33 alone (1); 34-36 (B2 to 1);
+37-39 (B2 to 1); 40 (1); 41-42 (B1 to 1); 43-46 (1 to 4); 47-52 (1 to 6);
+53-57 (B4 to 1); 58 (1); 59-60 (1 to 2). Stacks entered at the top of their
+numbers read 1, B1, B2... as a cave does; those entered at the bottom read 1, 2...
+as a tower does.
+
 ## How chests, fixed fights and events are found
 
 **ROM static.** After every step, back step and turn, and when a floor loads,

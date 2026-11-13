@@ -393,10 +393,13 @@ study base (stage 3) shows how the code is organized.
 - Defaults and values of the experience and encounter settings. Settled in
   milestone 4 (Maintainer decision, 2026-11-11): encounters 0, 50, 100 or
   200 percent and experience 100, 200 or 400 percent, with 100 (the original
-  game) as the default for both; the recommended pace, like the Switch
-  release, is encounters 50 and experience 400. The Switch release is a
-  reference for feel, not exact values, unless the maintainer decides to
-  examine the NSP with their own keys.
+  game) as the default for both. Revised in milestone 8 (Maintainer decision,
+  2026-11-13): encounters also accept 25, and the recommended pace is
+  encounters 25 and experience 400, the Switch release's easy mode (a quarter
+  of the encounters with four times the experience and battle money; a study
+  kept outside the repository). The Switch release is a reference for feel,
+  not exact values, unless the maintainer decides to examine the NSP with
+  their own keys. A saved 50 stays valid; it just carries no marker.
 - The exact design of the new interface (its own milestone). The automap's
   is set by the [milestone 7 plan](milestone-7-plan.md).
 - How to store the new features' settings without changing the original save

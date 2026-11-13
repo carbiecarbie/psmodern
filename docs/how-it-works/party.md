@@ -163,7 +163,7 @@ original mode ([design](../design.md)). **Maintainer decision (2026-11-11).**
 The option multiplies the experience gained. The command-line flag
 `--experience-rate` takes one of three whole percentages, 100, 200 or 400, and
 100, the default, plays the game as the cartridge does; 400 is the value for
-the pace of the Switch release (together with encounters at 50): with the option off the C++ runs the same instructions
+the recommended pace, that of the Switch release's easy mode (together with encounters at 25): with the option off the C++ runs the same instructions
 and no adjustment code runs.
 
 **What it changes.** The reward is scaled once, rounded down, kept to at

@@ -8,6 +8,7 @@
 #include "game/automap.h"
 #include "probe.h"
 #include <iostream>
+#include <algorithm>
 #include <map>
 #include <set>
 
@@ -240,6 +241,69 @@ void mutation(const probe::Rom& rom, const game::DungeonTables& t, unsigned firs
              <<depths[7]<<"/"<<depths[10]<<"), "<<mutations<<" unseen-cell mutations left the machine identical; "
              <<sensitive<<" front and "<<side_sensitive<<"/"<<side_checks<<" side flips changed the picture.\n";
 }
+
+// ---- Floors form stacks; the floor label counts inside a stack --------------------
+
+// Stairs without the exit bit join floor f to f+1, always in the same cell, so
+// the direction is the same from both sides and the floor number is the height.
+// The floors joined that way are a "stack". Outside exits (leading to the world
+// map) lie on several floors of some stacks, so the label (DungeonTables::
+// floor_level) makes the lowest floor with an outside exit FLOOR 1; a stack
+// with none starts at its lowest floor (docs/how-it-works/dungeons.md).
+void floor_stacks(const game::DungeonTables& t) {
+    std::vector<std::vector<unsigned>> ups(dungeon::floor_count), downs(dungeon::floor_count);
+    std::vector<unsigned> exit_cells(dungeon::floor_count,0), without_record(dungeon::floor_count,0);
+    for (unsigned f=0;f<dungeon::floor_count;++f) {
+        const auto layout=t.layout(f);
+        for (unsigned c=0;c<256;++c) {
+            const auto v=layout[c];
+            if (dungeon::object_cell(v)) continue;
+            const auto kind=v&7;
+            if ((kind==2 || kind==3) && !dungeon::exit_bit(v)) (kind==2 ? ups : downs)[f].push_back(c);
+            if (!dungeon::exit_bit(v) || kind<2 || kind>6) continue;
+            const auto e=t.exit_at(static_cast<std::uint8_t>(f),static_cast<std::uint8_t>(c));
+            if (e && e->kind>=dungeon::world_map_kinds_end) continue;   // a scene, an interaction or an event
+            ++exit_cells[f];
+            if (!e) ++without_record[f];
+        }
+    }
+    check(downs[0].empty() && ups[dungeon::floor_count-1].empty(),"no stairs lead below floor 0 or above floor 60");
+    for (unsigned f=0;f+1<dungeon::floor_count;++f)
+        check(ups[f]==downs[f+1],"every stairs cell has the opposite stairs in the same cell of the next floor");
+    unsigned stacks=0, several=0, none=0, none_floors=0, no_record_floors_most=0, no_record_stacks=0;
+    for (unsigned first=0;first<dungeon::floor_count;) {
+        unsigned last=first;
+        while (last+1<dungeon::floor_count && !ups[last].empty()) ++last;
+        unsigned exit_floors=0, record_free_floors=0;
+        for (unsigned f=first;f<=last;++f) { exit_floors+=exit_cells[f]!=0; record_free_floors+=without_record[f]!=0; }
+        ++stacks; several+=exit_floors>1; if (!exit_floors) { ++none; none_floors+=last-first+1; }
+        no_record_floors_most=std::max(no_record_floors_most,record_free_floors); no_record_stacks+=record_free_floors!=0;
+        first=last+1;
+    }
+    check(stacks==21 && several==3 && none==3 && none_floors==4 && no_record_floors_most==1 && no_record_stacks==12,
+          "21 stacks: 3 with outside exits on several floors, 3 with none; 12 with a no-record exit, never on two floors");
+    // The labels: consecutive inside a stack, never 0, FLOOR 1 on the lowest floor with an outside exit.
+    std::string table;
+    for (unsigned first=0;first<dungeon::floor_count;) {
+        unsigned last=first, base=first;
+        while (last+1<dungeon::floor_count && !ups[last].empty()) ++last;
+        for (unsigned f=last+1;f-->first;) if (exit_cells[f]) base=f;
+        for (unsigned f=first;f<=last;++f) {
+            const int level=t.floor_level(f);
+            check(level!=0 && level==(f>=base ? static_cast<int>(f-base)+1 : static_cast<int>(f)-static_cast<int>(base)),
+                  "floor label counts from the lowest floor with an outside exit");
+            if (f>first) check(level==t.floor_level(f-1)+1 || (level==1 && t.floor_level(f-1)==-1),"labels are consecutive inside a stack");
+        }
+        table+=std::to_string(first)+"-"+std::to_string(last)+":"+std::to_string(t.floor_level(first))+".."+std::to_string(t.floor_level(last))+" ";
+        first=last+1;
+    }
+    check(t.floor_level(3)==-1 && t.floor_level(4)==1 && t.floor_level(15)==12 && t.floor_level(16)==-3 && t.floor_level(19)==1 &&
+          t.floor_level(47)==1 && t.floor_level(52)==6 && t.floor_level(31)==1 && t.floor_level(59)==1 && t.floor_level(60)==2 &&
+          t.floor_level(61)==0,"labels of chosen floors");
+    std::cout<<"Floor labels (stack first-last: first..last): "<<table<<std::endl;
+    std::cout<<"Floor stacks: "<<stacks<<" joined by stairs, "<<several<<" with outside exits on several floors, "<<none<<" ("<<none_floors
+             <<" floors) with no outside exit, "<<no_record_stacks<<" with a record-less exit on one floor each.\n";
+}
 }
 
 int main(int argc, char** argv) {
@@ -254,6 +318,7 @@ int main(int argc, char** argv) {
             offsets(tables);
             exit_cells(tables);
             discoveries(tables);
+            floor_stacks(tables);
         }
         if (part.empty()) mutation(*rom,tables,0,400);
         else if (part=="mutation-0") mutation(*rom,tables,0,200);

@@ -53,23 +53,23 @@ void options() {
     check(game::original_mode(Options{}) && Options{}.encounter_percent==100 && Options{}.experience_percent==100,
           "options default to the original");
     const auto& encounters=game::encounter_percent_choices; const auto& experience=game::experience_percent_choices;
-    check(encounters.count==4 && encounters.values[0]==0 && encounters.values[1]==50 && encounters.values[2]==100 && encounters.values[3]==200 &&
+    check(encounters.count==5 && encounters.values[0]==0 && encounters.values[1]==25 && encounters.values[2]==50 && encounters.values[3]==100 && encounters.values[4]==200 &&
           experience.count==3 && experience.values[0]==100 && experience.values[1]==200 && experience.values[2]==400 &&
           encounters.original==100 && experience.original==100,"allowed option values");
-    check(encounters.text()=="0, 50, 100 or 200" && experience.text()=="100, 200 or 400","allowed values as text");
-    check(game::switch_like_encounter_percent==50 && game::switch_like_experience_percent==400 &&
+    check(encounters.text()=="0, 25, 50, 100 or 200" && experience.text()=="100, 200 or 400","allowed values as text");
+    check(game::switch_like_encounter_percent==25 && game::switch_like_experience_percent==400 &&
           encounters.contains(game::switch_like_encounter_percent) && experience.contains(game::switch_like_experience_percent),
-          "the Switch-like values are allowed");
+          "the recommended values are allowed");
     auto refused=[](Options o) {
         try { game::validate(o); } catch(const std::invalid_argument&) { return true; }
         return false;
     };
-    for(unsigned e:{0u,50u,100u,200u}) for(unsigned x:{100u,200u,400u}) check(!refused(Options{e,x}),"every allowed combination is accepted");
-    for(Options o:{Options{25,100},Options{99,100},Options{101,100},Options{150,100},Options{400,100},Options{401,100},Options{100,0},Options{100,25},
+    for(unsigned e:{0u,25u,50u,100u,200u}) for(unsigned x:{100u,200u,400u}) check(!refused(Options{e,x}),"every allowed combination is accepted");
+    for(Options o:{Options{1,100},Options{24,100},Options{26,100},Options{49,100},Options{51,100},Options{99,100},Options{101,100},Options{150,100},Options{400,100},Options{401,100},Options{100,0},Options{100,25},
                    Options{100,50},Options{100,99},Options{100,101},Options{100,300},Options{100,1000},Options{100,1001}})
         check(refused(o),"values that are not allowed are refused");
     try { game::validate(Options{400,100}); check(false,"encounter 400 validated"); }
-    catch(const std::invalid_argument& e) { check(std::string(e.what()).find("must be one of 0, 50, 100 or 200 percent, got 400")!=std::string::npos,"encounter message lists the values"); }
+    catch(const std::invalid_argument& e) { check(std::string(e.what()).find("must be one of 0, 25, 50, 100 or 200 percent, got 400")!=std::string::npos,"encounter message lists the values"); }
     try { game::validate(Options{100,1000}); check(false,"experience 1000 validated"); }
     catch(const std::invalid_argument& e) { check(std::string(e.what()).find("must be one of 100, 200 or 400 percent, got 1000")!=std::string::npos,"experience message lists the values"); }
     RoutineRegistry r;

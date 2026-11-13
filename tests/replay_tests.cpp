@@ -54,14 +54,14 @@ int main() {
             check(parsed({}).options==game::Options{});
             check(parsed({"--encounter-rate","0"}).options.encounter_percent==0&&parsed({"--encounter-rate","200"}).options.encounter_percent==200);
             check(parsed({"--experience-rate","200"}).options.experience_percent==200&&parsed({"--experience-rate","400"}).options.experience_percent==400);
-            check(parsed({"--experience-rate","400","--encounter-rate","50"}).options==game::Options{50,400});
+            check(parsed({"--experience-rate","400","--encounter-rate","50"}).options==game::Options{50,400}&&parsed({"--experience-rate","400","--encounter-rate","25"}).options==game::Options{25,400});
             for(const char* flag:{"--encounter-rate","--experience-rate"}){
                 check(fails({flag},"needs a value"));
                 for(const char* bad:{"","-1","+1","1e2","5.0"," 5","abc","0x20"})check(fails({flag,bad},"whole number of percent"));
                 check(fails({flag,"18446744073709551616"},"percent, got")&&fails({flag,"4294967296"},"percent, got"));
                 check(fails({flag,"100",flag,"100"},"more than once"));
             }
-            check(fails({"--encounter-rate","25"},"one of 0, 50, 100 or 200")&&fails({"--encounter-rate","400"},"one of 0, 50, 100 or 200")&&
+            check(fails({"--encounter-rate","24"},"one of 0, 25, 50, 100 or 200")&&fails({"--encounter-rate","400"},"one of 0, 25, 50, 100 or 200")&&
                   fails({"--experience-rate","25"},"one of 100, 200 or 400")&&fails({"--experience-rate","1000"},"one of 100, 200 or 400")&&
                   fails({"--experience-rate","0"},"one of 100, 200 or 400"));
             // Refusals name the flag and its value; explicit 100 is original mode and never refused.

@@ -136,17 +136,18 @@ MenuInput neutral() { return {}; }
 MenuInput press(bool MenuInput::*button) { MenuInput input;input.*button=true;return input; }
 void start_screen_entries() {
     auto expect=[&](const RomList& list,std::vector<A> entries,const char* text) {
-        entries.insert(entries.end(),{A::choose,A::open_saves,A::quit});check(StartScreen(list).entries()==entries,text);
+        entries.insert(entries.end(),{A::choose,A::controls,A::open_saves,A::quit});check(StartScreen(list).entries()==entries,text);
     };
-    expect({},{},"no remembered ROM: choose, saves and quit");
+    expect({},{},"no remembered ROM: choose, controls, saves and quit");
     expect(rom_list("C:/us.sms",{}),{A::play_us},"US only");
     expect(rom_list({},"C:/br.sms"),{A::play_br},"BR only");
     expect(rom_list("C:/us.sms","C:/br.sms"),{A::play_us,A::play_br},"US before BR");
     check(StartScreen({}).selected()==0,"cursor starts on the first entry");
     check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::play_br).selected()==1,"cursor can start on a given entry");
+    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::controls).selected()==3,"the cursor can come back to CONTROLS");
     check(StartScreen(rom_list("C:/us.sms",{}),A::play_br).selected()==0,"an absent entry leaves the cursor on the first");
     check(std::string(StartScreen::label(A::play_us))=="PLAY PHANTASY STAR (US)" && std::string(StartScreen::label(A::play_br))=="PLAY PHANTASY STAR (BR)" &&
-          std::string(StartScreen::label(A::choose))=="CHOOSE ANOTHER ROM" && std::string(StartScreen::label(A::open_saves))=="OPEN SAVES FOLDER" &&
+          std::string(StartScreen::label(A::choose))=="CHOOSE ANOTHER ROM" && std::string(StartScreen::label(A::controls))=="CONTROLS" && std::string(StartScreen::label(A::open_saves))=="OPEN SAVES FOLDER" &&
           std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 0.2.0","labels and footer");
 }
 void start_screen_input() {
@@ -160,7 +161,7 @@ void start_screen_input() {
         check(screen.update(press(&MenuInput::accept),4)==A::none,"a held accept is taken once");
     }
     // Every entry returns its own action; down moves one entry per press.
-    for (unsigned target=0;target<5;++target) {
+    for (unsigned target=0;target<6;++target) {
         StartScreen screen(both);screen.update(neutral(),0);
         double now=1;
         for (unsigned i=0;i<target;++i) { screen.update(press(&MenuInput::down),now);screen.update(neutral(),now+.01);now+=1; }
@@ -169,7 +170,7 @@ void start_screen_input() {
     }
     {
         StartScreen screen(both);screen.update(neutral(),0);
-        screen.update(press(&MenuInput::up),1);check(screen.selected()==4,"up from the first entry wraps to QUIT");
+        screen.update(press(&MenuInput::up),1);check(screen.selected()==5,"up from the first entry wraps to QUIT");
         screen.update(neutral(),1.1);screen.update(press(&MenuInput::down),2);check(screen.selected()==0,"down from QUIT wraps to the first entry");
         screen.update(neutral(),2.1);
         auto both_ways=press(&MenuInput::up);both_ways.down=true;
@@ -344,7 +345,7 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
     const auto loaded=load_rom(rom);
     check(loaded.version==expected,"wrong ROM for this test");
     const RomFont font(*loaded.rom);
-    for (const auto action:{A::play_us,A::play_br,A::choose,A::open_saves,A::quit})
+    for (const auto action:{A::play_us,A::play_br,A::choose,A::controls,A::open_saves,A::quit})
         for (const char c:std::string(StartScreen::label(action))) check(font.supports(c),"every start screen label is in the ROM font");
     for (const char c:StartScreen::footer()) check(font.supports(c),"the footer is in the ROM font");
     std::vector<std::uint32_t> pixels(256*192);
@@ -356,6 +357,8 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
             check(std::all_of(pixels.begin(),pixels.end(),[](auto p) { return p==0xff000000 || p==0xffffffff || p==0xffaaaaaa; }),
                   "the screen is black with a white window and text and a grey footer");
             check(std::count(pixels.begin(),pixels.end(),0xffaaaaaa)>0,"the footer is drawn");
+            if (screen.entries().size()==6)
+                check(std::all_of(pixels.begin()+152*256,pixels.begin()+176*256,[](auto p) { return p==0xff000000; }),"six entries end at y=152, above the footer");
             screen.update(press(&MenuInput::down),double(2*i+1));screen.update(neutral(),double(2*i+2));
         }
     }

@@ -396,6 +396,11 @@ int main() {
         display();
         floor_keying();
         unknown_cells_property();
+        {   // Floors without stairs are stacks of one: FLOOR 1; the numbers outside the table have no label.
+            const auto plain=tables({},{});
+            check(plain.floor_level(0)==1 && plain.floor_level(60)==1 && plain.floor_level(61)==0,"floors without stairs are FLOOR 1");
+            check(game::build_view(plain,{},5,walls(),0,0,std::array<std::uint8_t,dungeon::game_block_bytes>{}).floor_level==1,"the view carries the floor's level");
+        }
         std::cout<<"Automap model checks passed.\n";
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

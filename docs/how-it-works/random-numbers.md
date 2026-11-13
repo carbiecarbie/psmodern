@@ -256,13 +256,16 @@ often C++ runs.
 **Maintainer decision.** Optional features are off by default and never
 change original mode ([design](../design.md)). **Maintainer decision
 (2026-11-11).** An optional setting, the command-line flag `--encounter-rate`,
-makes random encounters rarer or more frequent. It takes one of four whole
-percentages, 0, 50, 100 or 200, where 100, the default, is the original: the
+makes random encounters rarer or more frequent. It takes one of five whole
+percentages, 0, 25, 50, 100 or 200, where 100, the default, is the original: the
 threshold becomes the threshold times the percentage divided by 100, rounded
 down and never above 255. On the map the reduction described above applies
-first. At 0 no draw can pass; 50 halves a threshold; 200 doubles it up to the
-cap. The pace of the Switch release is reached with encounters at 50 (together
-with experience at 400). The random draw is still consumed on every check,
+first. At 0 no draw can pass; 25 and 50 take a quarter and a half of a threshold,
+rounded down like every other value; 200 doubles it up to the cap.
+**Maintainer decision (2026-11-13).** The recommended pace, that of the Switch
+release's easy mode (a quarter of the encounters with four times the
+experience and battle money), is encounters at 25 together with experience at
+400; 25 was added to the list that day, and a saved 50 stays valid. The random draw is still consumed on every check,
 whatever the percentage, and fixed and story fights are untouched. The
 maintainer confirmed that the draw is consumed even at 0, so that the option
 does not affect other things in the game.

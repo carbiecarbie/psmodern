@@ -84,13 +84,17 @@ paths with non-ASCII characters work.
 With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
 the ROM's font, so labels are uppercase. Entries: `PLAY PHANTASY STAR (US)`
-and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`,
+and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`, `CONTROLS`,
 `OPEN SAVES FOLDER` and `QUIT`, with the footer `PSMODERN 0.2.0`. The window
 title is `PSModern 0.2.0`.
 
 Arrows, the d-pad or the left stick move the selection (it wraps, with the
 same key repeat as Options). Z, Enter (without Alt), controller A or Start
-accept; Escape or closing the window quits. Alt+Enter toggles fullscreen,
+accept; Escape or closing the window quits. The start screen never follows
+the player's bindings (`start_input` is a fixed table), so `CONTROLS` is always
+reachable; it opens the [Controls screen](#controls-screen), and closing that
+returns here with the cursor on `CONTROLS`. Alt+Enter, and a controller input
+bound to Fullscreen, toggle fullscreen,
 and the game that follows uses the same window and keeps the choice. A
 button still held from the start screen does not reach the game. Leaving the
 game ends the program. A second instance choosing Play is refused by the
@@ -215,20 +219,27 @@ file it finds then. Two games with byte-identical game blocks share one record.
 `psmodern-options 2`, each record `<label> <sha256> <encounter> <experience>
 <automap>` with automap `0` or `1`. Format 1 files (no automap field) are
 read with the map off. Release 0.1.0 refuses a format 2 file with a warning
-and plays with the original settings until new ones are applied. The automap
+and plays with the original settings until new ones are applied. An options
+file saved with encounters at 25 is likewise refused by release 0.2.0 or older,
+which warns, plays with the original settings and keeps the file untouched
+until the player applies new options there. The automap
 switch sits beside the routine options, never inside them: it never reaches
 `register_routines` and never makes a change pending.
 
-**Keys.** M on the keyboard or X on a controller opens the map at the dungeon
+**Keys.** The Map binding (M on the keyboard, X on a controller by default) opens the map at the dungeon
 walking wait with the option on (`request_menu(HostMenu::map)`); elsewhere,
 with the option off, while recording or with `--no-routines`, the press is
 ignored and never reaches the game. The game is held exactly as for Options:
 the host runs and cancels the game's own field menu, which clears the two
 bytes the field menu always clears, as that original action does, so opening
 the map is not invisible to the game. The `MapView` is built once when the hold begins and
-drawn over the captured picture (`src/app/automap_screen.cpp`); M, X, Escape
-or cancel close it. The Options window has a third row, AUTOMAP OFF (DEFAULT)
-or ON, and the window title adds `Map: M / X` while the option is on.
+drawn over the captured picture (`src/app/automap_screen.cpp`), with the floor
+label (`FLOOR 2`, `FLOOR B1`) in the title row beside `MAP`, from
+`DungeonTables::floor_level`, which counts inside each stack of floors joined
+by stairs ([dungeons](how-it-works/dungeons.md#floors-in-stacks-and-the-maps-floor-label)); the Map, Options or Button 2
+binding closes it. The Options window has a third row, AUTOMAP OFF (DEFAULT)
+or ON, and the window title adds the Map binding (`Map: M / X` by default)
+while the option is on.
 
 **Tests.** `automap_unit` and `automap_store_unit` (ROM-free) cover the model
 and the file; `rom_<version>_automap_view` the real tables, and
@@ -259,22 +270,66 @@ from the dungeon recordings instead.
 
 ## Input
 
-The arrows are the directional pad; Z and X are buttons 1 and 2, Enter is
-Pause, Backspace is the console Reset button, and F5 power-cycles the machine
-with its current cartridge RAM. On the first SDL controller, the d-pad and
-left stick control direction, south and east are buttons 1 and 2, Start is
-Pause and Back is Reset. The stick dead zone includes -8000 through +8000
-on each signed 16-bit axis. Keyboard and controller states are ORed for pad 1;
-opposite directions are passed through and pad 2 stays released. The first
-available controller is selected, including after hot-plug. Input is sampled
-once per emulated frame. Alt+Enter does not also press Pause.
-**Maintainer decision.** The basic controller mapping is always enabled, like
-the keyboard; full controller support with remapping and shortcuts is optional.
-The Enter press used for fullscreen stays consumed until Enter is released,
-even if Alt is released or pressed again first.
+**Bindings.** `src/app/bindings.h` holds the whole model, without SDL: thirteen
+actions (the eight console inputs in the order of `Keys`, then Speed, Options,
+Map, Power cycle and Fullscreen), each with at most one key (an SDL scancode
+from a fixed table of bindable keys) and at most one controller input (an SDL
+controller button or one of the two triggers). `Bindings::defaults()` is the
+0.2.0 mapping; Alt+Enter is not a binding, so the Fullscreen key slot stays
+empty. The assignment rules are pure functions: a key or button already held
+by another action swaps with the entry being set, except that an action
+without a key cannot take a key of one of the six required ones (up, down,
+left, right, button 1, button 2), which also cannot be cleared; Alt, the
+Windows keys and keys outside the table are never bindable.
+The player's guide is [player-controls](player-controls.md).
 
-Tab or the controller's right shoulder cycles 1x, 2x and 4x for the current
-session. F5 returns the choice to 1x; console Reset does not. Recording ignores
+**The file.** `controls.txt` sits beside `roms.txt` in the save folder: the
+header `psmodern-controls 1`, then `<action> key|pad <name>` lines (names are
+SDL's, uppercased, plus `NONE`; the Fullscreen action has no key line), with
+`#` comments and blank lines ignored and case not mattering. `parse_bindings`
+never throws on content: a line that cannot be applied counts as ignored and
+the rest still applies, and an unknown header or a file over 4096 bytes gives
+the defaults. `load_bindings` also turns an unreadable or non-regular file into
+the defaults, with a warning that goes to stderr only. Lines are applied
+through the same assignment rules as the screen, so a duplicate key in a
+hand-edited file swaps. `save_bindings` writes atomically, and only the
+Controls screen saves.
+
+**Samplers.** `Controller` carries the active bindings and builds the
+controller half of an `InputSnapshot` (held inputs, the left stick, whether a
+controller is open); the keyboard half is read only while the window has
+focus, with Return cleared while an Alt key is held or Alt+Enter consumes it.
+`frame_input` turns a snapshot into the console input as before: the bound
+keys give the keyboard pad, the bound controller inputs plus the left stick
+(dead zone -8000 through +8000 on each signed 16-bit axis) give the controller
+pad, and the two are ORed for pad 1; opposite directions are passed through
+and pad 2 stays released. `menu_input` serves the Options window and the map
+from the direction, Button 1, Button 2, Options and Map bindings. The start
+screen and the Controls screen read fixed inputs, so neither can be locked out
+by the player's choices. Input is sampled once per emulated frame. The first
+available controller is selected, including after hot-plug. Alt+Enter does not
+also press Pause, and the Enter press used for fullscreen stays consumed until
+Enter is released, even if Alt is released or pressed again first.
+
+**Triggers.** A trigger counts as pressed past half travel
+(`trigger_threshold`, 16384 of 0 to 32767). `Controller::translate` latches
+each trigger, so a held trigger reports one press; it is released only when
+let go below about a quarter of the travel, and a trigger already held when a
+controller is connected or the game starts does not count as a press.
+
+**Shortcuts.** Speed, Options, Map, Power cycle and a controller-bound
+Fullscreen are read from events in `main.cpp`, one press per event (key
+repeats ignored), so the arming rules are unchanged: a release must be observed
+before a shortcut arms after focus loss or controller replacement, and Return,
+if bound, never presses with Alt or while Alt+Enter consumes it. Power cycle
+and Fullscreen do nothing while the Controls screen is open; Power cycle also
+does nothing during an Options hold or a recording. The window title is built
+from the bindings (`Speed 1X (TAB / RB)`, `Options: ESCAPE / Y`, `Map: M / X`
+with the option on, and `(F5 disabled)` while recording), and a hint is left
+out for an unbound action.
+
+The Speed binding (Tab or the right shoulder by default) cycles 1x, 2x and 4x
+for the current session. Power cycle (F5 by default) returns the choice to 1x; console Reset does not. Recording ignores
 the shortcut. The effective speed becomes 1x while unfocused or inside Options,
 then restores the chosen speed. A released key or shoulder must be observed
 before a new activation after focus loss or controller replacement. The host
@@ -288,13 +343,16 @@ accelerate, and recordings, use the original audio path. See the
 scheduling and guarded fallback. The indicator affects only the
 presented picture. The host clock rebases on speed changes; no choice is saved.
 
-Escape/controller Y opens Options during free exploration in towns, on the
+The Options binding (Escape or controller Y by default) opens Options during free exploration in towns, on the
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
-presses are discarded. Enter/Start remains the original Pause. Up/Down
-selects one of the two rates or the Automap row and Left/Right changes it.
-Z/A persists the three values and closes; X/B or Escape/Y discards the draft. The screen marks each
-100% value as DEFAULT, encounters 50% as RECOMMENDED and experience/meseta
+presses are discarded. Pause remains the original Pause. Up/Down
+selects one of the four rows (the two rates, Automap and CONTROLS) and
+Left/Right changes a value. Button 1 persists the three values and closes;
+Button 2 or the Options binding discards the draft. On the CONTROLS row Button
+1 opens the [Controls screen](#controls-screen) instead, also in the read-only
+modes, because controls never touch the game. The screen marks each
+100% value as DEFAULT, encounters 25% as RECOMMENDED and experience/meseta
 400% as RECOMMENDED; other values have no marker. Only restrictions, pending
 activation or a failed save add a status message inside the window. A failed
 save keeps the draft open so confirmation can retry.
@@ -328,9 +386,41 @@ while interrupts and the sound driver continue normally.
 Closing requests the original cancel action and waits for its cleanup before
 returning control. The bridge preserves the caller's registers and the input,
 sprite and stack fields affected by this additional call; it does not rewind
-the CPU, console clock or sound state. Gameplay controls, Pause, Reset and F5
+the CPU, console clock or sound state. Gameplay controls, Pause, Reset and Power cycle
 are consumed while the bridge is active, including cleanup after the visible
 options window closes. Quit remains available.
+
+### Controls screen
+
+`ControlsScreen` (`src/app/controls_screen.cpp`) edits a draft copy of the
+bindings and draws the 13 actions with a keyboard and a controller column,
+then RESTORE DEFAULTS, SAVE and CANCEL, in the Options window style. Seven
+rows are visible and the list scrolls, with the title, header and status line
+fixed. It reads the raw snapshot, never the bindings, and answers fixed
+navigation: arrows, D-pad and left stick move; Enter, Z and A choose;
+Backspace, Delete and X clear; Escape, X and B leave and discard.
+
+Choosing a cell starts a capture: the first new key (the lowest scancode if
+several arrive together) or controller button on the cell's own device is the
+answer; only fresh presses count, and the capture waits only for the choosing
+accept to be released. A press on the other device, five
+seconds without an answer or losing focus ends it with no change. Alt and the
+Windows keys are never an answer (silently ignored), nor is Return while Alt
+is held; a key outside the table shows `KEY NOT AVAILABLE`. The status
+line shows the controller state, the capture prompt or, for two seconds, the
+last result (`SWAPPED WITH`, `KEY USED BY`, `NEEDS A KEY`, `ALT ENTER IS
+FIXED`, `KEY NOT AVAILABLE`, `CLEARED`); `DEFAULTS - NOT SAVED YET` and `SAVE
+FAILED - RETRY` stay until the next press. Unlike the Options window the screen
+does not wait for a fully neutral snapshot: each fixed navigation source held
+when it opens, when focus returns or when a capture ends is ignored until that
+source alone is released, and a blocked source never hides another source of
+the same meaning. Every other held input has no effect on it.
+
+`main.cpp` and `start_loop.cpp` own the saving: on SAVE they write the file and
+pass the draft to `Controller::set_bindings`, so the change applies at once,
+and a failed write keeps the screen open. Opened from Options it returns
+there, the game held by the Options bridge throughout; opened from the start
+screen it returns to the start screen.
 
 ## Audio and pacing
 
@@ -407,7 +497,7 @@ Run `psmodern.exe <rom-path> --record <new-file>`. The plain command is unchange
 Recording starts at power-on with the app's normal save, whose digest enters
 the header. Preserve a copy of that save before starting if it is nonzero:
 the app can update the normal save during the session, and a hash cannot
-reconstruct its initial contents. F5 is disabled while recording and the title
+reconstruct its initial contents. Power cycle (F5 by default) is disabled while recording and the title
 says so; console Reset remains available. Every completed emulated call is
 counted, including catch-up calls and calls while minimized.
 
@@ -421,7 +511,7 @@ failed publication reports an error; a partial destination is never published.
 
 ```text
 psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording]
-                      [--encounter-rate <0|50|100|200>] [--experience-rate <100|200|400>]
+                      [--encounter-rate <0|25|50|100|200>] [--experience-rate <100|200|400>]
 ```
 
 The runner links no SDL and reads no app save. It checks the ROM and initial
@@ -512,6 +602,20 @@ written reason per entry and is empty now. An allow-listed entry that has C++
 calls, or that no recording calls, is stale and an error. The generator also
 refuses forced calls: the censuses run in original mode. Entries no
 recording reaches are listed as covered by state probes only.
+
+**Controls tests.** `bindings_unit` (ROM- and SDL-free) covers the names,
+the defaults, the swap and refusal rules, the `controls.txt` round trip with
+damaged and partial files, and remapped input. Its equivalence proof compares
+the default bindings with the 0.2.0 tables, kept in the test, over every state
+of the default keys and controller inputs at a range of stick values, with and
+without focus and a controller, and shows that inputs outside the default
+tables never leak. `sdl_input` repeats the proof through the real samplers
+(every state of the default keys, Alt, focus and a consumed Return) and, with
+SDL's virtual controller, covers remapped buttons and the triggers.
+`controls_unit` covers the Controls screen without SDL (navigation, scrolling,
+capture, messages, commands, arming); `rom_<region>_controls_screen` also draws
+the screen with the cartridge font, checks the pixels and writes frames for
+inspection.
 
 The ROM-only controller tests compare all 65,536 pairs of previous/new
 controller bytes in each version, including the whole machine, read timing,
@@ -846,7 +950,7 @@ one parser (`src/game/option_flags.h`) and take their allowed values from
 
 | Flag | Allowed values | Effect |
 | --- | --- | --- |
-| `--encounter-rate <percent>` | 0, 50, 100 or 200; default 100 | Scales the random-encounter threshold on the map and in dungeons: threshold times the rate divided by 100, rounded down, at most 255. 0 turns random encounters off but still consumes the draw. Fixed and story fights are untouched |
+| `--encounter-rate <percent>` | 0, 25, 50, 100 or 200; default 100 | Scales the random-encounter threshold on the map and in dungeons: threshold times the rate divided by 100, rounded down, at most 255. 0 turns random encounters off but still consumes the draw. Fixed and story fights are untouched |
 | `--experience-rate <percent>` | 100, 200 or 400; default 100 | Scales the experience reward once, rounded down, at most 65,535 and never zero when the original reward is not; the message and every character's gain use that value |
 
 A value must be a whole number of digits with no sign or space; a value
@@ -858,15 +962,17 @@ runner it is also refused with `--lockstep-calls` and `--compare-recording`,
 because the game differs from the original by design and cannot be compared.
 An explicit 100 is accepted in restricted modes too. App recording and
 `--no-routines` force original execution, retaining configured preferences
-even when SRAM changes. Recording ignores Escape/controller Y; raw-Z80
+even when SRAM changes. Recording ignores the Options binding; raw-Z80
 sessions can open Options read-only during exploration. CLI overrides remain
 session-only until an explicit in-game Apply, which supersedes launch flags.
 
 **Maintainer decision (2026-11-11).** The options take fixed values, not
 ranges: encounters 0, 50, 100 or 200 percent and experience 100, 200 or 400
-percent, with 100 (the original game) as the default for both. The values for a
-pace like the Switch release are encounters 50 and experience 400; the
-constants for them are in `src/game/options.h` and the selection screen.
+percent, with 100 (the original game) as the default for both. **Maintainer
+decision (2026-11-13).** Encounters also accept 25, and the recommended pace,
+the Switch release's easy mode, is encounters 25 and experience 400; the
+constants for them are in `src/game/options.h` and the selection screen. A
+saved 50 stays valid.
 Reduced or off encounters still consume the random draw, a character at the
 experience ceiling keeps gaining one level per fight. The formulas are explained in the
 [random numbers](how-it-works/random-numbers.md#the-encounter-rate-option) and
@@ -887,7 +993,7 @@ To run a recording with the options on and read what ran, use the runner; it
 writes manifests and the census but compares nothing:
 
 ```sh
-psmodern_replay <rom> <recording> --dump 1 --out <new-folder> [--cart-ram <file>]   --encounter-rate 50 --experience-rate 400
+psmodern_replay <rom> <recording> --dump 1 --out <new-folder> [--cart-ram <file>]   --encounter-rate 25 --experience-rate 400
 ```
 
 The census then has five option segments: `00:0F5B` and `01:5FB0` (the

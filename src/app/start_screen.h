@@ -10,9 +10,10 @@
 #include <vector>
 
 namespace psmodern::app {
-enum class StartAction { none,play_us,play_br,choose,open_saves,quit };
+enum class StartAction { none,play_us,play_br,choose,controls,open_saves,quit };
 // The start screen shown when psmodern.exe runs without arguments: one entry
-// per remembered ROM, then CHOOSE ANOTHER ROM, OPEN SAVES FOLDER and QUIT.
+// per remembered ROM, then CHOOSE ANOTHER ROM, CONTROLS, OPEN SAVES FOLDER and
+// QUIT.
 // Input follows OptionsMenu: nothing is accepted until a neutral focused
 // snapshot, losing focus disarms, held directions repeat, the cursor wraps.
 class StartScreen {

@@ -22,7 +22,7 @@ void remember(LauncherPlatform& platform,const RomList& list,const RomList& unre
 StartScreen::StartScreen(const RomList& list,StartAction selected) {
     if (list.us) entries_.push_back(StartAction::play_us);
     if (list.br) entries_.push_back(StartAction::play_br);
-    entries_.insert(entries_.end(),{StartAction::choose,StartAction::open_saves,StartAction::quit});
+    entries_.insert(entries_.end(),{StartAction::choose,StartAction::controls,StartAction::open_saves,StartAction::quit});
     const auto found=std::find(entries_.begin(),entries_.end(),selected);
     if (found!=entries_.end()) selected_=static_cast<unsigned>(found-entries_.begin());
 }
@@ -61,6 +61,7 @@ const char* StartScreen::label(StartAction action) {
     case StartAction::play_us: return "PLAY PHANTASY STAR (US)";
     case StartAction::play_br: return "PLAY PHANTASY STAR (BR)";
     case StartAction::choose: return "CHOOSE ANOTHER ROM";
+    case StartAction::controls: return "CONTROLS";
     case StartAction::open_saves: return "OPEN SAVES FOLDER";
     case StartAction::quit: return "QUIT";
     case StartAction::none: break;

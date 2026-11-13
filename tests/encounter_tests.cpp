@@ -16,7 +16,7 @@ namespace {
 // register_encounters adds exactly the declared encounter segments, belonging
 // to the three encounter units, for every option value.
 void registration() {
-    const game::Options variants[]{{},{0,100},{50,100},{200,100},{100,200},{100,400},{0,400}};
+    const game::Options variants[]{{},{0,100},{25,100},{50,100},{200,100},{100,200},{100,400},{0,400}};
     for (const auto& options:variants) {
         RoutineRegistry registry;
         game::register_encounters(registry,options);
@@ -487,7 +487,7 @@ void dungeon_chains(Context& c, std::uint64_t& count) {
 
 // ---- Encounter-rate option ---------------------------------------------------
 
-constexpr unsigned rates[]{0,50,100,200}; // the allowed values (maintainer decision, 2026-11-11)
+constexpr unsigned rates[]{0,25,50,100,200}; // the allowed values (maintainer decisions, 2026-11-11 and 2026-11-13)
 std::uint8_t scaled(unsigned b, unsigned percent) { return static_cast<std::uint8_t>(std::min(255u,b*percent/100)); }
 
 // At every rate the compare's result equals the original instruction run on
@@ -543,6 +543,29 @@ Machine run_to_return(probe::Harness& harness, Machine machine) {
     check(fallbacks(harness.registry())==fallbacks_before && cpp_before()>cpp_start,"a segment fell back");
     return machine;
 }
+// A reduced rate (25, 50): a map check that fails still consumed the draw exactly
+// once, as at rate 0 and in the original; checks that succeed are not compared here.
+void rate_reduced(const probe::Rom& rom, unsigned rate, std::uint64_t& failed_checks) {
+    probe::Harness harness(rom,game::Options{rate,100});
+    harness.registry().verifier=nullptr;
+    Context c{rom,harness};
+    const auto recovery=static_cast<std::uint16_t>(rom.byte(0,0x05C6)|(rom.byte(0,0x05C7)<<8));
+    auto state_of=[&](const Machine& m) { return static_cast<std::uint16_t>(peek(m,c.random_state())|(peek(m,static_cast<std::uint16_t>(c.random_state()+1))<<8)); };
+    for (unsigned selector=0;selector<3;++selector)
+        for (unsigned cell=0;cell<64;++cell)
+            for (const unsigned state:{0x0001u,0xace1u,0x8000u,0x0000u,0xffffu}) {
+                auto machine=harness.prepare(game::map_check_unit,c.vary());
+                poke(machine,c.selector(),static_cast<std::uint8_t>(selector));
+                poke_word(machine,c.position_a(),static_cast<std::uint16_t>((cell/8)<<8)); poke_word(machine,c.position_b(),static_cast<std::uint16_t>((cell%8)<<8));
+                poke_word(machine,c.random_state(),static_cast<std::uint16_t>(state)); poke(machine,c.pool_chosen(),0x5a);
+                const auto done=run_to_return(harness,machine);
+                if (a_of(done)==0 && peek(done,c.pending())==0 && peek(done,c.pool_chosen())==0x5a) {
+                    check(state_of(done)==next_state(static_cast<std::uint16_t>(state),recovery),"the random state advances once per failed map check at a reduced rate");
+                    ++failed_checks;
+                }
+            }
+    check(failed_checks>0,"a reduced rate fails some map checks");
+}
 // Rate 0: the draw is consumed exactly once per check and the check fails.
 void rate_zero(const probe::Rom& rom, std::uint64_t& count) {
     probe::Harness harness(rom,game::Options{0,100});
@@ -590,7 +613,7 @@ void make_window(Machine& machine, unsigned kind, unsigned offset) {
     else if (kind==3) machine.advance(Machine::frame_cycles-machine.cycles()%Machine::frame_cycles-1-offset);
 }
 void windows(const probe::Rom& rom, WindowCounts& counts) {
-    for (const unsigned rate:{0u,50u,200u}) {
+    for (const unsigned rate:{0u,25u,50u,200u}) {
         probe::Harness harness(rom,game::Options{rate,100});
         harness.registry().verifier=nullptr;
         for (const auto entry:{game::map_compare_entry,game::dungeon_compare_entry}) {
@@ -684,10 +707,12 @@ int main(int argc, char** argv) { try {
     std::uint64_t formula=0, zero=0;
     for (const auto rate:rates) rate_formula(*rom,rate,formula);
     rate_zero(*rom,zero);
+    std::uint64_t reduced=0;
+    for (const unsigned rate:{25u,50u}) rate_reduced(*rom,rate,reduced);
     WindowCounts window;
     windows(*rom,window);
     std::cout<<"Encounter-rate option: "<<formula<<" compare results over "<<std::size(rates)<<" rates x 2 compares x 65536 inputs; "
-        <<zero<<" rate-0 checks; "<<window.forced<<" forced windows ("<<window.irq<<" irq, "<<window.nmi<<" nmi, "<<window.frame
+        <<zero<<" rate-0 checks; "<<reduced<<" failed checks at rates 25 and 50; "<<window.forced<<" forced windows ("<<window.irq<<" irq, "<<window.nmi<<" nmi, "<<window.frame
         <<" frame reasons), "<<window.ei<<" after EI, "<<window.fallbacks<<" default-rate windows falling back, "<<window.accepted<<" cases with the interrupt accepted at the entry; "<<seconds()<<" s total.\n";
     return 0;
 } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; } }

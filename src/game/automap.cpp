@@ -77,6 +77,7 @@ MapView build_view(const DungeonTables& tables, const FloorExploration& floor_st
                    std::span<const std::uint8_t,dungeon::game_block_bytes> game_block) {
     MapView view{};
     view.party_cell=cell;
+    view.floor_level=static_cast<std::int8_t>(tables.floor_level(floor));
     view.party_ahead=tables.offset(facing,dungeon::ahead);
     for (unsigned c=0;c<dungeon::cells_per_floor;++c) {
         const bool seen=floor_state.seen.test(c), found=floor_state.found.test(c);

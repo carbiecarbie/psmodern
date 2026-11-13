@@ -74,6 +74,7 @@ struct MapView {
     std::array<MapCell,dungeon::cells_per_floor> cells;
     std::uint8_t party_cell;
     std::int8_t party_ahead;   // offset(facing, 1): -16 up, +1 right, +16 down, -1 left
+    std::int8_t floor_level=0; // DungeonTables::floor_level of the floor: 1, 2... from FLOOR 1 up, -1, -2... below it; 0 is none
     bool operator==(const MapView&) const = default;
 };
 // The view of the current floor; done flags are read from the game block

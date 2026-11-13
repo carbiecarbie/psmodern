@@ -125,7 +125,7 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(cancel)return MenuAction::close;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
-        if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : 2))%3;
+        if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : 3))%4;
         if(!restricted_ && selected_==2 && input.left!=input.right)automap_=!automap_;
         if(!restricted_ && selected_<2 && input.left!=input.right) {
             const auto& choices=selected_==0 ? game::encounter_percent_choices : game::experience_percent_choices;
@@ -134,22 +134,24 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
             current=choices.values[(i+choices.count+(input.right?1:choices.count-1))%choices.count];
         }
     }
-    if(accept)return restricted_ ? MenuAction::close : MenuAction::apply;
+    if(accept)return selected_==3 ? MenuAction::controls : restricted_ ? MenuAction::close : MenuAction::apply;
     return MenuAction::none;
 }
 void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font) const {
-    // Three label rows on the cursor tiles 56, 88 and 120, each value one
-    // blank line below (design notes, section 4, "Keys, hold and options").
-    static constexpr int rows[]{56,88,120};
+    // Four label rows on the cursor tiles 48, 80, 112 and 144, each value one
+    // blank line below; CONTROLS has no value (milestone 8 design notes,
+    // section 7).
+    static constexpr int rows[]{48,80,112,144};
     font.window(pixels,24,24,208,152,rows[selected_]);
     auto text=[&](int x,int y,std::string_view label){font.text(pixels,x,y,label,0xffffffff);};
     auto value=[](unsigned percent,unsigned recommended) {
         return std::to_string(percent)+"%"+(percent==100 ? " (DEFAULT)" : percent==recommended ? " (RECOMMENDED)" : "");
     };
     text(100,32,"OPTIONS");
-    text(40,rows[0],"ENCOUNTERS");text(48,rows[0]+16,value(draft_.encounter_percent,50));
-    text(40,rows[1],"EXPERIENCE / MESETA");text(48,rows[1]+16,value(draft_.experience_percent,400));
+    text(40,rows[0],"ENCOUNTERS");text(48,rows[0]+16,value(draft_.encounter_percent,game::switch_like_encounter_percent));
+    text(40,rows[1],"EXPERIENCE / MESETA");text(48,rows[1]+16,value(draft_.experience_percent,game::switch_like_experience_percent));
     text(40,rows[2],"AUTOMAP");text(48,rows[2]+16,automap_ ? "ON" : "OFF (DEFAULT)");
+    text(40,rows[3],"CONTROLS");
     // The pending state concerns the routine options only.
     if(failed_)text(40,152,"SAVE FAILED - RETRY");
     else if(restricted_)text(40,152,recording_ ? "RECORDING - READ ONLY" : "Z80 MODE - READ ONLY");
