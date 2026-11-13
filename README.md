@@ -45,8 +45,8 @@ What you get today:
   dungeons.
 - 2x and 4x fast-forward, with the music kept at its normal tempo.
 
-The [roadmap][roadmap] lists what comes next: text and language selection,
-full controller support, and widescreen on the world map and in towns.
+The [roadmap][roadmap] lists what comes next: full controller support,
+text and language selection, and widescreen on the world map and in towns.
 
 ## Download and play
 

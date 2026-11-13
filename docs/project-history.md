@@ -98,3 +98,11 @@ tracking changes nothing in the game. Independent reviews passed and all
 everything right and accepted it on 2026-11-12, confirming the map's rules.
 [Plan](milestone-7-plan.md). Plan: `39f14a3`; implementation: `674c4fa`;
 closed by `391f1f1`.
+
+## Release 0.2.0 - The automap released (2026-11-12)
+
+The second public Windows release carries milestone 7: dungeon walking in
+C++ and the optional automap, off by default. The release notes gained the
+map's key and option. All 155 tests passed without skips, and the published
+zip is the package the maintainer play-tested. Published as GitHub release
+v0.2.0. Prepared by `222fa76`.

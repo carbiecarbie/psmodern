@@ -3,7 +3,8 @@
 **Milestone 7 (dungeons and the automap) is complete,** accepted on
 2026-11-12 ([plan](milestone-7-plan.md)). **Release 0.1.0**, the first
 public Windows release, added a start screen that remembers the player's
-ROMs ([plan](release-0.1.0-plan.md)); the automap is not in it.
+ROMs ([plan](release-0.1.0-plan.md)); **release 0.2.0** (2026-11-12) added
+the automap.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup, money award
@@ -226,9 +227,8 @@ the game.
 ## Known gaps
 
 - **Options remain deliberately small.** Encounter and experience/meseta
-  rates and the automap are available in-game and saved. Walking speed,
-  remapping and other features remain later work on the
-  [roadmap](roadmap.md).
+  rates and the automap are available in-game and saved. Remapping and
+  other features remain later work on the [roadmap](roadmap.md).
 - **Recording coverage is thin where the new routines act.** The recordings
   reach few encounter paths and one level gain. Thirteen dungeon pieces are
   reached by no recording and are covered by state probes only: locked and

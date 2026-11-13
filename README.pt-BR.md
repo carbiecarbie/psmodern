@@ -49,8 +49,8 @@ O que você tem hoje:
   masmorras.
 - Aceleração de 2x e 4x, com a música no ritmo normal.
 
-O [roteiro][roadmap] mostra o que vem depois: texto e escolha de idioma,
-suporte completo a controle e tela widescreen no mapa-múndi e nas cidades.
+O [roteiro][roadmap] mostra o que vem depois: suporte completo a controle,
+texto e escolha de idioma e tela widescreen no mapa-múndi e nas cidades.
 
 ## Baixar e jogar
 
