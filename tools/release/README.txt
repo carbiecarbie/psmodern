@@ -20,8 +20,9 @@ HOW TO START
 1. Unzip the folder anywhere you like.
 2. Double-click psmodern.exe.
 3. The first time, pick your .sms file in the Open dialog. PSModern remembers it.
-4. A start screen offers: PLAY (US/BR), CHOOSE ANOTHER ROM, CONTROLS, OPEN
-   SAVES FOLDER and QUIT.
+4. Choose PLAY on the start screen. ADD ROM adds the other language. LANGUAGE
+   selects English or Portuguese; each language needs its corresponding ROM.
+   The screen also offers CONTROLS, OPEN SAVES FOLDER and QUIT.
 
 Windows SmartScreen may warn about an unknown publisher because the program is
 not digitally signed. Click "More info", then "Run anyway".
@@ -61,6 +62,7 @@ Z/A, X/B or Escape/Y automatically saves the displayed values.
   Experience   100, 200 or 400 percent; battle meseta follows it.
   Automap      Off or On; a map of the current dungeon floor (off by default).
   Controls     Opens the Controls screen.
+  Language     Changes the language during exploration after saving your choice.
 
 100 is the original game. Recommended: encounters 25, experience 400.
 Story and fixed fights never change.
@@ -85,10 +87,14 @@ docs/player-controls.md of the source.
 SAVES
 
 The game saves through its own menu, as on the cartridge. Files are kept in
-%APPDATA%\PSModern (one per version): a cartridge-compatible raw save, a small
-companion settings file, a dungeon map file, and a .bak copy of the previous
-save made before the first write of each session. Only one copy of PSModern
-may use a save at a time.
+%APPDATA%\PSModern\shared: one cartridge-compatible raw save shared by both
+languages, a companion settings file, a dungeon map file, and a .bak copy of
+the previous save made before the first write of each session. Only one copy
+of PSModern may use a save at a time.
+
+On first use, old US and Brazilian saves are preserved and imported. If both
+sets differ, choose which one to continue. New progress is saved to the shared
+folder and is not copied back to old per-version files.
 
 COMMAND LINE
 

@@ -24,7 +24,7 @@ original, chamada por chamada e quadro por quadro, até não sobrar código Z80.
 No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 (em inglês).
 
-| Tela inicial | Opções |
+| Tela inicial (0.3.0) | Opções (0.3.0) |
 | --- | --- |
 | ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A janela de opções sobre uma cidade, com os valores recomendados](docs/images/options.png) |
 
@@ -49,7 +49,7 @@ O que você tem hoje:
   aleatórias, quanto de experiência e dinheiro cada luta dá e um mapa das
   masmorras.
 - Aceleração de 2x e 4x, com a música no ritmo normal.
-- Nas builds de desenvolvimento após a 0.3.0: troque o jogo e a interface
+- Troque o jogo e a interface
   entre inglês e português pelas Opções durante a exploração, sem reiniciar.
   Cada idioma exige sua ROM. Uma entrada JOGAR usa as mesmas partidas salvas,
   independentemente do idioma ou das ROMs disponíveis.
@@ -74,9 +74,8 @@ O PSModern recusa qualquer outro arquivo e diz o motivo.
 2. Descompacte numa pasta só para ele.
 3. Dê dois cliques em `psmodern.exe`. Na primeira vez, escolha o seu arquivo
    `.sms` na janela de abrir arquivo; o PSModern guarda essa escolha.
-4. Na tela inicial, escolha a versão que quer jogar. A mesma tela permite
-   escolher outra ROM, abrir a tela de Controles, abrir a pasta de saves ou
-   sair.
+4. Na tela inicial, escolha JOGAR. ADICIONAR ROM inclui o outro idioma, e
+   IDIOMA seleciona o idioma. A tela também oferece Controles e a pasta de saves.
 
 O programa não tem assinatura digital, então o SmartScreen do Windows pode
 avisar que o editor é desconhecido. Clique em **Mais informações** e depois em
@@ -138,7 +137,7 @@ termina, então uma batalha em andamento, recompensas incluídas, termina com os
 valores antigos. O título da janela mostra os valores ativos e qualquer
 mudança que ainda esteja esperando.
 
-A escolha fica salva para o arquivo de save inteiro daquela versão, então os
+A escolha fica salva para o arquivo de save compartilhado, então os
 cinco espaços de save do jogo usam a mesma.
 
 ### Mapa automático
@@ -158,8 +157,8 @@ com a opção desligada, então ligar a opção depois mostra o que você já vi
 ## Saves
 
 Você salva pelo menu do próprio jogo, como no cartucho. O PSModern guarda os
-arquivos em `%APPDATA%\PSModern`. Builds de desenvolvimento após a 0.3.0 usam
-um conjunto compartilhado em `shared/`, independentemente do idioma (a 0.3.0
+arquivos em `%APPDATA%\PSModern`. Um conjunto compartilhado em `shared/` é usado
+independentemente do idioma (a 0.3.0
 mantém um conjunto por versão):
 
 - o save em si, no formato do cartucho, que outros emuladores conseguem ler;
@@ -168,7 +167,7 @@ mantém um conjunto por versão):
 - uma cópia `.bak` do save anterior, feita antes da primeira gravação de cada
   sessão.
 
-Builds de desenvolvimento preservam os arquivos antigos US/BR e os importam
+O PSModern preserva os arquivos antigos US/BR e os importa
 uma vez. Se os dois conjuntos forem diferentes, você escolhe qual continuar;
 os dois originais ficam intactos. Adicionar ou remover uma ROM não apaga as
 partidas. Os arquivos globais `roms.txt`, `language.txt` e `controls.txt`

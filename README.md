@@ -22,7 +22,7 @@ rewritten in C++ one at a time, and each rewrite is checked against the
 original, call by call and frame by frame, until no Z80 code is left. Along
 the way the project writes down [how the game works inside][how-it-works].
 
-| Start screen | Options |
+| Start screen (0.3.0) | Options (0.3.0) |
 | --- | --- |
 | ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options window over a town, with the recommended rates](docs/images/options.png) |
 
@@ -45,7 +45,7 @@ What you get today:
   how much experience and battle money each fight gives, and a map of the
   dungeons.
 - 2x and 4x fast-forward, with the music kept at its normal tempo.
-- In development builds after 0.3.0: switch the game and interface between
+- Switch the game and interface between
   English and Portuguese from Options during exploration, without restarting.
   Each language needs its own ROM. One PLAY entry uses the same saved games
   regardless of language or which ROMs are available.
@@ -70,8 +70,8 @@ PSModern refuses any other file and tells you why.
 2. Unzip it into a folder of its own.
 3. Double-click `psmodern.exe`. The first time, pick your `.sms` file in the
    Open dialog; PSModern remembers it.
-4. On the start screen, choose the version to play. The same screen lets you
-   pick another ROM, open the Controls screen, open the saves folder or quit.
+4. Choose PLAY on the start screen. ADD ROM adds the other language, and
+   LANGUAGE selects the language. The screen also offers Controls and the saves folder.
 
 The program is not digitally signed, so Windows SmartScreen may warn about an
 unknown publisher. Click **More info**, then **Run anyway**.
@@ -130,7 +130,7 @@ times the experience and money). A change applies once the current action
 ends, so a battle in progress, its rewards included, finishes under the old
 rates. The window title shows the active rates and any change still waiting.
 
-The choice is saved for that version's whole save file, so all five of the
+The choice is saved for the shared save file, so all five of the
 game's save slots share it.
 
 ### Automap
@@ -151,8 +151,8 @@ off, so turning it on later shows what you have already seen.
 ## Saves
 
 You save through the game's own menu, as on the cartridge. PSModern keeps
-its files in `%APPDATA%\PSModern`. Development builds after 0.3.0 use one
-shared set in `shared/`, regardless of language (0.3.0 keeps one set per version):
+its files in `%APPDATA%\PSModern`. One shared set in `shared/` is used
+regardless of language (0.3.0 keeps one set per version):
 
 - the save itself, in the cartridge's format, so other emulators can read it;
 - a small companion file with your options;
@@ -160,7 +160,7 @@ shared set in `shared/`, regardless of language (0.3.0 keeps one set per version
 - a `.bak` copy of the previous save, made before the first write of each
   session.
 
-Development builds preserve old US/BR files and import them once. If both old
+PSModern preserves old US/BR files and imports them once. If both old
 sets differ, you choose which to continue; both originals remain intact.
 Adding or removing a ROM never removes your saved games. Global `roms.txt`,
 `language.txt` and `controls.txt` stay in the root PSModern folder.
