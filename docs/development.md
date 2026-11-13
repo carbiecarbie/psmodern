@@ -61,7 +61,7 @@ The window title names the identified version. The 256x192 picture uses
 nearest-neighbour integer scaling, centred with black bars in a resizable
 window initially 768x576. Alt+Enter toggles borderless desktop fullscreen.
 
-`psmodern.exe --version` prints `PSModern 0.2.0` and exits with 0 before any
+`psmodern.exe --version` prints `PSModern 0.3.0` and exits with 0 before any
 window or SDL start-up; combined with any other argument it is refused. The
 version comes from `project(PSModern VERSION ...)` in `CMakeLists.txt`,
 through the generated header `PSModernVersion.h`.
@@ -85,8 +85,8 @@ With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
 the ROM's font, so labels are uppercase. Entries: `PLAY PHANTASY STAR (US)`
 and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`, `CONTROLS`,
-`OPEN SAVES FOLDER` and `QUIT`, with the footer `PSMODERN 0.2.0`. The window
-title is `PSModern 0.2.0`.
+`OPEN SAVES FOLDER` and `QUIT`, with the footer `PSMODERN 0.3.0`. The window
+title is `PSModern 0.3.0`.
 
 Arrows, the d-pad or the left stick move the selection (it wraps, with the
 same key repeat as Options). Z, Enter (without Alt), controller A or Start

@@ -45,15 +45,17 @@ playing.
 
 Keyboard and controller work together. The first controller found is used.
 The start screen always uses the defaults (arrows, Z or Enter, Escape; D-pad,
-A or Start), so CONTROLS stays within reach. Controller buttons are named by position: A is the bottom button, whatever is
-printed on your pad. Each press of Tab or RB cycles the
-speed 1x, 2x, 4x, then 1x again; music keeps its normal tempo. The picture is
-the original 256x192, scaled in whole steps in a resizable window.
+A or Start), so CONTROLS stays within reach. Controller buttons are named by
+position: A is the bottom button, whatever is printed on your pad. Each press
+of Tab or RB cycles the speed 1x, 2x, 4x, then 1x again; music keeps its
+normal tempo. The picture is the original 256x192, scaled in whole steps in a
+resizable window.
 
 OPTIONS (off by default)
 
 Press Escape (or Y on a controller, or the buttons you set) while exploring a
-town, the world map or a dungeon. Left/Right changes a value, Z or A saves and closes, X or B discards.
+town, the world map or a dungeon. Left/Right changes a value, Z or A saves and
+closes, X or B discards.
 
   Encounters   0, 25, 50, 100 or 200 percent of the original random fights.
   Experience   100, 200 or 400 percent; battle meseta follows it.
@@ -66,8 +68,8 @@ Story and fixed fights never change.
 With Automap on, press M or controller X while walking in a dungeon to see the
 current floor, labelled at the top FLOOR 1, 2... (FLOOR 1 is the lowest floor
 with an exit outside) or FLOOR B1... below it. The game pauses and music
-continues. The map shows explored places, and is saved with each game. Exploration is recorded even while the
-option is off.
+continues. The map shows explored places, and is saved with each game.
+Exploration is recorded even while the option is off.
 
 CHANGING THE CONTROLS
 
@@ -85,7 +87,8 @@ SAVES
 The game saves through its own menu, as on the cartridge. Files are kept in
 %APPDATA%\PSModern (one per version): a cartridge-compatible raw save, a small
 companion settings file, a dungeon map file, and a .bak copy of the previous
-save made before the first write of each session. Only one copy of PSModern may use a save at a time.
+save made before the first write of each session. Only one copy of PSModern
+may use a save at a time.
 
 COMMAND LINE
 
