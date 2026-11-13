@@ -1,7 +1,7 @@
 # Milestone 8 plan - Full controller support
 
 **Tier B. Status: completed and accepted (2026-11-13).** Implemented in
-`a645dcd`.
+`a645dcd`; closed by `0b34074`, which condensed this plan.
 Eighth milestone of the [roadmap](roadmap.md); stage 7 of
 [design](design.md) section 8. Only the host input layer changed; no
 original routine was rewritten.

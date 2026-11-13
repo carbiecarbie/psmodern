@@ -117,4 +117,4 @@ gained a 25% choice, now recommended with experience 400, and the automap
 names each floor. An independent review's fixes were applied and all 159
 tests passed without skips. The maintainer played the US build, found
 everything right and accepted it on 2026-11-13. [Plan](milestone-8-plan.md).
-Implementation: `a645dcd`.
+Implementation: `a645dcd`; closed by `0b34074`.
