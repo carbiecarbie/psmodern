@@ -34,9 +34,10 @@ struct RoutineCounters {
 
 // returned: the core executes the returning instruction at address.
 // core_final: the core executes the instruction at address as the segment's
-// last instruction: CALL nn, CALL cc,nn, JP nn, or an unprefixed instruction
+// last instruction: CALL nn, CALL cc,nn, JP nn, RST 08, or an unprefixed instruction
 // without I/O, memory write or control transfer that is not HALT, EI or DI;
-// at a conditional exit only JP cc,nn, JR cc,e or DJNZ.
+// at a conditional exit only JP cc,nn, JR cc,e or DJNZ. RST 08 requires
+// ordinary admission and scratch_stack covering its two pushed bytes too.
 enum class RoutineExit : unsigned { returned, core_final };
 inline constexpr unsigned max_inherited_stack=8;
 inline constexpr std::uint16_t max_exit_after=16384;

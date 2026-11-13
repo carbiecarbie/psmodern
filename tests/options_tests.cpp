@@ -205,28 +205,34 @@ void navigation(){
  menu.update({},6.38);menu.update({.down=true},6.39);check(menu.selected()==3,"the fourth row is CONTROLS");
  menu.update({},6.391);menu.update({.right=true},6.392);menu.update({},6.393);menu.update({.left=true},6.394);
  check(menu.automap_draft() && menu.draft()==game::Options{0,200},"left and right do nothing on CONTROLS");
- menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==0,"four rows wrap down without action or preset rows");
- menu.update({},6.40);menu.update({.up=true},6.41);check(menu.selected()==3,"four rows wrap up");
- menu.update({},6.42);menu.update({.up=true},6.43);check(menu.selected()==2,"up moves back");
- menu.update({},6.431);menu.update({.up=true},6.432);menu.update({},6.44);menu.update({.up=true},6.45);check(menu.selected()==0,"up reaches the first row");
- menu.update({},6.46);check(menu.update({.map=true},6.47)==MenuAction::none,"the map key does nothing in Options");
- menu.update({},6.48);check(menu.update({.accept=true},6.5)==MenuAction::apply,"confirm persists from encounter row");
+ menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==4 && menu.first_visible()==1,"fifth row is Language and scrolls into view");
+ menu.update({},6.397);check(menu.update({.accept=true},6.398)==MenuAction::language,"Language opens its separate Save/Cancel screen");
+ menu.resume();check(menu.selected()==4 && menu.first_visible()==1 && menu.automap_draft(),"Language return keeps parent row, viewport and draft");
+ menu.update({},6.399);menu.update({.down=true},6.40);check(menu.selected()==0 && menu.first_visible()==0,"five rows wrap down to first viewport");
+ menu.update({},6.41);menu.update({.up=true},6.42);check(menu.selected()==4 && menu.first_visible()==1,"five rows wrap up to last viewport");
+ menu.update({},6.43);menu.update({.up=true},6.44);check(menu.selected()==3,"up reaches Controls");
+ menu.update({},6.45);menu.update({.up=true},6.46);menu.update({},6.47);menu.update({.up=true},6.48);menu.update({},6.49);menu.update({.up=true},6.50);
+ check(menu.selected()==0 && menu.first_visible()==0,"up reaches first row and scrolls back");
+ menu.update({},6.51);check(menu.update({.map=true},6.52)==MenuAction::none,"the map key does nothing in Options");
+ menu.update({},6.53);check(menu.update({.accept=true},6.54)==MenuAction::apply,"confirm persists from encounter row");
  menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::close,"options toggle cancels draft");
  menu.open({},true,false);menu.update({},7);menu.update({.right=true},8);check(menu.draft()==game::Options{},"restricted menu read only");
  menu.update({},8.01);menu.update({.down=true},8.02);menu.update({},8.03);menu.update({.down=true},8.04);menu.update({},8.05);menu.update({.right=true},8.06);
  check(menu.selected()==2 && !menu.automap_draft(),"restricted automap row read only");
  check(menu.update({.accept=true},8.1)==MenuAction::close,"read-only confirmation closes without applying");
  check(menu.update({.cancel=true},9)==MenuAction::close,"restricted menu escapable");
- // CONTROLS opens the Controls screen, also read-only; resume() keeps the
- // draft and the row and waits for a neutral snapshot, as on opening.
+ // Controls remains usable in restricted sessions; Language cannot open.
  menu.open({},false,false);menu.update({},10);menu.update({.right=true},10.1);menu.update({},10.2);menu.update({.up=true},10.3);
- check(menu.selected()==3 && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on CONTROLS opens the Controls screen");
- menu.resume();check(menu.visible() && menu.selected()==3 && menu.draft().encounter_percent==200,"resume keeps the row and the draft");
- check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for a neutral snapshot");
+ menu.update({},10.31);menu.update({.up=true},10.32);
+ check(menu.selected()==3 && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on Controls opens Controls");
+ menu.resume();check(menu.visible() && menu.selected()==3 && menu.draft().encounter_percent==200,"resume keeps row and draft");
+ check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for neutral input");
  menu.update({},10.7);check(menu.update({.accept=true},10.8)==MenuAction::controls,"re-armed after resume");
- menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::close,"Options closes after the round trip");
+ menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::close,"Options closes after round trip");
  menu.open({},true,false);menu.update({},12);menu.update({.up=true},12.1);
- check(menu.update({.accept=true},12.2)==MenuAction::controls,"CONTROLS opens also when read-only");
+ check(menu.selected()==4 && menu.update({.accept=true},12.2)==MenuAction::close,"Language unavailable in restricted session");
+ menu.update({},12.3);menu.update({.up=true},12.4);
+ check(menu.update({.accept=true},12.5)==MenuAction::controls,"Controls opens also when read-only");
  InputRelease release;release.consume();FrameInput held;held.pause=true;held.reset=true;held.pads[0].one=true;
  auto consumed=release.filter(held);check(!consumed.pause&&!consumed.reset&&!consumed.pads[0].one,"menu pause reset actions consumed");
  release.filter({});check(release.filter(held).pause,"fresh game input restored");
@@ -286,7 +292,7 @@ void rom(const char* path,const char* output){
    check((off[y*256+x]==0xffffffff)==(label[y*256+x]!=0),"CONTROLS label row, no value line");
   for(char c:std::string_view("CONTROLS"))check(font.supports(c),"CONTROLS label in the ROM font");
   // The cursor tile follows the selected row, CONTROLS included.
-  menu.update({},0);menu.update({.up=true},0.1);check(menu.selected()==3,"cursor on CONTROLS");
+  menu.update({},0);menu.update({.down=true},0.1);menu.update({},0.2);menu.update({.down=true},0.3);menu.update({},0.4);menu.update({.down=true},0.5);check(menu.selected()==3,"cursor on CONTROLS");
   menu.render(on_text,font);font.window(off_text,24,24,208,152,144);
   for(unsigned y=32;y<168;++y)for(unsigned x=24;x<32;++x)check(on_text[y*256+x]==off_text[y*256+x],"cursor tile at y=144");
   menu.open({},false,true,false,true);std::array<std::uint32_t,256*192> pending{};menu.render(pending,font);
@@ -297,7 +303,7 @@ void rom(const char* path,const char* output){
  for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x) {
   const auto pixel=pixels[y*256+x];
   if(x<24||x>=232||y<24||y>=176)check(pixel==0xff123456,"menu preserves current backdrop outside its window");
-  else check(pixel==0xff000000||pixel==0xffffffff,"menu retains original black and white palette");
+  else check(pixel==0xff000000||pixel==0xffffffff||pixel==0xffaaaaaa,"menu uses black/white plus grey scroll hints");
  }
  menu.failed();menu.render(pixels,font);menu.open({50,400},false,false);menu.render(pixels,font);
  if(output){std::ofstream f(output,std::ios::binary);f<<"P6\n256 192\n255\n";for(auto pixel:pixels)for(unsigned shift:{16,8,0})f.put((pixel>>shift)&255);}

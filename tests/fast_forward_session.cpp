@@ -117,7 +117,7 @@ int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,co
 #include "app/windows_platform.h"
 #define utf8_arguments(argc,argv) std::vector<std::string>(argv,argv+argc)
 #define attach_parent_console()
-#define run_launcher(display) std::optional<std::filesystem::path>()
+#define run_launcher(...) std::optional<psmodern::app::SessionRoms>()
 #define main fast_app_main
 #define FrameDriver CheckedDriver
 #define SDL_PollEvent scripted_poll
@@ -156,7 +156,7 @@ int main(int argc,char** argv){try{
     if(!queued_audible[0] || !queued_audible[1] || !queued_audible[2] || !removed_audio)
         throw std::runtime_error("Missing SDL music delivery or accelerated device recovery");
     record_mode=true;sampled=0;sent_quit=false;
-    { app::SaveStore saved(temp/"PSModern",identify_rom(argv[1]));shadow=std::make_unique<Machine>(shadow_rom,saved.load()); }
+    { auto saved=app::SaveStore::shared(temp/"PSModern");shadow=std::make_unique<Machine>(shadow_rom,saved.load()); }
     std::string record=(temp/"session.psrec").string();char flag[]="--record";char* record_args[]{argv[0],argv[1],flag,record.data()};
     if(fast_app_main(4,record_args))throw std::runtime_error("Recording session failed");
     test::remove_temporary_folder(temp);return 0;

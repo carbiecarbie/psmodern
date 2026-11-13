@@ -2,6 +2,7 @@
 #pragma once
 #include "app/host.h"
 #include "game/options.h"
+#include "app/language.h"
 #include <string_view>
 namespace psmodern::app {
 struct MenuInput {
@@ -21,29 +22,29 @@ private:
     std::array<std::array<std::uint8_t,8>,96> glyphs_{};
     std::array<std::array<std::uint8_t,8>,12> window_tiles_{};
 };
-enum class MenuAction { none,apply,close,controls };
+enum class MenuAction { none,apply,close,controls,language };
 class OptionsMenu {
 public:
-    // Four rows: encounters, experience/meseta, the automap switch and
-    // CONTROLS, which opens the Controls screen (MenuAction::controls, also
-    // when read-only: controls never touch the game). The automap switch never
-    // shows the pending-routines state.
+    // Five rows, four visible: encounters, experience/meseta, automap,
+    // Controls and Language. The viewport follows the cursor. Controls also
+    // opens when read-only; Language cannot change in a restricted session.
     void open(game::Options options,bool restricted,bool pending,bool recording=false,bool automap=false);
     bool visible() const { return visible_; }
     void close() { visible_=false; }
-    // Back from the Controls screen: draft and row kept, waits for a neutral
+    // Back from Controls or Language: draft, viewport and row kept; waits for a neutral
     // snapshot as on opening.
     void resume() { armed_=false; previous_={}; }
     const game::Options& draft() const { return draft_; }
     bool automap_draft() const { return automap_; }
     unsigned selected() const { return selected_; }
+    unsigned first_visible() const { return top_; }
     MenuAction update(const MenuInput& input,double now);
-    void render(std::span<std::uint32_t> pixels,const RomFont& font) const;
+    void render(std::span<std::uint32_t> pixels,const RomFont& font,Language language=Language::english) const;
     void failed() { failed_=true; }
 private:
     game::Options draft_;
     MenuInput previous_;
-    unsigned selected_=0;
+    unsigned selected_=0,top_=0;
     bool visible_=false,armed_=false,restricted_=false,pending_=false,failed_=false,recording_=false,automap_=false;
     double next_repeat_=0;
 };

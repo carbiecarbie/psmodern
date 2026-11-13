@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/windows_platform.h"
+#include "app/localization.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -57,7 +58,7 @@ void attach_parent_console() {
     if (!out && std::freopen("CONOUT$","w",stdout)) std::cout.clear();
     if (!error && std::freopen("CONOUT$","w",stderr)) std::cerr.clear();
 }
-std::optional<std::filesystem::path> pick_rom_file(SDL_Window* owner) {
+std::optional<std::filesystem::path> pick_rom_file(SDL_Window* owner,Language language) {
     HWND parent=nullptr;
     if (owner) {
         SDL_SysWMinfo info; SDL_VERSION(&info.version);
@@ -68,9 +69,13 @@ std::optional<std::filesystem::path> pick_rom_file(SDL_Window* owner) {
     std::vector<wchar_t> name(32768,L'\0');
     OPENFILENAMEW dialog{};
     dialog.lStructSize=sizeof dialog; dialog.hwndOwner=parent;
-    dialog.lpstrFilter=L"Master System ROM (*.sms)\0*.sms\0All files (*.*)\0*.*\0";
+    dialog.lpstrFilter=language==Language::portuguese ?
+        L"ROM de Master System (*.sms)\0*.sms\0Todos os arquivos (*.*)\0*.*\0" :
+        L"Master System ROM (*.sms)\0*.sms\0All files (*.*)\0*.*\0";
     dialog.nFilterIndex=1; dialog.lpstrFile=name.data(); dialog.nMaxFile=static_cast<DWORD>(name.size());
-    dialog.lpstrTitle=L"Choose your Phantasy Star ROM";
+    const auto title=ui_text(UiText::rom_dialog_title,language);
+    const std::wstring wide_title(title.begin(),title.end());
+    dialog.lpstrTitle=wide_title.c_str();
     dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR|OFN_EXPLORER;
     bool chosen=false; DWORD failure=0;
     { Com com; chosen=GetOpenFileNameW(&dialog); if (!chosen) failure=CommDlgExtendedError(); }
@@ -89,7 +94,7 @@ void open_folder(const std::filesystem::path& folder) {
 #else
 std::vector<std::string> utf8_arguments(int argc,char** argv) { return {argv,argv+argc}; }
 void attach_parent_console() {}
-std::optional<std::filesystem::path> pick_rom_file(SDL_Window*) {
+std::optional<std::filesystem::path> pick_rom_file(SDL_Window*,Language) {
     throw std::runtime_error("Choosing a ROM needs Windows; run psmodern <rom-path> instead.");
 }
 void open_folder(const std::filesystem::path&) { throw std::runtime_error("Opening a folder needs Windows."); }

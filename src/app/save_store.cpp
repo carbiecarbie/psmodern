@@ -41,15 +41,40 @@ std::filesystem::path production_save_folder() {
 SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer,SettingsWriter settings_writer,SettingsWriter automap_writer)
     :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)),settings_writer_(std::move(settings_writer)),
      automap_writer_(std::move(automap_writer)) {}
-struct SaveStore::Lock {
+SaveStore SaveStore::shared(const std::filesystem::path& folder) {
+    SaveStore store(folder/"shared",RomVersion::us_rev_a);
+    store.path_=folder/"shared"/shared_save_name;
+    return store;
+}
+struct SaveLock::Impl {
 #ifdef _WIN32
     HANDLE handle=INVALID_HANDLE_VALUE;
-    ~Lock() { if (handle!=INVALID_HANDLE_VALUE) CloseHandle(handle); }
+    ~Impl() { if (handle!=INVALID_HANDLE_VALUE) CloseHandle(handle); }
 #else
     int fd=-1;
-    ~Lock() { if (fd>=0) close(fd); }
+    ~Impl() { if (fd>=0) close(fd); }
 #endif
 };
+SaveLock::SaveLock(const std::filesystem::path& lock_path):impl_(std::make_unique<Impl>()) {
+    auto& lock=impl_;
+#ifdef _WIN32
+    lock->handle=CreateFileW(lock_path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if (lock->handle==INVALID_HANDLE_VALUE) {
+        auto error=GetLastError();
+        if (error==ERROR_SHARING_VIOLATION || error==ERROR_LOCK_VIOLATION)
+            throw std::runtime_error("Save is already open.");
+        throw std::system_error(error,std::system_category(),"Opening save lock");
+    }
+#else
+    lock->fd=open(lock_path.c_str(),O_CREAT|O_RDWR|O_CLOEXEC,0600);
+    if (lock->fd<0) throw std::system_error(errno,std::generic_category(),"Opening save lock");
+    if (flock(lock->fd,LOCK_EX|LOCK_NB)) {
+        if (errno==EWOULDBLOCK) throw std::runtime_error("Save is already open.");
+        throw std::system_error(errno,std::generic_category(),"Locking save");
+    }
+#endif
+}
+SaveLock::~SaveLock()=default;
 SaveStore::~SaveStore()=default;
 SaveStore::SaveStore(SaveStore&&) noexcept=default;
 SaveStore& SaveStore::operator=(SaveStore&&) noexcept=default;
@@ -57,24 +82,7 @@ void SaveStore::ensure_lock() const {
     if (lock_) return;
     std::filesystem::create_directories(path_.parent_path());
     auto lock_path=path_;lock_path += ".lock";
-    auto lock=std::make_unique<Lock>();
-#ifdef _WIN32
-    lock->handle=CreateFileW(lock_path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if (lock->handle==INVALID_HANDLE_VALUE) {
-        auto error=GetLastError();
-        if (error==ERROR_SHARING_VIOLATION || error==ERROR_LOCK_VIOLATION)
-            throw std::runtime_error("Save is already open: "+path_.string());
-        throw std::system_error(error,std::system_category(),"Opening save lock");
-    }
-#else
-    lock->fd=open(lock_path.c_str(),O_CREAT|O_RDWR|O_CLOEXEC,0600);
-    if (lock->fd<0) throw std::system_error(errno,std::generic_category(),"Opening save lock");
-    if (flock(lock->fd,LOCK_EX|LOCK_NB)) {
-        if (errno==EWOULDBLOCK) throw std::runtime_error("Save is already open: "+path_.string());
-        throw std::system_error(errno,std::generic_category(),"Locking save");
-    }
-#endif
-    lock_=std::move(lock);
+    lock_=std::make_unique<SaveLock>(lock_path);
 }
 Memory::CartridgeRam SaveStore::load() const {
     ensure_lock();

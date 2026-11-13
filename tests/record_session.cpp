@@ -14,6 +14,7 @@ static std::unique_ptr<psmodern::Machine> shadow;
 static std::vector<std::string> pictures;
 static std::vector<psmodern::FrameInput> scripted;
 static SDL_Window* game_window=nullptr;
+static std::string expected_recording_title;
 static int scripted_poll(SDL_Event* e) {
     if(sampled>=32&&!sent_quit){sent_quit=true;e->type=SDL_QUIT;return 1;}
     // A real power-cycle key press in the game window, which recording ignores.
@@ -25,7 +26,7 @@ static int scripted_poll(SDL_Event* e) {
 }
 static psmodern::FrameInput scripted_input(SDL_Window* w,const psmodern::app::Controller&,const psmodern::app::EnterKey&) {
     game_window=w;
-    if(std::string(SDL_GetWindowTitle(w)).find("F5 disabled")==std::string::npos)throw std::runtime_error("Missing recording title");
+    if(std::string(SDL_GetWindowTitle(w)).find(expected_recording_title)==std::string::npos)throw std::runtime_error("Missing localized recording title");
     psmodern::FrameInput input{};input.pads[0].one=sampled>=4&&sampled<8;input.pads[1].up=sampled==12;input.pause=sampled==20;
     ++sampled;scripted.push_back(input);shadow->run_frame(input);shadow->take_psg_writes();shadow->take_samples();
     pictures.push_back(psmodern::sha1(shadow->picture()));return input;
@@ -47,7 +48,7 @@ static int checked_upload(const psmodern::Machine& app,SDL_Texture* t,const SDL_
 #include "app/windows_platform.h"
 #define utf8_arguments(argc,argv) std::vector<std::string>(argv,argv+argc)
 #define attach_parent_console()
-#define run_launcher(display) std::optional<std::filesystem::path>()
+#define run_launcher(...) std::optional<psmodern::app::SessionRoms>()
 #define main recorded_app_main
 #define SDL_PollEvent scripted_poll
 #define sample_input scripted_input
@@ -66,6 +67,7 @@ int main(int argc,char** argv) {
     try {
         const std::string_view region=argv[3];
         if(region!="us"&&region!="br")throw std::runtime_error("Expected ROM version us or br");
+        expected_recording_title=region=="us" ? "RECORDING (F5: POWER CYCLE DISABLED)" : "GRAVANDO (F5: REINICIO DESATIVADO)";
         if(psmodern::identify_rom(argv[1])!=(region=="us"?psmodern::RomVersion::us_rev_a:psmodern::RomVersion::brazilian))throw std::runtime_error("Wrong ROM version.");
         const auto out=std::filesystem::path(argv[2])/std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());std::filesystem::create_directories(out);
         SDL_setenv("APPDATA",out.string().c_str(),1);SDL_setenv("SDL_VIDEODRIVER","dummy",1);SDL_setenv("SDL_AUDIODRIVER","dummy",1);

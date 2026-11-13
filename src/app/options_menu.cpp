@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/options_menu.h"
+#include "app/localization.h"
 #include <algorithm>
 #include <stdexcept>
 namespace psmodern::app {
@@ -107,7 +108,7 @@ void RomFont::window(std::span<std::uint32_t> pixels,int x,int y,int width,int h
 }
 void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording,bool automap) {
     game::validate(options);draft_=options;restricted_=restricted;pending_=pending;automap_=automap;
-    visible_=true;armed_=false;failed_=false;recording_=recording;selected_=0;previous_={};next_repeat_=0;
+    visible_=true;armed_=false;failed_=false;recording_=recording;selected_=top_=0;previous_={};next_repeat_=0;
 }
 MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(!visible_)return MenuAction::none;
@@ -125,7 +126,11 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(cancel)return MenuAction::close;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
-        if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : 3))%4;
+        if(input.up!=input.down) {
+            selected_=(selected_+(input.down ? 1 : 4))%5;
+            if(selected_<top_)top_=selected_;
+            else if(selected_>=top_+4)top_=selected_-3;
+        }
         if(!restricted_ && selected_==2 && input.left!=input.right)automap_=!automap_;
         if(!restricted_ && selected_<2 && input.left!=input.right) {
             const auto& choices=selected_==0 ? game::encounter_percent_choices : game::experience_percent_choices;
@@ -134,28 +139,36 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
             current=choices.values[(i+choices.count+(input.right?1:choices.count-1))%choices.count];
         }
     }
-    if(accept)return selected_==3 ? MenuAction::controls : restricted_ ? MenuAction::close : MenuAction::apply;
+    if(accept)return selected_==3 ? MenuAction::controls : restricted_ ? MenuAction::close :
+        selected_==4 ? MenuAction::language : MenuAction::apply;
     return MenuAction::none;
 }
-void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font) const {
-    // Four label rows on the cursor tiles 48, 80, 112 and 144, each value one
-    // blank line below; CONTROLS has no value (milestone 8 design notes,
-    // section 7).
+void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
+    // Four visible rows retain the original 32-pixel pitch. Child-screen
+    // entries have no value line; the fifth row scrolls into the same window.
     static constexpr int rows[]{48,80,112,144};
-    font.window(pixels,24,24,208,152,rows[selected_]);
+    font.window(pixels,24,24,208,152,rows[selected_-top_]);
     auto text=[&](int x,int y,std::string_view label){font.text(pixels,x,y,label,0xffffffff);};
-    auto value=[](unsigned percent,unsigned recommended) {
-        return std::to_string(percent)+"%"+(percent==100 ? " (DEFAULT)" : percent==recommended ? " (RECOMMENDED)" : "");
+    auto label=[&](UiText id){return ui_text(id,language);};
+    auto value=[&](unsigned percent,unsigned recommended) {
+        return std::to_string(percent)+"%"+std::string(percent==100 ? label(UiText::default_suffix) :
+            percent==recommended ? label(UiText::recommended_suffix) : std::string_view{});
     };
-    text(100,32,"OPTIONS");
-    text(40,rows[0],"ENCOUNTERS");text(48,rows[0]+16,value(draft_.encounter_percent,game::switch_like_encounter_percent));
-    text(40,rows[1],"EXPERIENCE / MESETA");text(48,rows[1]+16,value(draft_.experience_percent,game::switch_like_experience_percent));
-    text(40,rows[2],"AUTOMAP");text(48,rows[2]+16,automap_ ? "ON" : "OFF (DEFAULT)");
-    text(40,rows[3],"CONTROLS");
+    const auto title=label(UiText::options);
+    text((256-int(title.size())*8)/2,32,title);
+    static constexpr UiText labels[]{UiText::encounters,UiText::experience_meseta,UiText::automap,UiText::controls,UiText::language};
+    for(unsigned i=0;i<4;++i) {
+        const unsigned row=top_+i;const int y=rows[i];
+        text(40,y,label(labels[row]));
+        if(row==0)text(48,y+16,value(draft_.encounter_percent,game::switch_like_encounter_percent));
+        else if(row==1)text(48,y+16,value(draft_.experience_percent,game::switch_like_experience_percent));
+        else if(row==2)text(48,y+16,label(automap_ ? UiText::on : UiText::off_default));
+    }
     // The pending state concerns the routine options only.
-    if(failed_)text(40,152,"SAVE FAILED - RETRY");
-    else if(restricted_)text(40,152,recording_ ? "RECORDING - READ ONLY" : "Z80 MODE - READ ONLY");
-    else if(pending_)text(40,152,"SAVED - WAITING");
+    if(failed_)text(40,152,label(UiText::save_failed));
+    else if(restricted_)text(40,152,label(recording_ ? UiText::recording_read_only : UiText::z80_read_only));
+    else if(pending_)text(40,152,label(UiText::saved_waiting));
+    font.text(pixels,40,160,label(top_ ? UiText::more_above : UiText::more_below),0xffaaaaaa);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {
     if(!waiting_)return input;

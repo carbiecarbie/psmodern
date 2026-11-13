@@ -51,10 +51,21 @@ controller work together.
 - The six keys of the directions and of Button 1 and Button 2 cannot be left
   empty. Every other key and every controller button can.
 
+## Language
+
+The start screen and Options also offer Language. It changes the game and
+PSModern's own screens between English and Portuguese when the corresponding
+ROM is available. During play, finish the current dialogue or battle first;
+the game changes language after Options closes, without restarting.
+Language has its own Save/Cancel, like Controls: cancelling the parent Options
+screen does not undo a language already saved. This preference is global;
+all languages use the same saved games, options and automap. The start screen
+has one PLAY entry; ADD ROM makes another language available.
+
 ## Opening the Controls screen
 
-- On the **start screen**, choose CONTROLS (between CHOOSE ANOTHER ROM and
-  OPEN SAVES FOLDER). Closing the Controls screen puts you back on it.
+- On the **start screen**, choose CONTROLS. Closing the Controls screen puts
+  you back on it.
 - **During play**, open the Options window and choose its fourth row,
   CONTROLS. The game stays held behind it. Closing the Controls screen puts
   you back in the Options window.

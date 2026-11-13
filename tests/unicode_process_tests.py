@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='psmodern-rom-\xe7\xe3o-\u65e5\u672c-') 
     try:
         time.sleep(1)
         if process.poll() is not None:raise RuntimeError('Exited during startup (%d): %s'%(process.returncode,process.stderr.read()))
-        lock=Path(profile)/'PSModern'/'phantasy-star-us-rev-a.sav.lock'
+        lock=Path(profile)/'PSModern'/'shared'/'phantasy-star.sav.lock'
         if not lock.is_file():raise RuntimeError('No save lock under the non-ASCII profile: %s'%lock)
     finally:
         if process.poll() is None:process.kill()

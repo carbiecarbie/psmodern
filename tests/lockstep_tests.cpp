@@ -566,8 +566,74 @@ void loop_exits(replay::CallVerifier& verifier) {
               resume.cpp_calls>=2,"The continuation falls back only while the boundary is inside its bound");
     }
 }
+void restart_exit(replay::CallVerifier& verifier) {
+    auto registry=[&](bool held,unsigned scratch) {
+        RoutineRegistry r; r.verifier=&verifier;
+        r.add({0,0},spec_of(0,{{F,1,static_cast<std::int8_t>(held ? -2 : 0)}},scratch),cost(held ? 22 : 15),
+            [=](RoutineContext& c) {
+                if(held)push_word(c,0,c.cpu().hl.uint16_value);else nop(c,0);
+                c.finish_core(1);
+            });
+        return r;
+    };
+    for(bool held:{false,true})for(unsigned stack:{0xc100u,0x2000u,0x8100u}) {
+        Machine m(program({static_cast<std::uint8_t>(held ? 0xe5 : 0),0xcf})); entry(m);
+        m.cpu().sp.uint16_value=static_cast<std::uint16_t>(stack);m.cpu().hl.uint16_value=0x3579;
+        if(stack==0x8100)m.memory().write(0xfffc,8); // cartridge RAM stack
+        Machine native=m;auto r=registry(held,held ? 4 : 2);
+        const auto start=m.cycles();m.step(r);
+        while(native.cycles()<m.cycles())native.step();
+        check(m.equivalent(native) && m.cycles()-start==(held ? 22u : 15u),"RST 08 preserves full native state and timing");
+        check(m.cpu().pc.uint16_value==8 && m.cpu().sp.uint16_value==stack-(held ? 4 : 2),"RST 08 fixed target and held stack");
+        check(r.find({0,0})->counters.cpp_calls==1,"RST 08 test reaches C++");
+    }
+    for(unsigned stack:{0u,1u,0xfffdu,0xc100u,0xc001u}) {
+        Machine m(program({0,0xcf}));entry(m);m.cpu().sp.uint16_value=static_cast<std::uint16_t>(stack);
+        if(stack==0xc100 || stack==0xc001)m.memory().set_memory_control(0x10);
+        Machine native=m;auto r=registry(false,2);m.step(r);native.step();
+        check(m.equivalent(native) && r.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack)==1,
+              "Wrapped, mapper or unmapped RST stack falls back before executing a body");
+    }
+    for(bool held:{false,true}) {
+        Machine m(program({static_cast<std::uint8_t>(held ? 0xe5 : 0),0xcf}));entry(m);
+        auto r=registry(held,held ? 2 : 0);
+        r.verifier=nullptr;
+        const auto text=failure([&]{m.step(r);});
+        check(text.find("declared stack space")!=std::string::npos,"RST requires budget for its own push beyond held words");
+    }
+    for(std::uint8_t opcode:{0xc7,0xd7,0xdf,0xe7,0xef,0xf7,0xff,0xdd,0xfd}) {
+        Machine m(program({0,opcode,0xcf}));entry(m);auto r=registry(false,2);
+        // No verifier: a refused opcode can take the reference copy to a
+        // different endpoint; this checks the replacement's own guard.
+        r.verifier=nullptr;
+        check(failure([&]{m.step(r);}).find("not allowed")!=std::string::npos,"Other restart vectors and prefixes remain refused");
+    }
+    {
+        Machine m(program({0xcf}));entry(m);auto spec=forced_spec();spec.scratch_stack=2;
+        RoutineRegistry r;r.add({0,0},spec,cost(11),[](RoutineContext& c){c.finish_core(0);});
+        Machine native=m;m.step(r);native.step();
+        check(m.equivalent(native) && r.find({0,0})->counters.cpp_calls==0 && r.find({0,0})->counters.forced_failed==1,
+              "Forced RST is refused before its step and falls back unchanged");
+    }
+    for(unsigned remaining=1;remaining<=16;++remaining)for(bool nmi:{false,true}) {
+        Machine m(program({0,0xcf}));entry(m);
+        if(nmi)m.schedule_nmi(m.cycles()+remaining);
+        else m.advance(Machine::frame_cycles-m.cycles()%Machine::frame_cycles-remaining);
+        Machine native=m;auto r=registry(false,2);m.step(r);
+        while(native.cycles()<m.cycles())native.step();
+        check(m.equivalent(native),"RST respects frame and NMI admission boundaries");
+        check(r.find({0,0})->counters.cpp_calls==(remaining>=15 ? 1u : 0u),"RST only enters within its full timing window");
+    }
+    {
+        Machine m(program({0,0xcf}));entry(m);m.read_port(0xbf,m.cycles());m.cpu().iff1=m.cpu().iff2=1;
+        m.advance(43980);Machine native=m;auto r=registry(false,2);m.step(r);
+        while(native.cycles()<m.cycles())native.step();
+        check(m.equivalent(native) && r.find({0,0})->counters.cpp_calls==0,"RST falls back near the frame IRQ");
+    }
+}
 void segments() {
     replay::CallVerifier verifier("segments.psrec");
+    restart_exit(verifier);
     // Hand-off by CALL into a shared helper, resume at the next segment, a
     // plain core instruction falling through into the helper, which returns.
     Machine chain(image({{0,{0x00,0xcd,0x07,0x00,0x00,0x3e,0x42,0x00,0xc9}}})); entry(chain);

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/automap_screen.h"
+#include "app/localization.h"
 #include <stdexcept>
 #include <string_view>
 
@@ -69,19 +70,19 @@ std::uint32_t automap_background(game::MapKind kind) {
         default: return colors::floor;
     }
 }
-std::string floor_label_text(int level) {
-    if(level>0)return "FLOOR "+std::to_string(level);
-    if(level<0)return "FLOOR B"+std::to_string(-level);
+std::string floor_label_text(int level,Language language) {
+    if(level>0)return std::string(ui_text(UiText::floor,language))+std::to_string(level);
+    if(level<0)return std::string(ui_text(UiText::floor,language))+"B"+std::to_string(-level);
     return {};
 }
-void render_automap(std::span<std::uint32_t> pixels,const RomFont& font,const game::MapView& view) {
+void render_automap(std::span<std::uint32_t> pixels,const RomFont& font,const game::MapView& view,Language language) {
     namespace layout=automap_layout;
     using game::MapKind;
     if(pixels.size()!=256*192)throw std::invalid_argument("Expected a 256 by 192 overlay.");
     // No cursor: -1 matches no tile row.
     font.window(pixels,layout::window_x,layout::window_y,layout::window_width,layout::window_height,-1);
-    font.text(pixels,layout::title_x,layout::title_y,"MAP",colors::white);
-    font.text(pixels,layout::floor_label_x,layout::title_y,floor_label_text(view.floor_level),colors::white);
+    font.text(pixels,layout::title_x,layout::title_y,ui_text(UiText::map,language),colors::white);
+    font.text(pixels,layout::floor_label_x,layout::title_y,floor_label_text(view.floor_level,language),colors::white);
     const auto party_turns=turns(view.party_ahead);
     for(unsigned cell=0;cell<view.cells.size();++cell) {
         const auto& map=view.cells[cell];
@@ -99,18 +100,18 @@ void render_automap(std::span<std::uint32_t> pixels,const RomFont& font,const ga
             default: break;
         }
     }
-    struct Row { std::string_view label; MapIcon icon; MapKind kind; };
+    struct Row { UiText label; MapIcon icon; MapKind kind; };
     static constexpr Row legend[]{
-        {"YOU",MapIcon::party,MapKind::floor},{"CHEST",MapIcon::chest,MapKind::chest},
-        {"EMPTY",MapIcon::opened_chest,MapKind::opened_chest},{"UP",MapIcon::stairs_up,MapKind::stairs_up},
-        {"DOWN",MapIcon::stairs_down,MapKind::stairs_down},{"EXIT",MapIcon::exit,MapKind::floor},
-        {"DOOR",MapIcon::door,MapKind::door},{"LOCKED",MapIcon::door,MapKind::locked_door},
-        {"MAGIC",MapIcon::door,MapKind::magic_door},{"PIT",MapIcon::pitfall,MapKind::pitfall}};
+        {UiText::you,MapIcon::party,MapKind::floor},{UiText::chest,MapIcon::chest,MapKind::chest},
+        {UiText::empty,MapIcon::opened_chest,MapKind::opened_chest},{UiText::up,MapIcon::stairs_up,MapKind::stairs_up},
+        {UiText::down,MapIcon::stairs_down,MapKind::stairs_down},{UiText::exit,MapIcon::exit,MapKind::floor},
+        {UiText::door,MapIcon::door,MapKind::door},{UiText::locked,MapIcon::door,MapKind::locked_door},
+        {UiText::magic,MapIcon::door,MapKind::magic_door},{UiText::pit,MapIcon::pitfall,MapKind::pitfall}};
     for(unsigned i=0;i<std::size(legend);++i) {
         const int y=layout::legend_y+static_cast<int>(i)*layout::legend_step;
         fill(pixels,layout::legend_icon_x,y,automap_background(legend[i].kind));
         draw(pixels,layout::legend_icon_x,y,legend[i].icon==MapIcon::door ? door(legend[i].kind) : automap_icon(legend[i].icon));
-        font.text(pixels,layout::legend_label_x,y,legend[i].label,colors::white);
+        font.text(pixels,layout::legend_label_x,y,ui_text(legend[i].label,language),colors::white);
     }
 }
 MenuAction MapScreen::update(const MenuInput& input) {

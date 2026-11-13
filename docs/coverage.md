@@ -861,6 +861,2058 @@ the recordings reach needs at least one C++ call.
 | BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
+## 00:31D4
+
+### Segment 00:31CB
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 6 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 3 | 0 | 0 | 0 | 100.000% |
+| US | boss | 4 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 6 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 7 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 8 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 2 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 6 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 3 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 4 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 6 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 65 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:31CF
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 9 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 5 | 0 | 0 | 0 | 100.000% |
+| US | boss | 9 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 11 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 13 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 12 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 3 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 8 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 5 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 18 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 11 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 116 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:31D4
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 6 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 7 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 27 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:31DB
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 6 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| US | boss | 11 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 6 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 21 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 78 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:31ED
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 6 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| US | boss | 11 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 6 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 21 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 78 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:31F3
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 6 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| US | boss | 11 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 6 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 21 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 78 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:31FA
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 225 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 330 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 82 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 117 | 0 | 0 | 0 | 100.000% |
+| US | boss | 462 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 211 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 213 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 226 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 67 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 149 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 220 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 69 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 82 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 518 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 148 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 3,119 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3204
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 190 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 283 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 69 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 102 | 0 | 0 | 0 | 100.000% |
+| US | boss | 421 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 192 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 182 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 200 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 61 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 131 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 190 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 61 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 65 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 439 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 124 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 2,710 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:320C
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 187 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 277 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 66 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 98 | 0 | 0 | 0 | 100.000% |
+| US | boss | 410 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 186 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 172 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 192 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 58 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 128 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 185 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 58 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 61 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 420 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 118 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 2,616 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3211
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 187 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 277 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 66 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 98 | 0 | 0 | 0 | 100.000% |
+| US | boss | 410 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 186 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 172 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 192 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 58 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 128 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 185 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 58 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 61 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 420 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 118 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 2,616 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3235
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 6 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 6 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 9 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 1 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 1 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 13 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 48 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:323A
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 19 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 28 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 6 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 6 | 0 | 0 | 0 | 100.000% |
+| US | boss | 30 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 14 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 17 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 17 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 3 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 14 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 22 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 6 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 8 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 51 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 15 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 256 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:325D
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | n/a |
+| US | first-battle | 1 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 6 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 0 | 0 | 0 | 0 | n/a |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 15 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 26 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:326F
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | n/a |
+| US | first-battle | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 3 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 2 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 2 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 15 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:328D
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | n/a |
+| US | first-battle | 0 | 0 | 0 | 0 | n/a |
+| US | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 1 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 0 | 0 | 0 | 0 | n/a |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 3 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+## 00:3296
+
+### Segment 00:3296
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 36 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:32AC
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 36 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:32BC
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 36 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:32CC
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 36 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:32DD
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 36 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:32ED
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 36 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:32FB
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 10 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 20 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 10 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 5 | 0 | 0 | 0 | 100.000% |
+| US | boss | 5 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 15 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 20 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 25 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 5 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 10 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 20 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 10 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 5 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 5 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 15 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 180 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3305
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 41 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3308
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 41 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:331C
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 41 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3330
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 2 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 5 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 2 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 4 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 1 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 1 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 41 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+## 00:333E
+
+### Segment 00:333E
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 48 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 57 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 28 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 14 | 0 | 0 | 0 | 100.000% |
+| US | boss | 37 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 14 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 28 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 22 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 6 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 40 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 49 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 32 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 16 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 74 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 19 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 484 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:335A
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 235 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 289 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 137 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 69 | 0 | 0 | 0 | 100.000% |
+| US | boss | 196 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 79 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 157 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 116 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 28 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 165 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 199 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 132 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 86 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 369 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 95 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 2,352 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:335F
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 48 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 57 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 28 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 14 | 0 | 0 | 0 | 100.000% |
+| US | boss | 37 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 14 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 28 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 22 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 6 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 40 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 49 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 32 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 16 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 74 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 19 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 484 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+## 00:336C
+
+### Segment 00:336C
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | n/a |
+| US | first-battle | 14 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 48 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 29 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 16 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 10 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 76 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 32 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 229 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3370
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | n/a |
+| US | first-battle | 14 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 48 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 29 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 4 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 16 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 10 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 76 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 32 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 229 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+## 00:337D
+
+### Segment 00:337D
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 8 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 8 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 8 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 8 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 8 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 8 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 48 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3388
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 19 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 19 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 19 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 18 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 18 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 18 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 111 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3389
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 353 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 353 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 353 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 317 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 317 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 317 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 2,010 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:338E
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 364 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 364 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 364 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 318 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 318 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 318 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 2,046 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3392
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 364 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 364 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 364 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 318 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 318 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 318 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 2,046 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3396
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 361 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 361 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 361 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 315 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 315 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 315 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 2,028 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:339A
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 356 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 356 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 356 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 310 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 310 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 310 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 1,998 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:339E
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 356 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 356 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 356 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 310 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 310 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 310 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 1,998 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33A2
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 19 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 19 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 19 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 18 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 18 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 18 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 111 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33B2
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 5 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 30 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33B9
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 5 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 30 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33C8
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 5 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 5 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 5 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 30 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33CF
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 0 | 0 | 0 | 0 | n/a |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 3 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 18 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+## 00:33D6
+
+### Segment 00:33D7
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 741 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 888 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 534 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 163 | 0 | 0 | 0 | 100.000% |
+| US | boss | 618 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 278 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 318 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 308 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 84 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 572 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 664 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 476 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 141 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 799 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 228 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 6,812 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33DA
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 741 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 888 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 534 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 163 | 0 | 0 | 0 | 100.000% |
+| US | boss | 618 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 278 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 318 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 308 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 84 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 572 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 664 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 476 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 141 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 799 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 228 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 6,812 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:33F6
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 741 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 888 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 534 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 163 | 0 | 0 | 0 | 100.000% |
+| US | boss | 618 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 278 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 318 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 308 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 84 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 572 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 664 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 476 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 141 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 799 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 228 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 6,812 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3416
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 741 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 888 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 534 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 163 | 0 | 0 | 0 | 100.000% |
+| US | boss | 618 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 278 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 318 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 308 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 84 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 572 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 664 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 476 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 141 | 0 | 0 | 0 | 100.000% |
+| BR | boss | 799 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 228 | 0 | 0 | 0 | 100.000% |
+| Total | All 15 | 6,812 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3419
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 1 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 1 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 1 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 1 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 0 | 0 | 0 | 0 | n/a |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 6 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Segment 00:3425
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 1 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 1 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 2 | 0 | 0 | 0 | 100.000% |
+| US | boss | 1 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 2 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-1 | 2 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-walk-2 | 2 | 0 | 0 | 0 | 100.000% |
+| US | dungeon-continue | 1 | 0 | 0 | 0 | 100.000% |
+| BR | opening | 0 | 0 | 0 | 0 | n/a |
+| BR | first-battle | 0 | 0 | 0 | 0 | n/a |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | n/a |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 0 | 0 | 0 | 0 | n/a |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 13 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+## 01:575A
+
+| ROM | Recording | C++ | Fallback | Forced | Forced failed | C++ share |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-battle | 3 | 0 | 0 | 0 | 100.000% |
+| US | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| US | later-town | 0 | 0 | 0 | 0 | n/a |
+| US | boss | 6 | 0 | 0 | 0 | 100.000% |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | n/a |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | n/a |
+| BR | opening | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-battle | 3 | 0 | 0 | 0 | 100.000% |
+| BR | first-dungeon | 1 | 0 | 0 | 0 | 100.000% |
+| BR | later-town | 0 | 0 | 0 | 0 | n/a |
+| BR | boss | 7 | 0 | 0 | 0 | 100.000% |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | n/a |
+| Total | All 15 | 27 | 0 | 0 | 0 | 100.000% |
+
+| ROM | Recording | disabled | irq | nmi | frame | ei_delay | interrupt_delay | halted | unmapped_stack |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| US | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-walk-2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| US | dungeon-continue | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | opening | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-battle | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | first-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | later-town | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | boss | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| BR | deep-dungeon | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Total | All 15 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
 ## 01:5F63
 
 ### Segment 01:5F63
@@ -3083,6 +5135,10 @@ the recordings reach needs at least one C++ call.
 
 No checkpoint recording reaches these segments; the ROM probe tests exercise them.
 
+- 00:31F4 (unit 00:31D4)
+- 00:322C (unit 00:31D4)
+- 00:337B (unit 00:336C)
+- 00:33D4 (unit 00:337D)
 - 01:661C (unit 01:661C)
 - 01:68F7 (unit 01:68BC)
 - 01:6900 (unit 01:68BC)

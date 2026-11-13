@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <functional>
 #include "app/bindings.h"
 #include "app/host.h"
 #include "app/options_menu.h"
@@ -84,7 +85,7 @@ void toggle_fullscreen(SDL_Window* window);
 MenuInput sample_start_input(SDL_Window* window,const Controller& controller,const EnterKey& enter);
 class Audio {
 public:
-    Audio();
+    explicit Audio(std::function<void(const std::string&)> warning={});
     ~Audio();
     void removed(SDL_AudioDeviceID device);
     void submit(std::span<const std::int16_t> samples,double now);
@@ -92,6 +93,7 @@ public:
     void pause(bool paused);
     void report() const;
 private:
+    std::function<void(const std::string&)> warning_;
     void open(double now);
     void close();
     SDL_AudioDeviceID device_=0;

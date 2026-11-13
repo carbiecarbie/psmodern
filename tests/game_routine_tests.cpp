@@ -17,8 +17,8 @@ void check(bool condition,const char* message) { if(!condition) throw std::runti
 bool declared(RoutineEntry entry) {
     auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
     auto dungeon=[&](const auto& list) { return std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry; }); };
-    return entry==game::controller_poll_entry || entry==game::random_entry || entry==game::money_add_unit ||
-        in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries) ||
+    return entry==game::controller_poll_entry || entry==game::random_entry || entry==game::money_add_unit || entry==game::text_indexed_entry ||
+        in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries) || in(game::text_output_entries) || in(game::text_stream_entries) || in(game::text_dictionary_entries) || in(game::text_continuation_entries) || in(game::text_number_entries) || in(game::text_alternate_entries) ||
         dungeon(game::dungeon::cell_segments) || dungeon(game::dungeon::movement_segments) || dungeon(game::dungeon::object_segments);
 }
 void catalog() {

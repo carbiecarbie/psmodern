@@ -207,4 +207,7 @@ output, tests, documentation and commit messages (maintainer decision,
 2026-11-04). So are working notes and reports kept outside the repository,
 unless the maintainer asks for Portuguese (maintainer decision, 2026-11-08).
 Chat with the maintainer and play-test guides for the maintainer are in
-Portuguese. Original game text stays ROM-driven.
+Portuguese. Original game text stays ROM-driven. Player-facing screens and
+dialog summaries follow the selected English/Portuguese language (maintainer
+decision, 2026-11-13, milestone 9); logs and command-line diagnostics stay
+English. Cartridge-font Portuguese UI uses uppercase without accents.

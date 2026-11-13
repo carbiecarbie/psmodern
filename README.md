@@ -30,7 +30,7 @@ the way the project writes down [how the game works inside][how-it-works].
 
 The whole game can be played, in English (US) or Portuguese (Brazilian Tec
 Toy release). Controller polling, the random numbers, the random-encounter
-checks, experience, battle setup, battle money and walking in the dungeons
+checks, experience, battle setup, battle money, walking in the dungeons and text
 already run in C++; the rest of the game still runs on the virtual Z80.
 
 What you get today:
@@ -45,9 +45,13 @@ What you get today:
   how much experience and battle money each fight gives, and a map of the
   dungeons.
 - 2x and 4x fast-forward, with the music kept at its normal tempo.
+- In development builds after 0.3.0: switch the game and interface between
+  English and Portuguese from Options during exploration, without restarting.
+  Each language needs its own ROM. One PLAY entry uses the same saved games
+  regardless of language or which ROMs are available.
 
-The [roadmap][roadmap] lists what comes next: text and language selection,
-and widescreen on the world map and in towns.
+The [roadmap][roadmap] orders the remaining work, including widescreen on the
+world map and in towns.
 
 ## Download and play
 
@@ -147,13 +151,19 @@ off, so turning it on later shows what you have already seen.
 ## Saves
 
 You save through the game's own menu, as on the cartridge. PSModern keeps
-its files in `%APPDATA%\PSModern`, one set per version:
+its files in `%APPDATA%\PSModern`. Development builds after 0.3.0 use one
+shared set in `shared/`, regardless of language (0.3.0 keeps one set per version):
 
 - the save itself, in the cartridge's format, so other emulators can read it;
 - a small companion file with your options;
 - a file with the dungeon maps of your saved games;
 - a `.bak` copy of the previous save, made before the first write of each
   session.
+
+Development builds preserve old US/BR files and import them once. If both old
+sets differ, you choose which to continue; both originals remain intact.
+Adding or removing a ROM never removes your saved games. Global `roms.txt`,
+`language.txt` and `controls.txt` stay in the root PSModern folder.
 
 If you copy only the raw save to another emulator, your progress goes with
 it but the options don't; a raw save without its companion file plays with

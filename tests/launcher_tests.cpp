@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
 #include "app/rom_list.h"
+#include "app/session_roms.h"
 #include "app/start_screen.h"
 #include "temporary_cleanup.h"
 #include <algorithm>
@@ -136,18 +137,21 @@ MenuInput neutral() { return {}; }
 MenuInput press(bool MenuInput::*button) { MenuInput input;input.*button=true;return input; }
 void start_screen_entries() {
     auto expect=[&](const RomList& list,std::vector<A> entries,const char* text) {
-        entries.insert(entries.end(),{A::choose,A::controls,A::open_saves,A::quit});check(StartScreen(list).entries()==entries,text);
+        entries.insert(entries.end(),{A::choose,A::controls,A::language,A::open_saves,A::quit});check(StartScreen(list).entries()==entries,text);
     };
     expect({},{},"no remembered ROM: choose, controls, saves and quit");
-    expect(rom_list("C:/us.sms",{}),{A::play_us},"US only");
-    expect(rom_list({},"C:/br.sms"),{A::play_br},"BR only");
-    expect(rom_list("C:/us.sms","C:/br.sms"),{A::play_us,A::play_br},"US before BR");
+    expect(rom_list("C:/us.sms",{}),{A::play},"US only");
+    expect(rom_list({},"C:/br.sms"),{A::play},"BR only");
+    expect(rom_list("C:/us.sms","C:/br.sms"),{A::play},"both ROMs have one play entry");
+    check(primary_rom(rom_list("C:/us.sms","C:/br.sms"))==std::filesystem::path("C:/us.sms"),"US is primary when both are present");
+    check(primary_rom(rom_list({},"C:/br.sms"))==std::filesystem::path("C:/br.sms"),"BR is primary when it is the only ROM");
     check(StartScreen({}).selected()==0,"cursor starts on the first entry");
-    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::play_br).selected()==1,"cursor can start on a given entry");
-    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::controls).selected()==3,"the cursor can come back to CONTROLS");
-    check(StartScreen(rom_list("C:/us.sms",{}),A::play_br).selected()==0,"an absent entry leaves the cursor on the first");
-    check(std::string(StartScreen::label(A::play_us))=="PLAY PHANTASY STAR (US)" && std::string(StartScreen::label(A::play_br))=="PLAY PHANTASY STAR (BR)" &&
-          std::string(StartScreen::label(A::choose))=="CHOOSE ANOTHER ROM" && std::string(StartScreen::label(A::controls))=="CONTROLS" && std::string(StartScreen::label(A::open_saves))=="OPEN SAVES FOLDER" &&
+    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::play).selected()==0,"cursor can start on PLAY");
+    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::controls).selected()==2,"the cursor can come back to CONTROLS");
+    check(StartScreen({},A::play).selected()==0,"an absent entry leaves the cursor on the first");
+    check(std::string(StartScreen::label(A::play))=="PLAY" && std::string(StartScreen::label(A::play,Language::portuguese))=="JOGAR" &&
+          std::string(StartScreen::label(A::choose))=="ADD ROM" && std::string(StartScreen::label(A::choose,Language::portuguese))=="ADICIONAR ROM" &&
+          std::string(StartScreen::label(A::controls))=="CONTROLS" && std::string(StartScreen::label(A::open_saves))=="OPEN SAVES FOLDER" &&
           std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 0.3.0","labels and footer");
 }
 void start_screen_input() {
@@ -157,7 +161,7 @@ void start_screen_input() {
         check(screen.update(press(&MenuInput::accept),0)==A::none,"accept held when the screen appears is ignored");
         check(screen.update(press(&MenuInput::accept),1)==A::none,"still held: still ignored");
         check(screen.update(neutral(),2)==A::none,"neutral input arms");
-        check(screen.update(press(&MenuInput::accept),3)==A::play_us,"Z, Enter, A or Start accepts the selected entry");
+        check(screen.update(press(&MenuInput::accept),3)==A::play,"Z, Enter, A or Start accepts the selected entry");
         check(screen.update(press(&MenuInput::accept),4)==A::none,"a held accept is taken once");
     }
     // Every entry returns its own action; down moves one entry per press.
@@ -205,7 +209,7 @@ void start_screen_input() {
         auto lost=neutral();lost.focused=false;
         screen.update(neutral(),3);screen.update(lost,4);
         check(screen.update(press(&MenuInput::accept),5)==A::none,"losing focus disarms even after a neutral snapshot");
-        check(screen.update(neutral(),6)==A::none && screen.update(press(&MenuInput::accept),7)==A::play_us,"neutral focused input arms again");
+        check(screen.update(neutral(),6)==A::none && screen.update(press(&MenuInput::accept),7)==A::play,"neutral focused input arms again");
     }
 }
 // The launcher's decisions against scripted dialogs and files.
@@ -216,6 +220,7 @@ struct FakePlatform : LauncherPlatform {
     std::set<std::filesystem::path> offline;
     std::vector<bool> answers;
     std::vector<std::string> messages,questions,give_ups;
+    std::vector<UiText> notices;
     std::vector<RomList> saves;
     bool save_fails=false;
     std::size_t picked=0;
@@ -223,6 +228,7 @@ struct FakePlatform : LauncherPlatform {
         check(picked<picks.size(),"unexpected dialog");return picks[picked++];
     }
     void show_message(const std::string& text) override { messages.push_back(text); }
+    void show_notice(UiText id,const std::string& detail) override { notices.push_back(id);LauncherPlatform::show_notice(id,detail); }
     bool ask_retry(const std::string& text,const char* give_up) override {
         check(questions.size()<answers.size(),"unexpected question");
         questions.push_back(text);give_ups.push_back(give_up);return answers[questions.size()-1];
@@ -268,6 +274,7 @@ void launcher_flow() {
         auto fake=platform();fake.stored.list=rom_list(us_a,br_a);fake.roms.erase(br_a);
         check(prepare_launcher(fake)==rom_list(us_a,{}) && !fake.picked,"a missing ROM is forgotten, the other kept");
         check(fake.messages.size()==1 && fake.messages[0].find("br-a.sms")!=std::string::npos,"one message names it");
+        check(fake.notices==std::vector<UiText>{UiText::rom_missing_or_changed},"missing ROM notice carries semantic translation ID");
         check(fake.saves==std::vector<RomList>{rom_list(us_a,{})},"and the list is rewritten");
     }
     {
@@ -306,11 +313,13 @@ void launcher_flow() {
         auto fake=platform();fake.stored.warning="Ignoring the remembered ROM list";fake.picks={us_a};
         check(prepare_launcher(fake)==rom_list(us_a,{}) && fake.messages==std::vector<std::string>{"Ignoring the remembered ROM list"},
               "a corrupt list is reported and replaced by the next pick");
+        check(fake.notices==std::vector<UiText>{UiText::rom_missing_or_changed},"corrupt list has localized notice and canonical detail");
     }
     {
         auto fake=platform();fake.picks={us_a};fake.save_fails=true;
         check(prepare_launcher(fake)==rom_list(us_a,{}) && fake.messages.size()==1 && fake.messages[0].find("disk full")!=std::string::npos,
               "a pick that cannot be remembered is reported and still played");
+        check(fake.notices==std::vector<UiText>{UiText::cannot_remember_roms},"remember failure has translation ID without parsing exception text");
     }
     {
         auto fake=platform();fake.picks={br_a};auto list=rom_list(us_a,{});
@@ -334,8 +343,8 @@ void launcher_flow() {
         RomList list;
         check(choose_rom(fake,list,true) && list.us && list.us->is_absolute(),"the remembered path is absolute");
     }
-    check(font_rom(rom_list(us_a,br_a))==us_a && font_rom(rom_list({},br_a))==br_a,"the font comes from the US ROM when there is one");
-    refuses([] { font_rom({}); },"no font without a ROM");
+    check(primary_rom(rom_list(us_a,br_a))==us_a && primary_rom(rom_list({},br_a))==br_a,"the font comes from the US ROM when there is one");
+    refuses([] { primary_rom({}); },"no font without a ROM");
 }
 // Needs the player's ROM: every label is in that ROM's font, the screen draws,
 // and a copy in a non-ASCII folder is identified.
@@ -344,8 +353,15 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
     const auto expected=version=="us" ? RomVersion::us_rev_a : RomVersion::brazilian;
     const auto loaded=load_rom(rom);
     check(loaded.version==expected,"wrong ROM for this test");
+    const auto automatic=load_session_roms(rom,{},LanguagePreference::native);
+    check(automatic.source_version==expected && automatic.active==native_language(expected) && !automatic.language_unavailable,
+          "automatic selects the available primary ROM language");
+    const auto unavailable=expected==RomVersion::us_rev_a ? LanguagePreference::portuguese : LanguagePreference::english;
+    const auto fallback=load_session_roms(rom,{},unavailable);
+    check(fallback.active==native_language(expected) && fallback.language_unavailable && fallback.preference==unavailable,
+          "unavailable language falls back and retains the saved preference");
     const RomFont font(*loaded.rom);
-    for (const auto action:{A::play_us,A::play_br,A::choose,A::controls,A::open_saves,A::quit})
+    for (const auto action:{A::play,A::choose,A::controls,A::language,A::open_saves,A::quit})
         for (const char c:std::string(StartScreen::label(action))) check(font.supports(c),"every start screen label is in the ROM font");
     for (const char c:StartScreen::footer()) check(font.supports(c),"the footer is in the ROM font");
     std::vector<std::uint32_t> pixels(256*192);
@@ -358,7 +374,7 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
                   "the screen is black with a white window and text and a grey footer");
             check(std::count(pixels.begin(),pixels.end(),0xffaaaaaa)>0,"the footer is drawn");
             if (screen.entries().size()==6)
-                check(std::all_of(pixels.begin()+152*256,pixels.begin()+176*256,[](auto p) { return p==0xff000000; }),"six entries end at y=152, above the footer");
+                check(std::all_of(pixels.begin()+152*256,pixels.begin()+176*256,[](auto p) { return p==0xff000000; }),"six entries end above the footer");
             screen.update(press(&MenuInput::down),double(2*i+1));screen.update(neutral(),double(2*i+2));
         }
     }

@@ -34,8 +34,8 @@ IconPixels automap_icon(MapIcon icon);
 // The cell's background colour (door kinds on the wall colour, unknown black).
 std::uint32_t automap_background(game::MapKind kind);
 // "FLOOR 1", "FLOOR 2"... for a level above zero, "FLOOR B1"... below it, empty for 0.
-std::string floor_label_text(int level);
-void render_automap(std::span<std::uint32_t> pixels, const RomFont& font, const game::MapView& view);
+std::string floor_label_text(int level,Language language=Language::english);
+void render_automap(std::span<std::uint32_t> pixels, const RomFont& font, const game::MapView& view,Language language=Language::english);
 
 // The map screen's own input: arms once every button is released (as the
 // Options window does), then a fresh map, toggle (Esc or the controller's Y)

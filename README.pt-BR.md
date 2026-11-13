@@ -33,7 +33,7 @@ No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 Dá para jogar o jogo inteiro, em inglês (versão americana) ou em português
 (versão brasileira da Tec Toy). A leitura do controle, os números aleatórios,
 a checagem de encontros aleatórios, a experiência, a preparação das batalhas,
-o dinheiro das batalhas e o caminhar nas masmorras já rodam em C++; o resto do
+o dinheiro das batalhas, o caminhar nas masmorras e o texto já rodam em C++; o resto do
 jogo ainda roda no Z80 virtual.
 
 O que você tem hoje:
@@ -49,9 +49,13 @@ O que você tem hoje:
   aleatórias, quanto de experiência e dinheiro cada luta dá e um mapa das
   masmorras.
 - Aceleração de 2x e 4x, com a música no ritmo normal.
+- Nas builds de desenvolvimento após a 0.3.0: troque o jogo e a interface
+  entre inglês e português pelas Opções durante a exploração, sem reiniciar.
+  Cada idioma exige sua ROM. Uma entrada JOGAR usa as mesmas partidas salvas,
+  independentemente do idioma ou das ROMs disponíveis.
 
-O [roteiro][roadmap] mostra o que vem depois: texto e escolha de idioma e
-tela widescreen no mapa-múndi e nas cidades.
+O [roteiro][roadmap] organiza o trabalho restante, incluindo tela widescreen
+no mapa-múndi e nas cidades.
 
 ## Baixar e jogar
 
@@ -154,13 +158,21 @@ com a opção desligada, então ligar a opção depois mostra o que você já vi
 ## Saves
 
 Você salva pelo menu do próprio jogo, como no cartucho. O PSModern guarda os
-arquivos em `%APPDATA%\PSModern`, um conjunto por versão:
+arquivos em `%APPDATA%\PSModern`. Builds de desenvolvimento após a 0.3.0 usam
+um conjunto compartilhado em `shared/`, independentemente do idioma (a 0.3.0
+mantém um conjunto por versão):
 
 - o save em si, no formato do cartucho, que outros emuladores conseguem ler;
 - um arquivo pequeno ao lado, com as suas opções;
 - um arquivo com os mapas das masmorras dos seus jogos salvos;
 - uma cópia `.bak` do save anterior, feita antes da primeira gravação de cada
   sessão.
+
+Builds de desenvolvimento preservam os arquivos antigos US/BR e os importam
+uma vez. Se os dois conjuntos forem diferentes, você escolhe qual continuar;
+os dois originais ficam intactos. Adicionar ou remover uma ROM não apaga as
+partidas. Os arquivos globais `roms.txt`, `language.txt` e `controls.txt`
+continuam na pasta raiz do PSModern.
 
 Se você copiar só o save para outro emulador, o progresso vai junto, mas as
 opções não; um save sem o arquivo de opções roda com as regras originais.

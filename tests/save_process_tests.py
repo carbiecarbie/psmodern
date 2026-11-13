@@ -12,8 +12,9 @@ with tempfile.TemporaryDirectory(prefix='psmodern-lock-') as folder:
     env=os.environ.copy();env.update(APPDATA=folder,SDL_VIDEODRIVER='dummy',SDL_AUDIODRIVER='dummy')
     def start():
         return subprocess.Popen([exe.resolve(),rom.resolve()],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
-    save=Path(folder)/'PSModern'/'phantasy-star-us-rev-a.sav'
-    save.parent.mkdir(); foreign=bytes([0xa5])*8192;save.write_bytes(foreign)
+    legacy=Path(folder)/'PSModern'/'phantasy-star-us-rev-a.sav'
+    legacy.parent.mkdir(); foreign=bytes([0xa5])*8192;legacy.write_bytes(foreign)
+    save=legacy.parent/'shared'/'phantasy-star.sav'
     first=start();second=None;third=None
     try:
         time.sleep(1)
@@ -21,6 +22,7 @@ with tempfile.TemporaryDirectory(prefix='psmodern-lock-') as folder:
         deadline=time.monotonic()+5
         while save.read_bytes()==foreign and time.monotonic()<deadline:time.sleep(.05)
         if save.read_bytes()==foreign:raise RuntimeError('Game did not overwrite the foreign save')
+        if legacy.read_bytes()!=foreign:raise RuntimeError('Import or play modified the legacy save')
         if Path(str(save)+'.bak').read_bytes()!=foreign:raise RuntimeError('Backup did not preserve the foreign image')
         second=start()
         try: _,error=second.communicate(timeout=3)

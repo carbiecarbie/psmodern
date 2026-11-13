@@ -114,16 +114,73 @@ is written atomically, like the settings companion.
 describes CRAM as `00BBGGRR`: two bits each for red, green and blue. The
 program expands each component to eight bits by multiplying by 85.
 
+## Language
+
+The global Language screen is available from the start screen and Options.
+English and Portuguese require their respective identified ROMs. The start
+screen has one PLAY entry and ADD ROM. AUTO prefers English when both ROMs
+are present, or the language of the sole available ROM. An explicit CLI ROM
+sets the session origin for AUTO and restricted modes, independently of saves.
+
+`language.txt`, beside `roms.txt`, contains `psmodern-language 1` followed by
+`native`, `en` or `pt-br` on a second line. The bounded parser accepts LF/CRLF;
+explicit Save writes canonical LF using atomic replacement. An absent file
+means AUTO. An unusable file warns and defaults without being overwritten.
+If the preferred ROM is unavailable, the session uses the available ROM
+language and retains the preference. Both images are loaded and identified
+before play; later language changes perform no file reads of the ROMs.
+
+Language has its own SAVE/CANCEL, like Controls. Its Save does not apply or
+discard the parent's encounter/experience/automap draft. A saved language
+updates host labels immediately and changes game text after native Options
+cleanup. Parent Cancel does not undo that independent Save. A failed language
+write leaves the screen open and the previous choice intact. Quitting before
+cleanup keeps the saved preference for the next launch. Power cycle remains
+unavailable while a host menu is open.
+
+Cartridge RAM, save lock, companion files and automap use one shared store,
+regardless of language or available ROMs. Native save and companion formats
+are unchanged. Recording and `--no-routines` use the startup ROM and never
+write the global language preference; they use the same shared store.
+
+Host labels, window titles and player-facing dialog summaries are available
+in both languages. Cartridge-font Portuguese is uppercase without accents;
+original game text comes directly from the selected ROM. Configuration tokens,
+command-line flags and detailed logs stay English.
+
 ## Saves
 
-The machine has no file access. The app loads and stores one 8 KiB image per
-ROM at `%APPDATA%/PSModern/phantasy-star-us-rev-a.sav` or
-`%APPDATA%/PSModern/phantasy-star-brazil.sav`. A missing file supplies zeroes;
+The machine has no file access. The app loads and stores one shared 8 KiB
+image at `%APPDATA%/PSModern/shared/phantasy-star.sav`, with its options and
+automap alongside it. A missing file supplies zeroes;
 a malformed or unreadable file is refused. A changed image is flushed at the
 end of the frame, on host power cycle and on exit. A clean image is not
 written. On Windows the app writes an exclusive temporary file in the same
 folder, flushes and closes it, then replaces the destination with
 `MoveFileExW` and write-through. A failure is reported and retried next frame.
+
+**Legacy import (maintainer decision, 2026-11-13).** Before opening the shared
+store, the app holds `shared-import.lock` in the root save folder. Existing
+`shared/` storage is authoritative, even when empty; an invalid directory or
+raw save is refused, never replaced from legacy files. Otherwise the app
+attempts the old US and BR save locks, snapshots each complete six-file set
+(raw save, options, automap and their backups), and imports one set. A lone
+valid set or two identical sets import automatically. Different sets, or an
+unavailable other set, require an explicit one-time choice; Cancel writes no
+shared storage. Neither legacy save needs its matching ROM present.
+
+Files are copied byte-for-byte to a unique sibling stage, individually
+flushed, then the whole directory is published by a no-clobber atomic rename.
+The importer never edits original data or timestamps. Nonregular/unreadable
+files, current SRAM other than 8192 bytes, or artifacts over 16 MiB make a
+candidate unavailable; readable malformed companions/backups are preserved
+for the existing loaders to diagnose. Incomplete stages are ignored. Failed
+imports attempt cleanup only of their own stage, with bounded retries for
+transient host locks and a warning if it remains; startup never sweeps leftovers.
+Migration can create lock files but never copies them. Runtime writes target
+only shared storage, including after a ROM is added, removed or switched.
+`SaveStore(folder, version)` remains an explicit legacy/fixture API;
+production uses `open_shared_save`, returning an already locked shared store.
 
 **Maintainer decision.** Before the first save write of a session, an existing
 image is copied atomically to `<save name>.bak`, replacing an older backup.
@@ -347,11 +404,14 @@ The Options binding (Escape or controller Y by default) opens Options during fre
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Pause remains the original Pause. Up/Down
-selects one of the four rows (the two rates, Automap and CONTROLS) and
-Left/Right changes a value. Button 1 persists the three values and closes;
+selects one of the five rows (the two rates, Automap, CONTROLS and LANGUAGE);
+four rows fit, so the list scrolls. Left/Right changes a value.
+Button 1 persists the three values and closes;
 Button 2 or the Options binding discards the draft. On the CONTROLS row Button
 1 opens the [Controls screen](#controls-screen) instead, also in the read-only
-modes, because controls never touch the game. The screen marks each
+modes, because controls never touch the game. LANGUAGE opens the
+[Language screen](#language), with its own Save/Cancel; recording and raw-Z80
+sessions cannot change language. The screen marks each
 100% value as DEFAULT, encounters 25% as RECOMMENDED and experience/meseta
 400% as RECOMMENDED; other values have no marker. Only restrictions, pending
 activation or a failed save add a status message inside the window. A failed
@@ -812,7 +872,11 @@ A segment ends with its last instruction executed by the core, through
 may be:
 
 - a return, executed by the core as before;
-- a call, a conditional call or a jump into original code. The
+- a call, a conditional call or a jump into original code, or the text
+  renderer's unprefixed `RST 08`. The restart requires ordinary admission
+  and a declared scratch stack covering its two pushed bytes in addition to
+  any held words; both addresses must be mapped and off the mapper registers.
+  Other restart vectors remain refused. The
   core takes or skips it, and the callee then runs wherever it lives, in the
   original or in another registered segment;
 - a plain instruction with no port access, no memory write and no control

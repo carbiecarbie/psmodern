@@ -2,7 +2,10 @@
 #include "app/sdl_host.h"
 #include "app/automap_screen.h"
 #include "app/controls_screen.h"
+#include "app/language_screen.h"
+#include "app/localization.h"
 #include "app/frame_driver.h"
+#include "app/shared_save.h"
 #include "app/start_loop.h"
 #include "app/windows_platform.h"
 #include "PSModernVersion.h"
@@ -16,14 +19,48 @@
 namespace {
 using namespace psmodern;
 using namespace psmodern::app;
+// Shared only by this single UI thread, including failures before/after play.
+// Updates after a successful language Save keep the outer failure dialog in
+// the actual UI language rather than guessing from a missing-ROM preference.
+Language failure_language=Language::english;
+constexpr int play_cancelled=2;
+std::optional<RomVersion> choose_legacy_save(const LegacySaves& saves,Language language,SDL_Window* window) {
+    std::vector<SDL_MessageBoxButtonData> buttons;
+    for(unsigned i=0;i<2;++i) {
+        if(!saves[i].error.empty())std::cerr<<"Legacy "<<(i ? "BR" : "US")<<": "<<saves[i].error<<'\n';
+        if(saves[i].state==LegacySaveState::available)
+            buttons.push_back({0,int(i),ui_text(i ? UiText::legacy_br : UiText::legacy_us,language).data()});
+    }
+    buttons.push_back({SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,2,ui_text(UiText::cancel,language).data()});
+    const bool unavailable=saves[0].state==LegacySaveState::unavailable || saves[1].state==LegacySaveState::unavailable;
+    const SDL_MessageBoxData data{SDL_MESSAGEBOX_INFORMATION,window,ui_text(UiText::legacy_title,language).data(),
+        ui_text(unavailable ? UiText::legacy_unavailable : UiText::legacy_choice,language).data(),int(buttons.size()),buttons.data(),nullptr};
+    int selected=-1;
+    sdl_check(SDL_ShowMessageBox(&data,&selected)==0,"Choosing old saved games");
+    if(selected!=0 && selected!=1)return {};
+    return selected==0 ? RomVersion::us_rev_a : RomVersion::brazilian;
+}
 // Plays a loaded ROM until the window closes. From the command line the
 // window opens only after the ROM, the save lock and the recording checks
 // pass; from the start screen it is the start screen's window (fullscreen
 // kept) and buttons still held from choosing Play do not reach the game.
-int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<std::filesystem::path>& record_path,bool routines_enabled,
+int play(const SessionRoms& session,Display* launcher_display,const std::optional<std::filesystem::path>& record_path,bool routines_enabled,
          const game::OptionOverrides& overrides) {
-    const auto version=loaded.version; const auto& rom=loaded.rom;
-    FrameDriver driver(rom,SaveStore(production_save_folder(),version),routines_enabled,overrides,record_path.has_value());
+    const auto version=session.source_version; const auto& rom=session.image(session.active);
+    auto language=session.active;
+    failure_language=language;
+    auto preference=session.preference;
+    std::optional<SaveStore> store;
+    try {
+        store=open_shared_save(production_save_folder(),[&](const LegacySaves& saves) {
+            return choose_legacy_save(saves,language,launcher_display ? launcher_display->window.get() : nullptr);
+        });
+    } catch(const std::exception& error) {
+        std::cerr<<error.what()<<'\n';message(std::string(ui_text(UiText::legacy_failed,language)));return 1;
+    }
+    if(!store)return play_cancelled;
+    FrameDriver driver(rom,std::move(*store),routines_enabled,overrides,record_path.has_value());
+    driver.configure_languages(session);
     RomFont font(*rom);OptionsMenu menu;MapScreen map_screen;InputRelease release;
     if(launcher_display) release.consume();
     if(record_path && std::filesystem::exists(*record_path))
@@ -33,15 +70,17 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
     std::optional<replay::Recorder> recorder;
     if(record_path) recorder.emplace(sha1(*rom),sha1(driver.machine().memory().cartridge_ram()));
     std::optional<std::string> last_save_error;
-    auto report_save=[&](const std::optional<std::string>& error) {
+    auto report_save=[&](const std::optional<std::string>& error,UiText summary=UiText::save_write_failed) {
         if (error) {
-            if (error!=last_save_error) message(*error);
+            if (error!=last_save_error) {std::cerr<<*error<<'\n';message(std::string(ui_text(summary,language)));}
             else std::cerr<<*error<<'\n';
         }
         last_save_error=error;
     };
-    report_save(driver.store().settings_warning());
-    if(driver.store().automap_warning())report_save(driver.store().automap_warning());
+    report_save(driver.store().settings_warning(),UiText::preferences_warning);
+    if(driver.store().automap_warning())report_save(driver.store().automap_warning(),UiText::automap_warning);
+    for(const auto& warning:session.warnings)std::cerr<<warning<<'\n';
+    if(session.language_unavailable)message(std::string(ui_text(UiText::language_fallback,language)));
     // The player's controls; a damaged file is noted and never stops play.
     // Nothing is written here: only the Controls screen saves.
     auto loaded_bindings=load_bindings(production_save_folder());
@@ -55,8 +94,10 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
     };
     auto base_title=[&](const Bindings& b) {
         const auto power=hint(b,Action::power);
-        return std::string("PSModern - Phantasy Star (")+rom_name(version)+")"+
-            (recorder ? " - RECORDING"+(power.empty() ? std::string() : " ("+power+" disabled)") : "");
+        return std::string("PSModern - Phantasy Star")+
+            " - "+std::string(ui_text(UiText::presentation_language,language))+": "+std::string(language_label(language,language))+
+            (recorder ? " - "+std::string(ui_text(UiText::recording,language))+
+                (power.empty() ? std::string() : " ("+power+": "+std::string(ui_text(UiText::power_cycle_disabled,language))+")") : "");
     };
     try {
         const auto title=base_title(loaded_bindings.bindings);
@@ -67,9 +108,14 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
         SDL_SetWindowTitle(window,title.c_str());
         std::array<std::uint32_t,256*192> pixels{};
         Vdp::Picture menu_background{};
-        Controller controller; controller.refresh(); Audio audio; auto& enter=controller.enter();
+        Controller controller; controller.refresh();
+        Audio audio([&](const std::string& details) {
+            std::cerr<<details<<'\n';message(std::string(ui_text(UiText::audio_unavailable,language)),window);
+        });
+        auto& enter=controller.enter();
         controller.set_bindings(loaded_bindings.bindings);
         ControlsScreen controls_screen;
+        LanguageScreen language_screen;
         const double frequency=static_cast<double>(SDL_GetPerformanceFrequency());
         auto now=[&]() { return SDL_GetPerformanceCounter()/frequency; };
         audio.submit({},now()); // Open and prime the device before starting the frame clock.
@@ -126,8 +172,8 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
                 if (const auto down=pad_is(Action::speed)) speed_events.push_back({false,*down});
                 if (key_is(Action::options)==true || pad_is(Action::options)==true) options_pressed=true;
                 if ((key_is(Action::power)==true || pad_is(Action::power)==true) && !recorder && !driver.menu_active() &&
-                    !controls_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; audio.reset(); power_cycled=true; }
-                if (pad_is(Action::fullscreen)==true && !controls_screen.visible()) toggle_fullscreen(window);
+                    !controls_screen.visible() && !language_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; audio.reset(); power_cycled=true; }
+                if (pad_is(Action::fullscreen)==true && !controls_screen.visible() && !language_screen.visible()) toggle_fullscreen(window);
             }
             if (quit) break;
             const auto menu_input=sample_menu_input(window,controller);
@@ -174,7 +220,19 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
             // The Controls screen opens over Options and returns to it; the
             // game stays held by the Options bridge throughout. Its own fixed
             // navigation reads the raw snapshot, never the bindings.
-            if(controls_screen.visible()) {
+            if(language_screen.visible()) {
+                if(language_screen.update(menu_input,now())==LanguageAction::save) {
+                    try {
+                        driver.prepare_language(language_screen.draft());
+                        save_language(production_save_folder(),language_screen.draft());
+                        driver.commit_language();
+                        preference=language_screen.draft();language=resolve_language(preference,version);
+                        failure_language=language;
+                        language_screen.saved();
+                    } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';language_screen.failed();}
+                }
+                if(!language_screen.visible())menu.resume();
+            } else if(controls_screen.visible()) {
                 if(controls_screen.update(sample_controls_input(window,controller,enter),now())==ControlsAction::save) {
                     try {
                         save_bindings(production_save_folder(),controls_screen.draft());
@@ -189,6 +247,8 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
                     else { menu.close();driver.close_menu();report_save({});release.consume(); }
                 } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
                 else if(action==MenuAction::controls) controls_screen.open(controller.bindings());
+                else if(action==MenuAction::language)language_screen.open(preference,session.available(Language::english),
+                    session.available(Language::portuguese),language);
             }
             const auto count=clock.due(now());
             for (unsigned i=0;i<count;++i) {
@@ -212,19 +272,20 @@ int play(const LoadedRom& loaded,Display* launcher_display,const std::optional<s
             const auto& effective=driver.effective_options();
             const auto& b=controller.bindings();
             const auto speed_hint=hint(b,Action::speed),options_hint=hint(b,Action::options),map_hint=hint(b,Action::map);
-            const auto current_title=base_title(b)+" - Encounters "+std::to_string(effective.encounter_percent)+
-                "% - Experience/Meseta "+std::to_string(effective.experience_percent)+"%"+
-                (driver.options_pending() ? " - CHANGES SAVED, WAITING FOR GAME" : "")+
-                " - Speed "+std::to_string(clock.speed())+"X"+(speed_hint.empty() ? "" : " ("+speed_hint+")")+
-                (options_hint.empty() ? "" : " - Options: "+options_hint)+
-                (driver.automap_enabled() && !map_hint.empty() ? " - Map: "+map_hint : "");
+            const auto current_title=base_title(b)+" - "+std::string(ui_text(UiText::encounters,language))+" "+std::to_string(effective.encounter_percent)+
+                "% - "+std::string(ui_text(UiText::experience_meseta,language))+" "+std::to_string(effective.experience_percent)+"%"+
+                (driver.options_pending() ? " - "+std::string(ui_text(UiText::changes_waiting,language)) : "")+
+                " - "+std::string(ui_text(UiText::speed,language))+" "+std::to_string(clock.speed())+"X"+(speed_hint.empty() ? "" : " ("+speed_hint+")")+
+                (options_hint.empty() ? "" : " - "+std::string(ui_text(UiText::options,language))+": "+options_hint)+
+                (driver.automap_enabled() && !map_hint.empty() ? " - "+std::string(ui_text(UiText::map,language))+": "+map_hint : "");
             if(current_title!=displayed_title) {SDL_SetWindowTitle(window,current_title.c_str());displayed_title=current_title;}
             if ((count || menu.visible() || map_screen.visible()) && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
                 const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 std::transform(picture.begin(),picture.end(),pixels.begin(),rgb);
-                if(controls_screen.visible())controls_screen.render(pixels,font);
-                else if(menu.visible())menu.render(pixels,font);
-                else if(map_screen.visible() && driver.map_view())render_automap(pixels,font,*driver.map_view());
+                if(language_screen.visible())language_screen.render(pixels,font,language);
+                else if(controls_screen.visible())controls_screen.render(pixels,font,language);
+                else if(menu.visible())menu.render(pixels,font,language);
+                else if(map_screen.visible() && driver.map_view())render_automap(pixels,font,*driver.map_view(),language);
                 else if(clock.speed()>1) {
                     for(int y=2;y<12;++y) for(int x=234;x<254;++x) pixels[y*256+x]=0xff000000;
                     font.text(pixels,236,3,clock.speed()==2 ? "2X" : "4X",0xffffffff);
@@ -257,14 +318,29 @@ int main(int argc,char** argv) {
         for (const auto& word:words) pointers.push_back(word.c_str());
         const auto args=parse_app_arguments(static_cast<int>(pointers.size()),pointers.data());
         if (args.mode==AppMode::version) { std::cout<<"PSModern "<<PSMODERN_VERSION<<'\n'; return 0; }
+        const auto initial_language=load_language(production_save_folder()).preference;
+        failure_language=initial_language==LanguagePreference::portuguese ? Language::portuguese : Language::english;
         sdl_check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"Starting SDL");
         int result=0;
         if (args.mode==AppMode::launcher) {
             std::optional<Display> display;
-            if (const auto chosen=run_launcher(display)) result=play(load_rom(*chosen),&*display,{},true,{});
-        } else result=play(load_rom(args.rom),nullptr,args.record_path,args.routines_enabled,args.overrides);
-        SDL_Quit(); return result;
+            do {
+                const auto chosen=run_launcher(display,&failure_language);
+                if(!chosen) {result=0;break;}
+                result=play(*chosen,&*display,{},true,{});
+            } while(result==play_cancelled);
+        } else {
+            const auto preferences=load_language(production_save_folder());
+            const auto remembered=load_rom_list(production_save_folder());
+            const auto session=load_session_roms(args.rom,remembered.list,preferences.preference,args.record_path.has_value() || !args.routines_enabled);
+            failure_language=session.active;
+            if(preferences.warning) {std::cerr<<*preferences.warning<<'\n';message(std::string(ui_text(UiText::language_file_warning,session.active)));}
+            if(remembered.warning)std::cerr<<*remembered.warning<<'\n';
+            result=play(session,nullptr,args.record_path,args.routines_enabled,args.overrides);
+        }
+        SDL_Quit(); return result==play_cancelled ? 0 : result;
     } catch (const std::exception& e) {
-        message(e.what()); SDL_Quit(); return 1;
+        std::cerr<<e.what()<<'\n';
+        message(std::string(ui_text(UiText::startup_failed,failure_language))); SDL_Quit(); return 1;
     }
 }

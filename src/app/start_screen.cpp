@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/start_screen.h"
+#include "app/localization.h"
 #include "PSModernVersion.h"
 #include <algorithm>
 #include <stdexcept>
@@ -16,13 +17,12 @@ void remember(LauncherPlatform& platform,const RomList& list,const RomList& unre
     for (const auto version:{RomVersion::us_rev_a,RomVersion::brazilian})
         if (!saved.get(version) && unreadable.get(version)) saved.set(version,*unreadable.get(version));
     try { platform.save_list(saved); }
-    catch (const std::exception& e) { platform.show_message(std::string("PSModern cannot remember the chosen ROMs: ")+e.what()); }
+    catch (const std::exception& e) { platform.show_notice(UiText::cannot_remember_roms,std::string("PSModern cannot remember the chosen ROMs: ")+e.what()); }
 }
 }
 StartScreen::StartScreen(const RomList& list,StartAction selected) {
-    if (list.us) entries_.push_back(StartAction::play_us);
-    if (list.br) entries_.push_back(StartAction::play_br);
-    entries_.insert(entries_.end(),{StartAction::choose,StartAction::controls,StartAction::open_saves,StartAction::quit});
+    if (!list.empty()) entries_.push_back(StartAction::play);
+    entries_.insert(entries_.end(),{StartAction::choose,StartAction::controls,StartAction::language,StartAction::open_saves,StartAction::quit});
     const auto found=std::find(entries_.begin(),entries_.end(),selected);
     if (found!=entries_.end()) selected_=static_cast<unsigned>(found-entries_.begin());
 }
@@ -44,7 +44,7 @@ StartAction StartScreen::update(const MenuInput& input,double now) {
     }
     return accept ? entries_[selected_] : StartAction::none;
 }
-void StartScreen::render(std::span<std::uint32_t> pixels,const RomFont& font) const {
+void StartScreen::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language,LanguagePreference preference) const {
     if (pixels.size()!=256*192) throw std::invalid_argument("Expected a 256 by 192 picture.");
     std::fill(pixels.begin(),pixels.end(),0xff000000);
     // Entries every 16 lines between a blank tile row above and below, text
@@ -52,18 +52,23 @@ void StartScreen::render(std::span<std::uint32_t> pixels,const RomFont& font) co
     const int count=static_cast<int>(entries_.size()),width=224,height=16*count+24;
     const int x=(256-width)/2,y=(192-height)/16*8;
     font.window(pixels,x,y,width,height,y+16+16*static_cast<int>(selected_));
-    for (int i=0;i<count;++i) font.text(pixels,x+16,y+16+16*i,label(entries_[i]),0xffffffff);
+    for (int i=0;i<count;++i) {
+        const auto action=entries_[i];
+        const std::string text=std::string(label(action,language))+
+            (action==StartAction::language ? " "+std::string(language_label(preference,language)) : "");
+        font.text(pixels,x+16,y+16+16*i,text,0xffffffff);
+    }
     const auto version=footer();
     font.text(pixels,(256-8*static_cast<int>(version.size()))/2,176,version,0xffaaaaaa);
 }
-const char* StartScreen::label(StartAction action) {
+const char* StartScreen::label(StartAction action,Language language) {
     switch (action) {
-    case StartAction::play_us: return "PLAY PHANTASY STAR (US)";
-    case StartAction::play_br: return "PLAY PHANTASY STAR (BR)";
-    case StartAction::choose: return "CHOOSE ANOTHER ROM";
-    case StartAction::controls: return "CONTROLS";
-    case StartAction::open_saves: return "OPEN SAVES FOLDER";
-    case StartAction::quit: return "QUIT";
+    case StartAction::play: return ui_text(UiText::play,language).data();
+    case StartAction::choose: return ui_text(UiText::choose_rom,language).data();
+    case StartAction::controls: return ui_text(UiText::controls,language).data();
+    case StartAction::language: return ui_text(UiText::language,language).data();
+    case StartAction::open_saves: return ui_text(UiText::open_saves,language).data();
+    case StartAction::quit: return ui_text(UiText::quit,language).data();
     case StartAction::none: break;
     }
     return "";
@@ -71,7 +76,7 @@ const char* StartScreen::label(StartAction action) {
 std::string StartScreen::footer() { return std::string("PSMODERN ")+PSMODERN_VERSION; }
 std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unreadable_out) {
     auto [list,warning]=platform.load_list();
-    if (warning) platform.show_message(*warning);
+    if (warning) platform.show_notice(UiText::rom_missing_or_changed,*warning);
     std::string forgotten,unreadable_text;
     RomList unreadable;
     for (const auto version:{RomVersion::us_rev_a,RomVersion::brazilian}) {
@@ -91,7 +96,7 @@ std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unre
     if (!forgotten.empty()) message="PSModern forgot these ROMs because they are missing or have changed:"+forgotten;
     if (!unreadable_text.empty())
         message+=(message.empty() ? "" : "\n\n")+std::string("These ROMs could not be read now; still remembered:")+unreadable_text;
-    if (!message.empty()) platform.show_message(message);
+    if (!message.empty()) platform.show_notice(forgotten.empty() ? UiText::rom_unreadable : UiText::rom_missing_or_changed,message);
     if (!forgotten.empty()) remember(platform,list,unreadable);
     if (list.empty() && !choose_rom(platform,list,true,unreadable)) return {};
     if (unreadable_out) *unreadable_out=unreadable;
@@ -115,7 +120,7 @@ std::optional<RomVersion> choose_rom(LauncherPlatform& platform,RomList& list,bo
         return version;
     }
 }
-const std::filesystem::path& font_rom(const RomList& list) {
+const std::filesystem::path& primary_rom(const RomList& list) {
     if (list.empty()) throw std::logic_error("The start screen needs a remembered ROM.");
     return list.us ? *list.us : *list.br;
 }

@@ -28,6 +28,20 @@ struct FrameInput {
 };
 class Machine : private CpuBus {
 public:
+    // A fully prepared immutable image. Construction validates shape before
+    // a host may reach its proven instruction boundary; installation cannot
+    // allocate, throw or change any other machine field. This is not Reset.
+    class RomReplacement {
+    public:
+        RomReplacement(const RomReplacement&)=default;
+        RomReplacement& operator=(const RomReplacement&)=default;
+    private:
+        friend class Machine;
+        explicit RomReplacement(std::shared_ptr<const Memory::Rom> image):image_(std::move(image)) {}
+        std::shared_ptr<const Memory::Rom> image_;
+    };
+    static RomReplacement prepare_rom_replacement(std::shared_ptr<const Memory::Rom> image);
+    void replace_rom(const RomReplacement& prepared) noexcept { memory_.rom_=prepared.image_; }
     static constexpr std::uint64_t frame_cycles=228*262;
     static constexpr std::uint64_t pause_sample_offset=260*228+212;
     using Hook = std::function<std::optional<std::uint16_t>(std::uint16_t, Memory::Mapping)>;

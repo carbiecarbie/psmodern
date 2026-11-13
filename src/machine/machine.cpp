@@ -5,6 +5,10 @@
 #include <limits>
 
 namespace psmodern {
+Machine::RomReplacement Machine::prepare_rom_replacement(std::shared_ptr<const Memory::Rom> image) {
+    if(!image || image->size()!=512*1024)throw std::invalid_argument("Expected a 512 KiB replacement ROM image");
+    return RomReplacement(std::move(image));
+}
 Machine::Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram)
     : memory_(std::move(rom), ram), cpu_(*this) {
     sampled_int_=vdp_.irq();

@@ -7,6 +7,7 @@
 // never lock themselves out. The owner saves draft() and reports the result.
 #include "app/bindings.h"
 #include "app/options_menu.h"
+#include "app/localization.h"
 #include <cstdint>
 #include <span>
 #include <string>
@@ -43,23 +44,26 @@ public:
     ControlsAction update(const InputSnapshot& input,double now);
     void saved();    // the owner wrote draft(): closes
     void failed();   // shows SAVE FAILED - RETRY, stays open
-    void render(std::span<std::uint32_t> pixels,const RomFont& font) const;
+    void render(std::span<std::uint32_t> pixels,const RomFont& font,Language language=Language::english) const;
     unsigned row() const { return row_; }          // 0..12 actions, 13 restore, 14 save, 15 cancel
     unsigned column() const { return column_; }    // 0 key, 1 pad
     bool capturing() const { return capturing_; }
     std::string_view status() const { return status_; }
+    std::string localized_status(Language language=Language::english) const;
     unsigned first_visible() const { return top_; }   // first row of the list drawn (visible_rows from here)
 private:
     void capture(const InputSnapshot& input,double now);
     ControlsAction browse(const InputSnapshot& input,double now);
-    void notice(std::string text,double now);
+    void notice(UiText message,double now,Action action=Action::count);
     void end_capture() { capturing_=false; block_held_=true; }
     Bindings draft_=Bindings::defaults();
     InputSnapshot previous_;
     // Fixed navigation sources, one bit each (controls_screen.cpp): those
     // ignored until released, and those that count, now and one update ago.
     std::uint32_t blocked_=0, held_=0, previous_held_=0;
-    std::string status_, message_;
+    std::string status_;
+    UiText message_id_=UiText::none,status_id_=UiText::none;
+    Action message_action_=Action::count,status_action_=Action::count;
     unsigned row_=0, column_=0, top_=0;
     // sticky_: the message stays until the next press (save failed, defaults restored).
     // block_held_: the next focused update blocks every source then held.

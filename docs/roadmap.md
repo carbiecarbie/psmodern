@@ -4,7 +4,7 @@
 with the maintainer on 2026-11-13.** It orders the stages of
 [design](design.md) section 8 and names what each needs; it starts nothing.
 The maintainer starts each milestone explicitly, and each gets its own plan.
-It is revised at each milestone closure, most recently that of milestone 8
+It is revised at each milestone closure, most recently that of milestone 9
 (2026-11-13).
 
 ## Done so far
@@ -20,6 +20,7 @@ It is revised at each milestone closure, most recently that of milestone 8
 | 6 | Fast-forward (1x/2x/4x) with music at normal tempo |
 | 7 | Dungeon walking in C++ and the automap |
 | 8 | Full controller support: the Controls screen and `controls.txt`; encounters at 25% and the floor label |
+| 9 | Text in C++, live English/Portuguese switching, localized host screens and shared saves with preserved legacy progress |
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 2026-11-12) and 0.3.0 (adds the changeable controls, 2026-11-13). Releases do not change the milestone numbering.
@@ -27,14 +28,9 @@ Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 ## Next milestones
 
 The numbers are the milestones'. The order was decided on 2026-11-13:
-controller support (milestone 8, now done) moved ahead of text, as design
-section 8 allows.
+controller support moved ahead of text, as design section 8 allows. Both
+are complete; milestone 10 is next and still needs explicit authorization.
 
-9. **Text and language selection.** Rewrite the text system and read the US
-   and Brazilian text from the player's ROM. Known so far: text uses a word
-   dictionary and control codes; the Brazilian control codes change where
-   conversations stop and their timing (design 5.5). Needs Brazilian
-   recordings of text-only paths.
 10. **World map and towns, then widescreen.** Map loading, scrolling and NPC
     activation, then the wider view (design 5.4).
 11. **Menus and windows, then the new interface.**

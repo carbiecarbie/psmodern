@@ -5,6 +5,7 @@
 #include <filesystem>
 #include "machine/machine.h"
 #include "app/tempo_audio.h"
+#include "app/session_roms.h"
 #include "game/automap.h"
 #include "game/dungeon_tables.h"
 #include <array>
@@ -90,6 +91,15 @@ public:
     bool options_restricted() const { return original_only_ || !routines_.enabled; }
     std::optional<std::string> choose_options(const game::Options& options);
     std::optional<std::string> choose_options(const game::Options& options,bool automap);
+    // Host-owned, verified images. Prepare may throw BEFORE language.txt is
+    // saved. Commit only queues the last successfully saved choice; the
+    // native Options return installs it before the caller's next instruction.
+    void configure_languages(const SessionRoms& session);
+    void prepare_language(LanguagePreference preference);
+    void commit_language() noexcept;
+    Language active_language() const { return language_; }
+    bool language_pending() const { return pending_language_.has_value(); }
+    std::uint64_t language_changes() const { return language_changes_; }
     // The host may request the native field menu only during its proven wait.
     // The map is admitted only at the dungeon wait (00:0F48, mode 0Bh), with
     // the Automap option on and a tracker running.
@@ -114,6 +124,13 @@ private:
     void track(std::uint16_t pc);
     void log(MapEvent event) { if(map_log_)map_log_->push_back(std::move(event)); }
     std::shared_ptr<const Memory::Rom> rom_;
+    std::array<std::shared_ptr<const Memory::Rom>,2> language_roms_;
+    std::array<std::optional<Machine::RomReplacement>,2> replacements_;
+    RomVersion source_version_=RomVersion::us_rev_a;
+    Language language_=Language::english;
+    std::optional<Language> prepared_language_,pending_language_;
+    std::uint64_t language_changes_=0;
+    bool languages_configured_=false;
     SaveStore store_;
     std::unique_ptr<Machine> machine_;
     RoutineRegistry routines_;

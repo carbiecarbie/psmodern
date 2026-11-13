@@ -1,38 +1,42 @@
 # PSModern - Project Status
 
-**Milestone 8 (full controller support) is complete,** accepted on
-2026-11-13 ([plan](milestone-8-plan.md)): every key and controller button
-can be changed on an in-game Controls screen. **Release 0.1.0**, the first
+**Milestone 9 (text and language selection) is complete,** accepted on
+2026-11-13 ([plan](milestone-9-plan.md)): text runs in C++, English/Portuguese
+can change during exploration, and one PLAY entry uses shared saved progress.
+Milestone 8 added changeable controls. **Release 0.1.0**, the first
 public Windows release, added a start screen that remembers the player's
 ROMs ([plan](release-0.1.0-plan.md)); **release 0.2.0** (2026-11-12) added
 the automap and **release 0.3.0** (2026-11-13) the changeable controls.
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
-routine, the random-encounter checks, experience, battle setup, money award
-and walking in the dungeons now run in C++; the rest of the original program
+routine, the random-encounter checks, experience, battle setup, money award,
+dungeon walking and text now run in C++; the rest of the original program
 runs on the virtual Z80. Optional features include saved encounter and
 experience/battle-meseta rates, a dungeon automap, session-only 2x/4x
-fast-forward and changeable controls. New profiles use original rates with
-the automap off and the 0.2.0 controls; acceleration starts at 1x.
+fast-forward, changeable controls and language selection. Without saved
+settings, rates are original, the automap is off and controls follow 0.2.0;
+acceleration starts at 1x.
 Milestones 1 to 7 were accepted between 2026-11-08 and 2026-11-12.
+Release 0.3.0 remains the latest published version; milestone 9 is not released.
 
 Replacements are checked against the original, call by call and frame by
 frame, with exact state and timing. A private study base explains how the
-encounter checks, experience, the sound driver and dungeon walking work. The
-[roadmap](roadmap.md) orders the next milestones. The maintainer starts each
+encounter checks, experience, the sound driver, dungeon walking and text work.
+The [roadmap](roadmap.md) orders the next milestones. The maintainer starts each
 milestone explicitly.
 
 ## What can be played
 
 The whole game, as on the cartridge, plus saved rate settings, a dungeon
-automap, fast-forward and changeable controls.
+automap, fast-forward, changeable controls and live language selection.
 
 - **Starting:** double-click `psmodern.exe` (no arguments) to reach the start
   screen: the first time, pick an uncompressed `.sms` file of the US Rev-A or
   the Brazilian Tec Toy cartridge; it is remembered, and any other file is
-  refused with a message. The start screen also opens the Controls screen.
+  refused with a message. One PLAY entry starts the game; ADD ROM makes the
+  other language available. The start screen opens Controls and Language.
   Or run `psmodern.exe <rom-path>` from a terminal.
-  The window title names the version, active rates and any pending change.
+  The window title names the active language, rates and any pending change.
   See [development](development.md#start-screen) for both paths.
 - **Picture:** the original 256x192 picture, scaled by whole steps in a
   resizable window, with black bars. Alt+Enter toggles fullscreen.
@@ -71,15 +75,20 @@ automap, fast-forward and changeable controls.
   without an audio backlog.
   Options and loss of focus temporarily use 1x and restore the chosen speed
   afterward. New sessions and F5 start at 1x; recording remains at 1x.
-- **Saves:** the game saves through its own menu, as on the cartridge. Each
-  version keeps one file in `%APPDATA%\PSModern\`. Before the first write of
-  a session, the previous file is copied to a `.bak` file. Only one running
-  copy of PSModern may use a save file; a second one is refused. Two
-  companion files sit beside it without changing the cartridge format: the
-  options, and the dungeon maps of the saved games (`.automap`). The same
-  folder holds `roms.txt`, the start screen's remembered ROMs, and
-  `controls.txt`, written only when the player saves on the Controls screen;
-  without it the defaults apply, and a damaged file never stops the game.
+- **Language:** Language has its own SAVE/CANCEL, in the launcher and in
+  Options during free exploration. English and Portuguese each require the
+  corresponding ROM. A saved choice is global; cancelling parent Options does
+  not undo it. The game ROM changes after native Options closes, preserving
+  the current scene and progress. If a preferred ROM is absent, the available
+  language is used with a warning and the preference is kept.
+- **Saves:** the game's own save menu writes one shared cartridge file,
+  `%APPDATA%\PSModern\shared\phantasy-star.sav`, with options and automap
+  companions beside it. Before the first write of a session, the previous
+  file is backed up to `.bak`. A lock prevents concurrent use of the save.
+  First use imports old US/BR files without modifying them. Different old
+  sets require a one-time choice; their origin never selects the language.
+  The parent folder holds `roms.txt`, `controls.txt` and `language.txt`.
+  Controls and Language write their files only on their own SAVE action.
 - **Automap:** with the option on, M or controller X while walking in a
   dungeon opens a map of the current floor; M, X, Escape or B close it. The
   game waits and the music continues. The map shows only what the party has
@@ -102,17 +111,18 @@ automap, fast-forward and changeable controls.
     gives. The number on screen is what every character gains. A character
     still gains at most one level per fight.
 
-  Any other value is refused. New profiles use 100/100. Saved choices load on
+  Any other value is refused. Missing saved options use 100/100. Saved choices load on
   startup; explicit flags override only their corresponding field.
 - **In-game options:** the Options shortcut (Escape or controller Y by
-  default) opens the four-row window during free exploration in towns, on
+  default) opens the scrolling five-entry window during free exploration in towns, on
   the world map and in dungeons, with released controls. The scene stays
   behind it and music continues. Combat, title, dialogue and other menus
   ignore the shortcut. Left/Right changes a row; button 1 saves and closes,
   button 2 or the Options shortcut discards the draft. Each 100% is DEFAULT;
   encounters 25% and experience/meseta 400% are RECOMMENDED, the pace of the
   Switch release's easy mode; the third row is AUTOMAP OFF (DEFAULT) or ON;
-  the fourth, CONTROLS, opens the Controls screen and comes back.
+  the fourth, CONTROLS, opens Controls, and the fifth, LANGUAGE, opens Language.
+  These child screens save independently of the parent settings draft.
 - **Persistence:** a companion file retains preferences without changing the
   cartridge save format; since milestone 7 it is written in format 2, with
   the automap choice, which release 0.1.0 refuses (it then plays with the
@@ -132,8 +142,8 @@ layer.
 | --- | --- | --- |
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
-| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money, dungeon walking), the options, the dungeon tables and the automap's exploration model |
-| Program | `src/app/` | SDL window, sound, input and its bindings, save files and their companions, the start, Options, Controls and map screens, frame pacing, command-line options |
+| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money, dungeon walking, text), the options, the dungeon tables and the automap's exploration model |
+| Program | `src/app/` | SDL window, sound, input and its bindings, save files and their companions, the start, Options, Controls, Language and map screens, frame pacing, command-line options |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
 | Tests | `tests/` | Unit, conformance, ROM, probe and checkpoint tests |
@@ -143,7 +153,8 @@ Some properties matter for the next milestones:
 - **Exact and deterministic recordings.** Options shortcuts are ignored while recording.
   The same recording always gives the same frames, byte for byte.
 - **Copyable.** The whole machine copies as one value, so a run can be
-  forked and compared.
+  forked and compared. Immutable ROM images are shared; a language switch
+  changes only the active machine image, leaving earlier copies untouched.
 - **Verified replacements.** Registered C++ routines replace the original
   only where interrupts and frame boundaries permit exact timing. Other
   calls stay on the Z80. A developer switch disables replacements.
@@ -178,7 +189,7 @@ The game-system chapters cover [controller reading](how-it-works/controls.md),
 [party records and experience](how-it-works/party.md),
 [the sound driver](how-it-works/sound.md), and
 [walking in the dungeons](how-it-works/dungeons.md), which also explains
-how the automap reads the game.
+how the automap reads the game, and [text](how-it-works/text.md).
 
 The annotated disassembly is private (design section 6): it rebuilds the
 player's ROM exactly without holding any ROM data, and its catalog names
@@ -198,7 +209,8 @@ catalog.
 | Battle setup (`01:5FFE`) and money addition (`00:297A`) | C++ by default; battle meseta scales with the experience option |
 | Dungeon walking: the input handler (`01:65EE`), steps, turns, the pitfall, doors, the exit lookup, the check for chests, fights and events, and the cell readers | C++ by default, eleven routines in 53 pieces; three short pitfall sequences that switch interrupts off stay on the Z80 |
 | The 3D dungeon view and its animations, the dungeon load, the world-map transfer | Original Z80 code |
-| Menus, text, sound driver, native saves and the rest | Original Z80 code; host options and the map use the original field-menu wait |
+| Text readers, dictionary, control codes, names/numbers, character output and waits | C++ by default in segments, with both-ROM timing verification |
+| Menus, sound driver, native saves and the rest | Original Z80 code; host options and the map use the original field-menu wait |
 
 On the fifteen checkpoint recordings, controller polling ran in C++ on all
 101,335 calls. The other routines ran in C++ on almost every call; the few
@@ -241,7 +253,11 @@ the game.
 - **The default controls are release 0.2.0's:** a test checks every
   combination of the default keys and controller buttons; recordings and
   replay never see the bindings.
-- **The complete suite** has 159 tests; at the closure of milestone 8 all
+- **Text and languages:** both-ROM segment probes and a Brazilian text
+  recording check the distinct text paths. Town, world-map and dungeon
+  switching tests preserve machine state and shared progress. Legacy import
+  tests cover cancellation, missing/locked files, concurrency and crashes.
+- **The complete suite** has 178 tests; at the closure of milestone 9 all
   passed with none skipped.
 - **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
   the VDPTest results for the SMS1 video chip.
@@ -253,7 +269,7 @@ the game.
 ## Known gaps
 
 - **Options remain deliberately small.** Encounter and experience/meseta
-  rates, the automap and the controls are available in-game and saved.
+  rates, the automap, controls and language are available in-game and saved.
   Other features remain later work on the [roadmap](roadmap.md).
 - **Controls have one key and one controller input per action,** and only
   the first controller found is used; there is no second pad and no
@@ -293,9 +309,10 @@ the game.
   recordings; routes they never reach, such as the ending, rare battle and
   sound paths, and most work-RAM fields are still Unknown.
 - **Windows only** for the save location.
-- **The Brazilian version is checked by its recordings and probes, not by
-  play.** Development and play-tests use the US version (design 5.5); the
-  Brazilian version's six checkpoints and its probes run in the tests.
+- **Brazilian coverage remains bounded.** Its six checkpoints, text recording
+  and probes run in the tests. The milestone 9 language-switching play-test
+  was accepted; this is not a full Brazilian playthrough. Development still
+  uses the US cartridge first (design 5.5).
 - **Some details of the first Master System's video chip are unmeasured.**
   PSModern follows the reference there, and [development](development.md)
   labels them Unknown. The game reaches two of them, video memory accesses

@@ -287,9 +287,20 @@ two versions (ROM run).
 - Text is **not extracted into files in the repository**: it is read from
   the player's ROM at startup (see 7). In enhanced mode, the new interface
   and windows must accept texts of different lengths in the two languages.
-- Changing the language takes effect at the next game start, not mid-game.
-  The save layout is the same in both versions, and US saves load in the
-  Brazilian game (Reference emulator), so a save works in both languages.
+- Language selection is global and takes effect during the current game
+  after Options closes at a proven free-exploration boundary (Maintainer
+  decision, 2026-11-13; [milestone 9](milestone-9-plan.md)). Dialogue, battle
+  and other native menus must finish first. A change keeps the session's
+  shared saves, options and automap independently of the available ROMs. The
+  launcher has one PLAY entry. On first use, import an existing legacy US/BR
+  set without modifying its originals; different old sets require a one-time
+  choice, never a silent merge (Maintainer decision, 2026-11-13). The save
+  layout is the same in both versions, and US saves load in the Brazilian game
+  (Reference emulator).
+- PSModern's own player-facing screens follow the selected language too
+  (Maintainer decision, 2026-11-13). Portuguese labels rendered with the
+  cartridge font use uppercase without accents; no new font art is added.
+  Original game text remains exactly the selected cartridge's text.
 
 ## 6. Knowledge as a deliverable
 

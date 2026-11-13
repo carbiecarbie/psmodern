@@ -12,6 +12,18 @@
 
 namespace psmodern::app {
 const char* save_name(RomVersion version);
+inline constexpr const char* shared_save_name="phantasy-star.sav";
+// Nonblocking process lock, also used while preserving legacy save sets.
+class SaveLock {
+public:
+    explicit SaveLock(const std::filesystem::path& lock_path);
+    ~SaveLock();
+    SaveLock(const SaveLock&)=delete;
+    SaveLock& operator=(const SaveLock&)=delete;
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 std::filesystem::path production_save_folder();
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image);
 // Atomically replaces a small text file (settings, remembered ROMs), creating
@@ -27,6 +39,9 @@ public:
     using SettingsWriter=std::function<void(const std::filesystem::path&,const std::string&)>;
     SaveStore(std::filesystem::path folder,RomVersion version,Writer writer=atomic_save,SettingsWriter settings_writer=atomic_settings,
               SettingsWriter automap_writer=atomic_text);
+    // The shared directory must already have been published by open_shared_save.
+    static SaveStore shared(const std::filesystem::path& folder);
+    void acquire_lock() const { ensure_lock(); }
     ~SaveStore();
     SaveStore(SaveStore&&) noexcept;
     SaveStore& operator=(SaveStore&&) noexcept;
@@ -71,12 +86,11 @@ public:
     const std::filesystem::path& path() const { return path_; }
     std::uint64_t writes() const { return writes_; }
 private:
-    struct Lock;
     void ensure_lock() const;
     void ensure_backup();
     void stage(const Memory::CartridgeRam& image,const game::Options& preferences);
     std::optional<std::string> flush_automap(const Memory::CartridgeRam& image);
-    mutable std::unique_ptr<Lock> lock_;
+    mutable std::unique_ptr<SaveLock> lock_;
     std::filesystem::path path_;
     Writer writer_;
     SettingsWriter settings_writer_,automap_writer_;

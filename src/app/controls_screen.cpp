@@ -29,14 +29,23 @@ Nav nav(std::uint32_t bits) {
     auto any=[&](unsigned meaning) { return (bits>>(3*meaning)&7u)!=0; };
     return {any(0),any(1),any(2),any(3),any(4),any(5),any(6)};
 }
-std::string label(Action a) { return std::string(action_label(a)); }
+std::string message_text(UiText id,Action action,Language language) {
+    const auto text=ui_text(id,language);
+    if(action==Action::count)return std::string(text);
+    const auto label=ui_action_label(action,language);
+    return id==UiText::needs_key ? std::string(label)+std::string(text) : std::string(text)+std::string(label);
+}
 }
 void ControlsScreen::open(const Bindings& current) {
-    draft_=current; previous_={}; status_.clear(); message_.clear(); row_=column_=top_=0;
+    draft_=current; previous_={}; status_.clear();message_id_=status_id_=UiText::none;
+    message_action_=status_action_=Action::count;row_=column_=top_=0;
     visible_=block_held_=true; capturing_=capture_ready_=sticky_=false; blocked_=held_=previous_held_=0;
     next_repeat_=capture_started_=status_until_=0;
 }
-void ControlsScreen::notice(std::string text,double now) { message_=std::move(text); status_until_=now+result_seconds; }
+void ControlsScreen::notice(UiText message,double now,Action action) {
+    message_id_=message;message_action_=action;status_until_=now+result_seconds;
+}
+std::string ControlsScreen::localized_status(Language language) const {return message_text(status_id_,status_action_,language);}
 ControlsAction ControlsScreen::update(const InputSnapshot& input,double now) {
     if (!visible_) return ControlsAction::none;
     auto result=ControlsAction::none;
@@ -54,9 +63,11 @@ ControlsAction ControlsScreen::update(const InputSnapshot& input,double now) {
     }
     previous_=input;
     if (!visible_) return result;
-    if (sticky_ || now<status_until_) status_=message_;
-    else if (capturing_) status_=(column_==0 ? "PRESS A KEY FOR " : "PRESS BUTTON FOR ")+label(Action(row_));
-    else status_=input.controller ? "CONTROLLER CONNECTED" : "NO CONTROLLER FOUND";
+    status_action_=Action::count;
+    if (sticky_ || now<status_until_) { status_id_=message_id_;status_action_=message_action_; }
+    else if (capturing_) { status_id_=column_==0 ? UiText::press_key_for : UiText::press_button_for;status_action_=Action(row_); }
+    else status_id_=input.controller ? UiText::controller_connected : UiText::no_controller;
+    status_=localized_status();
     return result;
 }
 void ControlsScreen::capture(const InputSnapshot& input,double now) {
@@ -81,12 +92,12 @@ void ControlsScreen::capture(const InputSnapshot& input,double now) {
     if (key_column && key) result=assign_key(draft_,a,*key);
     else if (!key_column && pad) result=assign_pad(draft_,a,*pad);
     else if (other_device) { end_capture(); return; }   // a press on the other device cancels
-    else { if (unavailable) notice("KEY NOT AVAILABLE",now); return; }
+    else { if (unavailable) notice(UiText::key_unavailable,now); return; }
     switch (result.change) {
-    case Change::swapped: notice("SWAPPED WITH "+label(result.other),now); break;
-    case Change::refused_in_use: notice((key_column ? "KEY USED BY " : "BUTTON USED BY ")+label(result.other),now); break;
-    case Change::refused_required: notice(label(a)+" NEEDS A KEY",now); break;
-    case Change::fixed: notice("ALT ENTER IS FIXED",now); break;
+    case Change::swapped: notice(UiText::swapped_with,now,result.other); break;
+    case Change::refused_in_use: notice(key_column ? UiText::key_used_by : UiText::button_used_by,now,result.other); break;
+    case Change::refused_required: notice(UiText::needs_key,now,a); break;
+    case Change::fixed: notice(UiText::fullscreen_fixed,now); break;
     case Change::set: case Change::unchanged: break;
     }
     end_capture();
@@ -96,14 +107,14 @@ ControlsAction ControlsScreen::browse(const InputSnapshot& input,double now) {
     const bool accept=n.accept && !p.accept, back=n.back && !p.back, clear=n.clear && !p.clear;
     const bool fresh=(n.up && !p.up) || (n.down && !p.down) || (n.left && !p.left) || (n.right && !p.right);
     const bool pressed=fresh || accept || back || clear || (input.keys & ~previous_.keys).any() || (input.pad & ~previous_.pad).any();
-    if (sticky_ && pressed) { sticky_=false; message_.clear(); }
+    if (sticky_ && pressed) { sticky_=false; message_id_=UiText::none;message_action_=Action::count;status_until_=0; }
     if (back) { close(); return ControlsAction::close; }
     const bool on_action=row_<action_rows;
     if (accept) {
         if (on_action) {
-            if (column_==0 && key_fixed(Action(row_))) notice("ALT ENTER IS FIXED",now);
+            if (column_==0 && key_fixed(Action(row_))) notice(UiText::fullscreen_fixed,now);
             else { capturing_=true; capture_ready_=false; capture_started_=now; status_until_=0; }
-        } else if (row_==restore_row) { draft_=Bindings::defaults(); message_="DEFAULTS - NOT SAVED YET"; sticky_=true; }
+        } else if (row_==restore_row) { draft_=Bindings::defaults();notice(UiText::defaults_unsaved,now);sticky_=true; }
         else if (row_==save_row) return ControlsAction::save;
         else { close(); return ControlsAction::close; }
         return ControlsAction::none;
@@ -111,9 +122,9 @@ ControlsAction ControlsScreen::browse(const InputSnapshot& input,double now) {
     if (clear && on_action) {
         const auto a=Action(row_);
         const auto result=column_==0 ? clear_key(draft_,a) : clear_pad(draft_,a);
-        if (result.change==Change::set) notice("CLEARED",now);
-        else if (result.change==Change::refused_required) notice(label(a)+" NEEDS A KEY",now);
-        else if (result.change==Change::fixed) notice("ALT ENTER IS FIXED",now);
+        if (result.change==Change::set) notice(UiText::cleared,now);
+        else if (result.change==Change::refused_required) notice(UiText::needs_key,now,a);
+        else if (result.change==Change::fixed) notice(UiText::fullscreen_fixed,now);
         return ControlsAction::none;
     }
     if ((n.up || n.down || n.left || n.right) && (fresh || now>=next_repeat_)) {
@@ -129,36 +140,40 @@ ControlsAction ControlsScreen::browse(const InputSnapshot& input,double now) {
     return ControlsAction::none;
 }
 void ControlsScreen::saved() { close(); }
-void ControlsScreen::failed() { sticky_=true; message_=status_="SAVE FAILED - RETRY"; }
-void ControlsScreen::render(std::span<std::uint32_t> pixels,const RomFont& font) const {
+void ControlsScreen::failed() {
+    sticky_=true;message_id_=status_id_=UiText::save_failed;message_action_=status_action_=Action::count;status_=localized_status();
+}
+void ControlsScreen::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
     font.window(pixels,0,0,256,192,first_row_y+row_step*int(row_-top_));
-    font.text(pixels,title_x,title_y,"CONTROLS",white);
-    font.text(pixels,key_header_x,header_y,"KEYBOARD",white);
-    font.text(pixels,pad_header_x,header_y,"GAMEPAD",white);
-    if (top_>0) font.text(pixels,hint_x,hint_above_y,"MORE ABOVE",grey);
-    if (top_+visible_rows<rows) font.text(pixels,hint_x,hint_below_y,"MORE BELOW",grey);
+    auto text=[&](UiText id){return ui_text(id,language);};
+    const auto title=text(UiText::controls);
+    font.text(pixels,(256-int(title.size())*8)/2,title_y,title,white);
+    font.text(pixels,key_header_x,header_y,text(UiText::keyboard),white);
+    font.text(pixels,language==Language::portuguese ? pad_header_x-8 : pad_header_x,header_y,text(UiText::gamepad),white);
+    if (top_>0) font.text(pixels,hint_x,hint_above_y,text(UiText::more_above),grey);
+    if (top_+visible_rows<rows) font.text(pixels,hint_x,hint_below_y,text(UiText::more_below),grey);
     for (unsigned i=0;i<visible_rows;++i) {
         const unsigned index=top_+i;const int y=first_row_y+row_step*int(i);
         const bool selected=index==row_;
         if (index>=action_rows) {
-            static constexpr const char* commands[]={"RESTORE DEFAULTS","SAVE","CANCEL"};
-            font.text(pixels,action_x,y,commands[index-action_rows],selected ? yellow : white);
+            static constexpr UiText commands[]{UiText::restore_defaults,UiText::save,UiText::cancel};
+            font.text(pixels,action_x,y,text(commands[index-action_rows]),selected ? yellow : white);
             continue;
         }
         const auto a=Action(index);
-        font.text(pixels,action_x,y,action_label(a),white);
+        font.text(pixels,action_x,y,ui_action_label(a,language),white);
         const bool key_selected=selected && column_==0, pad_selected=selected && column_==1;
         // The cell being captured is blank.
         if (!(capturing_ && key_selected)) {
             if (key_fixed(a)) font.text(pixels,key_x,y,fixed_fullscreen_label,key_selected ? yellow : grey);
-            else if (draft_.keys[a]) font.text(pixels,key_x,y,key_token(*draft_.keys[a]),key_selected ? yellow : white);
-            else font.text(pixels,key_x,y,unbound_label,key_selected ? yellow : grey);
+            else if (draft_.keys[a]) font.text(pixels,key_x,y,ui_key_label(*draft_.keys[a],language),key_selected ? yellow : white);
+            else font.text(pixels,key_x,y,text(UiText::no_binding),key_selected ? yellow : grey);
         }
         if (!(capturing_ && pad_selected)) {
-            if (draft_.pads[a]) font.text(pixels,pad_x,y,pad_label(*draft_.pads[a]),pad_selected ? yellow : white);
-            else font.text(pixels,pad_x,y,unbound_label,pad_selected ? yellow : grey);
+            if (draft_.pads[a]) font.text(pixels,pad_x,y,ui_pad_label(*draft_.pads[a],language),pad_selected ? yellow : white);
+            else font.text(pixels,pad_x,y,text(UiText::no_binding),pad_selected ? yellow : grey);
         }
     }
-    font.text(pixels,status_x,status_y,status_,white);
+    font.text(pixels,status_x,status_y,localized_status(language),white);
 }
 }

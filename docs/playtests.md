@@ -17,7 +17,8 @@ and feels to a player, and the paths through real devices and files.
   the absolute path of a `saves` folder next to the launcher, so the test
   starts with no save and never touches the player's own saves.
 - Open each launcher once yourself and check that the window title names the
-  right version. Empty the save folder afterwards.
+  expected language (or cartridge version on older builds). Empty the isolated
+  save folder afterwards, retaining only the remembered ROM list needed to play.
 - Keep a playable copy of the reference emulator ready, with the settings
   of [the reference driver](development.md#reference-driver), so the
   maintainer can compare the same moment of the game side by side.
@@ -38,7 +39,7 @@ Write the guide in Portuguese, for a player rather than a programmer:
 ## Afterwards
 
 Read the notes. Check the files the test should have produced, such as the
-save of the version played, its `.bak` copy and the lock file, before
+shared save, its `.bak` copy and the lock file, before
 treating an item as done. Record the result, including any part the maintainer chose to
 skip, in the milestone plan at closure.
 

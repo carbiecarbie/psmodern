@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "app/options_menu.h"
+#include "app/localization.h"
 #include "app/rom_list.h"
 #include <cstdint>
 #include <filesystem>
@@ -10,10 +11,10 @@
 #include <vector>
 
 namespace psmodern::app {
-enum class StartAction { none,play_us,play_br,choose,controls,open_saves,quit };
+enum class StartAction { none,play,choose,controls,language,open_saves,quit };
 // The start screen shown when psmodern.exe runs without arguments: one entry
-// per remembered ROM, then CHOOSE ANOTHER ROM, CONTROLS, OPEN SAVES FOLDER and
-// QUIT.
+// when at least one ROM is available, then Add ROM, Controls, Language,
+// Open saves folder and Quit. Language names the global presentation choice.
 // Input follows OptionsMenu: nothing is accepted until a neutral focused
 // snapshot, losing focus disarms, held directions repeat, the cursor wraps.
 class StartScreen {
@@ -25,8 +26,9 @@ public:
     // accept chooses the selected entry; cancel (Esc) quits.
     StartAction update(const MenuInput& input,double now);
     // Black picture with the original window style, centred on 256x192.
-    void render(std::span<std::uint32_t> pixels,const RomFont& font) const;
-    static const char* label(StartAction action);
+    void render(std::span<std::uint32_t> pixels,const RomFont& font,Language language=Language::english,
+                LanguagePreference preference=LanguagePreference::native) const;
+    static const char* label(StartAction action,Language language=Language::english);
     static std::string footer();
 private:
     std::vector<StartAction> entries_;
@@ -43,6 +45,9 @@ public:
     // The file the player picked, or nothing when cancelled.
     virtual std::optional<std::filesystem::path> pick_rom()=0;
     virtual void show_message(const std::string& text)=0;
+    // The host logs the canonical detail and presents a localized summary.
+    // Non-UI platforms may keep reporting the full detail unchanged.
+    virtual void show_notice(UiText,const std::string& english_detail) { show_message(english_detail); }
     // true: choose again; false: the give_up button (Quit or Back).
     virtual bool ask_retry(const std::string& text,const char* give_up)=0;
     virtual RomListLoad load_list()=0;
@@ -63,8 +68,6 @@ std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unre
 // the ROM added, or nothing. Slots of unreadable (see prepare_launcher) that
 // list does not fill are saved too.
 std::optional<RomVersion> choose_rom(LauncherPlatform& platform,RomList& list,bool first_run,const RomList& unreadable={});
-// The start screen entry that plays a version.
-inline StartAction play_action(RomVersion version) { return version==RomVersion::us_rev_a ? StartAction::play_us : StartAction::play_br; }
-// The ROM whose font draws the start screen: US preferred.
-const std::filesystem::path& font_rom(const RomList& list);
+// The primary ROM for the launcher and session: US preferred.
+const std::filesystem::path& primary_rom(const RomList& list);
 }

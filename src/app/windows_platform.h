@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "app/language.h"
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -18,7 +19,7 @@ std::vector<std::string> utf8_arguments(int argc,char** argv);
 void attach_parent_console();
 // The Windows "Open" dialog for a .sms file; empty when cancelled. A desktop
 // fullscreen owner leaves fullscreen while the dialog is shown.
-std::optional<std::filesystem::path> pick_rom_file(SDL_Window* owner);
+std::optional<std::filesystem::path> pick_rom_file(SDL_Window* owner,Language language=Language::english);
 // Creates the folder and shows it in the file manager; throws on failure.
 void open_folder(const std::filesystem::path& folder);
 }

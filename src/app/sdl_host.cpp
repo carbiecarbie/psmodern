@@ -179,9 +179,10 @@ FrameInput sample_input(SDL_Window* window,const Controller& c,const EnterKey& e
     SDL_PumpEvents(); // Exactly one snapshot for this emulated frame.
     return frame_input(c.bindings(),held_input(window,c,&enter));
 }
-Audio::Audio() {
+Audio::Audio(std::function<void(const std::string&)> warning):warning_(std::move(warning)) {
+    if(!warning_)warning_=[](const std::string& text){message(text);};
     if (SDL_InitSubSystem(SDL_INIT_AUDIO)!=0) {
-        message(std::string("Audio unavailable; continuing silently: ")+SDL_GetError()); warned_=true;
+        warning_(std::string("Audio unavailable; continuing silently: ")+SDL_GetError()); warned_=true;
     }
 }
 Audio::~Audio() { close(); }
@@ -197,7 +198,7 @@ void Audio::open(double now) {
     if (!(SDL_WasInit(SDL_INIT_AUDIO)&SDL_INIT_AUDIO)) SDL_InitSubSystem(SDL_INIT_AUDIO);
     device_=SDL_OpenAudioDevice(nullptr,0,&wanted,&got,SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
     if (!device_) {
-        if (!warned_) { message(std::string("Audio unavailable; continuing silently and retrying: ")+SDL_GetError()); warned_=true; }
+        if (!warned_) { warning_(std::string("Audio unavailable; continuing silently and retrying: ")+SDL_GetError()); warned_=true; }
         return;
     }
     hz_=got.freq; resampler_=std::make_unique<Resampler>(hz_);

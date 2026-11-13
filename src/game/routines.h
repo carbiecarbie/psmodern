@@ -5,6 +5,7 @@
 #include "game/experience.h"
 #include "game/money.h"
 #include "game/options.h"
+#include "game/text.h"
 #include "machine/routines.h"
 #include <string_view>
 

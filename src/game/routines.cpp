@@ -59,6 +59,7 @@ bool register_routines(RoutineRegistry& registry, std::string_view digest, const
     register_dungeon_cells(registry);
     register_dungeon_movement(registry);
     register_dungeon_objects(registry);
+    register_text(registry);
     return true;
 }
 }

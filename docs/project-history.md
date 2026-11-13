@@ -127,3 +127,14 @@ and the automap's floor label. The player's README and the start screen
 picture follow. All 159 tests passed without skips. The maintainer asked
 to publish without a release play-test, having played the milestone 8
 build. Published as GitHub release v0.3.0. Prepared by `488a43f`.
+
+## Milestone 9 - Text and language selection (2026-11-13)
+
+Text runs in C++ with both cartridges' timing, and English/Portuguese can
+change during exploration without restarting. Localized host screens use
+one PLAY entry and shared saves, options and automap; one-time legacy import
+preserves both originals. Independent Tier A reviews approved the work;
+178 tests passed without skips, and the ROM-free CI configuration passed.
+The maintainer completed the isolated play-test and reported everything
+correct on 2026-11-13. [Plan](milestone-9-plan.md). Accepted implementation
+is based on `966c21f`; implementation and closure are not yet committed.

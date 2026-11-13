@@ -82,16 +82,18 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
     if(!tested || !tested->menu_active())return {};
     was_active=true;
     if(mode_under_test>=3) {
-        // Up wraps to CONTROLS; accept opens the Controls screen. Back in
-        // Options (re-armed by a neutral snapshot), down wraps to ENCOUNTERS,
+        // Two ups reach CONTROLS through LANGUAGE; accept opens Controls. Back in
+        // Options (re-armed by a neutral snapshot), two downs wrap to ENCOUNTERS,
         // right changes 200 to 0 and accept applies.
         if(awaiting_controls && !controls_closed)return {};
         switch(stage++){
             case 1:return {.up=true};
-            case 3:awaiting_controls=true;return {.accept=true};
-            case 5:return {.down=true};
-            case 7:return {.right=true};
-            case 9:return {.accept=true};
+            case 3:return {.up=true};
+            case 5:awaiting_controls=true;return {.accept=true};
+            case 7:return {.down=true};
+            case 9:return {.down=true};
+            case 11:return {.right=true};
+            case 13:return {.accept=true};
             default:return {};
         }
     }
@@ -212,7 +214,7 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 #define SDL_PollEvent launcher_poll
 #define sample_start_input scripted_start
 #define sample_controls_input launcher_controls
-#define pick_rom_file(owner) std::optional<std::filesystem::path>()
+#define pick_rom_file(...) std::optional<std::filesystem::path>()
 #define open_folder(folder) (void)(folder)
 #include "../src/app/start_loop.cpp"
 #undef SDL_PollEvent
@@ -223,7 +225,7 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 // The scripted game sessions pass their own argv and never reach the start screen.
 #define utf8_arguments(argc,argv) std::vector<std::string>(argv,argv+argc)
 #define attach_parent_console()
-#define run_launcher(display) std::optional<std::filesystem::path>()
+#define run_launcher(...) std::optional<psmodern::app::SessionRoms>()
 #define main options_app_main
 #define FrameDriver SeededDriver
 #define SDL_PollEvent scripted_poll
@@ -283,7 +285,7 @@ int main(int argc,char**argv){try{
         char* normal[]{argv[0],argv[1],rate,value};char* recording_args[]{argv[0],argv[1],record,recording.data()};char* raw_args[]{argv[0],argv[1],raw};
         const auto result=options_app_main(mode_under_test==2?3:4,mode_under_test==1?recording_args:mode_under_test==2?raw_args:normal);
         if(result || (mode_under_test==1 ? was_active : !was_active || modal_frames==0 || !restored_speed))throw std::runtime_error("Scripted options app session failed");
-        if(mode_under_test>=3 && (!controls_closed || controls_frames==0 || stage<10))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
+        if(mode_under_test>=3 && (!controls_closed || controls_frames==0 || stage<14))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
         if(mode_under_test==4){
             SDL_Quit();   // balances the test's own SDL_Init; the virtual controller goes with it
             const auto saved=app::load_bindings(controls_folder);
@@ -293,7 +295,7 @@ int main(int argc,char**argv){try{
             std::filesystem::remove(controls_folder/app::bindings_file_name);
         }
         if(std::filesystem::exists(root/"PSModern"/app::bindings_file_name))throw std::runtime_error("Closing the Controls screen wrote the controls file");
-        app::SaveStore store(root/"PSModern",version);
+        auto store=app::SaveStore::shared(root/"PSModern");
         if(store.load_preferences(store.load())!=game::Options{0,100})throw std::runtime_error("App Apply or restricted session changed preferences incorrectly");
     }
     {   // The start screen (video only: no controller is opened).

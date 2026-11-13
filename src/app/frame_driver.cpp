@@ -5,6 +5,7 @@
 #include "app/automap_store.h"
 #include <fstream>
 #include <stdexcept>
+#include <algorithm>
 
 namespace psmodern::app {
 namespace {
@@ -16,7 +17,7 @@ std::filesystem::path utf8_path(std::string_view text) {
 }
 std::string app_usage() {
     return "Usage: psmodern.exe | psmodern.exe --version | psmodern.exe <rom-path> [--record <new-file>] [--no-routines] "+game::OptionFlags::usage()+
-        "\nRun without arguments for the start screen. Provide an uncompressed US Rev-A or Brazilian .sms file. Omitted rate flags use saved settings; a new profile defaults to the original game.";
+        "\nRun without arguments for the start screen. Provide an uncompressed US Rev-A or Brazilian .sms file. Omitted rate flags use saved settings; new saved games default to the original game.";
 }
 LoadedRom load_rom(const std::filesystem::path& path) {
     const auto version=identify_rom(path);
@@ -88,6 +89,59 @@ void FrameDriver::activate(const game::Options& options) {
     game::register_routines(next,sha1(*rom_),options);
     guard_observed_instructions(next);
     routines_=std::move(next);effective_=options;
+}
+namespace {
+bool same_catalogue(const RoutineRegistry& a,const RoutineRegistry& b) {
+    if(a.entries().size()!=b.entries().size())return false;
+    for(const auto& [entry,routine]:a.entries()) {
+        const auto* other=b.find(entry);if(!other)return false;
+        const auto& x=routine.spec;const auto& y=other->spec;
+        if(x.unit!=y.unit || x.slot2_mapper!=y.slot2_mapper || x.scratch_stack!=y.scratch_stack ||
+           x.single_instruction!=y.single_instruction || x.force_admit!=y.force_admit ||
+           x.absolute_wram_store!=y.absolute_wram_store || x.inherited_stack!=y.inherited_stack ||
+           x.exits.size()!=y.exits.size() || !std::equal(x.exits.begin(),x.exits.end(),y.exits.begin(),
+               [](const auto& first,const auto& second){return first.same_declaration(second);}))return false;
+    }
+    return true;
+}
+}
+void FrameDriver::configure_languages(const SessionRoms& session) {
+    if(languages_configured_)throw std::logic_error("Session languages are already configured");
+    if(!session.image(session.active) || session.image(session.active)!=rom_)
+        throw std::invalid_argument("Session active ROM does not match the running machine");
+    if(options_restricted() && session.active!=native_language(session.source_version))
+        throw std::invalid_argument("Restricted sessions require the startup ROM");
+    // Validate every image and catalogue before publishing any availability.
+    std::array<std::optional<Machine::RomReplacement>,2> prepared;
+    for(unsigned i=0;i<2;++i)if(session.images[i]) {
+        const auto digest=sha1(*session.images[i]);
+        if(identify_digest(digest)!=(i ? RomVersion::brazilian : RomVersion::us_rev_a))
+            throw std::invalid_argument("Language image is in the wrong session slot");
+        RoutineRegistry target;game::register_routines(target,digest,effective_);guard_observed_instructions(target);
+        if(!same_catalogue(routines_,target))throw std::logic_error("Language routine catalogues differ");
+        prepared[i]=Machine::prepare_rom_replacement(session.images[i]);
+    }
+    replacements_=std::move(prepared);language_roms_=session.images;
+    source_version_=session.source_version;language_=session.active;languages_configured_=true;
+}
+void FrameDriver::prepare_language(LanguagePreference preference) {
+    prepared_language_.reset();
+    if(!languages_configured_ || options_restricted() || !menu_active_ || menu_closing_ || menu_purpose_!=HostMenu::options)
+        throw std::logic_error("Language can change only inside an ordinary Options hold");
+    (void)format_language(preference); // refuse unknown enum values
+    const auto target=resolve_language(preference,source_version_);
+    const auto index=target==Language::english ? 0u : 1u;
+    if(!replacements_[index])throw std::runtime_error("The selected language ROM is unavailable");
+    RoutineRegistry candidate;game::register_routines(candidate,sha1(*language_roms_[index]),effective_);
+    guard_observed_instructions(candidate);
+    if(!same_catalogue(routines_,candidate))throw std::logic_error("Language routine catalogues differ");
+    prepared_language_=target;
+}
+void FrameDriver::commit_language() noexcept {
+    if(prepared_language_) {
+        pending_language_=*prepared_language_==language_ ? std::nullopt : prepared_language_;
+        prepared_language_.reset();
+    }
 }
 // Passive: reads the machine with peek at native instructions of bank 0 and
 // never writes machine state.
@@ -207,6 +261,15 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
             memory.write(static_cast<std::uint16_t>(sp-2),menu_saved_[4]);memory.write(static_cast<std::uint16_t>(sp-1),menu_saved_[5]);
             machine_->set_pad(0,{});
             menu_active_=menu_closing_=menu_cancel_seen_=false;
+            if(pending_language_) {
+                const auto index=*pending_language_==Language::english ? 0u : 1u;
+                machine_->replace_rom(*replacements_[index]);
+                rom_=language_roms_[index];language_=*pending_language_;
+                pending_language_.reset();++language_changes_;
+                // The shared registration path is version independent and
+                // reads through Machine. Keep its effective rates, counters
+                // and verifier, as well as the audio/map/tracker instances.
+            }
         }
         if (menu_request_ && pc==*menu_request_ && mapping==Memory::Mapping{Memory::Kind::rom,0}) {
             menu_request_.reset();
@@ -266,6 +329,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     return {std::move(writes),std::move(samples),store_.flush(machine_->memory()),std::move(playback),std::move(audio_error)};
 }
 std::optional<std::string> FrameDriver::power_cycle() {
+    if(menu_active_ || menu_request_)return "Power cycle is unavailable while a host menu is open.";
     auto error=flush();
     machine_=std::make_unique<Machine>(rom_,machine_->memory().cartridge_ram());
     exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
