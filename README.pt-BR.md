@@ -24,9 +24,9 @@ original, chamada por chamada e quadro por quadro, até não sobrar código Z80.
 No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 (em inglês).
 
-| Tela inicial (0.3.0) | Opções (0.3.0) |
-| --- | --- |
-| ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A janela de opções sobre uma cidade, com os valores recomendados](docs/images/options.png) |
+| Tela inicial (0.3.0) | Opções | Tela larga |
+| --- | --- | --- |
+| ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A janela de opções sobre uma cidade, com os valores recomendados e a tela larga ligada](docs/images/options.png) | ![Uma cidade na visão larga de 344 x 192](docs/images/widescreen.png) |
 
 ## O que já funciona
 
@@ -41,21 +41,20 @@ O que você tem hoje:
 - Uma versão para Windows (64 bits), com uma tela inicial que lembra das suas
   ROMs.
 - A imagem original de 256x192, ampliada em passos inteiros, em janela ou em
-  tela cheia.
+  tela cheia, e uma visão em tela larga opcional do mapa-múndi e das cidades.
 - O chip de som original, com as músicas e os efeitos.
 - Teclado ou controle, ou os dois ao mesmo tempo, com todas as teclas e
   botões configuráveis numa tela de Controles dentro do jogo.
-- Três opções que você ajusta dentro do jogo: a frequência das lutas
-  aleatórias, quanto de experiência e dinheiro cada luta dá e um mapa das
-  masmorras.
+- Quatro opções que você ajusta dentro do jogo: a frequência das lutas
+  aleatórias, quanto de experiência e dinheiro cada luta dá, um mapa das
+  masmorras e a tela larga no mapa-múndi e nas cidades.
 - Aceleração de 2x e 4x, com a música no ritmo normal.
 - Troque o jogo e a interface
   entre inglês e português pelas Opções durante a exploração, sem reiniciar.
   Cada idioma exige sua ROM. Uma entrada JOGAR usa as mesmas partidas salvas,
   independentemente do idioma ou das ROMs disponíveis.
 
-O [roteiro][roadmap] organiza o trabalho restante, incluindo tela widescreen
-no mapa-múndi e nas cidades.
+O [roteiro][roadmap] organiza o trabalho restante.
 
 ## Baixar e jogar
 
@@ -127,6 +126,7 @@ são salvos automaticamente. A cena continua atrás da janela e a música não p
 | Encounters (encontros) | 0, 25, 50, 100, 200% | Frequência das lutas aleatórias. 0 desliga. As lutas da história e as fixas não mudam. |
 | Experience / Meseta | 100, 200, 400% | Experiência e dinheiro de cada luta. Um personagem continua subindo no máximo um nível por luta. |
 | Automap (mapa automático) | Off, On | Um mapa do andar da masmorra onde você está. Desligado por padrão. |
+| Widescreen (tela larga) | Off, On | O mapa-múndi, as cidades e o voo da nave em 16:9. Desligado por padrão. |
 | CONTROLS (controles) | - | Abre a tela de Controles para mudar teclas e botões. |
 
 100% é o jogo original e aparece como DEFAULT. Encontros em 25% e experiência
@@ -153,6 +153,25 @@ você passa por ela; os chefes e guardiões nunca são marcados. O mapa fica
 guardado com cada jogo salvo, então o Continue traz de volta o mapa daquele
 jogo, e um jogo novo começa com o mapa vazio. A exploração é registrada mesmo
 com a opção desligada, então ligar a opção depois mostra o que você já viu.
+
+### Tela larga
+
+Com Widescreen ligado, o mapa-múndi, as cidades e o voo da nave entre os
+planetas aparecem em 344x192, 16:9: os
+256 pixels originais no meio e 44 a mais de cada lado, desenhados a partir do
+mapa com os tiles e as cores do próprio jogo, inclusive os 8 pixels da esquerda
+que o cartucho deixa em branco. Além da borda de uma cidade você vê o que o
+jogo tem ali; os mapas-múndi dão a volta. No espaço, os lados repetem as estrelas: as da
+direita do meio são as mesmas da esquerda. Batalhas, diálogos, lojas, casas,
+masmorras e as demais telas continuam com 256 pixels, centralizadas.
+A janela fica tão larga quanto a imagem larga durante toda a sessão, então não
+muda de tamanho enquanto você joga. Ligar ou desligar a opção redimensiona uma
+janela normal para o novo formato na escala atual (menor, se não couber na
+tela); uma janela maximizada ou em tela cheia mantém o tamanho. Em tela cheia a
+1366x768 a imagem é desenhada em 3x em vez de 4x. Desligada por padrão; o jogo
+roda igual nos dois casos. Gravando, ou com `--no-routines`, a linha é só de
+leitura e fica desligada. [Como funciona](docs/how-it-works/world-map.md)
+explica o que ela lê.
 
 ## Saves
 
@@ -205,7 +224,8 @@ A documentação do projeto é em inglês.
 - [Roteiro][roadmap]: os próximos marcos.
 - [Histórico][history]: os marcos já concluídos.
 - [Como funciona][how-it-works]: o console, os controles, os números
-  aleatórios, o grupo e o som, explicados para quem não programa.
+  aleatórios, o grupo, o som, as masmorras e o mapa-múndi, explicados para
+  quem não programa.
 - [Peculiaridades do original][quirks]: esquisitices do original mantidas de
   propósito e as diferenças entre as versões americana e brasileira.
 - [Design][design]: os objetivos e as decisões por trás deles.

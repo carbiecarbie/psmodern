@@ -145,3 +145,16 @@ The Windows release carries milestone 9 and saves Options automatically on
 exit. All 178 tests passed without skips. At the maintainer's request the
 exact release zip was published without a manual release play-test. Published
 as GitHub release v0.4.0 from `98d6a8f`.
+
+## Milestone 10 - Widescreen on the world map, in towns and in the spaceship flight (2026-11-14)
+
+An Options row, off by default, shows the world map, the towns and the
+spaceship flight at 344 x 192 (16:9): the original 256 pixels in the centre
+and 44 more per side drawn from the map with the cartridge's own tiles. It is
+a read-only presentation layer (`WideView`, `MapScreens`) beside the original
+picture; the machine is equal with it on or off, and settings gained format 3.
+Independent reviews of the plan, the implementation and the spaceship addition
+approved the work, and the complete suite passed 206 of 206 with no skips. The
+maintainer play-tested the world map, towns, transfers, fades, battles and the
+window, then the flight, and accepted it on 2026-11-14; vehicles were not
+play-tested because no save reaches one. [Plan](milestone-10-plan.md).

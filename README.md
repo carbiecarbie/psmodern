@@ -22,9 +22,9 @@ rewritten in C++ one at a time, and each rewrite is checked against the
 original, call by call and frame by frame, until no Z80 code is left. Along
 the way the project writes down [how the game works inside][how-it-works].
 
-| Start screen (0.3.0) | Options (0.3.0) |
-| --- | --- |
-| ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options window over a town, with the recommended rates](docs/images/options.png) |
+| Start screen (0.3.0) | Options | Widescreen |
+| --- | --- | --- |
+| ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options window over a town, with the recommended rates and Widescreen on](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
 
 ## What works today
 
@@ -37,21 +37,20 @@ What you get today:
 
 - A Windows (64-bit) version, with a start screen that remembers your ROMs.
 - The original 256x192 picture, scaled in whole steps, in a window or
-  fullscreen.
+  fullscreen, and an optional widescreen view of the world map, the towns and the spaceship flight.
 - The original sound chip, music and effects.
 - Keyboard or game controller, both at the same time if you like, with every
   key and button changeable on an in-game Controls screen.
-- Three options you set inside the game: how often random fights happen,
-  how much experience and battle money each fight gives, and a map of the
-  dungeons.
+- Four options you set inside the game: how often random fights happen,
+  how much experience and battle money each fight gives, a map of the
+  dungeons, and widescreen on the world map and in towns.
 - 2x and 4x fast-forward, with the music kept at its normal tempo.
 - Switch the game and interface between
   English and Portuguese from Options during exploration, without restarting.
   Each language needs its own ROM. One PLAY entry uses the same saved games
   regardless of language or which ROMs are available.
 
-The [roadmap][roadmap] orders the remaining work, including widescreen on the
-world map and in towns.
+The [roadmap][roadmap] orders the remaining work.
 
 ## Download and play
 
@@ -121,6 +120,7 @@ scene stays behind the window and the music keeps playing.
 | Encounters | 0, 25, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
 | Experience / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
 | Automap | Off, On | A map of the dungeon floor you are on. Off by default. |
+| Widescreen | Off, On | The world map, the towns and the spaceship flight in 16:9. Off by default. |
 | CONTROLS | - | Opens the Controls screen to change keys and buttons. |
 
 100% is the original game and is marked DEFAULT. Encounters at 25% and
@@ -147,6 +147,24 @@ through it; the bosses and guardians are never marked. The map is kept with
 each saved game, so Continue brings back the map of that game, and a new game
 starts with an empty one. Exploration is recorded even while the option is
 off, so turning it on later shows what you have already seen.
+
+### Widescreen
+
+With Widescreen on, the world map, the towns and the spaceship flight between
+planets are shown 344x192, 16:9: the
+original 256 pixels in the middle and 44 more on each side, drawn from the map
+with the game's own tiles and colors, including the 8 pixels on the left that
+the cartridge leaves blank. Past the edge of a town you see what the game has
+there; the world maps wrap around. In space the sides repeat the stars, so
+those at the right of the middle match those at the left. Battles, dialogue,
+shops, houses, dungeons and the other screens keep 256 pixels, centered. The
+window is as wide as the wide picture for the whole session, so it never
+changes size during play. Switching the option resizes a normal window to the
+new shape at its current scale (smaller if it would not fit on the screen); a
+maximized or fullscreen window keeps its size. At 1366x768 fullscreen the
+picture is drawn at 3x instead of 4x. Off by default; the game runs the same
+either way. While recording, or with `--no-routines`, the row is read-only and
+off. [How it works](docs/how-it-works/world-map.md) explains what it reads.
 
 ## Saves
 
@@ -195,7 +213,8 @@ displayed values, including launch flags. The developer modes `--record` and
 - [Roadmap][roadmap]: the next milestones.
 - [Project history][history]: the finished milestones.
 - [How it works][how-it-works]: the console, the controls, the random
-  numbers, the party and the sound, explained for readers who don't program.
+  numbers, the party, the sound, the dungeons and the world map, explained for
+  readers who don't program.
 - [Original quirks][quirks]: oddities of the original kept on purpose, and
   the differences between the US and Brazilian versions.
 - [Design][design]: the goals and the decisions behind them.
