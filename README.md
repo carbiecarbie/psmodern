@@ -22,7 +22,7 @@ rewritten in C++ one at a time, and each rewrite is checked against the
 original, call by call and frame by frame, until no Z80 code is left. Along
 the way the project writes down [how the game works inside][how-it-works].
 
-| Start screen (0.3.0) | Options | Widescreen |
+| Start screen (0.5.0) | Options | Widescreen |
 | --- | --- | --- |
 | ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options window over a town, with the recommended rates and Widescreen on](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
 

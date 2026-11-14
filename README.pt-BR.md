@@ -24,7 +24,7 @@ original, chamada por chamada e quadro por quadro, até não sobrar código Z80.
 No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 (em inglês).
 
-| Tela inicial (0.3.0) | Opções | Tela larga |
+| Tela inicial (0.5.0) | Opções | Tela larga |
 | --- | --- | --- |
 | ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A janela de opções sobre uma cidade, com os valores recomendados e a tela larga ligada](docs/images/options.png) | ![Uma cidade na visão larga de 344 x 192](docs/images/widescreen.png) |
 

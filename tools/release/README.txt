@@ -49,8 +49,8 @@ The start screen always uses the defaults (arrows, Z or Enter, Escape; D-pad,
 A or Start), so CONTROLS stays within reach. Controller buttons are named by
 position: A is the bottom button, whatever is printed on your pad. Each press
 of Tab or RB cycles the speed 1x, 2x, 4x, then 1x again; music keeps its
-normal tempo. The picture is the original 256x192, scaled in whole steps in a
-resizable window.
+normal tempo. The picture is the original 256x192 (344x192 with Widescreen),
+scaled in whole steps in a resizable window.
 
 OPTIONS (off by default)
 
@@ -61,6 +61,8 @@ Z/A, X/B or Escape/Y automatically saves the displayed values.
   Encounters   0, 25, 50, 100 or 200 percent of the original random fights.
   Experience   100, 200 or 400 percent; battle meseta follows it.
   Automap      Off or On; a map of the current dungeon floor (off by default).
+  Widescreen   Off or On; a 344x192 (16:9) view of the world map, towns and
+               spaceship flight (off by default).
   Controls     Opens the Controls screen.
   Language     Changes the language during exploration after saving your choice.
 
@@ -72,6 +74,14 @@ current floor, labelled at the top FLOOR 1, 2... (FLOOR 1 is the lowest floor
 with an exit outside) or FLOOR B1... below it. The game pauses and music
 continues. The map shows explored places, and is saved with each game.
 Exploration is recorded even while the option is off.
+
+With Widescreen on, the world map, the towns and the spaceship flight show 44
+more pixels on each side, drawn from the game's own map and tiles. The original
+256 pixels stay in the centre; every other screen (battles, menus, dungeons,
+scenes) stays centred with black bars, and the window widens when the game
+starts. In the spaceship flight the stars at the right repeat those at the
+left, as the console's video chip itself would draw them. Widescreen changes
+nothing in the game itself.
 
 CHANGING THE CONTROLS
 
