@@ -194,3 +194,34 @@ US Rev-A ROM (the Brazilian tables are identical here).
 - **Where:** `01:6963`.
 - **ROM static, ROM run.** The object check reads the cell ahead, not the one
   stood on, so a fixed fight or event begins when the party faces it.
+
+## The world map and the towns
+
+How these work is in [the world map and the towns](how-it-works/world-map.md).
+Original mode keeps both oddities below; the widescreen option (off by default)
+draws around them without changing them.
+
+### The original shows 248 pixels of map
+
+- **Where:** the map load `00:0B6A` sets video register 0 to 26h at `00:0C8E`.
+- **ROM static, Hardware documentation.** The value turns on the left-column
+  blank: the first 8 pixels of every line show the backdrop colour instead of
+  the map. The background name table has 32 columns, exactly one picture wide.
+- **ROM run.** In the census of all 18 recordings, the leftmost name-table
+  column was stale in every map frame it was checked in.
+- **Inference.** The blank hides the column that the scrolling refills, since
+  there is no spare column. The reason is not proven; the effect is.
+- With widescreen on, PSModern draws those 8 pixels from the map instead
+  (**Maintainer decision**, 2026-11-14); with it off they stay blank.
+
+### The camera never stops at a map's edge
+
+- **Where:** the party is fixed on the screen (`01:599F`) and the camera is moved
+  by `01:7143`; no code clamps it.
+- **ROM static.** Near the edge of a town the screen shows whatever the town's
+  sheet holds past it: uniform filler screens (one metatile each, not the same
+  on every sheet) and, when close enough, other towns of the same sheet. The
+  worlds wrap around instead, since their screen table repeats its first row
+  and column. The census never walked to the edge of a world.
+- The widescreen bands show the same things, further out; they do not clamp
+  or add black (**Maintainer decision**, 2026-11-14).

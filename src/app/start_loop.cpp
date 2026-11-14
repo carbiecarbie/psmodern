@@ -146,7 +146,9 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
             if(languages.visible())languages.render(pixels,font,platform.language);
             else if (controls.visible()) controls.render(pixels,font,platform.language);
             else screen.render(pixels,font,platform.language,preference);
-            sdl_check(SDL_UpdateTexture(display->texture.get(),nullptr,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
+            // The start screen is always the narrow canvas: the texture's first 256 columns.
+            const auto centre=centre_rect(*display);
+            sdl_check(SDL_UpdateTexture(display->texture.get(),&centre,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
             present(*display);
         }
         SDL_Delay(10);

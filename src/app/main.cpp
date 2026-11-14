@@ -106,8 +106,23 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         auto& display=launcher_display ? *launcher_display : own_display;
         auto* window=display.window.get();
         SDL_SetWindowTitle(window,title.c_str());
+        // Milestone 10: the session's canvas, 344 wide with the widescreen
+        // option, else the narrow 256 of 0.4.0. The start screen before this
+        // was always narrow.
+        bool wide_canvas=driver.widescreen_option();
+        apply_canvas(display,wide_canvas);
+        driver.set_widescreen(wide_canvas);
+        // The driver's wide picture of the last frame, or null (pillarbox).
+        auto wide_picture=[&]()->const WidePicture* { return driver.wide_picture(); };
         std::array<std::uint32_t,256*192> pixels{};
         Vdp::Picture menu_background{};
+        // Beside menu_background: the wide picture when the hold began, so a
+        // held menu keeps its bands.
+        std::optional<WidePicture> wide_menu_background;
+        auto capture_menu_background=[&]() {
+            menu_background=driver.machine().picture();
+            if(const auto* wide=wide_picture())wide_menu_background=*wide; else wide_menu_background.reset();
+        };
         Controller controller; controller.refresh();
         Audio audio([&](const std::string& details) {
             std::cerr<<details<<'\n';message(std::string(ui_text(UiText::audio_unavailable,language)),window);
@@ -201,7 +216,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 !menu_input.left && !menu_input.right && !menu_input.accept && !menu_input.cancel) {
                 const auto input=sample_input(window,controller,enter);
                 if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu())
-                    menu_background=driver.machine().picture();
+                    capture_menu_background();
             }
             // The map binding (M / X by default) opens the automap at the dungeon walking
             // wait, holding the game as Options does; with the option off the
@@ -212,7 +227,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 !menu_input.left && !menu_input.right && !menu_input.accept && !menu_input.cancel && !menu_input.toggle) {
                 const auto input=sample_input(window,controller,enter);
                 if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu(HostMenu::map))
-                    menu_background=driver.machine().picture();
+                    capture_menu_background();
             }
             if(map_screen.visible() && map_screen.update(menu_input)==MenuAction::close) {
                 map_screen.close();driver.close_menu();release.consume();
@@ -243,8 +258,13 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             } else if(menu.visible()) {
                 const auto action=menu.update(menu_input,now());
                 if(action==MenuAction::apply) {
-                    if(const auto error=driver.choose_options(menu.draft(),menu.automap_draft())) { report_save(error);menu.failed(); }
-                    else { menu.close();driver.close_menu();report_save({});release.consume(); }
+                    if(const auto error=driver.choose_options(menu.draft(),menu.automap_draft(),menu.widescreen_draft())) { report_save(error);menu.failed(); }
+                    else {
+                        // Applied at once, as the automap is.
+                        wide_canvas=driver.widescreen_option();
+                        apply_canvas(display,wide_canvas);
+                        driver.set_widescreen(wide_canvas);
+                        menu.close();driver.close_menu();report_save({});release.consume(); }
                 } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
                 else if(action==MenuAction::controls) controls_screen.open(controller.bindings());
                 else if(action==MenuAction::language)language_screen.open(preference,session.available(Language::english),
@@ -261,7 +281,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 audio.submit(output.playback ? output.playback->values : output.samples.values,now());
                 if(!was_active && driver.menu_active()) {
                     if(driver.menu_purpose()==HostMenu::map) map_screen.open();
-                    else menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false,driver.automap_option());
+                    else menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false,driver.automap_option(),driver.widescreen_option());
                     release.consume();
                 }
                 if(was_active && !driver.menu_active())release.consume();
@@ -281,7 +301,11 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             if(current_title!=displayed_title) {SDL_SetWindowTitle(window,current_title.c_str());displayed_title=current_title;}
             if ((count || menu.visible() || map_screen.visible()) && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
                 const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
-                std::transform(picture.begin(),picture.end(),pixels.begin(),rgb);
+                // The wide picture only on the wide canvas; the narrow canvas
+                // shows the VDP picture alone, as 0.4.0 did.
+                const WidePicture* wide=!display.wide_canvas ? nullptr :
+                    driver.menu_active() ? (wide_menu_background ? &*wide_menu_background : nullptr) : wide_picture();
+                centre_pixels(pixels,picture,wide);
                 if(language_screen.visible())language_screen.render(pixels,font,language);
                 else if(controls_screen.visible())controls_screen.render(pixels,font,language);
                 else if(menu.visible())menu.render(pixels,font,language);
@@ -290,7 +314,10 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                     for(int y=2;y<12;++y) for(int x=234;x<254;++x) pixels[y*256+x]=0xff000000;
                     font.text(pixels,236,3,clock.speed()==2 ? "2X" : "4X",0xffffffff);
                 }
-                sdl_check(SDL_UpdateTexture(display.texture.get(),nullptr,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
+                // The overlays stay 256 wide in the centre; the bands go round them.
+                upload_bands(display,wide);
+                const auto centre=centre_rect(display);
+                sdl_check(SDL_UpdateTexture(display.texture.get(),&centre,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
                 present(display);
             }
             if (now()>=next_report) { report(); next_report=now()+10; }

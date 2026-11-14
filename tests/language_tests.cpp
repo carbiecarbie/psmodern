@@ -149,17 +149,21 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
         if(row==0)preview(output,"start",language,pixels);
         start.update({.down=true},2*row+1);start.update({},2*row+2);
     }
-    OptionsMenu menu;menu.open({25,400},false,false,false,true);menu.update({},0);
-    for(unsigned row=0;row<5;++row) {
+    OptionsMenu menu;menu.open({25,400},false,false,false,true,true);menu.update({},0);
+    for(unsigned row=0;row<6;++row) {
         Frame pixels(256*192,0xff123456);menu.render(pixels,font,language);
-        check(shows(pixels,font,40,160,std::string(ui_text(UiText::saves_on_exit,language))+(menu.first_visible() ? " 2/2" : " 1/2"),0xffaaaaaa),"Options footer explains save on exit and viewport in the current language");
+        check(shows(pixels,font,40,160,std::string(ui_text(UiText::saves_on_exit,language))+" "+std::to_string(menu.first_visible()+1)+"/3",0xffaaaaaa),"Options footer explains save on exit and viewport in the current language");
         check(menu.selected()>=menu.first_visible() && menu.selected()<menu.first_visible()+4,"Options cursor remains visible");
         Frame cursor(256*192);font.window(cursor,24,24,208,152,48+32*int(menu.selected()-menu.first_visible()));
         for(int y=32;y<168;++y)for(int x=24;x<32;++x)check(pixels[y*256+x]==cursor[y*256+x],"Options cursor matches visible selected row");
         for(int y=0;y<192;++y)for(int x=0;x<256;++x)
             if(x<24 || x>=232 || y<24 || y>=176)check(pixels[y*256+x]==0xff123456,"localized Options preserves outside frame");
         if(row==0)preview(output,"options",language,pixels);
-        if(row==4) {
+        if(row==3) {
+            const auto state=ui_text(UiText::on,language);
+            check(shows(pixels,font,40,144,ui_text(UiText::widescreen,language)) && shows(pixels,font,216-int(state.size())*8,144,state),"widescreen row and value localized");
+        }
+        if(row==5) {
             check(shows(pixels,font,40,144,ui_text(UiText::language,language)),"Language action visible after scroll");
             preview(output,"options-language",language,pixels);
         }

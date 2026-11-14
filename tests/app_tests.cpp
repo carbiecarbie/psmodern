@@ -41,12 +41,78 @@ void colours() {
     check(rgb(0xff)==rgb(0x3f),"only six bits are colour");
 }
 void scaling() {
-    check(viewport(768,576)==Viewport{0,0,768,576,3},"3x opening");
-    check(viewport(1920,1080)==Viewport{320,60,1280,960,5},"desktop bars and integer scale");
-    check(viewport(1000,700)==Viewport{116,62,768,576,3},"non-multiple size");
-    check(viewport(257,193)==Viewport{0,0,256,192,1},"odd bars differ by one");
-    check(viewport(100,100)==Viewport{-78,-46,256,192,1},"minimum 1 clips when output is too small");
-    check(viewport(0,0).scale==1,"zero drawable size");
+    // The narrow canvas keeps 0.4.0's viewport exactly.
+    check(viewport(768,576,256)==Viewport{0,0,768,576,3},"3x opening");
+    check(viewport(1920,1080,256)==Viewport{320,60,1280,960,5},"desktop bars and integer scale");
+    check(viewport(1000,700,256)==Viewport{116,62,768,576,3},"non-multiple size");
+    check(viewport(257,193,256)==Viewport{0,0,256,192,1},"odd bars differ by one");
+    check(viewport(100,100,256)==Viewport{-78,-46,256,192,1},"minimum 1 clips when output is too small");
+    check(viewport(0,0,256).scale==1,"zero drawable size");
+    // The wide canvas (milestone 10): 344 x 192, the same integer scaling.
+    check(canvas_width(false)==256 && canvas_width(true)==344 && canvas_centre_x(false)==0 && canvas_centre_x(true)==44,"canvas widths");
+    check(viewport(1032,576,344)==Viewport{0,0,1032,576,3},"wide 3x window");
+    check(viewport(768,576,344)==Viewport{40,96,688,384,2},"the narrow 3x window shows the wide canvas at 2x");
+    check(viewport(1920,1080,344)==Viewport{100,60,1720,960,5},"wide desktop at 5x");
+    check(viewport(1366,768,256)==Viewport{171,0,1024,768,4},"1366 x 768 fullscreen narrow at 4x");
+    check(viewport(1366,768,344)==Viewport{167,96,1032,576,3},"1366 x 768 fullscreen wide drops to 3x");
+    check(viewport(345,193,344)==Viewport{0,0,344,192,1},"wide odd bars");
+    check(viewport(100,100,344)==Viewport{-122,-46,344,192,1},"wide minimum 1 clips");
+    refuses([] { viewport(768,576,300); },"other canvas widths");
+}
+// Applying a canvas width to a normal window (milestone 10): sizes in output
+// pixels, converted to window units, lowered to fit the usable bounds.
+void canvas_windows() {
+    const WindowBorders frame{31,8,8,8};
+    const WindowRect desktop{0,0,1920,1040};
+    // 1:1 without bounds: the 3x narrow window becomes the 3x wide one around the same centre.
+    check(canvas_window({100,100,768,576},768,576,344,3,std::nullopt)==CanvasWindow{{-32,100,1032,576},3},"wide at 1:1, same centre");
+    check(canvas_window({-32,100,1032,576},1032,576,256,3,std::nullopt)==CanvasWindow{{100,100,768,576},3},"and back");
+    // Usable bounds move it inside, borders included.
+    check(canvas_window({100,100,768,576},768,576,344,3,desktop,frame)==CanvasWindow{{8,100,1032,576},3},"kept inside the usable bounds");
+    check(canvas_window({1200,500,768,576},768,576,344,3,desktop,frame)==CanvasWindow{{880,456,1032,576},3},"right and bottom edges");
+    check(canvas_window({2020,100,768,576},768,576,344,3,WindowRect{1920,0,1920,1040},frame)==CanvasWindow{{1928,100,1032,576},3},
+          "a second display's bounds");
+    // HiDPI: output pixels twice the window units.
+    check(canvas_window({100,100,768,576},1536,1152,344,6,desktop,frame)==CanvasWindow{{8,100,1032,576},6},"HiDPI 2:1");
+    // 125%: 1032 output pixels need 825.6 units, rounded up so the output keeps the scale.
+    const auto quarter=canvas_window({100,100,768,576},960,720,344,3,desktop,frame);
+    check(quarter==CanvasWindow{{71,157,826,461},3},"HiDPI 5:4 rounds window units up");
+    check(viewport(826*5/4,461*5/4,344).scale==3,"the rounded-up window keeps the scale");
+    // 2:1 at 11x: 1892 x 1056 units (3784 x 2112 output pixels) do not fit 1040 rows, 10x does.
+    check(canvas_window({0,0,1408,1056},2816,2112,344,11,desktop,frame)==CanvasWindow{{8,48,1720,960},10},"HiDPI lowers the scale to fit");
+    // 1366 x 768 with a 40-pixel taskbar: 4x wide (1376) does not fit, 3x does.
+    const WindowRect laptop{0,0,1366,728};
+    check(canvas_window({171,0,1024,768},1024,768,344,4,laptop,frame)==CanvasWindow{{167,96,1032,576},3},"1366 x 768 drops 4x to 3x");
+    check(canvas_window({299,76,768,576},768,576,344,3,laptop,frame)==CanvasWindow{{167,76,1032,576},3},"1366 x 768 keeps 3x");
+    check(canvas_window({299,76,768,576},768,576,256,3,laptop,frame)==CanvasWindow{{299,76,768,576},3},"same width, same window");
+    // Nothing fits: 1x, at the bounds' top left.
+    check(canvas_window({0,0,256,192},256,192,344,1,WindowRect{0,0,300,200},frame)==CanvasWindow{{8,31,344,192},1},"too small a display keeps 1x");
+    check(canvas_window({0,0,768,576},0,0,344,3,std::nullopt)==CanvasWindow{{-132,0,1032,576},3},"unknown output size counts 1:1");
+}
+// The centre and the bands of a synthetic wide picture (milestone 10).
+void compositing() {
+    Vdp::Picture picture{};
+    WidePicture wide{};
+    for(int i=0;i<256*192;++i)picture[i]=static_cast<std::uint8_t>((i*5+i/256)&0x3f);
+    for(int i=0;i<wide_width*wide_height;++i)wide[i]=static_cast<std::uint8_t>((i*7+i/wide_width*3)&0x3f);
+    std::vector<std::uint32_t> centre(256*192,0x12345678);
+    centre_pixels(centre,picture,nullptr);
+    for(int i=0;i<256*192;++i)check(centre[i]==rgb(picture[i]),"pillarbox centre is the VDP picture");
+    centre_pixels(centre,picture,&wide);
+    for(int y=0;y<192;++y)for(int x=0;x<256;++x)check(centre[y*256+x]==rgb(wide[y*344+44+x]),"wide centre is the wide picture's x 44-299");
+    std::vector<std::uint32_t> canvas(344*192,0x12345678);
+    band_pixels(canvas,nullptr);
+    for(int y=0;y<192;++y)for(int x=0;x<344;++x)
+        check(canvas[y*344+x]==(x<44 || x>=300 ? 0xff000000u : 0x12345678u),"pillarbox bands black, centre untouched");
+    band_pixels(canvas,&wide);
+    for(int y=0;y<192;++y)for(int x=0;x<344;++x)
+        check(canvas[y*344+x]==(x<44 || x>=300 ? rgb(wide[y*344+x]) : 0x12345678u),"wide bands, centre untouched");
+    // Bands and centre together are the whole wide picture.
+    for(int y=0;y<192;++y)std::copy_n(centre.begin()+y*256,256,canvas.begin()+y*344+44);
+    for(int i=0;i<344*192;++i)check(canvas[i]==rgb(wide[i]),"bands and centre compose the wide picture");
+    std::vector<std::uint32_t> small(100);
+    refuses([&] { centre_pixels(small,picture,nullptr); },"a centre of the wrong size");
+    refuses([&] { band_pixels(small,nullptr); },"a canvas of the wrong size");
 }
 void inputs() {
     EnterKey enter;
@@ -545,7 +611,7 @@ void flags() {
 }
 }
 int main() {
-    try { colours(); scaling(); inputs(); saves(); backups(); driver(); flags(); guard(); automap_files(); resampling(); pacing();
-        std::cout<<"App: 11 test groups passed (no SDL or ROM).\n"; return 0;
+    try { colours(); scaling(); canvas_windows(); compositing(); inputs(); saves(); backups(); driver(); flags(); guard(); automap_files(); resampling(); pacing();
+        std::cout<<"App: 13 test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

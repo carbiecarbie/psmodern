@@ -106,8 +106,8 @@ void RomFont::window(std::span<std::uint32_t> pixels,int x,int y,int width,int h
     for(int tx=x+8;tx<x+width-8;tx+=8){tile(2,tx,y);tile(2,tx,y+height-8,false,true);}
     for(int ty=y+8;ty<y+height-8;ty+=8){tile(ty==cursor_y ? 0 : 3,x,ty);tile(3,x+width-8,ty,true);}
 }
-void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording,bool automap) {
-    game::validate(options);draft_=options;restricted_=restricted;pending_=pending;automap_=automap;
+void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording,bool automap,bool widescreen) {
+    game::validate(options);draft_=options;restricted_=restricted;pending_=pending;automap_=automap;widescreen_=widescreen;
     visible_=true;armed_=false;failed_=false;recording_=recording;selected_=top_=0;previous_={};next_repeat_=0;
 }
 MenuAction OptionsMenu::update(const MenuInput& input,double now) {
@@ -127,11 +127,12 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
         if(input.up!=input.down) {
-            selected_=(selected_+(input.down ? 1 : 4))%5;
+            selected_=(selected_+(input.down ? 1 : 5))%6;
             if(selected_<top_)top_=selected_;
             else if(selected_>=top_+4)top_=selected_-3;
         }
         if(!restricted_ && selected_==2 && input.left!=input.right)automap_=!automap_;
+        if(!restricted_ && selected_==3 && input.left!=input.right)widescreen_=!widescreen_;
         if(!restricted_ && selected_<2 && input.left!=input.right) {
             const auto& choices=selected_==0 ? game::encounter_percent_choices : game::experience_percent_choices;
             auto& current=selected_==0 ? draft_.encounter_percent : draft_.experience_percent;
@@ -139,13 +140,13 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
             current=choices.values[(i+choices.count+(input.right?1:choices.count-1))%choices.count];
         }
     }
-    if(accept)return selected_==3 ? MenuAction::controls : restricted_ ? MenuAction::close :
-        selected_==4 ? MenuAction::language : MenuAction::apply;
+    if(accept)return selected_==4 ? MenuAction::controls : restricted_ ? MenuAction::close :
+        selected_==5 ? MenuAction::language : MenuAction::apply;
     return MenuAction::none;
 }
 void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
     // Four visible rows retain the original 32-pixel pitch. Child-screen
-    // entries have no value line; the fifth row scrolls into the same window.
+    // entries have no value line, and WIDESCREEN keeps its value on its own line; the fifth and sixth rows scroll into the same window.
     static constexpr int rows[]{48,80,112,144};
     font.window(pixels,24,24,208,152,rows[selected_-top_]);
     auto text=[&](int x,int y,std::string_view label){font.text(pixels,x,y,label,0xffffffff);};
@@ -156,13 +157,19 @@ void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Lan
     };
     const auto title=label(UiText::options);
     text((256-int(title.size())*8)/2,32,title);
-    static constexpr UiText labels[]{UiText::encounters,UiText::experience_meseta,UiText::automap,UiText::controls,UiText::language};
+    static constexpr UiText labels[]{UiText::encounters,UiText::experience_meseta,UiText::automap,UiText::widescreen,UiText::controls,UiText::language};
     for(unsigned i=0;i<4;++i) {
         const unsigned row=top_+i;const int y=rows[i];
         text(40,y,label(labels[row]));
         if(row==0)text(48,y+16,value(draft_.encounter_percent,game::switch_like_encounter_percent));
         else if(row==1)text(48,y+16,value(draft_.experience_percent,game::switch_like_experience_percent));
         else if(row==2)text(48,y+16,label(automap_ ? UiText::on : UiText::off_default));
+        else if(row==3) {
+            // One line, value at the right: a value line here would land on
+            // the status and footer lines when this row sits in the last slot.
+            const auto state=label(widescreen_ ? UiText::on : UiText::off);
+            text(216-int(state.size())*8,y,state);
+        }
     }
     // The pending state concerns the routine options only.
     if(failed_)text(40,152,label(UiText::save_failed));
@@ -170,7 +177,7 @@ void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Lan
     else if(pending_)text(40,152,label(UiText::saved_waiting));
     auto footer=std::string(label(top_ ? UiText::more_above : UiText::more_below));
     if(!failed_ && !restricted_ && !pending_)
-        footer=std::string(label(UiText::saves_on_exit))+(top_ ? " 2/2" : " 1/2");
+        footer=std::string(label(UiText::saves_on_exit))+" "+std::to_string(top_+1)+"/3";
     font.text(pixels,40,160,footer,0xffaaaaaa);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {

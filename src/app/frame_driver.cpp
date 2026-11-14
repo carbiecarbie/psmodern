@@ -187,6 +187,13 @@ std::optional<std::string> FrameDriver::choose_options(const game::Options& opti
     if(auto error=store_.choose(options,machine_->memory().cartridge_ram()))return error;
     chosen_=options;return {};
 }
+std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap,bool widescreen) {
+    if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
+    store_.request_widescreen(widescreen);
+    auto error=choose_options(options,automap);
+    if(error)store_.request_widescreen(store_.widescreen_preference());
+    return error;
+}
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap) {
     if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
     if(auto error=store_.choose(options,automap,machine_->memory().cartridge_ram()))return error;
@@ -209,8 +216,13 @@ void FrameDriver::speed(unsigned value) {
     speed_=original_only_ ? 1 : value;
     if(tempo_audio_)tempo_audio_->speed(speed_);
 }
+void FrameDriver::set_widescreen(bool on) {
+    if(on && !options_restricted()) { if(!wide_)wide_=std::make_unique<WideView>(rom_); }
+    else wide_.reset();
+}
 FrameOutput FrameDriver::run(const FrameInput& input) {
     std::optional<std::string> audio_error;
+    const auto* const rom_before=rom_.get();
     auto audio_failure=[&](const std::exception& error) {
         tempo_audio_.reset();audio_failed_=true;
         audio_error=std::string("Normal-tempo audio unavailable; accelerated audio is muted until power cycle: ")+error.what();
@@ -320,6 +332,10 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     };
     machine_->run_frame(supplied,routines_,hook,sound_writes);
     menu_request_.reset(); // An unsuccessful request never opens later.
+    if(wide_) {
+        if(rom_.get()!=rom_before)wide_->replace_rom(rom_);
+        wide_->capture(*machine_);
+    }
     auto writes=machine_->take_psg_writes();
     auto samples=machine_->take_samples();
     std::optional<PsgSamples> playback;
@@ -335,6 +351,7 @@ std::optional<std::string> FrameDriver::power_cycle() {
     exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
     tempo_audio_.reset();audio_failed_=false;sound_request_.reset();speed_=1;
     if(tracker_) { tracker_->reset();log({MapEvent::Kind::reset,0}); }
+    if(wide_)wide_->reset();
     if(options_pending())activate(chosen_);
     return error;
 }

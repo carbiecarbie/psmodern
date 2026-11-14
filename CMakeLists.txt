@@ -40,12 +40,12 @@ target_link_libraries(psmodern_hw PUBLIC redcode_z80)
 add_library(psmodern_rom src/rom/rom.cpp src/rom/sha1.cpp src/rom/sha256.cpp)
 target_include_directories(psmodern_rom PUBLIC src)
 add_library(psmodern_game src/game/routines.cpp src/game/random.cpp src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp
-  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp)
+  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp src/game/map_screens.cpp)
 target_link_libraries(psmodern_game PUBLIC psmodern_hw psmodern_rom)
 add_library(psmodern_replay src/replay/recording.cpp src/replay/verification.cpp src/replay/census.cpp)
 target_link_libraries(psmodern_replay PUBLIC psmodern_game)
 configure_file(cmake/PSModernVersion.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/PSModernVersion.h @ONLY)
-add_library(psmodern_app src/app/host.cpp src/app/settings.cpp src/app/rom_list.cpp src/app/start_screen.cpp src/app/save_store.cpp src/app/frame_driver.cpp src/app/tempo_audio.cpp src/app/options_menu.cpp
+add_library(psmodern_app src/app/host.cpp src/app/settings.cpp src/app/rom_list.cpp src/app/start_screen.cpp src/app/save_store.cpp src/app/frame_driver.cpp src/app/wide_view.cpp src/app/tempo_audio.cpp src/app/options_menu.cpp
   src/app/automap_store.cpp src/app/automap_screen.cpp src/app/bindings.cpp src/app/controls_screen.cpp
   src/app/language.cpp src/app/session_roms.cpp src/app/localization.cpp src/app/language_screen.cpp src/app/shared_save.cpp)
 target_link_libraries(psmodern_app PUBLIC psmodern_hw psmodern_rom psmodern_replay)
@@ -220,6 +220,11 @@ if(BUILD_TESTING)
   target_link_libraries(psmodern_automap_view_tests PRIVATE psmodern_replay)
   add_executable(psmodern_automap_session tests/automap_session.cpp src/app/sdl_host.cpp)
   target_link_libraries(psmodern_automap_session PRIVATE psmodern_app SDL2::SDL2)
+  # Milestone 10: the widescreen view; the ROM parts are declared in psmodern_rom_test.
+  add_executable(psmodern_wide_view_tests tests/wide_view_tests.cpp)
+  target_link_libraries(psmodern_wide_view_tests PRIVATE psmodern_app)
+  add_test(NAME wide_view_unit COMMAND psmodern_wide_view_tests unit)
+  set_tests_properties(wide_view_unit PROPERTIES LABELS fast)
   add_test(NAME routine_coverage_tools COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/coverage_tests.py)
   set_tests_properties(routine_coverage_tools PROPERTIES LABELS fast)
   add_executable(psmodern_replay_tests tests/replay_tests.cpp)
@@ -249,6 +254,10 @@ if(BUILD_TESTING)
   target_link_libraries(psmodern_sdl_input_tests PRIVATE psmodern_app SDL2::SDL2)
   add_test(NAME sdl_input COMMAND psmodern_sdl_input_tests)
   set_tests_properties(sdl_input PROPERTIES LABELS fast)
+  add_executable(psmodern_canvas_tests tests/canvas_tests.cpp)
+  target_link_libraries(psmodern_canvas_tests PRIVATE psmodern_app SDL2::SDL2)
+  add_test(NAME sdl_canvas COMMAND psmodern_canvas_tests)
+  set_tests_properties(sdl_canvas PROPERTIES LABELS fast)
   add_executable(psmodern_z80_conformance tests/z80_conformance.cpp)
   target_link_libraries(psmodern_z80_conformance PRIVATE psmodern_hw)
   if(PSMODERN_Z80_TEST_DIR)
@@ -443,6 +452,32 @@ if(BUILD_TESTING)
       foreach(recording IN LISTS passivity_recordings)
         add_test(NAME "${name}_automap_passivity_${recording}" COMMAND ${automap_session} passivity ${recording})
         set_tests_properties("${name}_automap_passivity_${recording}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 4)
+      endforeach()
+      # Milestone 10: the map reader and state probes, the driver probes and
+      # every recording with the widescreen option off and on. Each recording
+      # test runs two drivers on two threads, so ctest -j counts it as two.
+      add_test(NAME "${name}_wide_view_reader" COMMAND psmodern_wide_view_tests rom "${path}" "${version}")
+      set_tests_properties("${name}_wide_view_reader" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      add_test(NAME "${name}_wide_view_probes" COMMAND psmodern_wide_view_tests probes "${path}" "${version}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/wide-view-${version}/probes" "${other_rom}")
+      set_tests_properties("${name}_wide_view_probes" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
+      # The space flight from later-town's start image: routes 81h-84h with the
+      # option switched on mid-flight and a skipped flight, then 85h-88h.
+      add_test(NAME "${name}_wide_view_ship" COMMAND psmodern_wide_view_tests ship "${path}" "${version}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/wide-view-${version}/ship" "81,82,83,84,extra")
+      add_test(NAME "${name}_wide_view_ship_routes" COMMAND psmodern_wide_view_tests ship "${path}" "${version}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/wide-view-${version}/ship-routes" "85,86,87,88")
+      set_tests_properties("${name}_wide_view_ship" "${name}_wide_view_ship_routes" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
+      set(wide_recordings opening first-battle first-dungeon later-town boss deep-dungeon short)
+      if(version STREQUAL "us")
+        list(APPEND wide_recordings dungeon-walk-1 dungeon-walk-2 dungeon-continue)
+      else()
+        list(APPEND wide_recordings text-dialogue)
+      endif()
+      foreach(recording IN LISTS wide_recordings)
+        add_test(NAME "${name}_wide_view_${recording}" COMMAND psmodern_wide_view_tests recording "${path}" "${version}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/wide-view-${version}/${recording}" "${recording}")
+        set_tests_properties("${name}_wide_view_${recording}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 2)
       endforeach()
       add_test(NAME "${name}" COMMAND psmodern_rom_tests "${path}" "${version}")
       set_tests_properties("${name}" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")

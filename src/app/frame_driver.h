@@ -8,6 +8,7 @@
 #include "app/session_roms.h"
 #include "game/automap.h"
 #include "game/dungeon_tables.h"
+#include "app/wide_view.h"
 #include <array>
 #include <vector>
 
@@ -91,6 +92,12 @@ public:
     bool options_restricted() const { return original_only_ || !routines_.enabled; }
     std::optional<std::string> choose_options(const game::Options& options);
     std::optional<std::string> choose_options(const game::Options& options,bool automap);
+    // Milestone 10: also stores the profile's widescreen switch (like the
+    // automap, never a routine option and never pending); on a failed write the
+    // stored switch is kept.
+    std::optional<std::string> choose_options(const game::Options& options,bool automap,bool widescreen);
+    // The stored switch, off in a restricted session (recording, --no-routines).
+    bool widescreen_option() const { return !options_restricted() && store_.widescreen_preference(); }
     // Host-owned, verified images. Prepare may throw BEFORE language.txt is
     // saved. Commit only queues the last successfully saved choice; the
     // native Options return installs it before the caller's next instruction.
@@ -119,6 +126,16 @@ public:
     bool menu_active() const { return menu_active_; }
     bool menu_closing() const { return menu_closing_; }
     void speed(unsigned value);
+    // Widescreen (milestone 10), applied at once and never seen by the
+    // machine or the routine options. Off: nothing is copied. Refused (stays
+    // off) in recording mode and with --no-routines.
+    void set_widescreen(bool on);
+    bool widescreen() const { return bool(wide_); }
+    // The 344-wide picture for the frame just run, or nullptr when it is
+    // not widened (pillarbox). Valid until the next run, power cycle or
+    // set_widescreen; a host menu keeps its own copy, as with the picture.
+    const WidePicture* wide_picture() const { return wide_ ? wide_->picture(machine_->picture()) : nullptr; }
+    const WideView* wide_view() const { return wide_.get(); }
 private:
     void activate(const game::Options& options);
     void track(std::uint16_t pc);
@@ -151,5 +168,6 @@ private:
     unsigned speed_=1;
     bool audio_failed_=false;
     std::optional<std::uint8_t> sound_request_;
+    std::unique_ptr<WideView> wide_;
 };
 }

@@ -165,14 +165,14 @@ namespace {
 std::string read_settings_file(const std::filesystem::path& path) { return read_text_file(path,1024,"settings file"); }
 }
 game::Options SaveStore::load_preferences(const Memory::CartridgeRam& image) {
-    ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};automap_preference_=false;
+    ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};automap_preference_=widescreen_preference_=widescreen_request_=false;
     const auto digest=sha256(image);settings_={{digest,{}},{},{}};
     if(!std::filesystem::exists(settings_path()))return preferences_;
     try {
         settings_=parse_settings(read_settings_file(settings_path()));
         const auto selected=settings_.select(digest);
         if(!selected)throw std::runtime_error("Settings do not match the cartridge image.");
-        preferences_=selected->options;automap_preference_=selected->automap;
+        preferences_=selected->options;automap_preference_=selected->automap;widescreen_preference_=widescreen_request_=selected->widescreen;
     } catch(const std::exception& e) {
         settings_blocked_=true;
         settings_warning_="Using original settings; companion preserved until explicit Apply: "+settings_path().string()+": "+e.what();
@@ -204,7 +204,7 @@ void SaveStore::stage(const Memory::CartridgeRam& image,const game::Options& pre
     const auto disk=load();
     const auto digest=sha256(disk);
     auto committed=settings_.select(digest).value_or(SettingsRecord{digest,{}});committed.digest=digest;
-    SettingsImage next{committed,SettingsRecord{sha256(image),preferences,automap_preference_},
+    SettingsImage next{committed,SettingsRecord{sha256(image),preferences,automap_preference_,widescreen_preference_},
         session_backup_ ? session_backup_ : settings_.backup};
     settings_writer_(settings_path(),write_settings(next));
     settings_=std::move(next);
@@ -213,18 +213,23 @@ std::optional<std::string> SaveStore::choose(const game::Options& options,const 
     game::validate(options);
     try { ensure_lock();if(!settings_loaded_)load_preferences(load()); }
     catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
+    widescreen_request_=widescreen_preference_;   // options alone keep the stored switch
     return choose(options,automap_preference_,image);
 }
 std::optional<std::string> SaveStore::choose(const game::Options& options,bool automap,const Memory::CartridgeRam& image) {
     game::validate(options);
     try {
-        ensure_lock();if(!settings_loaded_)load_preferences(load());
+        ensure_lock();
+        if(!settings_loaded_) {
+            const bool requested=widescreen_request_;   // the lazy load must not drop the host's request
+            load_preferences(load());widescreen_request_=requested;
+        }
         ensure_backup();
         const auto disk=load();
-        SettingsImage next{{sha256(disk),options,automap},SettingsRecord{sha256(image),options,automap},
+        SettingsImage next{{sha256(disk),options,automap,widescreen_request_},SettingsRecord{sha256(image),options,automap,widescreen_request_},
             session_backup_ ? session_backup_ : settings_.backup};
         settings_writer_(settings_path(),write_settings(next));settings_=std::move(next);
-        preferences_=options;automap_preference_=automap;settings_blocked_=false;settings_warning_.reset();return {};
+        preferences_=options;automap_preference_=automap;widescreen_preference_=widescreen_request_;settings_blocked_=false;settings_warning_.reset();return {};
     } catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
 }
 void SaveStore::load_automap() {

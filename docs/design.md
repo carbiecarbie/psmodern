@@ -19,8 +19,14 @@ exception to "No new art" (section 2). Amended on 2026-11-13 by the
 maintainer (milestone 8 closure): encounters also accept 25 and the
 recommended pace is encounters 25 with experience 400 (section 9); full
 controller support is delivered, and its default is the original mapping
-(section 2 and stage 7). Changes
-to this design need the maintainer's approval and are recorded here.
+(section 2 and stage 7). Amended on 2026-11-14 by the maintainer
+(milestone 10 planning): widescreen reads state the original keeps, so it
+no longer waits for the map rewrite (sections 5.3 and 8), and section 5.4
+records the study's findings, the 344-pixel width, the town edges and the
+filled left column. Amended again on 2026-11-14 by the maintainer after his
+milestone 10 play-test: the spaceship flight between planets widens too
+(sections 2 and 5.4). Changes to this design need the maintainer's approval
+and are recorded here.
 
 ## 1. What it is and why
 
@@ -69,8 +75,9 @@ for this project's organization and workflow.
   - **Adjustable random encounters**, including turning them **off**.
   - **Automap** in the dungeons: a map screen, opened by a button, of the
     explored part of the current floor (see 5.3).
-  - **Real widescreen** on the **world map and in towns** only, showing more
-    of the area with the existing graphics.
+  - **Real widescreen** on the **world map, in towns and in the spaceship
+    flight between planets**, showing more of the area with the existing
+    graphics.
   - **New interface** (menus and windows).
   - **Language selection in the options**: English and Portuguese to begin
     with.
@@ -87,7 +94,8 @@ for this project's organization and workflow.
   only; it is not a licence for other new art, and any other exception needs
   its own maintainer decision recorded here.
 - Widescreen in battles, 3D dungeons and portrait scenes: they keep their
-  original size, centered.
+  original size, centered. (The spaceship flight is not among them since
+  2026-11-14: see 5.4.)
 - A static recompiler (automatic Z80-to-C). Considered and rejected; see 4.
 - Producing a binary identical to the ROM from the C++ (not applicable: the
   game was written in assembly).
@@ -232,7 +240,7 @@ verifiable milestones.
 | Adjustable experience | Experience gain at the end of a battle |
 | Automap | Nothing: it reads state the original keeps (see below) |
 | Language selection | The text system (encoding, pointers, font, windows) |
-| Widescreen on the world map and in towns | Map loading, scrolling, NPC activation and the camera |
+| Widescreen on the world map, in towns and in the spaceship flight | Nothing: it reads state the original keeps (see below) |
 | New interface | Menus and windows |
 | Full controller support | Only the input layer; delivered in milestone 8 |
 
@@ -243,15 +251,41 @@ points the original passes, and tracking changes nothing the game reads
 opened by a button with the game held as for the Options window, never a
 permanent overlay.
 
+Widescreen reads the camera, the area and the decoded map screens the
+original keeps in work RAM, the map tables of the player's ROM, and the
+video memory, palette and registers as the console uses them for each
+displayed frame; it draws the extra columns with the console's own tile
+rules. It watches no instruction and changes nothing the game reads
+(maintainer decision, 2026-11-14, on the milestone 10 study). The rewrite of
+map loading and scrolling is its own later milestone.
+
 ### 5.4 Known widescreen issues
 
-- **The edge of the map:** small towns will show what lies beyond them. The
-  camera stops before showing the void, or the edge tile is repeated; the
-  final choice belongs to the widescreen milestone.
-- **NPCs outside the original area:** if the game only activates NPCs near
-  the 256-pixel screen, with more area visible they may appear frozen. The
-  study must find out; if it happens, activation follows the new visible
-  area, in enhanced mode only.
+From the milestone 10 study and the maintainer's decisions of
+2026-11-14:
+
+- **No frozen NPCs expected:** the map load fills the object slots with the
+  party or one vehicle only (ROM static). The study found townspeople drawn
+  as part of the map and entrances checked as records when a step ends, so
+  nothing should depend on distance from the screen; the play-test
+  confirms it.
+- **The edge of the map:** world maps wrap both ways and have no edge. A
+  town lies on a sheet of screens whose other screens are filler, which the
+  original already shows near a town's edge; widescreen shows what the
+  cartridge has there, with no clamp, no black and no repeated tile.
+- **The width:** 344 x 192 with square pixels, about 16:9; the original 256
+  pixels stay in the centre, 44 more on each side. Every other screen keeps
+  its 256 pixels, centred between black bars.
+- **The spaceship flight** (maintainer decision, 2026-11-14, after his
+  play-test; it was first left out): the scene between planets (load
+  `00:0A5C`, flight `00:086F`) widens, entered only from an interaction exit.
+  Take-off and descent show the map around the ship; in space the sides are
+  the starfield drawn wrapped, as the video chip would draw it past 256
+  pixels, so stars at the right repeat those at the left of the centre. Read
+  only, like the rest.
+- **The hidden left column:** on the map the original blanks the leftmost 8
+  pixels, so it shows 248 pixels of map. Widescreen fills that column from
+  the map like the sides; original mode is unchanged.
 
 ### 5.5 Languages
 
@@ -380,7 +414,8 @@ study base (stage 3) shows how the code is organized.
    from the player's ROM, and language selection.
 7. **Full controller support:** remapping, shortcuts. Done in milestone 8,
    ahead of stage 6.
-8. **World map and towns:** then widescreen.
+8. **World map and towns:** widescreen, which needs no rewrite (see 5.3),
+   then the rewrite of map loading, scrolling and the object engine.
 9. **Menus and windows:** then the new interface.
 10. **The rest:** battle, 3D dungeon drawing, the sound driver, scenes, the
     opening and the ending, until no Z80 routine is left.

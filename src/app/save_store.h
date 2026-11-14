@@ -55,6 +55,12 @@ public:
     std::optional<std::string> choose(const game::Options& options,bool automap,const Memory::CartridgeRam& image);
     const game::Options& preferences() const { return preferences_; }
     bool automap_preference() const { return automap_preference_; }
+    // Milestone 10: the widescreen switch of the profile, beside the automap.
+    // The host sets the wanted value before choose(), which stores it with the
+    // options and keeps it only when the write succeeded.
+    bool widescreen_preference() const { return widescreen_preference_; }
+    void request_widescreen(bool on) { widescreen_request_=on; }
+    bool widescreen_request() const { return widescreen_request_; }
     const std::optional<std::string>& settings_warning() const { return settings_warning_; }
     std::filesystem::path settings_path() const { auto p=path_;p+=".options";return p; }
     // The automap companion <save>.automap (milestone 7). Only a tracking
@@ -96,7 +102,7 @@ private:
     SettingsWriter settings_writer_,automap_writer_;
     SettingsImage settings_;
     game::Options preferences_;
-    bool automap_preference_=false;
+    bool automap_preference_=false,widescreen_preference_=false,widescreen_request_=false;
     AutomapImage automap_;
     std::optional<std::string> automap_warning_;
     bool automap_loaded_=false,automap_blocked_=false,automap_dirty_=false,automap_reported_=false,automap_backup_done_=false;

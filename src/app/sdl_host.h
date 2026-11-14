@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace psmodern::app {
 void sdl_check(bool success,const char* operation);
@@ -65,17 +66,36 @@ FrameInput sample_input(SDL_Window* window,const Controller& controller,const En
 // d-pad, Z / A accept, X / B cancel, Esc / Y toggle (Options), M / X map.
 // Return counts as in sample_input, through controller.enter().
 MenuInput sample_menu_input(SDL_Window* window,const Controller& controller);
-// The game window and what draws the 256x192 picture into it.
+// The game window and what draws the picture into it. The texture is one
+// 344x192 canvas (milestone 10). With the narrow canvas (the start screen,
+// and every game while the wide canvas is off) only its first 256 columns
+// are uploaded and shown, as 0.4.0 showed its 256x192 texture; with the wide
+// canvas all 344 are shown, the 256-column centre at x 44.
 struct Display {
     std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> window{nullptr,SDL_DestroyWindow};
     std::unique_ptr<SDL_Renderer,decltype(&SDL_DestroyRenderer)> renderer{nullptr,SDL_DestroyRenderer};
     std::unique_ptr<SDL_Texture,decltype(&SDL_DestroyTexture)> texture{nullptr,SDL_DestroyTexture};
+    bool wide_canvas=false;              // changed only through apply_canvas
+    std::vector<std::uint32_t> bands;    // upload_bands' 344x192 work canvas
 };
-// A resizable 768x576 window with a vsync renderer when available.
+// A resizable 768x576 window with a vsync renderer when available, narrow
+// canvas.
 Display open_display(const std::string& title);
-// Shows the uploaded texture: nearest-neighbour integer scaling, centred
-// with black bars. The upload stays with the caller, where the session tests
-// intercept it.
+// Where the caller uploads the 256x192 centre (picture and overlays, 256
+// pixels a row): x 0 with the narrow canvas, x 44 with the wide one.
+SDL_Rect centre_rect(const Display& display);
+// With the wide canvas, uploads the side bands: the wide picture's, or black
+// (a pillarbox) when it is null. Nothing with the narrow canvas.
+void upload_bands(Display& display,const WidePicture* wide);
+// Sets the canvas for the session. A change of width resizes a normal window
+// to the new canvas at its current integer scale (canvas_window: output
+// pixels converted to window units, lowered to fit the usable bounds of the
+// window's display); a maximized, fullscreen or minimized window keeps its
+// size and only the viewport changes. The same width changes nothing.
+void apply_canvas(Display& display,bool wide);
+// Shows the canvas: nearest-neighbour integer scaling, centred with black
+// bars. The upload stays with the caller, where the session tests intercept
+// it.
 void present(const Display& display);
 // Alt+Enter: borderless desktop fullscreen on and off.
 void toggle_fullscreen(SDL_Window* window);

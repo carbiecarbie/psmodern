@@ -6,9 +6,53 @@
 
 namespace psmodern::app {
 Buttons keyboard(const Keys& k) { return {{k[0],k[1],k[2],k[3],k[4],k[5]},k[6],k[7]}; }
-Viewport viewport(int w,int h) {
-    const int scale=std::max(1,std::min(w/256,h/192));
-    return {(w-256*scale)/2,(h-192*scale)/2,256*scale,192*scale,scale};
+Viewport viewport(int w,int h,int canvas) {
+    if (canvas!=picture_width && canvas!=wide_width) throw std::invalid_argument("Unsupported canvas width.");
+    const int scale=std::max(1,std::min(w/canvas,h/picture_height));
+    return {(w-canvas*scale)/2,(h-picture_height*scale)/2,canvas*scale,picture_height*scale,scale};
+}
+void centre_pixels(std::span<std::uint32_t> centre,const Vdp::Picture& picture,const WidePicture* wide) {
+    if (centre.size()!=std::size_t(picture_width*picture_height)) throw std::invalid_argument("Expected a 256 by 192 centre.");
+    if (!wide) { std::transform(picture.begin(),picture.end(),centre.begin(),rgb); return; }
+    for (int y=0;y<picture_height;++y) {
+        const auto* row=wide->data()+y*wide_width+wide_centre_x;
+        std::transform(row,row+picture_width,centre.begin()+y*picture_width,rgb);
+    }
+}
+void band_pixels(std::span<std::uint32_t> canvas,const WidePicture* wide) {
+    if (canvas.size()!=std::size_t(wide_width*wide_height)) throw std::invalid_argument("Expected a 344 by 192 canvas.");
+    constexpr int right=wide_centre_x+picture_width;
+    for (int y=0;y<wide_height;++y) for (int x:{0,right}) {
+        const int width=x ? wide_width-right : wide_centre_x;
+        auto* out=canvas.data()+y*wide_width+x;
+        if (wide) std::transform(wide->data()+y*wide_width+x,wide->data()+y*wide_width+x+width,out,rgb);
+        else std::fill(out,out+width,0xff000000u);
+    }
+}
+CanvasWindow canvas_window(const WindowRect& window,int ow,int oh,int canvas,int scale,
+                           const std::optional<WindowRect>& usable,const WindowBorders& borders) {
+    if (canvas!=picture_width && canvas!=wide_width) throw std::invalid_argument("Unsupported canvas width.");
+    // Output pixels to window units, rounded up; 1:1 when either size is unknown.
+    auto units=[](long long pixels,int window_size,int output_size) {
+        if (window_size<=0 || output_size<=0) return int(pixels);
+        return int((pixels*window_size+output_size-1)/output_size);
+    };
+    CanvasWindow fitted;
+    for (fitted.scale=std::max(1,scale);;--fitted.scale) {
+        fitted.rect.width=units(1LL*canvas*fitted.scale,window.width,ow);
+        fitted.rect.height=units(1LL*picture_height*fitted.scale,window.height,oh);
+        if (fitted.scale==1 || !usable ||
+            (fitted.rect.width+borders.left+borders.right<=usable->width &&
+             fitted.rect.height+borders.top+borders.bottom<=usable->height)) break;
+    }
+    fitted.rect.x=window.x+(window.width-fitted.rect.width)/2;
+    fitted.rect.y=window.y+(window.height-fitted.rect.height)/2;
+    if (usable) {
+        auto inside=[](int position,int low,int high) { return high<low ? low : std::clamp(position,low,high); };
+        fitted.rect.x=inside(fitted.rect.x,usable->x+borders.left,usable->x+usable->width-borders.right-fitted.rect.width);
+        fitted.rect.y=inside(fitted.rect.y,usable->y+borders.top,usable->y+usable->height-borders.bottom-fitted.rect.height);
+    }
+    return fitted;
 }
 Buttons controller(Buttons b,int x,int y) {
     b.pad.left |= x < -stick_dead_zone; b.pad.right |= x > stick_dead_zone;

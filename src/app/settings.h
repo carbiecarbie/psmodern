@@ -13,6 +13,7 @@ struct SettingsRecord {
     std::string digest;
     game::Options options;
     bool automap=false;
+    bool widescreen=false;   // milestone 10; never reaches register_routines
     bool operator==(const SettingsRecord&) const = default;
 };
 struct SettingsImage {
@@ -23,10 +24,11 @@ struct SettingsImage {
     std::optional<SettingsRecord> select(std::string_view digest) const;
     std::optional<game::Options> matching(std::string_view digest) const;
 };
-// Format 2 ("psmodern-options 2", records "<label> <sha256> <encounter>
-// <experience> <automap>", automap 0 or 1) and format 1 (no automap field,
-// read as automap off) are read; files are always written as format 2. At most
-// 1,024 bytes.
+// Format 3 (records "<label> <sha256> <encounter> <experience> <automap>
+// <widescreen>", both switches 0 or 1), format 2 (no widescreen field, read as
+// off) and format 1 (no automap field either, both off) are read. A file is
+// written as format 3 only when some record has widescreen on; otherwise it is
+// written as format 2, so release 0.4.0 keeps reading it. At most 1,024 bytes.
 SettingsImage parse_settings(std::string_view text);
 std::string write_settings(const SettingsImage& image);
 }

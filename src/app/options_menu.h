@@ -25,10 +25,10 @@ private:
 enum class MenuAction { none,apply,close,controls,language };
 class OptionsMenu {
 public:
-    // Five rows, four visible: encounters, experience/meseta, automap,
-    // Controls and Language. The viewport follows the cursor. Controls also
+    // Six rows, four visible: encounters, experience/meseta, automap,
+    // widescreen, Controls and Language. The viewport follows the cursor. Controls also
     // opens when read-only; Language cannot change in a restricted session.
-    void open(game::Options options,bool restricted,bool pending,bool recording=false,bool automap=false);
+    void open(game::Options options,bool restricted,bool pending,bool recording=false,bool automap=false,bool widescreen=false);
     bool visible() const { return visible_; }
     void close() { visible_=false; }
     // Back from Controls or Language: draft, viewport and row kept; waits for a neutral
@@ -36,6 +36,7 @@ public:
     void resume() { armed_=false; previous_={}; }
     const game::Options& draft() const { return draft_; }
     bool automap_draft() const { return automap_; }
+    bool widescreen_draft() const { return widescreen_; }
     unsigned selected() const { return selected_; }
     unsigned first_visible() const { return top_; }
     MenuAction update(const MenuInput& input,double now);
@@ -45,7 +46,7 @@ private:
     game::Options draft_;
     MenuInput previous_;
     unsigned selected_=0,top_=0;
-    bool visible_=false,armed_=false,restricted_=false,pending_=false,failed_=false,recording_=false,automap_=false;
+    bool visible_=false,armed_=false,restricted_=false,pending_=false,failed_=false,recording_=false,automap_=false,widescreen_=false;
     double next_repeat_=0;
 };
 // Menu buttons are consumed until every gameplay button is released.

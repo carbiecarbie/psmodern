@@ -25,20 +25,24 @@ std::optional<game::Options> SettingsImage::matching(std::string_view digest) co
 SettingsImage parse_settings(std::string_view text) {
     if(text.empty() || text.size()>1024)throw std::runtime_error("Invalid settings file size.");
     std::istringstream input{std::string(text)};std::string line;
-    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2"))
+    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2" && line!="psmodern-options 3"))
         throw std::runtime_error("Unsupported settings format or version.");
-    const bool format2=line.back()=='2';
+    const bool format2=line.back()=='2' || line.back()=='3',format3=line.back()=='3';
     auto record=[&](std::string_view name,bool optional)->std::optional<SettingsRecord> {
         if(!std::getline(input,line))throw std::runtime_error("Incomplete settings file.");
         std::istringstream row(line);std::string label,digest,extra;SettingsRecord result;
         if(!(row>>label>>digest) || label!=name)throw std::runtime_error("Invalid settings record.");
         if(optional && digest=="-") {if(row>>extra)throw std::runtime_error("Invalid empty settings record.");return {};}
         result.digest=digest;
-        std::string encounter,experience,automap;
+        std::string encounter,experience,automap,widescreen;
         if(!(row>>encounter>>experience))throw std::runtime_error("Invalid settings percentages.");
         if(format2) {
             if(!(row>>automap) || (automap!="0" && automap!="1"))throw std::runtime_error("Invalid settings automap token.");
             result.automap=automap=="1";
+        }
+        if(format3) {
+            if(!(row>>widescreen) || (widescreen!="0" && widescreen!="1"))throw std::runtime_error("Invalid settings widescreen token.");
+            result.widescreen=widescreen=="1";
         }
         if(row>>extra)throw std::runtime_error("Trailing settings record data.");
         auto percent=[](const std::string& text) {
@@ -57,12 +61,15 @@ SettingsImage parse_settings(std::string_view text) {
     return result;
 }
 std::string write_settings(const SettingsImage& image) {
-    std::string result="psmodern-options 2\n";
+    const bool format3=image.committed.widescreen || (image.pending && image.pending->widescreen) ||
+        (image.backup && image.backup->widescreen);
+    std::string result=format3 ? "psmodern-options 3\n" : "psmodern-options 2\n";
     auto record=[&](std::string_view name,const std::optional<SettingsRecord>& value) {
         result+=name;result+=' ';
         if(!value){result+="-\n";return;}
         valid(*value);result+=value->digest+" "+std::to_string(value->options.encounter_percent)+" "+
-            std::to_string(value->options.experience_percent)+" "+(value->automap ? "1" : "0")+"\n";
+            std::to_string(value->options.experience_percent)+" "+(value->automap ? "1" : "0")+
+            (format3 ? std::string(value->widescreen ? " 1" : " 0") : std::string())+"\n";
     };
     record("committed",image.committed);record("pending",image.pending);record("backup",image.backup);return result;
 }

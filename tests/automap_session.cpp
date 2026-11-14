@@ -89,9 +89,12 @@ void write_ppm(const std::filesystem::path& path,std::span<const std::uint32_t> 
     std::ofstream f(path,std::ios::binary);f<<"P6\n256 192\n255\n";
     for(auto pixel:pixels)for(unsigned shift:{16u,8u,0u})f.put(static_cast<char>((pixel>>shift)&255));
 }
+// The 256-column centre the host shows during a map hold (main.cpp): the
+// held picture, then the map over it. The bands of a wide canvas go round
+// this centre and the map never reaches them (milestone 10).
 std::array<std::uint32_t,256*192> screen(const Vdp::Picture& background,const app::RomFont& font,const game::MapView& view) {
     std::array<std::uint32_t,256*192> pixels{};
-    std::transform(background.begin(),background.end(),pixels.begin(),app::rgb);
+    app::centre_pixels(pixels,background,nullptr);
     app::render_automap(pixels,font,view);
     return pixels;
 }

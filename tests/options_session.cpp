@@ -95,13 +95,15 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
                 case 5:return {.right=true};
                 case 7:return {.down=true};
                 case 9:return {.right=true};
-                case 11:
+                case 11:return {.down=true};
+                case 13:return {.right=true};
+                case 15:
                     blocked_options=tested->store().path();blocked_options+=".options";
                     std::filesystem::rename(blocked_options,controls_folder/"held-options");
                     std::filesystem::create_directory(blocked_options);
                     return {.cancel=true};
-                case 13:
-                    if(tested->chosen_options()!=game::Options{200,100} || tested->automap_option())
+                case 17:
+                    if(tested->chosen_options()!=game::Options{200,100} || tested->automap_option() || tested->widescreen_option())
                         throw std::runtime_error("Failed exit changed the active Options choice");
                     checked_options_failure=true;
                     std::filesystem::remove(blocked_options);
@@ -169,6 +171,24 @@ app::InputSnapshot scripted_controls(SDL_Window*,const app::Controller& controll
     if(call>3+2*count)throw std::runtime_error("The Controls screen did not close after SAVE");
     return input;
 }
+// Mode 5 (the canvas): the session canvas follows the applied widescreen switch. Narrow, with
+// the driver off, until the failed exit is checked; after the successful retry the canvas is the
+// 344-based wide one and the driver is on.
+bool saw_wide_after_apply=false;
+void checked_bands(app::Display& display,const app::WidePicture* wide) {
+    if(mode_under_test==5 && tested) {
+        int output_width=0,output_height=0;
+        if(SDL_GetRendererOutputSize(display.renderer.get(),&output_width,&output_height)!=0)throw std::runtime_error("Cannot read the output size");
+        if(display.wide_canvas!=tested->widescreen())throw std::runtime_error("The canvas does not follow the driver's widescreen state");
+        if(!checked_options_failure) {
+            if(display.wide_canvas || tested->widescreen() || output_width%344==0)throw std::runtime_error("A failed Options exit changed the canvas");
+        } else if(display.wide_canvas) {
+            if(output_width%344!=0)throw std::runtime_error("The wide canvas is not a 344-based window");
+            saw_wide_after_apply=true;
+        }
+    }
+    app::upload_bands(display,wide);
+}
 int checked_upload(const Machine& machine,unsigned speed,bool visible,bool controls,bool active,const Vdp::Picture& background,SDL_Texture* texture,const SDL_Rect* rect,const void* pixels,int pitch){
     const auto* rendered=static_cast<const std::uint32_t*>(pixels);
     if(controls){
@@ -195,6 +215,9 @@ int checked_upload(const Machine& machine,unsigned speed,bool visible,bool contr
         for(std::size_t i=0;i<machine.picture().size();++i) {
             const auto x=i%256,y=i/256;
             if(speed>1 && x>=234 && x<254 && y>=2 && y<12)continue;
+            // Widescreen on (the centre is uploaded at x 44): the band renderer's picture replaces the
+            // VDP's blanked left column (x 0-7); everything else must still equal the VDP picture.
+            if(rect && rect->x!=0 && x<8)continue;
             if(rendered[i]!=app::rgb(machine.picture()[i]))throw std::runtime_error("Closed options changed the game picture");
         }
     }
@@ -260,6 +283,7 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 #define sample_menu_input scripted_menu
 #define sample_controls_input scripted_controls
 #define toggle_fullscreen counted_fullscreen
+#define upload_bands(d,w) checked_bands(d,w)
 #define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),menu.visible(),controls_screen.visible(),driver.menu_active(),menu_background,t,r,p,pitch)
 #include "../src/app/main.cpp"
 #undef main
@@ -275,6 +299,7 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 #undef sample_controls_input
 #undef toggle_fullscreen
 #undef SDL_UpdateTexture
+#undef upload_bands
 int main(int argc,char**argv){try{
     if(argc!=3)return 1;if(!*argv[1]||!std::filesystem::is_regular_file(argv[1]))return 77;
     recording_path=argv[2];const auto root=std::filesystem::temp_directory_path()/("psmodern-options-session-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -286,7 +311,7 @@ int main(int argc,char**argv){try{
         sampled=stage=modal_frames=speed_stage=0;release_speed=false;sent_quit=toggle_sent=was_active=restored_speed=saved_menu=saved_game=false;last_modal_cycle=0;tested=nullptr;
         controls_calls=controls_frames=0;awaiting_controls=controls_closed=false;
         power_cycles=fullscreen_toggles=shortcut_events=0;send_shortcuts=hold_tab=checked_failed_save=checked_new_binding=false;
-        checked_options_failure=false;
+        checked_options_failure=saw_wide_after_apply=false;
         if(mode_under_test==4){
             // A controls file with the power cycle and fullscreen on the stick
             // buttons, and a virtual controller (hardware back-ends off, as in
@@ -312,7 +337,7 @@ int main(int argc,char**argv){try{
         const auto result=options_app_main(mode_under_test==2?3:4,mode_under_test==1?recording_args:mode_under_test==2?raw_args:normal);
         if(result || (mode_under_test==1 ? was_active : !was_active || modal_frames==0 || !restored_speed))throw std::runtime_error("Scripted options app session failed");
         if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<14))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
-        if(mode_under_test==5 && (!checked_options_failure || stage<14))
+        if(mode_under_test==5 && (!checked_options_failure || stage<18 || !saw_wide_after_apply))
             throw std::runtime_error("Failed Options exit did not keep all values for a successful retry");
         if(mode_under_test==4){
             SDL_Quit();   // balances the test's own SDL_Init; the virtual controller goes with it
@@ -324,7 +349,7 @@ int main(int argc,char**argv){try{
         }
         if(std::filesystem::exists(root/"PSModern"/app::bindings_file_name))throw std::runtime_error("Closing the Controls screen wrote the controls file");
         auto store=app::SaveStore::shared(root/"PSModern");
-        if(store.load_preferences(store.load())!=(mode_under_test==5 ? game::Options{0,200} : game::Options{0,100}) || store.automap_preference()!=(mode_under_test==5))
+        if(store.load_preferences(store.load())!=(mode_under_test==5 ? game::Options{0,200} : game::Options{0,100}) || store.automap_preference()!=(mode_under_test==5) || store.widescreen_preference()!=(mode_under_test==5))
             throw std::runtime_error("Options exit or restricted session persisted the wrong rates or automap");
     }
     {   // The start screen (video only: no controller is opened).

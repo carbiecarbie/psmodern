@@ -157,18 +157,52 @@ Display open_display(const std::string& title) {
     std::cerr<<"Video: "<<renderer_info.name<<", vsync="
              <<bool(renderer_info.flags&SDL_RENDERER_PRESENTVSYNC)
              <<", display_hz="<<(have_display ? mode.refresh_rate : 0)<<'\n';
-    display.texture.reset(SDL_CreateTexture(renderer.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,256,192));
+    display.texture.reset(SDL_CreateTexture(renderer.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,wide_width,wide_height));
     sdl_check(bool(display.texture),"Creating picture texture");
     sdl_check(SDL_SetTextureScaleMode(display.texture.get(),SDL_ScaleModeNearest)==0,"Setting nearest-neighbour scaling");
     return display;
 }
+SDL_Rect centre_rect(const Display& display) {
+    return {canvas_centre_x(display.wide_canvas),0,picture_width,picture_height};
+}
+void upload_bands(Display& display,const WidePicture* wide) {
+    if (!display.wide_canvas) return;
+    display.bands.resize(wide_width*wide_height);
+    band_pixels(display.bands,wide);
+    constexpr int right=wide_centre_x+picture_width;
+    for (const SDL_Rect band:{SDL_Rect{0,0,wide_centre_x,wide_height},SDL_Rect{right,0,wide_width-right,wide_height}})
+        sdl_check(SDL_UpdateTexture(display.texture.get(),&band,display.bands.data()+band.x,wide_width*sizeof(std::uint32_t))==0,
+                  "Uploading the side bands");
+}
+void apply_canvas(Display& display,bool wide) {
+    if (display.wide_canvas==wide) return;
+    auto* window=display.window.get();
+    int ow,oh; sdl_check(SDL_GetRendererOutputSize(display.renderer.get(),&ow,&oh)==0,"Reading output size");
+    const int scale=viewport(ow,oh,canvas_width(display.wide_canvas)).scale;
+    display.wide_canvas=wide;
+    SDL_SetWindowMinimumSize(window,canvas_width(wide),picture_height);
+    if (SDL_GetWindowFlags(window)&(SDL_WINDOW_FULLSCREEN|SDL_WINDOW_MAXIMIZED|SDL_WINDOW_MINIMIZED)) return;
+    WindowRect current;
+    SDL_GetWindowPosition(window,&current.x,&current.y);
+    SDL_GetWindowSize(window,&current.width,&current.height);
+    std::optional<WindowRect> usable;
+    SDL_Rect bounds{};
+    const int index=SDL_GetWindowDisplayIndex(window);
+    if (index>=0 && SDL_GetDisplayUsableBounds(index,&bounds)==0) usable=WindowRect{bounds.x,bounds.y,bounds.w,bounds.h};
+    WindowBorders borders;   // unknown borders (an error) count as none
+    if (SDL_GetWindowBordersSize(window,&borders.top,&borders.left,&borders.bottom,&borders.right)!=0) borders={};
+    const auto fitted=canvas_window(current,ow,oh,canvas_width(wide),scale,usable,borders);
+    SDL_SetWindowSize(window,fitted.rect.width,fitted.rect.height);
+    SDL_SetWindowPosition(window,fitted.rect.x,fitted.rect.y);
+}
 void present(const Display& display) {
     auto* renderer=display.renderer.get();
     int w,h; sdl_check(SDL_GetRendererOutputSize(renderer,&w,&h)==0,"Reading output size");
-    const auto v=viewport(w,h); const SDL_Rect rect{v.x,v.y,v.width,v.height};
+    const int canvas=canvas_width(display.wide_canvas);
+    const auto v=viewport(w,h,canvas); const SDL_Rect source{0,0,canvas,picture_height},rect{v.x,v.y,v.width,v.height};
     sdl_check(SDL_SetRenderDrawColor(renderer,0,0,0,255)==0,"Setting black bars");
     sdl_check(SDL_RenderClear(renderer)==0,"Clearing picture");
-    sdl_check(SDL_RenderCopy(renderer,display.texture.get(),nullptr,&rect)==0,"Drawing picture");
+    sdl_check(SDL_RenderCopy(renderer,display.texture.get(),&source,&rect)==0,"Drawing picture");
     SDL_RenderPresent(renderer);
 }
 void toggle_fullscreen(SDL_Window* window) {

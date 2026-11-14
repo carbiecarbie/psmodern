@@ -58,16 +58,51 @@ PSModern's own screens between English and Portuguese when the corresponding
 ROM is available. During play, finish the current dialogue or battle first;
 the game changes language after Options closes, without restarting.
 Language has its own Save/Cancel, like Controls. Leaving Options saves its
-displayed rates and automap setting and keeps a language already saved.
+displayed rates, automap and widescreen settings and keeps a language already
+saved.
 This preference is global; all languages use the same saved games, options
 and automap. The start screen
 has one PLAY entry; ADD ROM makes another language available.
+
+## Options: widescreen
+
+The Options window has a WIDESCREEN row (TELA LARGA in Portuguese), the fourth
+after Encounters, Experience / Meseta and Automap. Left or right switches it
+OFF or ON; it is OFF by default. Like Automap it takes effect when you leave
+Options, with no restart, and is saved with your other options.
+
+- **Where it applies.** With WIDESCREEN ON the world map, the towns and the
+  spaceship flight between planets are
+  shown 344 by 192 pixels, 16:9: the original 256 pixels in the middle and 44
+  more on each side, drawn from the map (in space, from the stars) with the game's own tiles
+  and colours, including the 8 pixels on the left that the cartridge leaves blank. Walking
+  past the edge of a town shows what the game has there; the world maps wrap
+  around. In space the sides repeat the stars: those at the right of the
+  middle are the same as those at the left. Battles, dialogue, shops,
+  houses, dungeons and the other screens keep their 256 pixels, centred between black bars. Fades and
+  the moments around a transfer between maps may show black bars for a moment.
+  Menus and screens of PSModern itself (Options, Controls, Language, the
+  dungeon map, the speed mark) stay 256 pixels wide in the middle. The start
+  screen is always 256 pixels wide.
+- **The window.** While WIDESCREEN is ON the window is as wide as the wide
+  picture for the whole session, so it never changes size during play.
+  Switching the option resizes a normal window to the wide or the narrow
+  shape at the scale it has, shrinking it by whole steps if it would not fit on
+  the screen; a maximized or fullscreen window keeps its size and only the
+  picture changes. At 1366 by 768 fullscreen the wide picture is drawn at 3
+  times its size instead of 4.
+- **Restricted modes.** While recording and with `--no-routines` the row is
+  read-only and shows OFF: the game stays exactly as the cartridge ran it.
+  The footer says RECORDING - READ ONLY or Z80 MODE - READ ONLY.
+- **The game never notices.** WIDESCREEN only changes what is shown. With it ON
+  the game runs exactly as with it OFF; see
+  [how widescreen reads the map](how-it-works/world-map.md#how-widescreen-reads-this).
 
 ## Opening the Controls screen
 
 - On the **start screen**, choose CONTROLS. Closing the Controls screen puts
   you back on it.
-- **During play**, open the Options window and choose its fourth row,
+- **During play**, open the Options window and choose its fifth row,
   CONTROLS. The game stays held behind it. Closing the Controls screen puts
   you back in the Options window.
 
@@ -157,7 +192,7 @@ fullscreen key says ALT ENTER IS FIXED, for clearing and for setting.
 The Options window and the dungeon map use your controls: the four direction
 inputs move, Button 1 chooses and Button 2 goes back, and the Options and Map
 keys close their own screens (Button 2 closes the map too). Leaving Options
-automatically saves its displayed rates and Automap setting. The window title
+automatically saves its displayed rates, Automap and Widescreen settings. The window title
 lists the current keys for Speed and Options, and for Map while the Automap
 option is on, for example `Speed 1X (TAB / RB)`; an action with no key or
 button set is left out.

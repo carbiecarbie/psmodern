@@ -18,7 +18,13 @@ uncompressed files. `PSMODERN_ROM_TESTS` defaults to `ON`: a missing or empty
 ROM path makes its test report CTest's skip code 77; an existing wrong file
 fails, including the other version's ROM. Set the option to `OFF` to omit ROM
 tests, as CI does. The cache path
-`PSMODERN_REFERENCE_DIR` locates external reference manifests. Use
+`PSMODERN_REFERENCE_DIR` locates external reference manifests and the start
+images of the recordings that begin from a saved game. Configure it
+(`-DPSMODERN_REFERENCE_DIR=...`) when you run the complete suite: without it
+the `psmodern_automap_session` parts that replay the dungeon walks, and the
+`wide_view` recording and probe tests that start from a saved game, stop
+with "start image missing" or "the start image needs the reference folder"
+instead of skipping. Use
 `ctest --test-dir build-rel -L fast --output-on-failure` for fast tests.
 Every test that needs a ROM also carries the label `rom`, besides `fast` or
 `checkpoint`.
@@ -48,8 +54,10 @@ For a plain-words introduction to the console parts described below, see
 [how the Master System works](how-it-works/master-system.md).
 The game-system chapters explain [controller reading](how-it-works/controls.md),
 [random numbers and encounters](how-it-works/random-numbers.md),
-[party records and experience](how-it-works/party.md), and
-[the sound driver](how-it-works/sound.md).
+[party records and experience](how-it-works/party.md),
+[the sound driver](how-it-works/sound.md),
+[walking in the dungeons](how-it-works/dungeons.md) and
+[the world map and the towns](how-it-works/world-map.md).
 
 ## Program
 
@@ -57,9 +65,15 @@ Run `psmodern.exe <rom-path>` with the player's uncompressed `.sms` file, or
 `psmodern.exe` alone for the [start screen](#start-screen).
 The program identifies US Rev-A and Brazilian cartridges by SHA-1; other
 files are refused. Errors appear on stderr and in an SDL message box.
-The window title names the identified version. The 256x192 picture uses
-nearest-neighbour integer scaling, centred with black bars in a resizable
-window initially 768x576. Alt+Enter toggles borderless desktop fullscreen.
+The window title names the identified version. The picture lives on one
+344x192 canvas and texture (milestone 10): the 256x192 original picture uses
+its first 256 columns with nearest-neighbour integer scaling, centred with
+black bars in a resizable window initially 768x576; with the widescreen
+option on, all 344 columns are shown and the 256-column centre sits at x 44
+(`src/app/host.h`, `src/app/sdl_host.h`). `viewport` takes the canvas width,
+and applying the option resizes a normal window to the canvas at its current
+scale, lowered until it fits the usable display bounds; maximized and
+fullscreen windows change only the viewport. Alt+Enter toggles borderless desktop fullscreen.
 
 `psmodern.exe --version` prints `PSModern 0.4.0` and exits with 0 before any
 window or SDL start-up; combined with any other argument it is refused. The
@@ -273,6 +287,16 @@ session from whatever file is there, a preserved unusable file lasts only
 until the first save of the next session, which replaces that backup with the
 file it finds then. Two games with byte-identical game blocks share one record.
 
+**Settings format 3 (widescreen).** A record gains a last field,
+`<label> <sha256> <encounter> <experience> <automap> <widescreen>`, both
+switches `0` or `1`; formats 1 and 2 read as widescreen off. The file is
+written as `psmodern-options 3` only while some record (committed, pending or
+backup) has widescreen on; otherwise it is still written as format 2, so
+release 0.4.0 keeps reading it. Like automap, the switch sits beside the
+routine options, never reaches `register_routines` and never makes a change
+pending (`src/app/settings.*`). Details of the option itself are under
+[widescreen](#widescreen) below.
+
 **Settings format 2.** The `.options` companion is written as
 `psmodern-options 2`, each record `<label> <sha256> <encounter> <experience>
 <automap>` with automap `0` or `1`. Format 1 files (no automap field) are
@@ -325,6 +349,45 @@ Continue restoring the record the previous walk saved, and check that an
 unopened chest shows on the map before the party reaches it.
 `psmodern_automap_session ... frames <folder>` writes inspection frames (PPM)
 from the dungeon recordings instead.
+
+## Widescreen
+
+Milestone 10 adds a read-only presentation path for the world map, the
+towns and the spaceship flight; [the world map and the towns](how-it-works/world-map.md) explains what
+it reads and why. In the code:
+- `src/game/map_screens.*` (`MapScreens`) reads the areas from the player's ROM
+  image; `src/app/wide_view.*` (`WideView`, the `mode4` background decoder)
+  copies the VDP state after each frame, holds the camera and renders the side
+  bands; `FrameDriver::wide_picture()` returns the 344x192 picture, or nothing
+  when the frame is not widened (pillarbox). The machine and the VDP are not
+  changed, nothing is copied while the option is off, and the option never
+  reaches `register_routines`.
+- `FrameDriver::set_widescreen`, `widescreen_option` and the three-argument
+  `choose_options` apply it at once, as for automap. It is read-only (off) in
+  recording mode and with `--no-routines` (`options_restricted`).
+  The host keeps the wide picture of the moment a host menu opens
+  (`wide_menu_background`), so a held menu keeps its bands.
+- `apply_canvas`, `upload_bands`, `centre_rect` and `canvas_window` (see
+  [Program](#program)) do the window side.
+
+**Tests.** `wide_view_unit` (no ROM: the decoder against the VDP on random
+states, `render_wrapped` against the decoder (`wrapped_against_decoder`), the reader on a synthetic image, the state probes) and
+`sdl_canvas` (the host canvas on SDL's dummy video driver: narrow canvas equal
+to 0.4.0's, wide canvas, pillarbox, `apply_canvas`) are fast and need no ROM.
+`rom_<version>_wide_view_reader` reads the 11 areas of the real ROM;
+`rom_<version>_wide_view_probes` covers the option switched on mid-stay and
+during a transfer fade, power cycle, ROM swap, recording mode and
+`--no-routines`; `rom_<version>_wide_view_ship` and `_ship_routes` (the
+spaceship flight, modes 4 and 5, over the 8 study routes: the source and the
+camera of every frame against the name table); and
+`rom_<version>_wide_view_<recording>` runs each
+recording with the option off and on side by side on two threads (the
+machines equal every frame, the centre agreeing with the VDP, scroll
+consistency, the gating oracle and the screen window). The probes and the
+recording tests that start from a saved game need
+`PSMODERN_REFERENCE_DIR`, as the automap session does. The
+`viewport` and `canvas_window` cases of `app_tests.cpp` and the settings and
+Options cases cover the rest. No image is committed.
 
 ## Input
 
@@ -405,9 +468,9 @@ The Options binding (Escape or controller Y by default) opens Options during fre
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Pause remains the original Pause. Up/Down
-selects one of the five rows (the two rates, Automap, CONTROLS and LANGUAGE);
-four rows fit, so the list scrolls. Left/Right changes a value.
-Button 1, Button 2 or the Options binding persists the three displayed values
+selects one of the six rows (the two rates, Automap, Widescreen, CONTROLS and
+LANGUAGE); four rows fit, so the list scrolls (footer 1/3 to 3/3). Left/Right changes a value.
+Button 1, Button 2 or the Options binding persists the four displayed values
 and closes; there is no separate confirmation step. On the CONTROLS row Button
 1 opens the [Controls screen](#controls-screen) instead, also in the read-only
 modes, because controls never touch the game. LANGUAGE opens the
