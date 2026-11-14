@@ -158,3 +158,4 @@ approved the work, and the complete suite passed 206 of 206 with no skips. The
 maintainer play-tested the world map, towns, transfers, fades, battles and the
 window, then the flight, and accepted it on 2026-11-14; vehicles were not
 play-tested because no save reaches one. [Plan](milestone-10-plan.md).
+Implementation: `581b4f3`; closed by `6101dd9`.

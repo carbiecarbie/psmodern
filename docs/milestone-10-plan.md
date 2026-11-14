@@ -1,7 +1,8 @@
 # Milestone 10 plan - Widescreen on the world map, in towns and in the spaceship flight
 
-**Tier A. Status: completed and accepted (2026-11-14).** Tenth milestone of
-the [roadmap](roadmap.md); stage 8 of [design](design.md) section 8.
+**Tier A. Status: completed and accepted (2026-11-14).** Implemented in
+`581b4f3` and closed by `6101dd9`. Tenth milestone of the
+[roadmap](roadmap.md); stage 8 of [design](design.md) section 8.
 
 ## Scope delivered
 
