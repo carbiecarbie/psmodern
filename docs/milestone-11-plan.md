@@ -1,7 +1,8 @@
 # Milestone 11 plan - World map and towns
 
-**Tier B. Status: completed and accepted (2026-11-15).** Eleventh milestone
-of the [roadmap](roadmap.md); stage 8 of [design](design.md) section 8.
+**Tier B. Status: completed and accepted (2026-11-15).** Implemented in
+`78254af` and closed by `f5cc348`. Eleventh milestone of the
+[roadmap](roadmap.md); stage 8 of [design](design.md) section 8.
 
 ## Scope delivered
 

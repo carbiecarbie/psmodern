@@ -183,3 +183,4 @@ The maintainer play-tested it in one US session, on foot, in the Land Rover,
 the hovercraft and the Ice Digger, on the road and in a cave, noticed
 nothing different from the original and accepted it on 2026-11-15.
 [Plan](milestone-11-plan.md).
+Implementation: `78254af`; closed by `f5cc348`; private annotations: `dd72681` in `psmodern-re`.
