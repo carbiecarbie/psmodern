@@ -3,6 +3,7 @@
 #include "game/dungeon.h"
 #include "game/encounters.h"
 #include "game/experience.h"
+#include "game/map.h"
 #include "game/money.h"
 #include "game/options.h"
 #include "game/text.h"
@@ -28,4 +29,7 @@ void register_random(RoutineRegistry& registry);
 void register_dungeon_cells(RoutineRegistry& registry);
 void register_dungeon_movement(RoutineRegistry& registry);
 void register_dungeon_objects(RoutineRegistry& registry);
+// The milestone 11 map routines register through the six functions declared
+// in game/map.h (map_video.cpp, map_scroll.cpp, map_objects.cpp,
+// map_terrain.cpp, map_entrances.cpp, map_modes.cpp).
 }

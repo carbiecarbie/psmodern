@@ -97,6 +97,13 @@ public:
     // Consistent map or road frames whose work RAM camera differed from the
     // held camera, which was then corrected (since construction).
     std::uint64_t corrections() const { return corrections_; }
+    // Edited cells the view holds (see HeldCell) after the last frame.
+    unsigned held_cells() const { return held_count_; }
+    // The id held for world cell (cx, cy) (0-127, 0-95), if any.
+    std::optional<std::uint8_t> held(unsigned cx,unsigned cy) const noexcept {
+        for(unsigned k=0;k<held_count_;++k)if(held_[k].x==cx && held_[k].y==cy)return held_[k].id;
+        return std::nullopt;
+    }
     const game::MapScreens& screens() const { return screens_; }
     // Draws wide columns [x0, x1) of every line from the map, for the shown
     // copy and the held camera (widened() must be true). Tests also draw the
@@ -118,7 +125,19 @@ public:
     // plus the signed distance the vertical scroll has run ahead of its shadow.
     static HeldCamera ship_camera(const WideSnapshot& s) noexcept;
 private:
+    // A cell the game edited (ice the digger broke: 01:756C writes the new id
+    // in the screen window and its names in the name table). The game forgets
+    // the edit when 01:723D decodes the window again at a page change, but
+    // the name table keeps showing it until the cell leaves the picture. The
+    // view holds each edit it saw in a trusted window while the cell stays in
+    // the wide picture and the name table, where it shows the cell, still
+    // shows the edit, so the bands stay continuous with the centre.
+    struct HeldCell { std::uint8_t x=0,y=0,id=0; };   // world cell: 0-127, 0-95
+    static constexpr unsigned max_held=512;
     void update() noexcept;
+    void hold_edits(const WideSnapshot& s) noexcept;
+    // The id the window (when trusted and covering) or the ROM gives a cell.
+    std::uint8_t base_id(const WideSnapshot& s,unsigned cx,unsigned cy) const noexcept;
     void ship(const WideSnapshot& s) noexcept;
     // Every fully visible name-table cell right of x 8 holds the map's word
     // for that camera.
@@ -135,6 +154,9 @@ private:
     bool scene_started_=false;
     WideSource source_=WideSource::none;
     std::uint64_t corrections_=0;
+    std::array<HeldCell,max_held> held_{};
+    unsigned held_count_=0;
+    game::MapArea held_area_{};
     mutable std::unique_ptr<WidePicture> picture_;
     mutable bool rendered_=false;
 };

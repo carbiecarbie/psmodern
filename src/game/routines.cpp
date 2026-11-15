@@ -60,6 +60,12 @@ bool register_routines(RoutineRegistry& registry, std::string_view digest, const
     register_dungeon_movement(registry);
     register_dungeon_objects(registry);
     register_text(registry);
+    register_map_video(registry);
+    register_map_scroll(registry);
+    register_map_objects(registry);
+    register_map_terrain(registry);
+    register_map_entrances(registry);
+    register_map_modes(registry);
     return true;
 }
 }

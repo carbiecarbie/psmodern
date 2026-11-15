@@ -161,7 +161,7 @@ void WideView::ship(const WideSnapshot& s) noexcept {
 
 void WideView::reset() noexcept {
     has_shown_=has_next_=false;camera_.reset();previous_page_.reset();
-    widened_=window_used_=rendered_=scene_started_=false;source_=WideSource::none;
+    widened_=window_used_=rendered_=scene_started_=false;source_=WideSource::none;held_count_=0;
 }
 void WideView::replace_rom(std::shared_ptr<const Memory::Rom> rom) {
     screens_=game::MapScreens(std::move(rom));
@@ -190,14 +190,14 @@ void WideView::push(const WideSnapshot& next) noexcept {
 // rule (ship) and leaves its last map camera for the fade that follows.
 void WideView::update() noexcept {
     rendered_=false;widened_=window_used_=false;source_=WideSource::none;
-    if(!has_shown_) { camera_.reset();previous_page_.reset();return; }
+    if(!has_shown_) { camera_.reset();previous_page_.reset();held_count_=0;return; }
     const auto& s=*shown_;
     const std::array<std::uint8_t,2> page{s.page_x,s.page_y};
     const bool page_steady=previous_page_ && *previous_page_==page;
     previous_page_=page;
-    if(ship_mode(s.mode)) { ship(s);return; }
+    if(ship_mode(s.mode)) { ship(s);held_count_=0;return; }
     scene_started_=false;
-    if(!family_mode(s.mode) || !map_display(s.vdp)) { camera_.reset();return; }
+    if(!family_mode(s.mode) || !map_display(s.vdp)) { camera_.reset();held_count_=0;return; }
     const auto r8=s.vdp.registers[8],r9=s.vdp.registers[9];
     if(camera_) {
         // X: the register is minus the camera, modulo 256. Y: the register
@@ -220,7 +220,7 @@ void WideView::update() noexcept {
         if(camera_ && *camera_!=ram)++corrections_;
         camera_=ram;
     }
-    if(!camera_ || !screens_.select(s.area))return;
+    if(!camera_ || !screens_.select(s.area)) { held_count_=0;return; }
     widened_=true;source_=WideSource::map;
     // The screen window (01:723D decodes the 2 x 2 screens from the camera's
     // page) holds edited cells; it is trusted only on map and road frames,
@@ -230,6 +230,97 @@ void WideView::update() noexcept {
     // changed since the previous copy (a decode may be in flight across the
     // frame boundary). Elsewhere the ROM screens are drawn.
     window_used_=anchor_mode(s.mode) && page_steady && page[0]==camera_->x/game::map::screen_width && page[1]==camera_->y/game::map::screen_height;
+    hold_edits(s);
+}
+
+std::uint8_t WideView::base_id(const WideSnapshot& s,unsigned cx,unsigned cy) const noexcept {
+    namespace map=game::map;
+    const unsigned sx=cx/map::cells_x,sy=cy/map::cells_y,cell=(cy%map::cells_y)*map::cells_x+cx%map::cells_x;
+    const unsigned dx=(sx-s.page_x)&7,dy=(sy-s.page_y)&7;
+    return window_used_ && dx<2 && dy<2 ? s.window[(dx+2*dy)*map::window_slot+cell] : screens_.screen(sx,sy)[cell];
+}
+
+// Edited cells (HeldCell). First the cells already held: one that has left
+// the wide picture is dropped (the game draws it from the window when it
+// comes back); one whose name-table words, on a quarter fully inside the
+// picture's x 8-255, are the window's or ROM's again is dropped (the game
+// drew it again); otherwise it is kept. Then every cell of a trusted window
+// that differs from the ROM, inside the wide picture, is held with its id.
+void WideView::hold_edits(const WideSnapshot& s) noexcept {
+    namespace map=game::map;
+    if(!(held_area_==s.area)) { held_count_=0;held_area_=s.area; }
+    const auto& cam=*camera_;
+    const auto& r=s.vdp.registers;
+    const unsigned table=(r[2]&0x0e)<<10,rows=(r[2]&1) ? 31 : 15;
+    // A cell's top-left corner relative to the camera, signed (the world wraps).
+    auto offset=[](unsigned v,unsigned origin,unsigned size) {
+        int d=static_cast<int>((v+size-origin)%size);
+        if(d>=static_cast<int>(size/2))d-=static_cast<int>(size);
+        return d;
+    };
+    auto inside=[&](unsigned cx,unsigned cy,int& gx,int& gy) {
+        gx=offset(cx*16,cam.x,map::world_width);gy=offset(cy*16,cam.y,map::world_height);
+        return gx+16>-wide_centre_x && gx<256+wide_centre_x && gy+16>0 && gy<wide_height;
+    };
+    unsigned kept=0;
+    for(unsigned k=0;k<held_count_;++k) {
+        const auto cell=held_[k];
+        int gx=0,gy=0;
+        if(!inside(cell.x,cell.y,gx,gy))continue;
+        const auto base=base_id(s,cell.x,cell.y);
+        bool keep=base!=cell.id;
+        for(unsigned q=0;keep && q<4;++q) {
+            const int x0=gx+8*static_cast<int>(q&1),y0=gy+8*static_cast<int>(q>>1);
+            if(x0<8 || x0+8>256 || y0<0 || y0+8>wide_height)continue;
+            const unsigned row=((static_cast<unsigned>(y0)+r[9])%224)/8;
+            const unsigned column=((cell.x*16u+8u*(q&1))%256)/8;
+            const unsigned at=table|((row&rows)<<6)|(column<<1);
+            const auto name=static_cast<std::uint16_t>(s.vdp.vram[at]|(s.vdp.vram[at+1]<<8));
+            if(name!=screens_.word(cell.id,q) && name==screens_.word(base,q))keep=false;
+        }
+        if(keep)held_[kept++]=cell;
+    }
+    held_count_=kept;
+    auto hold=[&](unsigned cx,unsigned cy,std::uint8_t id) {
+        unsigned k=0;
+        while(k<held_count_ && !(held_[k].x==cx && held_[k].y==cy))++k;
+        if(k==held_count_) { if(held_count_==max_held)return;++held_count_; }
+        held_[k]={static_cast<std::uint8_t>(cx),static_cast<std::uint8_t>(cy),id};
+    };
+    if(window_used_) for(unsigned slot=0;slot<4;++slot) {
+        const unsigned sx=(s.page_x+(slot&1))%map::screen_columns,sy=(s.page_y+(slot>>1))%map::screen_rows;
+        const auto& rom=screens_.screen(sx,sy);
+        for(unsigned i=0;i<map::cells_per_screen;++i) {
+            const auto id=s.window[slot*map::window_slot+i];
+            if(id==rom[i])continue;
+            const unsigned cx=sx*map::cells_x+i%map::cells_x,cy=sy*map::cells_y+i/map::cells_x;
+            int gx=0,gy=0;
+            if(inside(cx,cy,gx,gy))hold(cx,cy,id);
+        }
+    }
+    // A cell edited in the same step that crossed into another page is in the
+    // name table only (the window was decoded again before the view could see
+    // it): on a map or road frame, a cell wholly inside x 8-255 whose four
+    // names are not its window or ROM id's is held as the id whose four
+    // words they are (any such id draws the same picture).
+    if(!anchor_mode(s.mode) || !consistent(s))return;
+    for(unsigned dy=0;dy<13;++dy)for(unsigned dx=0;dx<17;++dx) {
+        const unsigned cx=(cam.x/16+dx)%(map::world_width/16),cy=(cam.y/16+dy)%(map::world_height/16);
+        int gx=0,gy=0;
+        inside(cx,cy,gx,gy);
+        if(gx<8 || gx+16>256 || gy<0 || gy+16>wide_height)continue;
+        std::array<std::uint16_t,4> names{};
+        for(unsigned q=0;q<4;++q) {
+            const unsigned row=((static_cast<unsigned>(gy)+8*(q>>1)+r[9])%224)/8,column=((cx*16u+8u*(q&1))%256)/8;
+            const unsigned at=table|((row&rows)<<6)|(column<<1);
+            names[q]=static_cast<std::uint16_t>(s.vdp.vram[at]|(s.vdp.vram[at+1]<<8));
+        }
+        auto shows=[&](std::uint8_t id) { for(unsigned q=0;q<4;++q)if(names[q]!=screens_.word(id,q))return false;return true; };
+        if(shows(base_id(s,cx,cy)))continue;
+        if(const auto h=held(cx,cy);h && shows(*h))continue;
+        for(unsigned id=0;id<map::metatiles;++id)
+            if(shows(static_cast<std::uint8_t>(id))) { hold(cx,cy,static_cast<std::uint8_t>(id));break; }
+    }
 }
 
 void WideView::render(int x0,int x1,WidePicture& out) const noexcept {
@@ -245,6 +336,9 @@ void WideView::render(int x0,int x1,WidePicture& out) const noexcept {
         const unsigned sy=wy/map::screen_height, py=wy%map::screen_height;
         const unsigned cell_row=(py>>4)*map::cells_x, quarter_row=((py>>3)&1)*2, line=py&7;
         const unsigned window_dy=(sy-s.page_y)&7;
+        // The held cells of this row of cells (at most one row of the picture).
+        std::array<HeldCell,32> row_held{};unsigned row_count=0;
+        for(unsigned k=0;k<held_count_ && row_count<row_held.size();++k)if(held_[k].y==wy>>4)row_held[row_count++]=held_[k];
         std::array<std::uint8_t,8> colours{};
         for(int x=x0;x<x1;++x) {
             const unsigned wx=(cam.x+map::world_width+static_cast<unsigned>(x-wide_centre_x))%map::world_width;
@@ -252,8 +346,9 @@ void WideView::render(int x0,int x1,WidePicture& out) const noexcept {
                 const unsigned sx=wx/map::screen_width, px=wx%map::screen_width;
                 const unsigned cell=cell_row+(px>>4);
                 const unsigned window_dx=(sx-s.page_x)&7;
-                const std::uint8_t id=(window_used_ && window_dx<2 && window_dy<2) ?
+                std::uint8_t id=(window_used_ && window_dx<2 && window_dy<2) ?
                     s.window[(window_dx+2*window_dy)*map::window_slot+cell] : screens_.screen(sx,sy)[cell];
+                for(unsigned k=0;k<row_count;++k)if(row_held[k].x==wx>>4)id=row_held[k].id;
                 colours=mode4::tile_row(s.vdp,screens_.word(id,quarter_row+((px>>3)&1)),line);
             }
             out[static_cast<std::size_t>(y)*wide_width+static_cast<std::size_t>(x)]=s.vdp.cram[colours[wx&7]];

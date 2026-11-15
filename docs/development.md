@@ -694,6 +694,56 @@ probes are `rom_<version>_dungeon_cells`, `_dungeon_tables`,
 the verified ROM SHA-1: authored runner fixtures keep an empty registry. The
 game layer lives in `src/game/`.
 
+Milestone 11 adds walking on the world map and in towns as 153 segments in
+six groups, one source file and one test file each, registered by
+`register_map_<part>` (declared in `src/game/map.h`, which also lists the
+planned segments of each part, the code each part may register in and the
+four stretches with interrupts off that stay native):
+`map_video.cpp` (the frame interrupt's picture work: `00:0235`, `00:029F`,
+`01:588B`, `01:61F5`, `01:62BC`, `01:73D0`, `01:7C18`), `map_scroll.cpp`
+(`01:7143`, `01:723D`, `01:72A6`, `01:733A`, `01:744B`), `map_objects.cpp`
+(`01:576A`, `01:5818`, `01:5853` and the object types from `01:599F`),
+`map_terrain.cpp` (`01:7764`, `01:74E4`, `01:756C`, `01:7602`, vehicle
+placement), `map_entrances.cpp` (`01:77AC`-`01:7A0F`) and `map_modes.cpp`
+(`00:0B08`, `00:0B6A`, `00:0C97`, `00:0CA6`, `00:0CB3`, `00:0306`, the road `00:0E8B` and
+`00:0ED7`). `src/game/map_kit.h` extends the dungeon kit with port output, the
+index registers and a few more instructions, proved against the core by the
+ROM-free `map_kit_unit`. The frame wait at `00:0B14` stays native: the host
+opens Options and Language there, so no segment contains, starts at or exits
+to it, and `rom_<version>_map_observed` compares the instructions the host
+watches, with routines on and off, on `later-town` and `first-battle`. The
+[world map chapter](how-it-works/world-map.md) explains each group.
+
+**Map tests.** `map_<part>_unit` (label `fast`, no ROM) checks each part's
+registered entries, exits and permissions against its table; `map_base_unit`
+checks the planned lists together (distinct entries inside their own part's
+code, none in a native stretch or at a host-watched address). The ROM probes
+are `rom_<version>_map_<part>` for the six parts (`terrain` and `modes` take about
+90 and 250 seconds alone, so they carry `rom` without `fast`): state probes from a power-on
+machine and, where the reference folder is configured, scenario probes from
+start images, every call checked by the per-call verifier with a routines-off
+copy compared every frame. They reach the code the recordings do not. What the per-call comparison
+establishes is the state afterwards (the video chip's memory and registers, the
+sound chip's writes with their cycles, all other memory, the registers) and the
+total cycles of the call, not a log of each video-port access. The order and
+cycle of the port writes inside each video segment are established by reading
+the code against the original plus the kit's own timing tests
+(`map_kit_unit`); a reordering inside the vertical
+blank with the same total cycles would not be detected, and no test claims to.
+Probes of slot-2 mapper segments with the stack in slot-2 ROM, which the
+per-call verifier cannot stop on, are compared with the original natively at
+equal cycles and counted (the count is printed).
+Their start images are the pinned reference images of the recordings. To
+probe from an image made elsewhere, set `PSMODERN_MAP_START_IMAGES` to a
+folder holding `<name>.bin` copies of cartridge RAM; without the variable or
+the file the image is simply not used. The probes are read with the
+helpers of `tests/map_probe.h`; `edited_start_image` changes saved fields of
+a game-made image by their work-RAM address (the block C300h-C6FFh is saved
+as a raw copy). A few probe programs print more with environment variables
+(`PSMODERN_PROBE_PERCENT`, `PSMODERN_PROBE_TRACE`, `PSMODERN_OBJECTS_ENTRY`,
+`PSMODERN_OBJECTS_CENSUS`, `PSMODERN_TERRAIN_COVERAGE`); they are debugging
+aids and no test needs them.
+
 Every replay writes `routine-census.tsv` beside its manifest, one line per
 registered entry. The columns are `entry`, `unit` (the routine the entry
 belongs to), `cpp`, `fallback`, `forced`, `forced_failed`, then the eight
@@ -704,7 +754,7 @@ bytes in ROM, reached only by the state probes) is filed under the `frame`
 reason, since its bound is set above one frame; such refusals never occur in a
 recording.
 
-The fifteen checkpoint tests (six per version and the three US dungeon
+The eighteen checkpoint tests (six per version and the six US-only
 recordings) check every admitted C++ call, compare
 routines on/off frame by frame, and compare the resulting frames with the
 pinned milestone 1 reference. In each checkpoint an entry with at least 20
@@ -713,14 +763,14 @@ gated. `forced` and `forced_failed` must be 0 there, since the checkpoints run
 in original mode. The controller must be called in every checkpoint and keeps
 the 90% share whatever its call count. The tests write counts to
 `build-rel/routine-census/{us,br}/`. Generate [the coverage chapter](coverage.md)
-after all fifteen pass:
+after all eighteen pass:
 
 ```sh
 python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
 ```
 
 The generator groups segments under their unit and applies the same 90% rule
-to every entry with at least 20 calls, over the fifteen censuses together and in
+to every entry with at least 20 calls, over the eighteen censuses together and in
 each census. An entry with at least one call needs at least one C++ call,
 unless it is on the explicit allow-list in the generator, which carries a
 written reason per entry and is empty now. An allow-listed entry that has C++
@@ -748,7 +798,7 @@ R and fetch count; the random, encounter and experience tests probe their
 segments against the original from many machine states. The ROM-free catalog
 and coverage-generator tests run in CI.
 
-Besides the fifteen checkpoints, every checkpoint recording has an `_options` test
+Besides the eighteen checkpoints, every checkpoint recording has an `_options` test
 (`rom_us_<recording>_options`, `rom_br_<recording>_options`, label
 `checkpoint`; the script is `tests/replay_rom_tests.py <runner> <rom> <recording>
 options <reference-folder> [full|identity-only] [marker-file]`). Each test runs
@@ -779,8 +829,9 @@ after the cell test in a dungeon; a fixed fight does not pass through them
 (Inference). At recording level the dungeon side proves only that the first
 compares run and no group choice follows with encounters off, because the
 play diverges soon after; the state probes cover the compare and the
-dungeon segments exhaustively. All fifteen recordings take about 7 minutes
-of suite time.
+dungeon segments exhaustively. The eighteen `_options` tests take about 9
+minutes of test time in all, and the complete suite about 17 minutes of real
+time at `-j 16` (measured at milestone 11: 1,045 seconds).
 
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
@@ -1239,8 +1290,9 @@ ranges justified by the run rather than assuming every high RAM address is stack
 
 Each version has its own inputs under `recordings/us/` or `recordings/br/`.
 The first three checkpoints start at power-on with zero cartridge RAM. The
-other three, and the three US-only dungeon recordings, load slot 1 from a
-cartridge RAM image after power-on.
+other three, the three US-only dungeon recordings and the three US-only map
+recordings (milestone 11) load slot 1 from a cartridge RAM image after
+power-on.
 
 | Recording | Play covered |
 | --- | --- |
@@ -1253,8 +1305,19 @@ cartridge RAM image after power-on.
 | `dungeon-walk-1` (US) | Continue in Maharu Cave: steps, a step back, the item and money chests, the pitfall to the floor below, the fake wall both ways, stairs down and up, a plain door opened and passed both ways, then save in the dungeon. |
 | `dungeon-walk-2` (US) | Continue from that save: win the fixed fight ahead and open its chest, five steps back, stairs up, then save in the dungeon. |
 | `dungeon-continue` (US) | Continue from that save: steps, a step back, and out through the stairs-up exit to the world map. |
+| `road` (US) | Continue in Paseo, pass the passport guard onto the road to the Motavia spaceport, take the ship over Motavia to Palma, take a second road and walk out onto Palma's world map to the compass ring. |
+| `vehicles` (US) | Continue at Maharu Cave with the three vehicles in the item list: use the Land Rover, drive, get out, use the hovercraft across the lake, get out, take ground damage, step on antlion ground and start its fight. |
+| `ice` (US) | Continue on Dezoris in the Ice Digger with the ground under part of it ice: the map load's ice presetting, then digging through the ice field. |
 
-The images of the six shared checkpoints were made by playing in the
+The `road` recording starts from the `later-town` image unedited. The
+`vehicles` and `ice` images could not be game-made, since the vehicles are
+found late in the game and Dezoris is reached only by spaceship; each is the
+`deep-dungeon` image with saved fields edited (the three vehicles added to the
+item list and its count; for `ice`, also the area, the location, the camera
+and its saved copies, and the transport byte set to the Ice Digger), and the
+game's own Continue loads it normally. The edits are saved fields only
+(work-RAM addresses, no ROM data), and each recording was compared frame by
+frame with the patched MesenCE. The images of the six shared checkpoints were made by playing in the
 reference with SMS1, export NTSC, zero-filled power-on RAM, FM off and two SMS
 controllers, then saving through the game's menu. The three dungeon
 recordings form a chain of game-made saves, none edited: the first image is

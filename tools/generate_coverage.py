@@ -5,8 +5,9 @@ from pathlib import Path
 import re
 
 CHECKPOINTS = ('opening', 'first-battle', 'first-dungeon', 'later-town', 'boss', 'deep-dungeon')
-# Milestone 7's dungeon recordings exist for the US version only.
-US_ONLY = ('dungeon-walk-1', 'dungeon-walk-2', 'dungeon-continue')
+# Milestone 7's dungeon recordings and milestone 11's map recordings (the road,
+# the vehicles and the ice) exist for the US version only.
+US_ONLY = ('dungeon-walk-1', 'dungeon-walk-2', 'dungeon-continue', 'road', 'vehicles', 'ice')
 
 
 def checkpoints(version):

@@ -198,7 +198,7 @@ US Rev-A ROM (the Brazilian tables are identical here).
 ## The world map and the towns
 
 How these work is in [the world map and the towns](how-it-works/world-map.md).
-Original mode keeps both oddities below; the widescreen option (off by default)
+Original mode keeps the oddities below; the widescreen option (off by default)
 draws around them without changing them.
 
 ### The original shows 248 pixels of map
@@ -222,6 +222,244 @@ draws around them without changing them.
   sheet holds past it: uniform filler screens (one metatile each, not the same
   on every sheet) and, when close enough, other towns of the same sheet. The
   worlds wrap around instead, since their screen table repeats its first row
-  and column. The census never walked to the edge of a world.
+  and column.
+- **ROM run** (milestone 11 probes). The camera went from screen 7 to screen 0
+  and back in all four directions, on foot and in a vehicle; the picture,
+  the screen window and the strips matched the original on every frame. The
+  recordings still never walk to the edge of a world.
 - The widescreen bands show the same things, further out; they do not clamp
   or add black (**Maintainer decision**, 2026-11-14).
+
+### Broken ice is forgotten at a screen change
+
+- **Where:** the ice digger's break `01:756C`; the screen window refill
+  `01:723D`.
+- **ROM static.** Breaking ice writes the broken metatile (D7h) over the ice
+  cell (D8h-DFh) in the screen window in work RAM and its four names in the
+  name table; the routine keeps no other record of the cell. The window is
+  decoded again from the cartridge when the camera crosses into another
+  screen.
+- **ROM run** (recording `ice`). The window held broken cells until the
+  digger crossed into another screen at frame 1878; from then on it matched
+  the cartridge again, while the picture still showed the broken trail.
+- **Inference.** Broken ice that scrolls out of the picture after such a
+  crossing comes back as whole ice when the party returns, because the
+  column and row producers draw from the window. Not played back in a
+  recording.
+- With widescreen on, the bands keep showing a broken cell while it stays
+  in the wide picture and the name table still shows it, so the trail does
+  not end at the edge of the original picture.
+
+### A vehicle's new column shows late
+
+- **ROM run** (recording `vehicles`, frame 3078). On the first frame of a
+  Land Rover step to the right, the names of the column entering on the right
+  were still being written while lines 0-9 were drawn, so those lines show
+  the column leaving on the left at x 254-255 for one frame. Original mode
+  keeps it; with widescreen on, the band beside it already shows the new
+  column.
+
+### Found in the picture updates (milestone 11)
+
+Quirks of the frame-interrupt work of the map (`00:0235`, `00:029F`,
+`01:588B`, `01:61F5`, `01:62BC`, `01:73D0`, `01:7C18`).
+
+#### A firing tile animator skips the others for the frame
+
+- **Where:** `01:630A`, its end at `01:6343`; the six calls in `01:62BC`.
+- **ROM static.** After copying an animation step, `01:630A` removes its
+  caller's return address from the stack and returns to the frame handler
+  directly, so the animators listed after the one that fired are not looked
+  at in that frame; their countdowns wait one frame.
+- **ROM run.** With the first two animators due in the same frame, the second
+  one's countdown stays untouched, and with the first one off the second fires
+  (`tests/map_video_tests.cpp`).
+- **Inference.** Probably deliberate, to keep the frame's work short; the
+  effect is a one-frame delay of an animation when two fall due together.
+
+#### Only one party member's pose is sent per frame
+
+- **Where:** `01:61F5`, its jump at `01:6214`.
+- **ROM static.** The pose copy is reached by a jump, not a call, and returns
+  to the frame handler, so after the first object whose pose changed the
+  others wait for the next frame.
+
+#### Long animations run into the next picture
+
+- **Where:** `01:6337`-`01:6340` (the copy loop of `01:630A`), `00:02D0`
+  (the loading copy of `00:029F`).
+- **ROM run.** In the checkpoint recordings the longest animation copies and
+  the whole loading copy are still running when the next frame begins (the
+  milestone 11 census counts the calls that cross it).
+
+### Found in walking and the camera (milestone 11)
+
+Quirks of the step, the camera and the screen window (`01:7143`, `01:723D`,
+`01:72A6`, `01:733A`, `01:744B`).
+
+#### Held directions are tried in a fixed order
+
+- **Where:** `01:714D`-`01:7209`.
+- **ROM static.** A new step tries up, then down, then left, then right. With
+  a diagonal held, the party walks up or down when it can; a blocked direction
+  passes on to the next held one, so up and right against a wall above walks
+  right. Nothing remembers the direction of the last step.
+
+#### A step under way is never checked again
+
+- **Where:** `01:718B` (and the same test before each of the four terrain
+  calls).
+- **ROM static.** The terrain check runs only when a step starts. The 15 or
+  7 frames that follow move the camera without asking, whatever the ground
+  under the next frames is.
+
+#### Standing still sends a sound request every frame
+
+- **Where:** `01:722D`-`01:722F`.
+- **ROM static.** Each frame the party stands (no direction held, or all held
+  ones blocked), the step writes D6h to the sound request byte `$C004`.
+- **Unknown.** What the sound driver does with D6h was not studied.
+
+### Found in the sprites and the object list (milestone 11)
+
+Quirks of the object engine and the map's object types (`01:576A`,
+`01:5853`, `01:599F`). Original mode keeps both.
+
+#### Only the first four listed objects are put in order
+
+- **Where:** the sort in `01:576A`, `01:57B9`-`01:57DB`.
+- **ROM static.** The engine lists the objects that want to be drawn (up to
+  eight) and orders the list by each object's vertical position, the larger
+  first, before drawing. The ordering is three passes of a triangular compare:
+  the first place is compared with the next three, the second with the two
+  after it, the third with the fourth. Places five to eight are never compared
+  with anything, so they stay in the order of their slots.
+- **ROM run.** A state probe of the milestone 11 tests fills the list with
+  eight random positions and runs the sort on both cartridges: the first four
+  places come out in descending order, the last four unchanged.
+- **Inference.** On a walking map the objects are the party (up to four) and
+  one vehicle, at most five, so only the fifth can stay out of the ordering;
+  the sort looks written for a list of four.
+
+#### The drawing leaves slot 2 on the sprite bank
+
+- **Where:** `01:5806`, inside the draw loop of `01:576A`.
+- **ROM static.** Before each object is drawn the engine writes the bank of its
+  sprite data (bank 3 for slots 0-3, bank 21 for slots 4-7) to the slot 2
+  register, and never puts the previous bank back.
+- **ROM run.** The same probe checks that the register is written before the
+  first draw call: slot 2 holds bank 3 when the first listed object is one of
+  slots 0-3. After the last object the bank of that object stays mapped when
+  the engine returns (ROM static).
+
+### Found in what the ground allows (milestone 11)
+
+Quirks of the terrain, vehicle and ice code (`01:7764`, `01:74E4`, `01:756C`,
+`01:7602`, `01:7656`, `01:76C1`, `01:7732`). All are kept as they are.
+
+- **The step that breaks ice is not stopped by it.** `01:756C` puts the broken
+  ice in place of the ice and then returns the attribute of the broken ice, not
+  of the ice. **ROM static, ROM run.** On areas below 4 the ice's attribute
+  has bit 0 set and the broken ice's does not; in the `ice` recording the
+  probe broke ice in 96 of 193 reads, and the C++ runs both outcomes against
+  the original.
+- **Every kind of transport but three takes the ice path.** `01:74E4` knows the
+  road, on foot, 4 and 8; any other nonzero `$C30E` takes the two-probe ice
+  path. **ROM static.** State probes with the values 1, 14h and FFh run the
+  C++ and the original side by side with the same result. **Inference.** The
+  game only ever stores 0, 4, 8, 0Ch, 10h and 11h there, so play never
+  shows the difference.
+- **The lookup leaves bank 03 in the upper slot.** `01:7764`, and the ice path
+  of `01:756C`, switch bank 3 in through `$FFFF` to read the attribute table
+  and never switch back. **ROM static, ROM run.** The C++ writes the same
+  mapper register at the same moment, which is why those segments carry the
+  mapper permission.
+- **The Land Rover's placement tries four spots, one of them diagonal.**
+  `01:7656` tries stay, right, down, then right and down together, because it
+  compares the try number only with 4 and 8 (try 0Ch is neither, so it takes
+  both moves). **ROM static.** The branch (`01:769A`-`01:76B2`) was reached by
+  no recording; the state probes run it on both cartridges against the original.
+
+### Found in entrances, transfers and special ground (milestone 11)
+
+Quirks of `01:77AC`, `01:7877`, `01:787B`, `01:7908`, `01:792A` and `01:7A0C`.
+Both cartridges have byte-identical code and entrance tables here.
+
+#### A transfer ends the map loop's frame
+
+- **Where:** `01:7908` (`pop hl; ret`), reached from `01:78BA`, `01:78E2`,
+  `01:7905`, `01:7959`, `01:7983`, `01:79B4` (through `01:7877`) and `01:7A09`.
+- **ROM static.** The reset after a transfer throws away the return address of
+  the code that called the tile check and returns to the caller's caller, so
+  the rest of the map loop (from `00:0B1A`) does not run in the frame of a
+  transfer. **ROM run.** The C++ rewrite follows the returned word on the
+  checkpoint recordings (the road, a dungeon exit) and on constructed stacks.
+  Kept.
+
+#### The entrance scan leaves bank 03 in the third slot
+
+- **Where:** `01:783F`.
+- **ROM static, ROM run.** Every scan writes bank 3 to `$FFFF` and never
+  restores the previous bank, whether or not a record matches. The rewrite
+  writes it too, so original mode keeps it.
+
+#### Entrance records cover two rows and two columns
+
+- **Where:** `01:784A`-`01:7864`.
+- **ROM static.** A record matches the party's row when it is the record's row
+  or the row after it, and its column when it is the record's column or the
+  one after; at a page's last row the next row is the first row of the next
+  page. **ROM run.** The constructed-table probes matched on both rules.
+
+#### A special-ground check that cannot fire
+
+- **Where:** `01:79D3` (`ret c` after `cp C7`).
+- **ROM static.** The code at `01:79D1` is reached only with the tile id at or
+  above `C7h`, so the return can never be taken. Nothing to preserve beyond
+  keeping the instruction in the cycle count.
+
+#### Damage clears the whole status byte of a fallen character
+
+- **Where:** `01:7A1A`-`01:7A1C`.
+- **ROM static, ROM run.** A character whose hit points reach zero from a
+  damage tile (including one whose hit points equal the damage) gets its first
+  status byte zeroed, not only the alive bit; the fallen character's bit goes
+  to the mask `$C2F0`.
+
+### Found in map loading and the road (milestone 11)
+
+Quirks of `00:0B08`, `00:0B6A` and the road `00:0E8B`.
+
+#### A held button opens the menu, a pressed one skips the road
+
+- **Where:** the button test at `00:0B35`-`00:0B3F` in the walking loop and the
+  one at `00:0E97`-`00:0E9C` in the road.
+- **ROM static.** The walking loop tests the buttons that are *held*, not the
+  ones just pressed, and only in a frame in which no step is in progress. A
+  button kept down through the end of a step therefore ends the walking mode in
+  the first free frame, with no new press needed. The road tests *new presses*
+  and, on one, skips the rest of the walk at once, before the object engine
+  runs in that frame; the buttons held on the road are overwritten each frame by
+  the leg's own script (`$C2EA`), so only a press has any effect there.
+- **ROM run.** The road recording walks two legs of 120 frames each (the loop
+  ran 240 frames) and presses no button during them, so the skip was run only
+  in the scenario probes of the milestone, from a town save.
+- **Unknown.** Whether the designers meant the skip; the code does it.
+
+#### The road's countdown only runs between steps
+
+- **Where:** `00:0EA7`-`00:0EB3`.
+- **ROM static.** The road's walking time (`$C2EB`) is counted down only in
+  frames in which the object engine has left no step in progress (`$C265` is
+  zero after it). The length of a leg is therefore not a count of frames, and a
+  leg whose party stayed mid-step in every frame would not end by itself.
+- **Unknown.** How many frames of a leg count; the road recording's legs were
+  not measured against the table's counts.
+
+#### The tune is not restarted when it does not change
+
+- **Where:** `00:0C97`, called by the map loader at `00:0C8B`.
+- **ROM static.** A request equal to the last one (`$C2F4`) changes nothing, so
+  entering a map whose tune is the one already playing does not restart it.
+- **ROM run.** The state probes ran both outcomes (the same request and a new
+  one) against the original.

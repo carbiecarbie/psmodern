@@ -40,7 +40,8 @@ target_link_libraries(psmodern_hw PUBLIC redcode_z80)
 add_library(psmodern_rom src/rom/rom.cpp src/rom/sha1.cpp src/rom/sha256.cpp)
 target_include_directories(psmodern_rom PUBLIC src)
 add_library(psmodern_game src/game/routines.cpp src/game/random.cpp src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp
-  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp src/game/map_screens.cpp)
+  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp src/game/map_screens.cpp
+  src/game/map_video.cpp src/game/map_scroll.cpp src/game/map_objects.cpp src/game/map_terrain.cpp src/game/map_entrances.cpp src/game/map_modes.cpp)
 target_link_libraries(psmodern_game PUBLIC psmodern_hw psmodern_rom)
 add_library(psmodern_replay src/replay/recording.cpp src/replay/verification.cpp src/replay/census.cpp)
 target_link_libraries(psmodern_replay PUBLIC psmodern_game)
@@ -209,6 +210,24 @@ if(BUILD_TESTING)
     add_test(NAME ${system}_catalog COMMAND psmodern_${system}_tests)
     set_tests_properties(${system}_catalog PROPERTIES LABELS fast)
   endforeach()
+  # Milestone 11 (world map and towns). The map kit against the core (no ROM);
+  # the base checks of every part's registration (no arguments) and the
+  # host-observed events with routines on and off (ROM runs, declared in
+  # psmodern_rom_test); one executable per part, each with its ROM-free
+  # registration catalog (no arguments) and its probes on a ROM.
+  add_executable(psmodern_map_kit_tests tests/map_kit_tests.cpp)
+  target_link_libraries(psmodern_map_kit_tests PRIVATE psmodern_replay)
+  add_test(NAME map_kit_unit COMMAND psmodern_map_kit_tests)
+  add_executable(psmodern_map_base_tests tests/map_base_tests.cpp)
+  target_link_libraries(psmodern_map_base_tests PRIVATE psmodern_app)
+  add_test(NAME map_base_unit COMMAND psmodern_map_base_tests)
+  set_tests_properties(map_kit_unit map_base_unit PROPERTIES LABELS fast)
+  foreach(part video scroll objects terrain entrances modes)
+    add_executable(psmodern_map_${part}_tests tests/map_${part}_tests.cpp)
+    target_link_libraries(psmodern_map_${part}_tests PRIVATE psmodern_replay)
+    add_test(NAME map_${part}_unit COMMAND psmodern_map_${part}_tests)
+    set_tests_properties(map_${part}_unit PROPERTIES LABELS fast)
+  endforeach()
   add_executable(psmodern_automap_tests tests/automap_tests.cpp)
   target_link_libraries(psmodern_automap_tests PRIVATE psmodern_game)
   add_test(NAME automap_unit COMMAND psmodern_automap_tests)
@@ -376,7 +395,7 @@ if(BUILD_TESTING)
       # Continue that leaves the dungeon); the Brazilian checkpoints stay six.
       set(checkpoints opening first-battle first-dungeon later-town boss deep-dungeon)
       if(version STREQUAL "us")
-        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue)
+        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice)
       endif()
       foreach(checkpoint IN LISTS checkpoints)
         set(manifest "")
@@ -453,6 +472,23 @@ if(BUILD_TESTING)
         add_test(NAME "${name}_automap_passivity_${recording}" COMMAND ${automap_session} passivity ${recording})
         set_tests_properties("${name}_automap_passivity_${recording}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 4)
       endforeach()
+      # Milestone 11: each part's probes (state probes from a power-on machine,
+      # scenario probes from the reference start images when configured), and
+      # the host-observed events with routines on and off on later-town and
+      # first-battle.
+      foreach(part video scroll objects terrain entrances modes)
+        add_test(NAME "${name}_map_${part}" COMMAND psmodern_map_${part}_tests "${path}" "${version}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+        # terrain (about 90 s alone) and modes (about 250 s alone) are too long for fast.
+        if(part STREQUAL "terrain" OR part STREQUAL "modes")
+          set_tests_properties("${name}_map_${part}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
+        else()
+          set_tests_properties("${name}_map_${part}" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+        endif()
+      endforeach()
+      add_test(NAME "${name}_map_observed" COMMAND psmodern_map_base_tests "${path}" "${version}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      set_tests_properties("${name}_map_observed" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 2)
       # Milestone 10: the map reader and state probes, the driver probes and
       # every recording with the widescreen option off and on. Each recording
       # test runs two drivers on two threads, so ctest -j counts it as two.
@@ -470,7 +506,7 @@ if(BUILD_TESTING)
       set_tests_properties("${name}_wide_view_ship" "${name}_wide_view_ship_routes" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
       set(wide_recordings opening first-battle first-dungeon later-town boss deep-dungeon short)
       if(version STREQUAL "us")
-        list(APPEND wide_recordings dungeon-walk-1 dungeon-walk-2 dungeon-continue)
+        list(APPEND wide_recordings dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice)
       else()
         list(APPEND wide_recordings text-dialogue)
       endif()

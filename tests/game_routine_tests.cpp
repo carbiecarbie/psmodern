@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "game/map.h"
 #include "game/routines.h"
 #include "machine/machine.h"
 #include "rom/rom.h"
@@ -17,6 +18,9 @@ void check(bool condition,const char* message) { if(!condition) throw std::runti
 bool declared(RoutineEntry entry) {
     auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
     auto dungeon=[&](const auto& list) { return std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry; }); };
+    auto planned=[&](game::map::Part part) { const auto list=game::map::planned_segments(part); return std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry; }); };
+    // The world map and towns (milestone 11): the six parts' planned segment lists.
+    for (unsigned p=0;p<static_cast<unsigned>(game::map::Part::count);++p) if (planned(static_cast<game::map::Part>(p))) return true;
     return entry==game::controller_poll_entry || entry==game::random_entry || entry==game::money_add_unit || entry==game::text_indexed_entry ||
         in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries) || in(game::text_output_entries) || in(game::text_stream_entries) || in(game::text_dictionary_entries) || in(game::text_continuation_entries) || in(game::text_number_entries) || in(game::text_alternate_entries) ||
         dungeon(game::dungeon::cell_segments) || dungeon(game::dungeon::movement_segments) || dungeon(game::dungeon::object_segments);

@@ -28,7 +28,10 @@
 //                              skipped flight, passivity
 //   timing <rom> <us|br> <recordings> <reference> <work> <stem>
 //                              not a test: the option's cost per frame
-// ROM parts exit 77 without their ROM. No image is written.
+//   frames <rom> <us|br> <recordings> <reference> <work> <stem> <frames>
+//                              not a test: the mode and source of every frame
+//                              and PPM pictures of the listed frames
+// ROM parts exit 77 without their ROM. Only the frames part writes images.
 #include "app/frame_driver.h"
 #include "app/session_roms.h"
 #include "app/wide_view.h"
@@ -488,6 +491,97 @@ void wrapped_against_decoder(unsigned count) {
     std::cout<<"wrapped renderer: "<<count<<" random states equal to the decoder at x 8-255\n";
 }
 
+// Edited cells (broken ice) the game forgets in the window at a page change
+// while the name table still shows them: the view holds them while they stay
+// in the wide picture and the name table, where it shows them, agrees.
+void held_cells(const Synthetic& img) {
+    game::MapScreens reader(img.rom);reader.select(img.area);
+    const auto base=random_base(11);
+    constexpr unsigned cam_x=300,cam_y=192;
+    // The names of world cell (cx, cy) as the name table holds them for a copy.
+    auto set_names=[](WideSnapshot& s,const game::MapScreens& r,unsigned cx,unsigned,std::uint8_t id,unsigned y0) {
+        for(unsigned q=0;q<4;++q) {
+            const unsigned row=((y0+8*(q>>1)+s.vdp.registers[9])%224)/8,column=((cx*16+8*(q&1))%256)/8;
+            const auto name=r.word(id,q);
+            s.vdp.vram[0x3800+row*64+column*2]=name&255;s.vdp.vram[0x3801+row*64+column*2]=static_cast<std::uint8_t>(name>>8);
+        }
+    };
+    // Every pixel of world cell (cx, cy) inside the wide picture is drawn from id.
+    auto drawn=[&](const WideView& view,const WideSnapshot& s,unsigned cx,unsigned cy,std::uint8_t id) {
+        WidePicture own{};view.render(0,app::wide_width,own);
+        for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;++x) {
+            const int wx=static_cast<int>(cx*16+x-cam_x)+app::wide_centre_x,wy=static_cast<int>(cy*16+y-cam_y);
+            if(wx<0 || wx>=app::wide_width || wy<0 || wy>=app::wide_height)continue;
+            const auto name=reader.word(id,((x>>3)&1)+2*((y>>3)&1));
+            if(own[static_cast<unsigned>(wy)*app::wide_width+static_cast<unsigned>(wx)]!=s.vdp.cram[app::mode4::tile_row(s.vdp,name,y&7)[x&7]])return false;
+        }
+        return true;
+    };
+    // A centre cell (screen x 116, line 80: window slot 0, index 90) and a
+    // band cell (wide x 304: slot 1, index 83), both edited by the game.
+    constexpr unsigned centre_x=26,centre_y=17,band_x=35,band_y=17;
+    const auto rom_centre=reader.screen(1,1)[90],rom_band=reader.screen(2,1)[83];
+    const auto edit_centre=static_cast<std::uint8_t>(rom_centre^0x55),edit_band=static_cast<std::uint8_t>(rom_band^0x55);
+    auto edited=map_copy(reader,img.area,base,cam_x,cam_y,cam_y%224);
+    edited.window[90]=edit_centre;edited.window[256+83]=edit_band;
+    set_names(edited,reader,centre_x,centre_y,edit_centre,80);
+    WideView view(img.rom);
+    for(int k=0;k<3;++k)view.push(edited);
+    check(view.window_used() && view.held(centre_x,centre_y)==edit_centre && view.held(band_x,band_y)==edit_band && view.held_cells()==2,
+          "edits of a trusted window are held");
+    // The window decoded again (a page change): the name table still shows the
+    // centre cell, the band cell is off the screen; both stay as they were.
+    auto forgotten=edited;forgotten.window[90]=rom_centre;forgotten.window[256+83]=rom_band;
+    for(int k=0;k<3;++k)view.push(forgotten);
+    check(view.held(centre_x,centre_y)==edit_centre && view.held(band_x,band_y)==edit_band,"held through a decode of the window");
+    check(drawn(view,forgotten,centre_x,centre_y,edit_centre) && drawn(view,forgotten,band_x,band_y,edit_band),"held cells are drawn");
+    // The game draws the centre cell again from the window: it is dropped.
+    auto redrawn=forgotten;set_names(redrawn,reader,centre_x,centre_y,rom_centre,80);
+    // The view shows the frame before the newest push. The centre cell is held exactly while that frame's name
+    // table shows the edit, and drawn as that table shows it: it is dropped on the push after the one that
+    // redraws it, neither one frame sooner nor one later.
+    auto names_show=[&](const WideSnapshot& s,std::uint8_t id) {
+        for(unsigned q=0;q<4;++q) {
+            const unsigned row=((80+8*(q>>1)+s.vdp.registers[9])%224)/8,column=((centre_x*16+8*(q&1))%256)/8;
+            const auto name=reader.word(id,q);
+            if(s.vdp.vram[0x3800+row*64+column*2]!=(name&255) || s.vdp.vram[0x3801+row*64+column*2]!=static_cast<std::uint8_t>(name>>8))return false;
+        }
+        return true;
+    };
+    auto agrees=[&](const WideView& v,const WideSnapshot& truth) {
+        const bool edit=names_show(truth,edit_centre);
+        return names_show(truth,edit ? edit_centre : rom_centre) && drawn(v,truth,centre_x,centre_y,edit ? edit_centre : rom_centre) &&
+               v.held(centre_x,centre_y).has_value()==edit;
+    };
+    check(names_show(forgotten,edit_centre) && names_show(redrawn,rom_centre) && !names_show(forgotten,rom_centre) && !names_show(redrawn,edit_centre),
+          "the two name tables show different ids for the centre cell");
+    check(agrees(view,forgotten) && !agrees(view,redrawn),"before the redraw the view agrees with the frame it shows and not with the next one");
+    view.push(redrawn);
+    check(agrees(view,forgotten),"on the push that redraws the cell, the view still shows the previous frame (held, drawn as edited)");
+    check(!agrees(view,redrawn),"the check fails for a view that dropped the cell one frame too early");
+    view.push(redrawn);
+    check(agrees(view,redrawn),"on the next push the cell is dropped and drawn from the window");
+    check(!agrees(view,forgotten),"the check fails for a view that dropped the cell one frame too late");
+    check(!view.held(centre_x,centre_y) && view.held(band_x,band_y)==edit_band && drawn(view,redrawn,centre_x,centre_y,rom_centre),
+          "a cell the name table shows from the window again is dropped");
+    // An edit only in the name table (made in the step that changed page) is
+    // learned from its four names.
+    WideView fresh(img.rom);
+    for(int k=0;k<3;++k)fresh.push(forgotten);
+    check(fresh.held(centre_x,centre_y)==edit_centre && !fresh.held(band_x,band_y),"an edit seen only in the name table is held");
+    // A cell that leaves the wide picture is dropped (the camera jumps away
+    // and anchors again 400 pixels further).
+    const auto away=map_copy(reader,img.area,base,cam_x+400,cam_y,cam_y%224);
+    view.push(away);view.push(away);
+    check(view.widened() && view.held_cells()==0,"cells outside the wide picture are dropped");
+    // Leaving the map forgets them.
+    for(int k=0;k<3;++k)fresh.push(edited);
+    auto battle=edited;battle.mode=0x2B;
+    fresh.push(battle);fresh.push(battle);
+    check(fresh.held_cells()==0,"a frame outside the map forgets held cells");
+    std::cout<<"held cells: window edits held through a decode, drawn, dropped when redrawn or out of the picture, learned from the name table\n";
+}
+
 void unit() {
     decoder_against_vdp(240);
     wrapped_against_decoder(240);
@@ -517,6 +611,7 @@ void unit() {
     view.push(copy);
     check(view.window_used(),"a steady page at the camera's page uses the window");
     check(cell_shows(copy.window[0]),"the edited window cell shows");
+    held_cells(img);
     std::cout<<"unit: passed\n";
 }
 
@@ -624,18 +719,104 @@ std::uint64_t writes_hash(const std::vector<PsgWrite>& writes) {
     for(const auto& w:writes) { h=fnv(&w.cycle,sizeof w.cycle,h);h=fnv(&w.byte,sizeof w.byte,h); }
     return h;
 }
-// A Machine copy stepped natively to line 192 of the frame about to run.
-bool patterns_change_before_192(const Machine& before,const FrameInput& input) {
+// The video memory a background picture is drawn from: the patterns
+// (0-37FFh) and the name table register 2 selects (28 rows of 64 bytes).
+bool background_vram_differs(const std::array<std::uint8_t,0x4000>& a,const std::array<std::uint8_t,0x4000>& b,std::uint8_t r2) {
+    const unsigned table=(r2&0x0e)<<10;
+    return std::memcmp(a.data(),b.data(),0x3800)!=0 || std::memcmp(a.data()+table,b.data()+table,28*64)!=0;
+}
+// A Machine copy stepped natively to line 192 of the frame about to run: the
+// picture's patterns or name table changed while it was drawn. The tile
+// animator rewrites patterns in the top lines (one map frame in 180); on the
+// first frame of a Land Rover step to the right the new right column's names
+// were still being written during lines 0-9 (recording vehicles, frame 3078:
+// the picture shows the old column's tiles at x 254-255 there); the ice
+// digger (01:756C) writes a broken cell's names during the picture (recording
+// ice, every 8 frames while digging). ROM run.
+bool background_changes_before_192(const Machine& before,const FrameInput& input) {
     Machine copy(before);
     for(unsigned i=0;i<2;++i)copy.set_pad(i,input.pads[i]);
     copy.set_reset(input.reset);copy.set_pause(input.pause);
     const auto target=(copy.cycles()/frame_cycles)*frame_cycles+192*228+4;
     while(copy.cycles()<target || copy.cpu().resume==Z80_RESUME_XY)copy.step();
-    const auto& a=before.vdp().vram();const auto& b=copy.vdp().vram();
-    return std::memcmp(a.data(),b.data(),0x3800)!=0;
+    return background_vram_differs(before.vdp().vram(),copy.vdp().vram(),before.vdp().registers()[2]);
 }
 bool family(std::uint8_t mode) {
     return mode==0x08 || mode==0x09 || mode==0x0A || mode==0x0B || mode==0x0C || mode==0x0E || mode==0x0F;
+}
+
+// ------------------------------------------------------- ship frames
+// What the space flight's frames showed (the ship test per flight; the
+// recording test per scene).
+struct ShipCounts {
+    std::uint64_t frames=0,pillarbox=0,map=0,space=0,fade_widened=0,fade_frames=0,tolerated=0,tolerated_frames=0,space_band_pixels=0;
+    std::uint64_t scene=0;   // frames of modes 4 and 5
+};
+// The ship study's classification of a whole flight (identical on every
+// route and both ROMs): 116 frames before the display shows the scene's
+// picture or with the name table being replaced, 606 over a map, 860 in space.
+constexpr std::uint64_t flight_pillarbox=116,flight_map=606,flight_space=860;
+// One pixel of the name table wrapped past the screen edges, for a picture
+// with register 0 = 26h (no scroll locks): wide x shows name-table column
+// (x - 44 - R8) modulo 256. Written here from the VDP rules, apart from the
+// view's renderer.
+std::uint8_t wrapped_pixel(const VdpState& v,unsigned x,unsigned line) {
+    const auto& r=v.registers;
+    const unsigned column=static_cast<unsigned>((static_cast<int>(x)-44-r[8]+512)%256);
+    const unsigned y=(line+r[9])%224;
+    const unsigned at=((r[2]&0x0e)<<10)|(((y>>3)&((r[2]&1) ? 31u : 15u))<<6)|((column>>3)<<1);
+    const unsigned name=v.vram[at]|(v.vram[at+1]<<8);
+    const unsigned row=(name&0x400) ? 7-(y&7) : (y&7);
+    const unsigned pattern=(name&0x1ff)*32+row*4;
+    const unsigned low=pattern&((unsigned(r[3])<<6)|0x3f),high=pattern&(((r[4]&7u)<<11)|0x7ff);
+    const unsigned bit=(name&0x200) ? (column&7) : 7-(column&7);
+    const unsigned colour=((v.vram[low]>>bit)&1)|(((v.vram[low+1]>>bit)&1)<<1)|(((v.vram[high+2]>>bit)&1)<<2)|(((v.vram[high+3]>>bit)&1)<<3);
+    return v.cram[colour+((name&0x800) ? 16 : 0)];
+}
+// Lines of a name-table row only partly on the screen (top and bottom).
+bool partial_row(unsigned y,unsigned r9) { const unsigned top=y-((y+r9)%8); return y<((y+r9)%8) || top+8>192; }
+// One ship frame (mode 4 or 5) with the option on, after its picture: the
+// pillarbox is counted; over a map the renderer's centre equals the picture
+// (a row only partly on the screen may already hold the starfield the scene
+// uploads: the fade's first lines); in space the centre agrees and the bands
+// equal a wrap of the name table computed here from VRAM (independent of
+// mode4::render_wrapped) in colours the centre's background shows (the
+// starfield and the backdrop). This proves the bands are the scene's own
+// name table; the VDP draws no such columns, so nothing proves what they
+// "would" show.
+void check_ship_frame(const WideView& view,const WidePicture* wide,const Vdp::Picture& picture,const std::string& what,ShipCounts& c,
+                      WideSnapshot* map_copy_out=nullptr,WideSnapshot* space_copy_out=nullptr) {
+    ++c.scene;
+    if(!wide) { ++c.pillarbox;return; }
+    const auto& shown=*view.shown();
+    const auto mask=sprite_mask(shown.vdp);
+    WidePicture own{};view.render(0,app::wide_width,own);
+    if(view.source()==app::WideSource::map) {
+        ++c.map;
+        if(map_copy_out)*map_copy_out=shown;
+        const auto before=c.tolerated;
+        for(unsigned y=0;y<192;++y)for(unsigned x=8;x<256;++x) {
+            if(mask[y*256+x] || own[y*344+44+x]==picture[y*256+x])continue;
+            if(!partial_row(y,shown.vdp.registers[9]%224))
+                throw std::runtime_error(what+": ship map frame differs at line "+std::to_string(y)+" x "+std::to_string(x));
+            ++c.tolerated;
+        }
+        c.tolerated_frames+=c.tolerated>before;
+        return;
+    }
+    check(view.source()==app::WideSource::space && shown.vdp.registers[8]==0,what+": space source with register 8 at 0");
+    ++c.space;
+    if(space_copy_out)*space_copy_out=shown;
+    centre_agrees(view,picture,&mask,what+" space frame");
+    std::array<bool,64> shown_colours{};
+    for(unsigned i=0;i<picture.size();++i)if(!mask[i] && i%256>=8)shown_colours[picture[i]&63]=true;
+    shown_colours[shown.vdp.cram[16+(shown.vdp.registers[7]&15)]&63]=true;
+    for(unsigned y=0;y<192;++y)for(unsigned x=0;x<344;++x) {
+        if(x>=52 && x<300)continue;
+        check((*wide)[y*344+x]==wrapped_pixel(shown.vdp,x,y),what+": space band pixel is not the wrapped name table");
+        check(shown_colours[(*wide)[y*344+x]&63],what+": space band colour not in the starfield");
+        ++c.space_band_pixels;
+    }
 }
 
 struct Counts {
@@ -646,7 +827,17 @@ struct Counts {
     std::uint64_t scroll_pairs=0,scroll_pixels=0;
     std::uint64_t window_frames=0,window_used=0;
     std::uint64_t transfer_runs=0,dungeon_runs=0,interaction_runs=0,exit_runs=0;
+    std::uint64_t edited_skipped=0,edited_cells=0,edited_frames=0,held_frames=0;
+    std::uint64_t flights=0,ship_map=0,ship_space=0,ship_pillarbox=0,space_band_pixels=0,ship_tolerated_frames=0,ship_fade_frames=0,ship_fade_widened=0;
 };
+// The metatile id of world pixel (wx, wy) a copy holds: its screen window
+// when that is trusted and covers the cell, otherwise the ROM screen.
+std::uint8_t cell_id(const game::MapScreens& screens,const std::uint8_t* window,unsigned page_x,unsigned page_y,bool window_used,unsigned wx,unsigned wy) {
+    const unsigned sx=wx/map::screen_width,sy=wy/map::screen_height;
+    const unsigned cell=((wy%map::screen_height)>>4)*map::cells_x+((wx%map::screen_width)>>4);
+    const unsigned dx=(sx-page_x)&7,dy=(sy-page_y)&7;
+    return window_used && dx<2 && dy<2 ? window[(dx+2*dy)*map::window_slot+cell] : screens.screen(sx,sy)[cell];
+}
 
 // One recording with the option off and on, each driver on its own thread.
 void recording_part(const Setup& s,const std::string& stem) {
@@ -691,6 +882,8 @@ void recording_part(const Setup& s,const std::string& stem) {
     // step on foot) has band pixels that later reach the centre.
     constexpr std::uint64_t moving_for_scroll=16;
     bool in_run=false,run_widened=false,run_transfer=false,run_dungeon=false,run_interaction=false;
+    // The space flight: the scene in progress and the fade after it.
+    bool in_scene=false,fade=false;ShipCounts scene;
     // Scroll consistency: recent widened frames' bands with the camera, the
     // area, the anchor they belong to, a digest of CRAM and the pattern masks
     // and their patterns (a pixel is compared only when the tile the later
@@ -699,6 +892,12 @@ void recording_part(const Setup& s,const std::string& stem) {
         std::uint64_t frame,stay,digest;HeldCamera camera;game::MapArea area;
         std::vector<std::uint8_t> bands;   // x 0-51 then 300-343, per line
         std::vector<std::uint8_t> patterns;
+        std::array<std::uint8_t,map::window_bytes> window;std::uint8_t page_x,page_y;bool window_used;
+        std::vector<std::array<std::uint8_t,3>> held;   // the view's held cells: x, y, id
+        std::uint8_t cell_id(const game::MapScreens& screens,unsigned wx,unsigned wy) const {
+            for(const auto& h:held)if(h[0]==wx/16 && h[1]==wy/16)return h[2];
+            return ::cell_id(screens,window.data(),page_x,page_y,window_used,wx,wy);
+        }
     };
     std::deque<Past> past;
     std::uint64_t stay=0;bool was_anchored=false;
@@ -723,10 +922,12 @@ void recording_part(const Setup& s,const std::string& stem) {
             const bool eligible=prev.valid && family(prev.mode) && prev.r0==0x26 && (prev.r1&0x40);
             const bool ship=prev.valid && (prev.mode==4 || prev.mode==5);
             if(ship) {
-                // The ship's own rule (proved by the ship test): only with
-                // register 0 = 26h and the display on; a map frame holds the
-                // camera the following fade starts from.
+                // The ship's own rule: only with register 0 = 26h and the
+                // display on; a map frame holds the camera the following fade
+                // starts from; each frame checked as the ship test does.
                 check(!widened || (prev.r0==0x26 && (prev.r1&0x40)),stem+": ship frame "+std::to_string(n)+" widened outside its rule");
+                if(!in_scene) { in_scene=true;scene=ShipCounts{}; }
+                check_ship_frame(*view,wide,on.machine().picture(),stem+" ship frame "+std::to_string(n),scene);
                 oracle.reset();
                 if(widened && view->source()==app::WideSource::map) {
                     // The camera the ship shows, from work RAM (computed here).
@@ -736,7 +937,25 @@ void recording_part(const Setup& s,const std::string& stem) {
                     check(view->camera() && view->camera()->x==ram.x && view->camera()->y==ram.y,stem+": ship frame "+std::to_string(n)+" camera differs from work RAM's");
                     oracle=ram;
                 } else if(widened) check(view->source()==app::WideSource::space && prev.r8==0,stem+": ship frame "+std::to_string(n)+" shows space with register 8 not 0");
-            } else if(!eligible)oracle.reset();
+            } else if(in_scene) {
+                // A whole flight has the study's classification (a flight
+                // skipped with button 1 is shorter); the fade after the
+                // descent is checked by the oracle and the centre below.
+                in_scene=false;++c.flights;
+                c.ship_map+=scene.map;c.ship_space+=scene.space;c.ship_pillarbox+=scene.pillarbox;c.space_band_pixels+=scene.space_band_pixels;
+                c.ship_tolerated_frames+=scene.tolerated_frames;
+                check(scene.tolerated_frames<=3,stem+": partial-row mismatches on at most the three frames before space ("+std::to_string(scene.tolerated_frames)+")");
+                if(scene.scene==flight_pillarbox+flight_map+flight_space)
+                    check(scene.pillarbox==flight_pillarbox && scene.map==flight_map && scene.space==flight_space,stem+": flight ending at frame "+std::to_string(n)+
+                          " classified "+std::to_string(scene.pillarbox)+" pillarboxed, "+std::to_string(scene.map)+" map, "+std::to_string(scene.space)+" space");
+                fade=prev.mode==0x08;
+            }
+            if(!ship && !in_scene && fade) {
+                // The map load's fade after a flight widens on every frame.
+                if(prev.mode==0x08) { ++c.ship_fade_frames;c.ship_fade_widened+=widened; } else fade=false;
+            }
+            if(ship) {}
+            else if(!eligible)oracle.reset();
             else {
                 if(oracle) {
                     const int dx=-static_cast<int>(static_cast<std::int8_t>(static_cast<std::uint8_t>(prev.r8-oracle->r8)));
@@ -781,14 +1000,14 @@ void recording_part(const Setup& s,const std::string& stem) {
                 in_run=false;c.transfer_runs+=run_transfer;c.dungeon_runs+=run_dungeon;c.interaction_runs+=run_interaction;
             }
             if(prev.valid && prev.mode==0x09)++c.map_frames;
-            // Space frames (none recorded) have no camera; the ship test checks them.
-            if(widened && view->source()==app::WideSource::map) {
+            // Ship frames were checked above (the scene moves the camera itself).
+            if(widened && !ship && view->source()==app::WideSource::map) {
                 const auto& shown=*view->shown();
                 if(!was_anchored)++stay;
                 // Centre agreement, unless pattern VRAM changed before line 192.
                 const auto mask=sprite_mask(shown.vdp);
-                const bool late=std::memcmp(shown.vdp.vram.data(),on.machine().vdp().vram().data(),0x3800)!=0 && before &&
-                                patterns_change_before_192(*before,input);
+                const bool late=before && background_vram_differs(shown.vdp.vram,on.machine().vdp().vram(),shown.vdp.registers[2]) &&
+                                background_changes_before_192(*before,input);
                 if(late)++c.late_patterns;
                 else { c.centre_pixels+=centre_agrees(*view,on.machine().picture(),&mask,stem+" frame "+std::to_string(n));++c.centre_frames; }
                 // Scroll consistency against earlier widened frames of the same stay.
@@ -806,6 +1025,10 @@ void recording_part(const Setup& s,const std::string& stem) {
                         const unsigned wx=(f.camera.x+2048+x-44)%2048,wy=(f.camera.y+y)%1536;
                         const unsigned gx=(wx+2048-cam.x)%2048,gy=(wy+1536-cam.y)%1536;
                         if(gx<8 || gx>=256 || gy>=192 || mask[gy*256+gx])continue;
+                        // A cell the game edited in between (ice broken by the
+                        // digger) is compared only while it holds the same id.
+                        const auto now=view->held(wx/16,wy/16);
+                        if(f.cell_id(view->screens(),wx,wy)!=(now ? *now : cell_id(view->screens(),shown.window.data(),shown.page_x,shown.page_y,view->window_used(),wx,wy))) { ++c.edited_skipped;continue; }
                         const unsigned at=((r[2]&0x0e)<<10)|((((gy+r[9])%224)/8)<<6)|((((gx-r[8])&255)/8)<<1);
                         const unsigned tile=(shown.vdp.vram[at]|(shown.vdp.vram[at+1]<<8))&0x1ff;
                         if(same_tile[tile]<0)same_tile[tile]=std::memcmp(f.patterns.data()+tile*32,shown.vdp.vram.data()+tile*32,32)==0;
@@ -818,27 +1041,46 @@ void recording_part(const Setup& s,const std::string& stem) {
                     if(compared) { ++c.scroll_pairs;c.scroll_pixels+=compared; }
                 }
                 Past p{n,stay,digest,cam,shown.area,std::vector<std::uint8_t>(96*192),
-                       std::vector<std::uint8_t>(shown.vdp.vram.begin(),shown.vdp.vram.begin()+0x4000)};
+                       std::vector<std::uint8_t>(shown.vdp.vram.begin(),shown.vdp.vram.begin()+0x4000),shown.window,shown.page_x,shown.page_y,
+                       view->window_used(),{}};
+                if(view->held_cells()>0) {
+                    for(unsigned dy=0;dy<14;++dy)for(unsigned dx=0;dx<25;++dx) {
+                        const unsigned cx=((cam.x+2048-60)/16+dx)%128,cy=(cam.y/16+dy)%96;
+                        if(const auto id=view->held(cx,cy))p.held.push_back({static_cast<std::uint8_t>(cx),static_cast<std::uint8_t>(cy),*id});
+                    }
+                    ++c.held_frames;
+                }
                 for(unsigned y=0;y<192;++y)for(unsigned k=0;k<96;++k)p.bands[y*96+k]=(*wide)[y*344+(k<52 ? k : 248+k)];
                 past.push_back(std::move(p));
                 while(!past.empty() && n-past.front().frame>96)past.pop_front();
                 c.window_used+=view->window_used();
             }
             was_anchored=widened;
-            // The screen window equals the reader when settled: a map frame
-            // whose page has not changed since the previous frame.
+            // The screen window equals the reader when settled (a map frame
+            // whose page has not changed since the previous frame), except for
+            // ice the digger has broken: 01:756C writes metatile D7h over an
+            // ice cell (D8h-DFh) in the window and its names in VRAM; the
+            // window keeps it until 01:723D decodes the screens again (ROM
+            // static; ROM run, recording ice). The view draws such cells from
+            // the window (checked by the centre agreement above).
             const auto& m=on.machine();
             const std::array<std::uint8_t,2> page{m.peek(0xC302),m.peek(0xC306)};
             if(m.peek(0xC202)==0x09 && prev_c202_after==0x09 && prev.valid && prev.page==page && (m.vdp().registers()[1]&0x40)) {
                 const game::MapArea area{static_cast<std::uint16_t>(m.peek(0xC260)|(m.peek(0xC261)<<8)),m.peek(0xC262),m.peek(0xC263)};
+                std::uint64_t edited=0;
                 for(unsigned k=0;k<4;++k) {
                     const auto screen=reader.decode(area,page[0]+(k&1),page[1]+(k>>1));
                     check(screen.has_value(),stem+": window area readable at frame "+std::to_string(n));
-                    for(unsigned i=0;i<192;++i)
-                        check(m.peek(static_cast<std::uint16_t>(0xCC00+k*256+i))==(*screen)[i],
-                              stem+": settled screen window differs from the ROM at frame "+std::to_string(n)+" slot "+std::to_string(k)+" id "+std::to_string(i));
+                    for(unsigned i=0;i<192;++i) {
+                        const auto ram=m.peek(static_cast<std::uint16_t>(0xCC00+k*256+i)),rom=(*screen)[i];
+                        if(ram==rom)continue;
+                        check(ram==0xD7 && rom>=0xD8 && rom<=0xDF,stem+": settled screen window differs from the ROM at frame "+std::to_string(n)+
+                              " slot "+std::to_string(k)+" id "+std::to_string(i)+" other than by broken ice ("+hex(rom)+" -> "+hex(ram)+")");
+                        ++edited;
+                    }
                 }
                 ++c.window_frames;
+                c.edited_cells+=edited;c.edited_frames+=edited>0;
             }
             prev_c202_after=m.peek(0xC202);
             const auto& regs=m.vdp().registers();
@@ -852,13 +1094,29 @@ void recording_part(const Setup& s,const std::string& stem) {
         if(off_trace[n]!=on_trace[n])throw std::runtime_error(stem+": the machine with the option on differs from the option off after frame "+std::to_string(n));
     check(off.machine().equivalent(on.machine()),stem+": machines equivalent at the end");
     if(c.map_frames>0) check(c.widened>0 && c.centre_frames>0,stem+": map frames widen and agree with the centre");
-    // No recording flies the ship (its own test does); the ship branches
-    // above would need that test's checks if one ever did.
-    check(c.mode4_5==0,stem+": a recording reaches the space flight; extend this test");
+    // A recording that flies the ship (road) ends each flight on a map, whose
+    // fade widens on every frame.
+    check(!in_scene,stem+": the recording ends during a space flight");
+    check(c.mode4_5==c.ship_map+c.ship_space+c.ship_pillarbox && (c.mode4_5==0)==(c.flights==0),stem+": every ship frame belongs to a checked flight");
+    check(c.ship_fade_widened==c.ship_fade_frames && (c.flights==0 || c.ship_fade_frames>0),stem+": the fade after each flight widens on every frame");
     // The held camera never needed a correction on the recorded paths.
     check(on.wide_view()->corrections()==0 && oracle_corrections==0,stem+": a consistent map frame disagreed with the held camera");
     // The scroll and window checks are not vacuous where they can apply.
     if(c.widened>=100) check(c.window_used>0 && c.window_frames>0,stem+": the screen window was used and checked");
+    // Cells are held only where the game edits the map (broken ice), and
+    // then they are.
+    check((c.held_frames>0)==(c.edited_frames>0),stem+": edited cells held in "+std::to_string(c.held_frames)+" frames, broken ice settled in "+
+          std::to_string(c.edited_frames));
+    // The two skips cannot grow unnoticed. Late frames (patterns or names written before line 192, the
+    // centre not compared): at most 20 per cent of the compared and skipped centre frames and 400 frames
+    // (measured on the 21 recordings: at most 17.1 per cent, text-dialogue, and 335 frames, vehicles).
+    constexpr std::uint64_t late_percent_ceiling=20,late_frames_ceiling=400;
+    check(c.late_patterns*100<=late_percent_ceiling*(c.late_patterns+c.centre_frames) && c.late_patterns<=late_frames_ceiling,
+          stem+": "+std::to_string(c.late_patterns)+" late frames skipped against "+std::to_string(c.centre_frames)+" centre frames compared (ceiling "+
+          std::to_string(late_percent_ceiling)+" per cent and "+std::to_string(late_frames_ceiling)+" frames)");
+    // A band pixel is skipped only where a cell was edited in between; a recording where the game edited no
+    // cell skips none, so a wrong hold or drop of a cell cannot hide there.
+    check(c.edited_frames>0 || c.edited_skipped==0,stem+": "+std::to_string(c.edited_skipped)+" band pixels skipped as edited in a recording with no edited cell");
     if(moving>=moving_for_scroll) check(c.scroll_pairs>0 && c.scroll_pixels>0,stem+": band pixels were compared with a later centre");
     std::cout<<s.region<<" "<<stem<<": "<<rec.frames<<" frames equal with the option off and on; gating oracle equal on every frame, no camera correction, "
              <<moving<<" moving widened frames, at most "<<max_pre_anchor<<" map frames before a stay's anchor; eligible "<<c.eligible<<" (";
@@ -868,9 +1126,13 @@ void recording_part(const Setup& s,const std::string& stem) {
     std::cout<<" ), map frames before an anchor "<<c.pre_anchor<<", stays "<<c.runs<<" ("<<c.runs_widened<<" widened; "<<c.transfer_runs
              <<" with a transfer fade, "<<c.dungeon_runs<<" with a dungeon entry, "<<c.interaction_runs<<" with an interaction load); never widened: "
              <<c.r0_06<<" frames with R0 = 06h; "<<c.mode4_5<<" ship frames; "<<c.display_off_family<<" display off; centre "<<c.centre_frames
-             <<" frames / "<<c.centre_pixels<<" pixels equal, "<<c.late_patterns<<" skipped (patterns written before line 192); scroll "
-             <<c.scroll_pairs<<" frame pairs / "<<c.scroll_pixels<<" band pixels equal to a later centre; window used in "<<c.window_used
-             <<" frames, settled window equal to the ROM in "<<c.window_frames<<" frames; "<<timer.seconds()<<" s\n";
+             <<" frames / "<<c.centre_pixels<<" pixels equal, "<<c.late_patterns<<" skipped (patterns or names written before line 192); scroll "
+             <<c.scroll_pairs<<" frame pairs / "<<c.scroll_pixels<<" band pixels equal to a later centre ("<<c.edited_skipped
+             <<" skipped: cell edited in between); window used in "<<c.window_used<<" frames, settled window equal to the ROM in "<<c.window_frames
+             <<" frames ("<<c.edited_frames<<" with broken ice, "<<c.edited_cells<<" cell-frames); edited cells held in "<<c.held_frames
+             <<" frames; "<<c.flights<<" space flights ("<<c.ship_pillarbox<<" pillarboxed, "<<c.ship_map<<" map, "<<c.ship_space<<" space frames, "
+             <<c.space_band_pixels<<" space band pixels from the wrapped name table, partial rows tolerated on "<<c.ship_tolerated_frames
+             <<" frames; fade "<<c.ship_fade_widened<<"/"<<c.ship_fade_frames<<" widened); "<<timer.seconds()<<" s\n";
 }
 
 // ----------------------------------------------------------------- probes
@@ -991,29 +1253,6 @@ void probes(const Setup& s,const std::filesystem::path& other_path) {
 // to frame 4990 (an interaction scene, mode 0Dh), the route byte C2E9 written
 // there, the recording's input until the ship loader (mode 4) runs, then no
 // input. Option on and off side by side: machines equal every frame.
-struct ShipCounts {
-    std::uint64_t frames=0,pillarbox=0,map=0,space=0,fade_widened=0,fade_frames=0,tolerated=0,tolerated_frames=0,space_band_pixels=0;
-    std::uint64_t scene=0;   // frames of modes 4 and 5
-};
-// One pixel of the name table wrapped past the screen edges, for a picture
-// with register 0 = 26h (no scroll locks): wide x shows name-table column
-// (x - 44 - R8) modulo 256. Written here from the VDP rules, apart from the
-// view's renderer.
-std::uint8_t wrapped_pixel(const VdpState& v,unsigned x,unsigned line) {
-    const auto& r=v.registers;
-    const unsigned column=static_cast<unsigned>((static_cast<int>(x)-44-r[8]+512)%256);
-    const unsigned y=(line+r[9])%224;
-    const unsigned at=((r[2]&0x0e)<<10)|(((y>>3)&((r[2]&1) ? 31u : 15u))<<6)|((column>>3)<<1);
-    const unsigned name=v.vram[at]|(v.vram[at+1]<<8);
-    const unsigned row=(name&0x400) ? 7-(y&7) : (y&7);
-    const unsigned pattern=(name&0x1ff)*32+row*4;
-    const unsigned low=pattern&((unsigned(r[3])<<6)|0x3f),high=pattern&(((r[4]&7u)<<11)|0x7ff);
-    const unsigned bit=(name&0x200) ? (column&7) : 7-(column&7);
-    const unsigned colour=((v.vram[low]>>bit)&1)|(((v.vram[low+1]>>bit)&1)<<1)|(((v.vram[high+2]>>bit)&1)<<2)|(((v.vram[high+3]>>bit)&1)<<3);
-    return v.cram[colour+((name&0x800) ? 16 : 0)];
-}
-// Lines of a name-table row only partly on the screen (top and bottom).
-bool partial_row(unsigned y,unsigned r9) { const unsigned top=y-((y+r9)%8); return y<((y+r9)%8) || top+8>192; }
 struct ShipRun {
     std::optional<std::uint64_t> switch_on,switch_off;     // frame indices after mode 4 (option off before)
     bool skip=false;                                      // press button 1 every 60 frames of mode 5
@@ -1047,48 +1286,7 @@ ShipCounts fly(const Setup& s,const Machine& base,const replay::Recording& rec,s
         if(switched) check(!wide,what+": nothing is paired on the frame the option is switched on");
         ++c.frames;
         if(mode==4 || mode==5) {
-            ++c.scene;
-            if(!wide)++c.pillarbox;
-            else {
-            const auto& shown=*view->shown();
-            const auto& picture=on.machine().picture();
-            const auto mask=sprite_mask(shown.vdp);
-            WidePicture own{};view->render(0,app::wide_width,own);
-            if(view->source()==app::WideSource::map) {
-                ++c.map;
-                if(map_copy_out)*map_copy_out=shown;
-                // Centre agreement; a row only partly on the screen may already
-                // hold the starfield the scene uploads (the fade's first lines).
-                const auto before=c.tolerated;
-                for(unsigned y=0;y<192;++y)for(unsigned x=8;x<256;++x) {
-                    if(mask[y*256+x] || own[y*344+44+x]==picture[y*256+x])continue;
-                    if(!partial_row(y,shown.vdp.registers[9]%224))
-                        throw std::runtime_error(what+": ship map frame "+std::to_string(f)+" differs at line "+std::to_string(y)+" x "+std::to_string(x));
-                    ++c.tolerated;
-                }
-                c.tolerated_frames+=c.tolerated>before;
-            } else {
-                check(view->source()==app::WideSource::space && shown.vdp.registers[8]==0,what+": space source with register 8 at 0");
-                ++c.space;
-                if(space_copy_out)*space_copy_out=shown;
-                centre_agrees(*view,picture,&mask,what+" space frame "+std::to_string(f));
-                // The bands equal a wrap of the name table computed here from
-                // VRAM (independent of mode4::render_wrapped), and their
-                // colours are colours the centre's background shows (the
-                // starfield and the backdrop). This proves the bands are the
-                // scene's own name table; the VDP draws no such columns, so
-                // nothing proves what they "would" show.
-                std::array<bool,64> shown_colours{};
-                for(unsigned i=0;i<picture.size();++i)if(!mask[i] && i%256>=8)shown_colours[picture[i]&63]=true;
-                shown_colours[shown.vdp.cram[16+(shown.vdp.registers[7]&15)]&63]=true;
-                for(unsigned y=0;y<192;++y)for(unsigned x=0;x<344;++x) {
-                    if(x>=52 && x<300)continue;
-                    check((*wide)[y*344+x]==wrapped_pixel(shown.vdp,x,y),what+": space band pixel is not the wrapped name table at frame "+std::to_string(f));
-                    check(shown_colours[(*wide)[y*344+x]&63],what+": space band colour not in the starfield at frame "+std::to_string(f));
-                    ++c.space_band_pixels;
-                }
-            }
-            }
+            check_ship_frame(*view,wide,on.machine().picture(),what+" frame "+std::to_string(f),c,map_copy_out,space_copy_out);
             seen5=seen5 || mode==5;
         } else if(seen5 && mode==8) {
             ++c.fade_frames;
@@ -1125,7 +1323,7 @@ void ship_part(const Setup& s,const std::string& routes_text) {
         // The ship study's classification (identical on every route and both
         // ROMs): 114 frames before the display shows the scene's picture, two
         // with the name table being replaced, 606 over a map, 860 in space.
-        check(c.pillarbox==116 && c.map==606 && c.space==860,name+": classification "+std::to_string(c.pillarbox)+" pillarboxed, "+
+        check(c.pillarbox==flight_pillarbox && c.map==flight_map && c.space==flight_space,name+": classification "+std::to_string(c.pillarbox)+" pillarboxed, "+
               std::to_string(c.map)+" map, "+std::to_string(c.space)+" space");
         check(c.fade_frames>0 && c.fade_widened==c.fade_frames,name+": the fade after the descent widens on every frame");
         check(c.tolerated_frames<=3,name+": partial-row mismatches on at most the three frames before space ("+std::to_string(c.tolerated_frames)+")");
@@ -1211,11 +1409,73 @@ void timing(const Setup& s,const std::string& stem) {
              <<" us/frame including "<<on.picture_us<<" us per widened picture ("<<on.widened<<" widened); copy and camera alone "<<copy_us<<" us\n";
 }
 
+// Not a test: plays a recording with the option on, prints every change of
+// game mode, picture source and window use, and writes the pictures of the
+// listed frames ("a,b,c" or "a-b/step") as 344 x 192 PPM files in the work
+// folder (pillarboxed frames with black bars), for inspection.
+void frames(const Setup& s,const std::string& stem,const std::string& list) {
+    const auto rec=recording(s,stem);
+    std::vector<std::uint64_t> wanted;
+    for(std::size_t i=0;i<list.size();) {
+        auto end=list.find(',',i);if(end==std::string::npos)end=list.size();
+        const auto token=list.substr(i,end-i);i=end+1;
+        const auto dash=token.find('-');
+        if(dash==std::string::npos) { wanted.push_back(std::stoull(token));continue; }
+        const auto slash=token.find('/');
+        const auto a=std::stoull(token.substr(0,dash)),b=std::stoull(token.substr(dash+1,slash==std::string::npos ? std::string::npos : slash-dash-1));
+        const auto step=slash==std::string::npos ? 1 : std::stoull(token.substr(slash+1));
+        for(auto n=a;n<=b;n+=step)wanted.push_back(n);
+    }
+    std::sort(wanted.begin(),wanted.end());
+    const auto folder=fresh(s,stem+"-frames");place_image(s,stem,rec,folder);
+    app::FrameDriver d(s.rom,app::SaveStore(folder,s.version));
+    d.set_widescreen(true);
+    std::string last;std::uint64_t since=0;
+    auto colour=[](std::uint8_t c,unsigned shift) { return static_cast<char>(((c>>shift)&3)*85); };
+    for(std::uint64_t n=0;n<rec.frames;++n) {
+        d.run(rec.input_at(n));
+        const auto* wide=d.wide_picture();
+        const auto* view=d.wide_view();
+        const auto* shown=view->shown();
+        std::string state=shown ? "mode "+hex(shown->mode)+" R0 "+hex(shown->vdp.registers[0])+" R1 "+hex(shown->vdp.registers[1]) : "none";
+        state+=wide ? (view->source()==app::WideSource::space ? " space" : " map") : " pillarbox";
+        if(wide && view->window_used())state+=" window";
+        if(state!=last) {
+            if(!last.empty())std::cout<<"  "<<since<<"-"<<n-1<<": "<<last<<'\n';
+            last=state;since=n;
+        }
+        if(!std::binary_search(wanted.begin(),wanted.end(),n))continue;
+        std::string out="P6\n344 192\n255\n";
+        const auto& picture=d.machine().picture();
+        for(unsigned y=0;y<192;++y)for(unsigned x=0;x<344;++x) {
+            std::uint8_t c=0;bool black=false;
+            if(wide)c=(*wide)[y*344+x];
+            else if(x>=44 && x<300)c=picture[y*256+x-44]; else black=true;
+            out+=black ? '\0' : colour(c,0);out+=black ? '\0' : colour(c,2);out+=black ? '\0' : colour(c,4);
+        }
+        std::ofstream(s.work/(stem+"-"+std::to_string(n)+".ppm"),std::ios::binary)<<out;
+        std::cout<<"frame "<<n<<": "<<state;
+        if(wide && view->camera())std::cout<<" camera "<<view->camera()->x<<","<<view->camera()->y;
+        if(shown)std::cout<<" RAM camera "<<(shown->page_x*256+shown->camera_x)<<","<<(shown->page_y*192+shown->camera_y)<<" R8 "<<hex(shown->vdp.registers[8])
+                          <<" R9 "<<hex(shown->vdp.registers[9])<<" C300 "<<hex(shown->h_shadow)<<" C304 "<<hex(shown->v_shadow);
+        std::cout<<'\n';
+    }
+    std::cout<<"  "<<since<<"-"<<rec.frames-1<<": "<<last<<'\n';
+}
+
 int main(int argc,char** argv) {
     try {
         if(argc<2)throw std::runtime_error("Expected unit | rom <rom> <us|br> | recording <rom> <us|br> <recordings> <reference> <work> <stem> | probes <rom> <us|br> <recordings> <reference> <work> <other rom>.");
         const std::string_view part=argv[1];
         if(part=="unit") { unit();return 0; }
+        if(part=="frames" && argc==9) {
+            if(!*argv[2] || !std::filesystem::exists(argv[2]))return 77;
+            auto rom=read_rom(argv[2]);
+            Setup s{rom,identify_digest(sha1(*rom)),argv[3],argv[4],argv[5],argv[6]};
+            std::filesystem::create_directories(s.work);
+            frames(s,argv[7],argv[8]);
+            return 0;
+        }
         const bool full=part=="recording" || part=="probes" || part=="timing" || part=="ship";
         if((part!="rom" && !full) || argc!=(full ? 8 : 4))throw std::runtime_error("Unknown part or wrong arguments.");
         const std::string_view region=argv[3];
