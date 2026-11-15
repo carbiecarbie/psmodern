@@ -159,3 +159,10 @@ maintainer play-tested the world map, towns, transfers, fades, battles and the
 window, then the flight, and accepted it on 2026-11-14; vehicles were not
 play-tested because no save reaches one. [Plan](milestone-10-plan.md).
 Implementation: `581b4f3`; closed by `6101dd9`.
+
+## Release 0.5.0 - Widescreen (2026-11-14)
+
+The Windows release carries milestone 10: the widescreen option for the world
+map, towns and spaceship flight. All 206 tests passed without skips and CI was
+green. At the maintainer's request the exact release zip was published without
+a manual release play-test. Published as GitHub release v0.5.0 from `e45597a`.
