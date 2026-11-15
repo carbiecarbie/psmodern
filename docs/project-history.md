@@ -184,3 +184,7 @@ the hovercraft and the Ice Digger, on the road and in a cave, noticed
 nothing different from the original and accepted it on 2026-11-15.
 [Plan](milestone-11-plan.md).
 Implementation: `78254af`; closed by `f5cc348`; private annotations: `dd72681` in `psmodern-re`.
+
+## Release 0.6.0 - World map and towns (2026-11-15)
+
+The Windows release carries milestone 11: the world map and towns on C++ code, with no change to how the game looks or plays, and the widescreen broken-ice fix. At the maintainer's request the complete suite was not rerun for the release (it had passed 237 of 237 at milestone 11, and 0.6.0 changes only the version text); the build was warning-free and the 123 fast tests passed. The exact zip was published without a manual release play-test. Published as GitHub release v0.6.0 from `2b6fef6`.

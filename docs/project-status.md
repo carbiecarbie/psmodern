@@ -7,8 +7,7 @@ allows (vehicles and ice included), entrances, transfers, map loading and the
 road now run in C++. Milestone 10 (widescreen, [plan](milestone-10-plan.md))
 added the 16:9 view and milestone 9 ([plan](milestone-9-plan.md)) put text in
 C++. The [project history](project-history.md) lists every milestone and
-release; 0.5.0 (2026-11-14, widescreen) is the latest published version and
-milestone 11 is not in a release yet.
+release; 0.6.0 (2026-11-15, milestone 11) is the latest published version.
 
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number

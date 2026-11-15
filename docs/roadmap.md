@@ -27,9 +27,9 @@ It is revised at each milestone closure, most recently that of milestone 11
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 2026-11-12), 0.3.0 (adds the changeable controls, 2026-11-13), 0.4.0
-(adds language selection and shared saves, 2026-11-13) and 0.5.0 (adds
-widescreen, 2026-11-14). Releases do not change the milestone numbering;
-milestone 11 is not in a release yet.
+(adds language selection and shared saves, 2026-11-13), 0.5.0 (adds
+widescreen, 2026-11-14) and 0.6.0 (the world map and towns in C++,
+2026-11-15). Releases do not change the milestone numbering.
 
 ## Next milestones
 
