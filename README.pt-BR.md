@@ -33,15 +33,17 @@ No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 Dá para jogar o jogo inteiro, em inglês (versão americana) ou em português
 (versão brasileira da Tec Toy). A leitura do controle, os números aleatórios,
 a checagem de encontros aleatórios, a experiência, a preparação das batalhas,
-o dinheiro das batalhas, o caminhar nas masmorras e o texto já rodam em C++; o resto do
-jogo ainda roda no Z80 virtual.
+o dinheiro das batalhas, o caminhar nas masmorras, o texto e o caminhar pelo
+mapa-múndi e pelas cidades já rodam em C++; o resto do jogo ainda roda no Z80
+virtual.
 
 O que você tem hoje:
 
 - Uma versão para Windows (64 bits), com uma tela inicial que lembra das suas
   ROMs.
 - A imagem original de 256x192, ampliada em passos inteiros, em janela ou em
-  tela cheia, e uma visão em tela larga opcional do mapa-múndi e das cidades.
+  tela cheia, e uma visão em tela larga opcional do mapa-múndi, das cidades e
+  do voo da nave.
 - O chip de som original, com as músicas e os efeitos.
 - Teclado ou controle, ou os dois ao mesmo tempo, com todas as teclas e
   botões configuráveis numa tela de Controles dentro do jogo.

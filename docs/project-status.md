@@ -1,160 +1,116 @@
 # PSModern - Project Status
 
-**Milestone 10 (widescreen) is complete,** accepted on 2026-11-14
-([plan](milestone-10-plan.md)): an option shows the world map, the towns and
-the spaceship flight in 16:9. Milestone 9 (text and language selection,
-accepted 2026-11-13, [plan](milestone-9-plan.md)) put text in C++, with
-English/Portuguese changing during exploration and one PLAY entry using shared
-saved progress. Milestone 8 added changeable controls. **Release 0.1.0**, the first
-public Windows release, added a start screen that remembers the player's
-ROMs ([plan](release-0.1.0-plan.md)); **release 0.2.0** (2026-11-12) added
-the automap, **release 0.3.0** (2026-11-13) the changeable controls,
-**release 0.4.0** (2026-11-13) language selection and shared saves, and
-**release 0.5.0** (2026-11-14) widescreen.
+**Milestone 11 (world map and towns in C++) is complete,** accepted on
+2026-11-15 ([plan](milestone-11-plan.md)): walking on the world map and in
+towns, the picture's update, the sprites and the object list, what the ground
+allows (vehicles and ice included), entrances, transfers, map loading and the
+road now run in C++. Milestone 10 (widescreen, [plan](milestone-10-plan.md))
+added the 16:9 view and milestone 9 ([plan](milestone-9-plan.md)) put text in
+C++. The [project history](project-history.md) lists every milestone and
+release; 0.5.0 (2026-11-14, widescreen) is the latest published version and
+milestone 11 is not in a release yet.
+
 Phantasy Star runs from the player's own ROM on a virtual Master System, in
 the US and the Brazilian version. Controller polling, the random-number
 routine, the random-encounter checks, experience, battle setup, money award,
-dungeon walking and text now run in C++; the rest of the original program
-runs on the virtual Z80. Optional features include saved encounter and
-experience/battle-meseta rates, a dungeon automap, session-only 2x/4x
-fast-forward, changeable controls, language selection and a widescreen view.
-Without saved settings, rates are original, the automap and widescreen are off
-and controls follow 0.2.0; acceleration starts at 1x.
-Milestones 1 to 7 were accepted between 2026-11-08 and 2026-11-12.
-Release 0.5.0 (2026-11-14) is the latest published version; it carries
-milestone 10.
+dungeon walking, text and now walking on the map and in towns run in C++; the
+rest of the original program runs on the virtual Z80. Optional features are
+saved encounter and experience/battle-meseta rates, a dungeon automap,
+session-only 2x/4x fast-forward, changeable controls, language selection and a
+widescreen view. Without saved settings, rates are original, the automap and
+widescreen are off and controls follow 0.2.0; acceleration starts at 1x.
 
 Replacements are checked against the original, call by call and frame by
 frame, with exact state and timing. A private study base explains how the
-encounter checks, experience, the sound driver, dungeon walking and text work.
-The [roadmap](roadmap.md) orders the next milestones. The maintainer starts each
-milestone explicitly.
+original code works. The [roadmap](roadmap.md) orders the next milestones; the
+maintainer starts each explicitly.
 
 ## What can be played
 
 The whole game, as on the cartridge, plus saved rate settings, a dungeon
 automap, fast-forward, changeable controls, live language selection and an
-optional widescreen view.
+optional widescreen view. Milestone 11 changed no feature: with every option
+off the game plays and looks as it did.
 
-- **Starting:** double-click `psmodern.exe` (no arguments) to reach the start
-  screen: the first time, pick an uncompressed `.sms` file of the US Rev-A or
-  the Brazilian Tec Toy cartridge; it is remembered, and any other file is
-  refused with a message. One PLAY entry starts the game; ADD ROM makes the
-  other language available. The start screen opens Controls and Language.
-  Or run `psmodern.exe <rom-path>` from a terminal.
-  The window title names the active language, rates and any pending change.
-  See [development](development.md#start-screen) for both paths.
-- **Picture:** the original 256x192 picture, scaled by whole steps in a
-  resizable window, with black bars. Alt+Enter toggles fullscreen.
+- **Starting:** double-click `psmodern.exe` to reach the start screen: the
+  first time, pick an uncompressed `.sms` file of the US Rev-A or the
+  Brazilian Tec Toy cartridge; it is remembered, and any other file is refused
+  with a message. One PLAY entry starts the game; ADD ROM makes the other
+  language available; the start screen opens Controls and Language. Or run
+  `psmodern.exe <rom-path>` from a terminal. See
+  [development](development.md#start-screen).
+- **Picture and sound:** the original 256x192 picture, scaled by whole steps
+  in a resizable window with black bars (Alt+Enter toggles fullscreen), and the
+  original sound chip, resampled for the audio device, at normal tempo and
+  pitch also at 2x/4x.
 - **Widescreen (off by default):** the WIDESCREEN row of Options shows the
-  world map, the towns and the spaceship flight (take-off, space, descent) at
-  344x192 (16:9): the original 256 pixels in the centre and 44 more on each
-  side, drawn from the map with the cartridge's own tiles and colours (in space,
-  from the starfield); at the edge of a town the sides show the cartridge's
-  filler screens, and the world map wraps. The blank left column of the map
-  is filled too. Battles, dialogue, shops, houses, dungeons and scenes stay at
-  256 pixels, centred between black bars, and so do the Options, Controls,
-  Language and automap screens; the start screen stays 256. While the option
-  is on, the window keeps the wide size on every screen, so it never jumps;
-  turning it on or off resizes a normal window at once. At 1366x768 the scale
-  drops from 4x to 3x. The choice is saved per profile, like the automap; it
-  is read-only in recording mode and with `--no-routines`. The machine is
-  the same cartridge either way: the option only changes what is drawn.
-- **Sound:** the original sound chip, resampled for the computer's audio
-  device. Music and effects keep normal tempo and pitch while running at 2x/4x.
-- **Controls:** [controls](player-controls.md) lists every key and button
-  for players. The defaults are those of release 0.2.0:
-
-  | Console | Keyboard | Game controller |
-  | --- | --- | --- |
-  | Directional pad | Arrows | D-pad or left stick |
-  | Button 1 / 2 | Z / X | A / B (bottom / right) |
-  | Pause | Enter | Start |
-  | Reset | Backspace | Back |
-  | Power off and on | F5 | - |
-  | Speed: 1x / 2x / 4x | Tab | Right shoulder (RB) |
-  | Options window | Escape | Y |
-  | Dungeon map (Automap option on) | M | X |
-  | Window or fullscreen | Alt+Enter | - |
-
-  Keyboard and controller work together. The first controller found is used,
-  also when it is plugged in during play. Button names are positional (A is
-  the bottom button, whatever is printed on the pad).
-- **Changing the controls:** the Controls screen (from the start screen or
-  the Options window) sets one key and one controller input for each of 13
-  actions: the eight console inputs, Speed, Options, Map, Power cycle and
-  Fullscreen. A key already in use swaps; the triggers can be set like
-  buttons. Alt+Enter and the left stick are fixed, the keys of the
-  directions and buttons 1 and 2 cannot be emptied, and the start and
-  Controls screens answer fixed keys, so no choice locks the player out.
-  SAVE applies the controls at once, menus and the map included.
-- **Fast-forward:** each Speed press (Tab or RB by default) cycles 1x, 2x,
-  4x, then 1x; holding
-  does not repeat. An indicator appears while accelerated. Music and effects
-  keep normal tempo at 2x/4x and continue smoothly when returning to 1x,
-  without an audio backlog.
-  Options and loss of focus temporarily use 1x and restore the chosen speed
-  afterward. New sessions and F5 start at 1x; recording remains at 1x.
+  world map, the towns and the spaceship flight at 344x192 (16:9): the original
+  256 pixels in the centre and 44 more on each side, drawn with the
+  cartridge's own tiles and colours (in space, from the starfield); at the
+  edge of a town the sides show the cartridge's filler screens, the world map
+  wraps and the blank left column of the map is filled too. Broken ice stays
+  broken in the sides after a screen change (fixed in milestone 11; release
+  0.5.0 forgot the trail there). Battles, dialogue, shops, houses, dungeons,
+  scenes and the Options, Controls, Language and automap screens stay at 256
+  pixels, centred between black bars; the start screen stays 256. While the
+  option is on, the window keeps the wide size on every screen; at 1366x768 the
+  scale drops from 4x to 3x. The choice is saved per profile; it is read-only
+  in recording mode and with `--no-routines`. The machine is the same
+  cartridge either way: the option only changes what is drawn.
+- **Controls:** [controls](player-controls.md) lists every key and button.
+  Keyboard and controller work together; the first controller found is used,
+  also when plugged in during play. The defaults are those of release 0.2.0
+  (arrows, Z/X, Enter, Backspace, F5, Tab, Escape, M and Alt+Enter on the
+  keyboard; D-pad, A/B, Start, Back, RB, Y and X on a controller).
+  The Controls screen (from the start screen or Options) sets one key and one
+  controller input for each of 13 actions; a key in use swaps, the triggers
+  can be set like buttons, and fixed keys keep the player from being locked
+  out. SAVE applies the choice at once.
+- **Fast-forward:** each Speed press cycles 1x, 2x, 4x, then 1x, with an
+  indicator while accelerated and music at normal tempo. Options and loss of
+  focus temporarily use 1x; new sessions, F5 and recording start at 1x.
 - **Language:** Language has its own SAVE/CANCEL, in the launcher and in
-  Options during free exploration. English and Portuguese each require the
-  corresponding ROM. A saved choice is global; leaving Options keeps it.
-  The game ROM changes after native Options closes, preserving
-  the current scene and progress. If a preferred ROM is absent, the available
-  language is used with a warning and the preference is kept.
+  Options during free exploration. Each language requires its ROM; a saved
+  choice is global and the scene and progress are kept across a switch. If the
+  preferred ROM is absent, the available language is used with a warning.
 - **Saves:** the game's own save menu writes one shared cartridge file,
   `%APPDATA%\PSModern\shared\phantasy-star.sav`, with options and automap
-  companions beside it. Before the first write of a session, the previous
-  file is backed up to `.bak`. A lock prevents concurrent use of the save.
-  First use imports old US/BR files without modifying them. Different old
-  sets require a one-time choice; their origin never selects the language.
-  The parent folder holds `roms.txt`, `controls.txt` and `language.txt`.
-  Controls and Language write their files only on their own SAVE action.
+  companions beside it, a `.bak` of the previous file before the first write
+  of a session, and a lock against concurrent use. First use imports old US/BR
+  files without modifying them. The parent folder holds `roms.txt`,
+  `controls.txt` and `language.txt`, written only on their own SAVE.
 - **Automap:** with the option on, M or controller X while walking in a
-  dungeon opens a map of the current floor; M, X, Escape or B close it. The
-  game waits and the music continues. The map shows only what the party has
-  seen, each seen cell as what it really is (doors plain, locked or magic,
-  stairs, exits that lead out, chests, opened or not). A pitfall appears once
-  the party has stood on it, a fake wall becomes floor once walked through,
-  and bosses, guardians and scripted events are never marked. Exploration is
-  recorded even with the option off and kept with each saved game: Continue
-  brings back that game's map, a new game starts empty. A floor label names
-  the floor: FLOOR 1 is the lowest floor with an exit to the outside, FLOOR
-  2 and up above it, FLOOR B1 and down below it (a PSModern convention, not
-  something the original shows). There is no view of other floors.
-- **Options (off by default):** two flags after the ROM path, each a
-  percentage of the original, where 100 is the original game.
-  - `--encounter-rate 0`, `25`, `50`, `100` or `200`: how often random
-    fights start, on the map and in dungeons. 0 turns random fights off, 25
-    keeps a quarter, 50 halves them, 200 doubles them. Story and fixed
-    fights do not change.
-  - `--experience-rate 100`, `200` or `400`: how much experience each fight
-    gives. The number on screen is what every character gains. A character
-    still gains at most one level per fight.
-
-  Any other value is refused. Missing saved options use 100/100. Saved choices load on
-  startup; explicit flags override only their corresponding field.
-- **In-game options:** the Options shortcut (Escape or controller Y by
-  default) opens the scrolling six-entry window during free exploration in towns, on
-  the world map and in dungeons, with released controls. The scene stays
-  behind it and music continues. Combat, title, dialogue and other menus
-  ignore the shortcut. Left/Right changes a row; leaving with button 1,
-  button 2 or the Options shortcut saves the displayed values. Each 100% is DEFAULT;
-  encounters 25% and experience/meseta 400% are RECOMMENDED, the pace of the
-  Switch release's easy mode; the third row is AUTOMAP OFF (DEFAULT) or ON;
-  the fourth, WIDESCREEN OFF (DEFAULT) or ON; the fifth, CONTROLS, opens
-  Controls, and the sixth, LANGUAGE, opens Language.
-  These child screens save independently of the parent settings draft.
+  dungeon opens a map of the current floor (the game waits, the music goes
+  on). It shows only what the party has seen, each seen cell as what it really
+  is; a pitfall appears once stood on, a fake wall becomes floor once walked
+  through, and bosses, guardians and scripted events are never marked.
+  Exploration is recorded even with the option off and kept with each saved
+  game. FLOOR 1 is the lowest floor with an exit to the outside, FLOOR 2 and
+  up above it, FLOOR B1 and down below it (a PSModern convention); other
+  floors cannot be viewed.
+- **Options (off by default):** two flags after the ROM path, each a percentage
+  of the original (100 is the original game): `--encounter-rate` 0, 25, 50, 100
+  or 200 (how often random fights start, on the map and in dungeons; story and
+  fixed fights do not change) and `--experience-rate` 100, 200 or 400 (how much
+  experience each fight gives; a character still gains at most one level per
+  fight). Other values are refused; missing saved options use 100/100; explicit
+  flags override only their field.
+- **In-game options:** the Options shortcut (Escape or Y) opens a scrolling
+  six-entry window during free exploration in towns, on the world map and in
+  dungeons; the scene stays behind it and music continues. Combat, title,
+  dialogue and other menus ignore it. Left/Right changes a row; leaving with
+  button 1, button 2 or the shortcut saves the displayed values. Each 100% is
+  DEFAULT; encounters 25% and experience/meseta 400% are RECOMMENDED. The rows
+  are encounters, experience/meseta, AUTOMAP, WIDESCREEN, CONTROLS and
+  LANGUAGE; the last two open their own screens, which save independently.
 - **Persistence:** a companion file retains preferences without changing the
-  cartridge save format; since milestone 7 it is written in format 2, with
-  the automap choice, which release 0.1.0 refuses (it then plays with the
-  original settings); release 0.2.0 likewise refuses a file saved with
-  encounters 25. Milestone 10 adds format 3 with the widescreen choice,
-  written only while a record has widescreen on, so release 0.4.0 keeps
-  reading the file otherwise; formats 1 and 2 read as widescreen off. Battle meseta follows the experience rate; other money
-  sources remain unchanged. Recording ignores the shortcuts, uses original
-  rules and keeps no map; raw-Z80 mode exposes read-only options and keeps
-  no map. Details are in [development](development.md#options) and
-  [development](development.md#automap).
+  cartridge save format. Format 2 (the automap) is refused by release 0.1.0,
+  and release 0.2.0 refuses a file saved with encounters 25; format 3
+  (widescreen) is written only while a record has widescreen on, and formats 1
+  and 2 read as widescreen off. Battle meseta follows the experience rate;
+  other money is unchanged. Recording ignores the shortcuts and keeps no map;
+  raw-Z80 mode exposes read-only options
+  ([development](development.md#options), [automap](development.md#automap)).
 
 ## Architecture overview
 
@@ -165,55 +121,52 @@ layer.
 | --- | --- | --- |
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
-| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money, dungeon walking, text), the options, the dungeon tables, the automap's exploration model and `MapScreens`, the world-map and town reader |
-| Program | `src/app/` | SDL window, sound, input and its bindings, save files and their companions, the start, Options, Controls, Language and map screens, `WideView` (the widescreen renderer), frame pacing, command-line options |
+| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money, dungeon walking, text and the six groups of the map), the options, the dungeon tables, the automap's exploration model and `MapScreens`, the world-map and town reader |
+| Program | `src/app/` | SDL window, sound, input and its bindings, save files, the start, Options, Controls, Language and map screens, `WideView` (the widescreen renderer), frame pacing, command-line options |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
 | Tests | `tests/` | Unit, conformance, ROM, probe and checkpoint tests |
 
 Some properties matter for the next milestones:
 
-- **Exact and deterministic recordings.** Options shortcuts are ignored while recording.
-  The same recording always gives the same frames, byte for byte.
+- **Exact and deterministic recordings.** The same recording always gives the
+  same frames, byte for byte; Options shortcuts are ignored while recording.
 - **Copyable.** The whole machine copies as one value, so a run can be
-  forked and compared. Immutable ROM images are shared; a language switch
-  changes only the active machine image, leaving earlier copies untouched.
+  forked and compared. Immutable ROM images are shared.
 - **Verified replacements.** Registered C++ routines replace the original
   only where interrupts and frame boundaries permit exact timing. Other
   calls stay on the Z80. A developer switch disables replacements.
 - **Segments.** A routine that calls original code, for instance to wait for
   a frame or show text, is cut into pieces. Each piece runs in C++ and ends
   by handing one original instruction to the Z80 core, so that cycles and
-  interrupts come out as on the console. Later routines that wait for frames
-  or show text can be rewritten the same way. Since milestone 7 a piece may
-  also end with words held on the stack across an original call, with a
-  conditional jump, or partway through a long loop, which splits the
-  dungeon's table scans so they fit between frames. Pieces registered
-  earlier use none of these and run as before. Shared helpers for the
-  dungeon pieces form a small kit (`src/game/dungeon_kit.h`).
+  interrupts come out as on the console. A piece may also end with words held
+  on the stack across an original call, with a conditional jump, or partway
+  through a long loop (milestone 7). Milestone 11 used the mechanism
+  unchanged, with a larger kit (`src/game/map_kit.h`: video-chip port output,
+  the index registers and a few more instructions, proved against the core)
+  and one rule: a loop that crosses a frame boundary on most calls is cut into
+  pieces, and a copy too long to fit between frames is left to the Z80. The
+  map's 153 entries form six groups, one file each in `src/game/`
+  (`map_video`, `map_scroll`, `map_objects`, `map_terrain`, `map_entrances`,
+  `map_modes`); `src/game/map.h` lists them and the code that stays native.
 - **Host-observed instructions.** The program watches 13 original
-  instructions (the Options and map hold, frame waits, the normal-tempo
-  audio points and the automap's points) without changing anything.
-  Activating the routines fails at once if any of them became the entry or
-  exit of a C++ piece, and the automap's tests compare its events with
-  routines on and off to catch one hidden inside a piece.
-- **Widescreen is a read-only presentation layer.** `WideView` is a second
-  way to draw a frame beside the original one. After each frame, while the
-  option is on, the driver copies video memory, palette, registers and a few
-  work-RAM bytes; `MapScreens` reads the maps from the player's ROM, and a
-  small background renderer draws the bands (and the centre's blank left
-  column) from them. It holds a camera that follows the cartridge's scroll
-  registers, and a frame that is not consistent is shown as the 256 centre
-  between black bars. The virtual Master System and the Z80 never see the
-  option; tests prove the machine is equal with it on or off every frame, and
-  the virtual video chip is untouched. Milestone 11's map rewrite will be
-  guarded by the same tests.
+  instructions (the Options and map hold, frame waits, the normal-tempo audio
+  points and the automap's points) without changing anything, among them the
+  map loop's frame wait at `00:0B14`, where Options and Language open. No
+  piece contains, starts or ends at one: activating the routines fails if one
+  does, and tests compare the watched events with routines on and off.
+- **Widescreen is a read-only presentation layer.** After each frame, while
+  the option is on, the driver copies video memory, palette, registers and a
+  few work-RAM bytes; `WideView` and `MapScreens` read the maps from the
+  player's ROM and draw the bands. A frame that is not consistent is shown as
+  the 256 centre between black bars. The virtual Master System and the Z80
+  never see the option; tests prove the machine equal with it on or off every
+  frame, and they passed unchanged over the rewritten map.
 - **The automap only reads.** It samples floor, position, facing and layout
-  at the dungeon's walking call (`00:0F48`), and stores, restores or clears
+  at the dungeon's walking call (`00:0F48`) and stores, restores or clears
   the exploration after a save (`00:1D2D`), a Continue (`00:06B4`) and a new
-  game (`00:05F4`). Each saved game's exploration goes into
-  `<save>.automap`, keyed by a digest of the saved game block; an unknown
-  game or an unusable file gives an empty map, never a wrong one.
+  game (`00:05F4`), in `<save>.automap`, keyed by a digest of the saved game
+  block; an unknown game or unusable file gives an empty map, never a wrong one.
 
 How the console works, in plain words, is in
 [how the Master System works](how-it-works/master-system.md). Building,
@@ -221,9 +174,11 @@ testing, recordings and the reference are in [development](development.md).
 The game-system chapters cover [controller reading](how-it-works/controls.md),
 [random numbers and encounters](how-it-works/random-numbers.md),
 [party records and experience](how-it-works/party.md),
-[the sound driver](how-it-works/sound.md), and
-[walking in the dungeons](how-it-works/dungeons.md), which also explains
-how the automap reads the game, and [text](how-it-works/text.md).
+[the sound driver](how-it-works/sound.md),
+[walking in the dungeons](how-it-works/dungeons.md) (with how the automap reads
+the game), [text](how-it-works/text.md) and
+[the world map and the towns](how-it-works/world-map.md) (with how widescreen
+reads the map).
 
 The annotated disassembly is private (design section 6): it rebuilds the
 player's ROM exactly without holding any ROM data, and its catalog names
@@ -235,144 +190,168 @@ catalog.
 
 | Game system | State |
 | --- | --- |
-| Controller polling (`00:0339`) | C++ by default; original Z80 fallback when needed |
-| Random numbers (`00:05B1`) | C++ by default; original Z80 fallback when needed |
-| Map encounter check (`01:5F63`, with the group choice `01:5FD8`) | C++ by default, in pieces; calls into original code run on the Z80 |
+| Controller polling (`00:0339`), random numbers (`00:05B1`) | C++ by default; original Z80 fallback when needed |
+| Map encounter check (`01:5F63`, with the group choice `01:5FD8`) | C++ by default, in pieces |
 | Dungeon update with its encounter check (`00:0F3C`) | C++ by default, in pieces |
-| Experience award (`00:170D`, with the per-character helper `00:1754`) | C++ by default, in pieces |
+| Experience award (`00:170D`, helper `00:1754`) | C++ by default, in pieces |
 | Battle setup (`01:5FFE`) and money addition (`00:297A`) | C++ by default; battle meseta scales with the experience option |
-| Dungeon walking: the input handler (`01:65EE`), steps, turns, the pitfall, doors, the exit lookup, the check for chests, fights and events, and the cell readers | C++ by default, eleven routines in 53 pieces; three short pitfall sequences that switch interrupts off stay on the Z80 |
-| The 3D dungeon view and its animations, the dungeon load, the world-map transfer | Original Z80 code |
+| Dungeon walking (input handler `01:65EE`, steps, turns, pitfall, doors, exit lookup, checks for chests, fights and events, cell readers) | C++ by default, eleven routines in 53 pieces; three short pitfall sequences that switch interrupts off stay on the Z80 |
+| Map picture update in the frame interrupt (`00:0235`, `00:029F`, `01:588B`, `01:61F5`, `01:73D0`, `01:7C18`), steps, camera and screens in memory (`01:7143`, `01:723D`, `01:72A6`, `01:733A`, `01:744B`) | C++ by default, in pieces, with the video-chip writes at their original cycles; long loops cut at their exits |
+| Sprites and object list (`01:576A`, `01:5818`, `01:5853`, object types from `01:599F`); ground, vehicles, ice and ground damage (`01:7764`, `01:74E4`, `01:756C`, `01:7602`) | C++ by default, in pieces |
+| Entrances, transfers, special ground (`01:77AC`, `01:7877`, `01:792A`); map modes, loading and the road (`00:0B08`, `00:0B6A`, `00:0CA6`, `00:0E8B`, `00:0ED7`) | C++ by default, in pieces |
 | Text readers, dictionary, control codes, names/numbers, character output and waits | C++ by default in segments, with both-ROM timing verification |
+| The 3D dungeon view and its animations, the dungeon load | Original Z80 code |
 | Menus, sound driver, native saves and the rest | Original Z80 code; host options and the map use the original field-menu wait |
 
-On the fifteen checkpoint recordings, controller polling ran in C++ on all
-101,335 calls. The other routines ran in C++ on almost every call; the few
-fallbacks are calls where a frame boundary could fall inside the routine.
-The longest dungeon scan, split into chunks, runs in C++ on about 97% of
-its calls in the boss recordings.
-The generated [coverage census](coverage.md) gives the counts per piece and
-recording. It describes these recordings, not every possible route through
-the game.
+**What stays on the Z80 in the map area** (the palette fades and the tile
+animators that are not the map's are left for milestones 12 and 13, Maintainer
+decision, 2026-11-15):
+- the four short stretches that run with interrupts off: three in the map
+  load (`00:0B6D`-`00:0B71`, `00:0BB4`-`00:0BB8` four times, `00:0C91`-`00:0C93`)
+  and one in the ice breaking (`01:75CC`-`01:75E4`);
+- the map loop's call at `00:0B14`, where Options and Language open;
+- block copies too long to fit between frames: the 255-byte clearing of the
+  object slots (`00:0CAC`-`00:0CB1`), the second clearing of a transfer
+  (`01:7921`) and the sprite-table clearing's second fill;
+- the 64-byte sprite copy `01:591E` when entered directly (it runs in C++
+  inside the pieces that jump to it);
+- the palette fades, the tile animators that are not the map's, the battle
+  object types, the handler dispatcher and step controller, the jump-table
+  dispatchers, the graphics decompressor, interrupt entry and exit, the sound
+  driver and the spaceship scene (`00:0A5C`, `00:086F`).
+
+On the eighteen checkpoint recordings, controller polling ran in C++ on all
+of its calls and the other routines, the map's included, on about 99% of
+theirs; the few fallbacks are calls where a frame boundary could fall inside
+the piece. Every entry reached 20 or more times runs in C++ on at least 90%
+of them. The generated [coverage census](coverage.md) gives the counts per
+piece and recording. It describes these recordings, not every possible route
+through the game.
 
 ## How it is verified
 
-- **Frame-by-frame comparison** with a patched MesenCE 2.2.1, on fifteen
+- **Frame-by-frame comparison** with a patched MesenCE 2.2.1, on eighteen
   recordings: six per version (the opening, the first battle, the first
-  dungeon, a later town, a boss fight and a deep dungeon) and three US
-  dungeon walks (stairs, back steps, a fake wall, a pitfall, chests, a door,
-  a fixed fight, Continue and an exit to the world map). The twelve first
-  recordings' 124,920 frames and every frame of the three walks match in the
-  picture, RAM, video memory, palette, cartridge RAM, CPU state
-  and sound writes, with the rewritten routines on and off.
-- **The automap changes nothing:** on eight recordings the machine is equal
-  after every frame in recording mode, with the option off and with it on
-  but never opened, and the map's events are the same with routines on and
-  off. Running the original 3D drawing with every unseen cell changed never
-  changes the picture, so the map never shows more than the view could.
-- **Each C++ call** is checked against a copy running the original, including
-  hidden machine state, cycles, R and opcode fetches. All previous/current
-  button combinations are checked for both ROMs.
-- **State probes** run each piece of the new routines against the original
-  from many machine states, in both versions: the random-number routine's states,
-  all 192 map region records, every threshold comparison, every reward value,
-  the level-up cases, and every dungeon cell value in every facing with all
-  object and exit records. Because the recordings reach few encounter and
-  experience paths (two of 192 map regions, one level gain) and some dungeon
-  paths not at all, these probes carry the exactness there.
+  dungeon, a later town, a boss fight and a deep dungeon), three US dungeon
+  walks, and three US map recordings made in milestone 11: `road` (the road
+  from a town to a spaceport and the ship to Palma), `vehicles` (the Land
+  Rover and the hovercraft, ground damage and antlion ground) and `ice`
+  (digging through an ice field on Dezoris). Every frame matches in the
+  picture, RAM, video memory, palette, cartridge RAM, CPU state and sound
+  writes, with the rewritten routines on and off. `vehicles` and `ice` start
+  from a game-made save whose fields were edited (vehicles added to the item
+  list, the position, the transport), since the game reaches them late; `road`
+  starts from an unedited save. The edits are listed in
+  [development](development.md) (Maintainer decision, 2026-11-15).
+- **Each C++ call** is checked against a copy running the original,
+  including hidden machine state, cycles, R and opcode fetches; the map's
+  video-chip writes keep their original cycles. All previous/current button
+  combinations are checked for both ROMs.
+- **State probes** run each piece against the original from many machine
+  states, in both versions: the random-number routine, all 192 map region
+  records, every threshold, reward and level-up case, every dungeon cell value
+  in every facing, and, for the map, vehicles, ice, the road, special ground,
+  both world wraps, entrances, transfers and map loading, from power-on
+  machines and from real map states. Where the recordings reach few paths,
+  the probes carry the exactness.
 - **The options** are checked against their formulas over every input, with
   interrupt and frame boundaries forced at each cycle, and by running the
-  twelve recordings with the options on. At 100 the game is byte-identical to
-  the original.
-- **The default controls are release 0.2.0's:** a test checks every
-  combination of the default keys and controller buttons; recordings and
-  replay never see the bindings.
-- **Text and languages:** both-ROM segment probes and a Brazilian text
-  recording check the distinct text paths. Town, world-map and dungeon
-  switching tests preserve machine state and shared progress. Legacy import
-  tests cover cancellation, missing/locked files, concurrency and crashes.
-- **Widescreen changes nothing in the machine:** on all 18 recordings (10 US,
-  8 Brazilian) the machine is equal after every frame with the option on and
-  off, and the option-off picture equals release 0.4.0's. The renderer's
-  centre equals the virtual video chip's picture, its bands equal a later
-  frame showing the same world position, and a gating oracle checks which
+  recordings with the options on. At 100 the game is byte-identical to the
+  original. The default controls are release 0.2.0's, checked over every
+  combination of keys and buttons.
+- **The automap and widescreen change nothing in the machine:** on eight
+  recordings (automap) and on all 21 (13 US, 8 Brazilian; widescreen) the
+  machine is equal after every frame with the option off and on, and the
+  widescreen option-off picture equals release 0.4.0's. The widescreen
+  renderer's centre equals the virtual video chip's picture, its bands equal a
+  later frame showing the same world position, and a gating oracle checks which
   frames widen. State probes cover both wraps, a vehicle, the road, the
   spaceship's eight routes, power cycle, ROM swap and the option turned on
   mid-stay or during a transfer.
-- **The complete suite** has 206 tests; at the closure of milestone 10 all
-  passed with none skipped, on both ROMs.
+- **Text and languages:** both-ROM segment probes and a Brazilian text
+  recording check the distinct text paths; switching and legacy-import tests
+  cover preserved state, cancellation, missing or locked files, concurrency
+  and crashes.
+- **Independent review:** an implementation review of milestone 11 approved
+  it with no required changes; its recommendations (probes of the one
+  mapper-slot case compared at equal cycles, bounded widescreen skips, a
+  documented limit) were applied.
+- **The complete suite** has 237 tests; at the closure of milestone 11 all
+  passed with none skipped, on both ROMs, in about 17 minutes of real time at
+  `-j 16` (it was about 4 minutes before the map probes and the three new
+  recordings). It runs once per milestone ([tools/AGENTS.md](../tools/AGENTS.md)).
 - **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
   the VDPTest results for the SMS1 video chip.
-- **CI** on a clean Windows machine runs every test that needs no ROM. Of
-  the external conformance suites it runs only the three Rak Z80 tests. The
-  ROM, probe and reference tests run locally, as
-  [development](development.md) describes.
+- **CI** on a clean Windows machine runs every test that needs no ROM, and of
+  the external conformance suites only the three Rak Z80 tests. The ROM,
+  probe and reference tests run locally ([development](development.md)).
+- **Play-tests:** the maintainer played milestone 11 with the US cartridge
+  (walking, his own save and test saves in the Land Rover, the hovercraft and
+  the Ice Digger on Dezoris, the road and a cave, with widescreen on for
+  vehicles, ice and the road) and everything behaved like the original.
 
 ## Known gaps
 
-- **Options remain deliberately small.** Encounter and experience/meseta
-  rates, the automap, widescreen, controls and language are available in-game
-  and saved.
-  Other features remain later work on the [roadmap](roadmap.md).
-- **Controls have one key and one controller input per action,** and only
-  the first controller found is used; there is no second pad and no
-  shortcut back to the start screen during play. A damaged `controls.txt`
-  is reported only on the console, not in the window. A trigger held when a
-  controller connects is ignored only on a best-effort basis: some drivers
-  may still deliver it as a press.
-- **Recording coverage is thin where the new routines act.** The recordings
-  reach few encounter paths and one level gain. Thirteen dungeon pieces are
-  reached by no recording and are covered by state probes only: locked and
-  magic doors, exits that start a scene or an interaction, cascading pits
-  and most chest, fight and event records ([coverage](coverage.md)). State
-  probes carry the exactness; new recordings come when a milestone needs a
-  route the existing ones miss.
-- **An unusable map file is kept only briefly.** When `.automap` cannot be
-  read, the next save keeps it as `.automap.bak` and writes a new one, but
-  the first save of the next session replaces that backup in turn
-  ([development](development.md#automap)).
-- **Some automap checks cover the US only.** Map passivity runs on the first
-  and deep dungeons of both versions, but not on the Brazilian boss
-  recording; the map's own recordings and play-test are US.
-- **Two checkpoint tests take slightly over a minute** (the first two new
-  dungeon walks), above the suite's guideline of about 60 seconds per test.
-- **The experience ceiling differs only with the option on.** The original
-  can in principle stop a character's levelling at a total ceiling, but no
+- **Options remain deliberately small.** Other features remain later work on
+  the [roadmap](roadmap.md).
+- **Controls have one key and one controller input per action,** only the
+  first controller is used, and there is no second pad or shortcut back to the
+  start screen during play. A damaged `controls.txt` is reported only on the
+  console; a trigger held when a controller connects is ignored best-effort.
+- **Recording coverage is thin where some routines act.** The recordings
+  reach few encounter paths and one level gain. Thirteen dungeon pieces and
+  some map pieces are reached by no recording and are covered by state probes
+  only (for the dungeons: locked and magic doors, exits that start a scene or
+  an interaction, cascading pits and most chest, fight and event records); the
+  road, the vehicles and the ice have one US recording each
+  ([coverage](coverage.md)).
+- **There are no Brazilian map recordings.** The map code is the same in both
+  versions (design 5.5) and the probes of every piece run on both ROMs, but
+  only the six shared checkpoints and the text recording are Brazilian
+  (Maintainer decision, 2026-11-15). Brazilian coverage is bounded: this is
+  not a full Brazilian playthrough, and development uses the US cartridge
+  first.
+- **Port-write order inside a piece is not logged.** The per-call comparison
+  checks the state afterwards and the total cycles, not each video-port
+  access; the order and cycle of the writes inside a video segment rest on
+  reading the code and on the kit's timing tests ([development](development.md)).
+- **An unusable map file is kept only briefly.** `.automap` that cannot be
+  read becomes `.automap.bak` at the next save, and the first save of the next
+  session replaces that backup ([development](development.md#automap)).
+- **Some automap checks cover the US only.** Map passivity does not run on the
+  Brazilian boss recording; the map's own recordings and play-test are US.
+- **Some tests are slow.** The two first dungeon-walk checkpoints take
+  slightly over a minute, and the map's terrain and mode probes about 90 and
+  250 seconds each, above the guideline of about 60 seconds per test; they
+  carry the `rom` label without `fast`.
+- **The experience ceiling differs only with the option on.** The original can
+  in principle stop a character's levelling at a total ceiling, but no
   sequence of battles reaches it ([original quirks](original-quirks.md)). With
-  experience at 200 or 400 it is reachable, and PSModern then keeps one level
-  per fight, also for a character at the ceiling (Maintainer decision,
-  2026-11-11).
-- **The registered-routine mechanism has limits.** It still refuses routines
-  that change interrupt sources, adjust the stack beyond declared held words
-  (so the pitfall's three interrupt-off sequences stay native) or write
-  mapping registers
-  other than the declared upper-bank one ([development](development.md#segments)).
-  The [coverage census](coverage.md) tracks progress.
-- **Study coverage is route-bound.** The study observed the six US
-  recordings; routes they never reach, such as the ending, rare battle and
-  sound paths, and most work-RAM fields are still Unknown.
+  experience at 200 or 400 PSModern keeps one level per fight, also for a
+  character at the ceiling (Maintainer decision, 2026-11-11).
+- **The registered-routine mechanism has limits.** It refuses routines that
+  change interrupt sources, adjust the stack beyond declared held words (so
+  the pitfall's three interrupt-off sequences stay native), write mapping
+  registers other than the declared upper-bank one, or end a piece on a
+  repeated port-write instruction (so `01:591E` stays native on direct entry)
+  ([development](development.md#segments)).
+- **Study coverage is route-bound.** Routes the recordings never reach, such
+  as the ending, rare battle and sound paths, and many work-RAM fields are
+  still Unknown.
 - **Windows only** for the save location.
-- **Brazilian coverage remains bounded.** Its six checkpoints, text recording
-  and probes run in the tests. The milestone 9 language-switching play-test
-  was accepted; this is not a full Brazilian playthrough. Development still
-  uses the US cartridge first (design 5.5).
 - **Some details of the first Master System's video chip are unmeasured.**
-  PSModern follows the reference there, and [development](development.md)
-  labels them Unknown. The game reaches two of them, video memory accesses
-  at two moments of the US recordings, where PSModern matches the reference
-  but the real console's behavior is not known.
-- **Widescreen paths no recording reaches.** Vehicles, ice breaking, the
-  road and both world-map wraps are covered by state probes only, and the
-  maintainer could not play-test vehicles (no save reaches one). Milestone 11's map rewrite will lean on those probes.
+  PSModern follows the reference and [development](development.md) labels
+  them Unknown; the US recordings reach two (video memory accesses at two
+  moments), where the real console's behavior is not known.
 - **Widescreen draws a frame behind in rare cases.** In about 0.55% of map
   frames the cartridge rewrites tile patterns in the top lines after the
-  copy, so the bands there can lag one frame behind a tile animation.
+  copy, so the bands there can lag one frame behind a tile animation; after a
+  screen change the sides keep a broken-ice trail until the cartridge shows it
+  whole.
 - **Repeated stars in the spaceship flight.** In space the bands are the
   starfield wrapped as the video chip would draw it, so stars at the right
   repeat those at the left; on some routes the last take-off frames show map
   bands beside a partial top row of stars (at most 7 lines, 3 frames).
-  Widescreen applies only to the map, towns and the flight; battles,
-  dungeons and scenes stay 256 pixels.
 - **No aspect correction of the picture** yet.
 - **Rare sound stalls are not ruled out.** One of three measured sessions
   had stalls of about 90 ms; their cause is not known.

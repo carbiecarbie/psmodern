@@ -30,8 +30,9 @@ the way the project writes down [how the game works inside][how-it-works].
 
 The whole game can be played, in English (US) or Portuguese (Brazilian Tec
 Toy release). Controller polling, the random numbers, the random-encounter
-checks, experience, battle setup, battle money, walking in the dungeons and text
-already run in C++; the rest of the game still runs on the virtual Z80.
+checks, experience, battle setup, battle money, walking in the dungeons, text
+and walking on the world map and in towns already run in C++; the rest of the
+game still runs on the virtual Z80.
 
 What you get today:
 

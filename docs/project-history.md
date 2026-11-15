@@ -166,3 +166,20 @@ The Windows release carries milestone 10: the widescreen option for the world
 map, towns and spaceship flight. All 206 tests passed without skips and CI was
 green. At the maintainer's request the exact release zip was published without
 a manual release play-test. Published as GitHub release v0.5.0 from `e45597a`.
+
+## Milestone 11 - World map and towns in C++ (2026-11-15)
+
+Walking on the world map and in towns runs in C++ in both versions: the
+picture's update, steps and camera, sprites and objects, the ground (vehicles
+and ice), entrances, transfers, map loading and the road, as 153 short pieces
+checked against the original on every call. The mechanism was unchanged; the
+stretches with interrupts off, the frame wait where Options opens, the long
+block copies, the palette fades and the spaceship scene stay on the Z80. Three
+new US recordings (road, vehicles, ice) match the reference emulator on every
+frame and exposed a widescreen defect, a broken-ice trail lost at a screen
+change, now fixed. An independent implementation review approved the work with
+no required changes, and the complete suite passed 237 of 237 with no skips.
+The maintainer play-tested it in one US session, on foot, in the Land Rover,
+the hovercraft and the Ice Digger, on the road and in a cave, noticed
+nothing different from the original and accepted it on 2026-11-15.
+[Plan](milestone-11-plan.md).
