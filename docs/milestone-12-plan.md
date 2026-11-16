@@ -1,7 +1,8 @@
 # Milestone 12 plan - Menus and windows, then the new interface
 
-**Tier B. Status: completed and accepted (2026-11-15).** Twelfth milestone
-of the [roadmap](roadmap.md); stage 9 of [design](design.md) section 8.
+**Tier B. Status: completed and accepted (2026-11-15).** Implemented in
+`eacc0d2` and closed by `467e589`. Twelfth milestone of the
+[roadmap](roadmap.md); stage 9 of [design](design.md) section 8.
 
 ## Scope delivered
 

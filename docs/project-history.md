@@ -208,3 +208,4 @@ what stays native), all applied, and the complete suite passed 266 of
 session, noticed nothing different from the original, accepted the milestone on
 2026-11-15 and decided that the play-test need not be repeated after the
 review's fixes. [Plan](milestone-12-plan.md).
+Implementation: `eacc0d2`; closed by `467e589`; private annotations: `1c5579b` in `psmodern-re`.
