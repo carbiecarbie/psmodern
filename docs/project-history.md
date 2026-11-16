@@ -218,3 +218,4 @@ matched the reference. The maintainer played the US dungeon and Pause, the
 Brazilian saved-name flow, and the US final battle and credits, and accepted
 the milestone on 2026-11-16. The [plan](milestone-13-plan.md) identifies the
 accepted build and records the test results.
+Implementation: `762a48d`; closed by `a278d54`; private annotations: `c93b373` in `psmodern-re`.

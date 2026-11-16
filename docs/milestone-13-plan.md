@@ -3,7 +3,7 @@
 **Tier A. Status: completed and accepted (2026-11-16).** The maintainer
 played and approved all three scenarios in the fixed Windows build
 (SHA-256 `3f7afe9f4fd3c11b62ac261463ae8c519d580ac023ac46cd415bd41e050661fe`).
-Thirteenth milestone of the [roadmap](roadmap.md).
+Implemented in `762a48d` and closed by `a278d54`. Thirteenth milestone of the [roadmap](roadmap.md).
 
 ## Scope and decisions
 
