@@ -64,6 +64,8 @@ std::vector<Expected> expected_catalog() {
         {0x1CF1,0x1CDF,{core_final_at(0x1CFC),core_final_at(0x1D3B)},0,0,false},
         {0x1CFF,0x1CDF,{core_final_at(0x1D0B,-2)},2,0,false},
         {0x1D33,0x1CDF,{core_final_at(0x1D38),returned_at(0x1D4C,4)},0,4,false},
+        {0x1D35,0x1CDF,{core_final_at(0x1D38)},0,0,false},
+        {0x1D41,0x1CDF,{returned_at(0x1D4C,4)},0,4,false},
         {0x1D50,0x1D4D,{core_final_at(0x1D55),core_final_at(0x1DBA)},0,0,false},
         {0x1D58,0x1D4D,{core_final_at(0x1D81,-4),core_final_at(0x1DBA),core_final_at(0x1DC8)},4,0,false},
         {0x1D84,0x1D4D,{core_final_at(0x1D90,2)},0,2,false},
@@ -118,13 +120,13 @@ std::vector<Expected> expected_catalog() {
 void catalog() {
     const auto entries=menu_probe::registered_entries(menu::Part::field,game::register_menu_field);
     std::cout<<entries.size()<<" of "<<menu::field_segments.size()<<" planned field segments registered.\n";
-    check(entries.size()==menu::field_segments.size() && entries.size()==63,"all 63 planned field segments are registered, and nothing else");
+    check(entries.size()==menu::field_segments.size() && entries.size()==65,"all 65 planned field segments are registered, and nothing else");
     for (const auto& segment:menu::field_segments)
         check(std::find(entries.begin(),entries.end(),segment.entry)!=entries.end(),"a planned field segment is not registered");
     RoutineRegistry registry;
     game::register_menu_field(registry);
     const auto catalog=expected_catalog();
-    check(catalog.size()==63,"the expected catalog lists 63 entries");
+    check(catalog.size()==65,"the expected catalog lists 65 entries");
     for (const auto& expected:catalog) {
         const RoutineEntry entry{0,expected.entry};
         const auto* routine=registry.find(entry);

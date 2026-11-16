@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "game/option_flags.h"
+#include "game/observed.h"
 #include "app/save_store.h"
 #include <filesystem>
 #include "machine/machine.h"
@@ -47,17 +48,8 @@ struct FrameOutput {
     std::optional<PsgSamples> playback;
     std::optional<std::string> audio_error;
 };
-// The native instructions the host watches (bank:address): the Options
-// boundary, the frame-wait watch, the field waits and the menu cancel, the
-// tempo-audio points and the automap's observation points. The core runs a
-// segment's entry and its final instruction without the hook, so none of
-// these may be a registered entry or a declared exit address of any segment.
-inline constexpr std::array<RoutineEntry,13> host_observed_instructions{{
-    {0,0x00AF},{0,0x0055},{0,0x0085},{0,0x0B14},{0,0x0F48},{0,0x2D93},{0,0x02ED},{0,0x02F5},
-    {12,0x8043},{12,0x82EF},{0,0x1D2D},{0,0x06B4},{0,0x05F4}}};   // 00:00AF also ends a dungeon walk
-// Throws std::logic_error naming the first watched instruction that is a
-// registered entry or a declared exit address (exit addresses are compared
-// without their bank, which can only refuse more).
+using game::host_observed_instructions;
+// Check observed entry opt-ins and reject exits that would hide an observation.
 void guard_observed_instructions(const RoutineRegistry& registry);
 
 // What the host's hold of the native field menu is for.

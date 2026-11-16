@@ -79,3 +79,19 @@ the map's exploration history and normal-tempo sound continue unchanged.
 language. Switching languages does not promise the same later random draws:
 different message lengths and control codes spend different amounts of time,
 as the original cartridges do ([original quirks](../original-quirks.md)).
+
+
+### Interrupt-boundary completion
+
+The number and character printers' DI/EI boundaries now have explicit
+milestone 13 registrations. The processor still executes those final
+instructions itself, preserving pending interrupts and the following protected
+load. Register words saved by the character printer are restored in C++
+before its final EI. Alternate-layout clearing retains its own DI/EI pair.
+
+**ROM static:** `00:3304`, `00:332A–332B`, `00:33C2–33C8`,
+`00:33D6`, `00:340F–3413`. **ROM run:** both identified cartridges pass
+per-entry state/cycle probes. The complete drawing chains described in
+[menus](menus.md#completing-the-drawing-boundaries) also retain every observed
+memory callback and ordered video/PSG port cycle. No dialogue, font or
+language-selection behavior changes.

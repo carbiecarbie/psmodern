@@ -45,23 +45,37 @@ using mk::untaken_call_cycles;
 
 // ---- The map loop (00:0B08-0B69) --------------------------------------------------------
 // 00:0B41: a battle or a button press ends the mode. A holds the value saved.
-template<class Z> Exit leave_map(Z& z) {
-    z.store_a_direct(0x0B41);
-    z.load_hl(0x0B44);
+template<class Z> void set_next_mode(Z& z) {
     z.store_to_hl(0x0B47);                     // the next game mode
     z.load_a_direct(0x0B49);
     z.store_a_direct(0x0B4C);
     z.load_hl(0x0B4F);
     z.load_de(0x0B52);
+}
+template<class Z> void object_fill_pointers(Z& z) {
+    z.load_hl(0x0B5C);
+    z.load_de(0x0B5F);
+}
+template<class Z> Exit leave_map(Z& z) {
+    z.store_a_direct(0x0B41);
+    z.load_hl(0x0B44);
+    set_next_mode(z);
     z.load_bc(0x0B55);
     z.store_to_hl(0x0B58);
     z.block_copy(0x0B5A);                      // clear the party-state block
-    z.load_hl(0x0B5C);
-    z.load_de(0x0B5F);
+    object_fill_pointers(z);
     z.load_bc(0x0B62);
     z.store_to_hl(0x0B65);
     z.block_copy(0x0B67);                      // clear the object slots
     return returns(0x0B69,return_cycles);
+}
+template<class Z> bool button_can_leave_map(Z& z) {
+    z.load_a_direct(0x0B3B);
+    z.or_a(0x0B3E);
+    if (!z.zero()) return false;
+    z.return_not_taken(0x0B3F);
+    z.xor_a(0x0B40);
+    return true;
 }
 // 00:0B35: the buttons, when no battle is due.
 template<class Z> Exit buttons(Z& z) {
@@ -69,11 +83,7 @@ template<class Z> Exit buttons(Z& z) {
     z.and_immediate(0x0B38);
     if (z.zero()) return returns(0x0B3A,taken_conditional_return_cycles);
     z.return_not_taken(0x0B3A);
-    z.load_a_direct(0x0B3B);
-    z.or_a(0x0B3E);
-    if (!z.zero()) return returns(0x0B3F,taken_conditional_return_cycles);
-    z.return_not_taken(0x0B3F);
-    z.xor_a(0x0B40);
+    if (!button_can_leave_map(z)) return returns(0x0B3F,taken_conditional_return_cycles);
     return leave_map(z);
 }
 // 00:0B1A, after the tile check returns.
@@ -302,11 +312,10 @@ template<class Z> Exit last_member(Z& z) {    // 00:0CDE falls into 00:0CE3
 }
 
 // ---- The sprite tables (00:02FD) -------------------------------------------------------------
-// The routine is reached through the jump behind the display-on stretch, where
-// the frame interrupt is usually pending: an entry at 00:02FD itself would
-// almost always fall back (reason irq), so its three loads stay native and the
-// segment starts at the first fill, 00:0306, and ends at 00:030A; the second
-// fill (a 191-byte copy, about 4,000 cycles) stays native too.
+// The loader can arrive with an interrupt pending. This existing 00:0306 entry
+// covers the first fill when execution reaches it after a native setup; a
+// separate common entry at 00:02FD covers setup and the fill when admitted.
+// The common 00:030E entry executes the second fill in bounded slices.
 template<class Z> Exit clear_sprites(Z& z) {
     z.store_to_hl(0x0306);                     // the hidden-sprite marker
     z.block_copy(0x0308);
@@ -395,6 +404,24 @@ template<class Z> Exit after_road_load(Z& z) {
     z.store_hl_direct(0x0F08);
     return returns(0x0F0B,return_cycles);
 }
+}
+
+// A frame edge can split the long walking-mode exit inside the button test.
+// Keep the two overlapping fills interruptible when resuming at that point.
+void register_map_button_resume(RoutineRegistry& registry) {
+    const auto unit=map::map_loop_unit;
+    mk::add_segment(registry,map::at0(0x0B3B),mk::segment(unit,{mk::returned_at(0x0B3F),mk::core_final_at(0x0B44)}),
+        [](auto& z) {
+            if (!button_can_leave_map(z)) return returns(0x0B3F,taken_conditional_return_cycles);
+            z.store_a_direct(0x0B41);
+            return continues(0x0B44,10);
+        });
+    mk::add_segment(registry,map::at0(0x0B47),mk::segment(unit,{mk::core_final_at(0x0B55)}),
+        [](auto& z) { set_next_mode(z); return continues(0x0B55,10); });
+    mk::add_segment(registry,map::at0(0x0B5C),mk::segment(unit,{mk::core_final_at(0x0B62)}),
+        [](auto& z) { object_fill_pointers(z); return continues(0x0B62,10); });
+    register_block_transfer(registry,map::at0(0x0B5A));
+    register_block_transfer(registry,map::at0(0x0B67));
 }
 
 void register_map_modes(RoutineRegistry& registry) {

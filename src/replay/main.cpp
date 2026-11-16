@@ -78,7 +78,7 @@ int run(int argc,char** argv) {
     if(std::filesystem::exists(out))throw std::runtime_error("Output folder already exists: "+out.string());
     if(!std::filesystem::create_directories(out))throw std::runtime_error("Cannot create output folder.");
     Machine machine(rom,cart);
-    replay::CallVerifier verifier(std::filesystem::path(argv[2]).filename().string());
+    replay::CallVerifier verifier(std::filesystem::path(argv[2]).filename().string(),!routines.empty());
     if(lockstep_calls) routines.verifier=&verifier;
     std::optional<Machine> original;
     if(compare_recording) original.emplace(rom,cart);

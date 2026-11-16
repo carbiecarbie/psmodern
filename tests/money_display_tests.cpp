@@ -192,12 +192,20 @@ int main(int argc,char** argv) { try {
         Machine scripted=*opened; scripted.cpu().pc.uint16_value=0x55bb;
         scripted.cpu().sp.uint16_value=0xdf00;
         RoutineRegistry routines; game::register_routines(routines,rom->sha1,game::Options{100,400});
+        // The battle entry is now rewritten: dispatch precedes hooks inside
+        // that segment. Observe the original-only copy, as with the sale
+        // continuation above, while keeping the measured path fully enabled.
+        Machine watched=scripted;
+        RoutineRegistry disabled;
+        game::register_routines(disabled,rom->sha1,game::Options{100,400});
+        disabled.enabled=false;
         bool entered=false;
         auto hook=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
             if(pc==0x100f && map==Memory::Mapping{Memory::Kind::rom,0}) entered=true; return {};
         };
         for(unsigned n=0;n<1200 && !entered;++n) {
-            scripted.run_frame({},routines,hook); scripted.take_samples();scripted.take_psg_writes();
+            scripted.run_frame({},routines); scripted.take_samples();scripted.take_psg_writes();
+            watched.run_frame({},disabled,hook); watched.take_samples();watched.take_psg_writes();
         }
         check(entered && word(scripted,0xc2dd)==0,"scripted battle did not clear its money");
         const auto& calls=routines.find(game::battle_money_store)->counters;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "replay/verification.h"
+#include "game/observed.h"
 #include "rom/sha1.h"
 #include <algorithm>
 #include <iomanip>
@@ -8,11 +9,20 @@
 
 namespace psmodern::replay {
 namespace {
+const auto observed_pcs=[] {
+    std::bitset<65536> pcs;
+    for (auto entry:game::host_observed_instructions) pcs.set(entry.address);
+    return pcs;
+}();
 std::string describe(SegmentExit exit) {
     std::ostringstream out;
-    out<<(exit.kind==RoutineExit::returned ? "returned " : "core_final ")<<std::hex<<std::uppercase
+    out<<(exit.kind==RoutineExit::returned ? "returned " : exit.kind==RoutineExit::copy_repeat ? "copy_repeat " :
+          exit.kind==RoutineExit::output_repeat ? "output_repeat " : "core_final ")<<std::hex<<std::uppercase
        <<std::setfill('0')<<std::setw(4)<<exit.address;
     if (exit.stack) out<<std::dec<<" stack "<<std::showpos<<static_cast<int>(exit.stack);
+    if (exit.interrupt_mask!=InterruptMask::none)
+        out<<(exit.interrupt_mask==InterruptMask::enable ? " EI" : " DI");
+    if (exit.cartridge_control) out<<" cartridge control";
     return out.str();
 }
 }
@@ -20,12 +30,12 @@ void CallVerifier::run(Machine& machine, RoutineEntry entry, const SegmentSpec& 
                        std::uint64_t bound, std::uint64_t call,
                        const std::function<std::optional<SegmentExit>()>& body) {
     const auto cycle=machine.cycles();
-    std::ostringstream header;
-    header<<"Divergence: recording "<<recording_<<", frame "<<cycle/Machine::frame_cycles+1
-          <<", cycle "<<cycle<<", routine "<<std::hex<<std::uppercase<<std::setfill('0')
-          <<std::setw(2)<<entry.bank<<":"<<std::setw(4)<<entry.address
-          <<std::dec<<", call "<<call<<'\n';
     auto fail=[&](const std::string& reason) {
+        std::ostringstream header;
+        header<<"Divergence: recording "<<recording_<<", frame "<<cycle/Machine::frame_cycles+1
+              <<", cycle "<<cycle<<", routine "<<std::hex<<std::uppercase<<std::setfill('0')
+              <<std::setw(2)<<entry.bank<<":"<<std::setw(4)<<entry.address
+              <<std::dec<<", call "<<call<<'\n';
         throw std::runtime_error(header.str()+reason);
     };
     // Peek is const and bypasses all bus callbacks, including open-bus updates.
@@ -46,10 +56,30 @@ void CallVerifier::run(Machine& machine, RoutineEntry entry, const SegmentSpec& 
             return e.kind==RoutineExit::returned && e.stack==0;
         });
     Machine original=machine;
+    Machine::PortTrace original_ports(original);
+    Machine::PortTrace replacement_ports(machine);
     const auto end=cycle+bound;
     const auto frame_end=cycle-cycle%Machine::frame_cycles+Machine::frame_cycles;
     SegmentExit native{RoutineExit::core_final,entry.address};
-    if (forced) {
+    if (!spec.exits.empty() && (spec.exits.front().kind==RoutineExit::copy_repeat ||
+                                spec.exits.front().kind==RoutineExit::output_repeat)) {
+        const auto count=(bound+20)/21;
+        for (unsigned i=0;i<count;++i) {
+            if (original.interrupt_accepted_at_boundary()) fail("window-check failure: interrupt accepted");
+            if (original.cpu().pc.uint16_value!=entry.address) fail("unexpected block transfer address");
+            const auto instruction_start=original.cycles();
+            original.step();
+            const bool last=i+1==count;
+            const bool native_tail=last && spec.exits.front().kind==RoutineExit::copy_repeat &&
+                spec.exits.front().native_frame_tail && count>=2 && instruction_start<frame_end;
+            if (original.cycles()>frame_end && !native_tail)
+                fail("block copy crosses the frame before its native final transfer");
+            if (!last && original.cycles()>=frame_end)
+                fail("block copy body must finish strictly before the frame boundary");
+        }
+        if (original.cycles()>end) fail("block copy exceeds bound");
+        native=spec.exits.front();
+    } else if (forced) {
         // A forced single instruction: one native step, admitted in any window.
         original.step();
         if (original.cycles()>end) fail("understated bound");
@@ -61,6 +91,14 @@ void CallVerifier::run(Machine& machine, RoutineEntry entry, const SegmentSpec& 
             if (original.interrupt_accepted_at_boundary()) fail("window-check failure: interrupt accepted");
             const bool boundary=original.cpu().resume==0;
             const auto pc=original.cpu().pc.uint16_value, at=original.cpu().sp.uint16_value;
+            if (game_observers_ && boundary && observed_pcs[pc]) {
+                const auto mapping=original.memory().mapping(pc);
+                const RoutineEntry site{mapping.bank,pc};
+                if (mapping.kind==Memory::Kind::rom &&
+                    std::ranges::find(game::host_observed_instructions,site)!=game::host_observed_instructions.end() &&
+                    !(original.cycles()==cycle && site==entry && spec.observe_entry))
+                    fail("segment crosses a host-observed instruction");
+            }
             if (boundary) {
                 start=pc; armed.reset();
                 const auto* held=declared(RoutineExit::returned,pc);
@@ -74,6 +112,7 @@ void CallVerifier::run(Machine& machine, RoutineEntry entry, const SegmentSpec& 
             const bool last=final && at==static_cast<std::uint16_t>(sp+final->stack) &&
                 original.cycles()-cycle>=final->after;
             // Native execution only; no registry, hooks, or verifier on this copy.
+            const auto instruction_start=original.cycles();
             original.step();
             const bool complete=!last && original.cpu().resume==0;
             const auto after_pc=original.cpu().pc.uint16_value, after_sp=original.cpu().sp.uint16_value;
@@ -89,7 +128,9 @@ void CallVerifier::run(Machine& machine, RoutineEntry entry, const SegmentSpec& 
                 native=plain && plain->stack==0 ? *plain : SegmentExit{RoutineExit::returned,start};
             }
             // A frame boundary exactly at a declared exit's end is outside [S,E).
-            if (original.cycles()>frame_end || (original.cycles()==frame_end && !stopped))
+            const bool crossed_on_load=last && final->native_frame_tail && instruction_start<frame_end &&
+                instruction_start-cycle==10 && original.cycles()-instruction_start==10;
+            if ((original.cycles()>frame_end && !crossed_on_load) || (original.cycles()==frame_end && !stopped))
                 fail("window-check failure: frame boundary");
             if (original.cycles()>end) fail("understated bound");
             if (stopped) break;
@@ -104,11 +145,18 @@ void CallVerifier::run(Machine& machine, RoutineEntry entry, const SegmentSpec& 
         if (!forced) fail("missing exit: the body returned no exit");
         return;
     }
-    const auto differences=original.differences(machine);
     // Exits match by their whole declaration, so a different address, kind or
     // stack offset is an exit mismatch.
-    if (differences.empty() && exit->same_declaration(native)) return;
+    const auto& expected=original_ports.accesses();
+    const auto& actual=replacement_ports.accesses();
+    const auto mismatch=std::mismatch(expected.begin(),expected.end(),actual.begin(),actual.end());
+    const bool same_ports=mismatch.first==expected.end() && mismatch.second==actual.end();
+    if (original.equivalent(machine) && same_ports && exit->same_declaration(native)) return;
+    const auto differences=original.differences(machine);
     std::ostringstream report;
+    if (!same_ports)
+        report<<"port access sequence differs at event "<<(mismatch.first-expected.begin()+1)
+              <<" (original count "<<expected.size()<<", replacement count "<<actual.size()<<")\n";
     for (const auto& d:differences) {
         report<<d.field<<": ";
         if (d.can_carry_rom) report<<"different (values redacted)";

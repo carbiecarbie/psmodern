@@ -24,6 +24,9 @@ std::vector<std::uint8_t> read_bytes(const std::filesystem::path& path) {
     return bytes;
 }
 int compare(const char* rom_path, const char* recording_path, const char* manifest_path,const char* census_path) {
+    // A census left by an earlier run must never satisfy the census tests that
+    // read it, so remove it first and write it again only after a clean match.
+    if(census_path) {std::error_code ignored; std::filesystem::remove(census_path,ignored);}
     // Validate every available input before reporting missing dependencies.
     const bool have_recording=std::filesystem::exists(recording_path);
     const bool have_rom=std::filesystem::exists(rom_path);
@@ -111,7 +114,7 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     RoutineRegistry routines;
     // A recognized ROM gets game routines; authored fixtures (any other digest) get none.
     const bool recognized=game::register_routines(routines,recording.rom_sha1);
-    replay::CallVerifier verifier(std::filesystem::path(recording_path).filename().string());
+    replay::CallVerifier verifier(std::filesystem::path(recording_path).filename().string(),true);
     routines.verifier=&verifier;
     Machine original(rom,cart);
     RoutineRegistry disabled;
@@ -121,6 +124,8 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     std::size_t change = 0;
     constexpr std::array names{"picture", "ram", "vram", "cram", "cart-ram", "cpu", "psg"};
     std::array<std::uint64_t, 7> failures{};
+    const bool check_defeat=std::filesystem::path(recording_path).stem()=="party-defeat";
+    bool defeated=false,returned_to_title=false;
     replay::FrameWrites frame_writes;
     replay::FrameWrites original_writes;
     for (std::uint64_t frame = 1; frame <= recording.frames; ++frame) {
@@ -132,6 +137,13 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
         original.run_frame(input,disabled);
         auto native_psg=original_writes.take(frame,original.take_psg_writes());
         original.take_samples();
+        if (check_defeat) {
+            const auto mode=original.peek(game::dungeon::game_mode);
+            if (mode==game::dungeon::dungeon_mode && original.peek(0xC2E6)==0x49 && original.peek(0xC29D) &&
+                !original.peek(0xC401) && !original.peek(0xC411) && !original.peek(0xC421)) defeated=true;
+            if (defeated && mode==3) returned_to_title=true;
+            if (mode==18 || mode==19) throw std::runtime_error("Party-defeat recording entered the credits.");
+        }
         // One set of digests serves both comparisons: routines on/off and the reference.
         const auto actual=replay::manifest(machine,psg);
         replay::compare_manifests(std::filesystem::path(recording_path).filename().string(),frame,
@@ -146,6 +158,7 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     }
     for (std::size_t i = 0; i < names.size(); ++i)
         if (failures[i]) std::cout << names[i] << ": " << failures[i] << " differing frames\n";
+    if (check_defeat && !returned_to_title) throw std::runtime_error("Darkfalz defeat and return to title were not observed.");
     // The controller (00:0339) must be reached and keeps 90% everywhere.
     // With a recognized ROM the registry must hold routines and the controller must be reached.
     if(recognized && routines.empty()) throw std::runtime_error("Recognized ROM registered no routines.");
@@ -161,14 +174,15 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
         for(const auto& problem:problems) text+="\n  "+problem;
         throw std::runtime_error(text);
     }
-    if(census_path) {
+    const bool matched=std::none_of(failures.begin(), failures.end(), [](auto n) { return n != 0; });
+    if(census_path && matched) {
         const std::filesystem::path path(census_path);
         std::filesystem::create_directories(path.parent_path());
         std::ofstream census(path,std::ios::binary);
         replay::write_census(census,routines);
         census.close();if(!census)throw std::runtime_error("Cannot write checkpoint census.");
     }
-    return std::any_of(failures.begin(), failures.end(), [](auto n) { return n != 0; });
+    return matched ? 0 : 1;
 }
 }
 

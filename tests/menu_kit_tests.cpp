@@ -22,6 +22,8 @@
 #include <functional>
 #include <iostream>
 #include <random>
+#include <tuple>
+#include <algorithm>
 
 using namespace psmodern;
 using probe::check;
@@ -313,12 +315,81 @@ void ports_and_inline() {
     std::cout<<"INI from VRAM and from the V counter and the inline subroutine match the original through the mechanism ("
              <<"a read one T-state early stores another byte on "<<mistimed_bytes<<" of 60 start cycles and is refused by its port timing on the rest); bounds are exact.\n";
 }
+void input_increment_observers() {
+    const auto rom=authored({{0x0500,{0xED,0xA2,0xC9}},
+        {0x0038,{0xF5,0xDB,0xBF,0xF1,0xFB,0xED,0x4D}},{0x0066,{0xED,0x45}}});
+    for(unsigned destination:{0xC100u,0xE100u,0x8100u})
+    for(unsigned port:{0x7Eu,0xBEu,0xDCu,0xBFu})
+    for(unsigned event=0;event<3;++event)
+    for(unsigned distance:{0u,1u,25u,26u,27u,1000u}) {
+        if(event==0 && distance==0) continue;
+        RoutineRegistry registry;
+        mk::add_segment(registry,{0,0x0500},mk::segment({0,0x0500},{mk::returned_at(0x0502)}),
+            [](auto& z) {z.input_increment(0x0500);return mk::returns(0x0502,mk::return_cycles);});
+        auto actual=started(rom,0x0500,destination+port,[&](Machine& m,auto&) {
+            if(destination==0x8100) m.memory().write(0xFFFC,8);
+            m.cpu().hl.uint16_value=static_cast<std::uint16_t>(destination);
+            m.cpu().bc.uint16_value=static_cast<std::uint16_t>(0x0200|port);
+            m.cpu().sp.uint16_value=0xDF00;
+            m.memory().write(0xDF00,0x80);m.memory().write(0xDF01,1);
+        });
+        if(event==0) {
+            const auto phase=actual.cycles()%Machine::frame_cycles;
+            actual.advance((Machine::frame_cycles-distance+Machine::frame_cycles-phase)%Machine::frame_cycles);
+        } else if(event==1) {
+            actual.write_port(0xBF,0x20,actual.cycles());actual.write_port(0xBF,0x81,actual.cycles());
+            const auto irq=actual.vdp().next_irq();
+            check(irq && *irq>=actual.cycles()+distance,"INI fixture has a future IRQ");
+            actual.advance(*irq-actual.cycles()-distance);actual.cpu().iff1=actual.cpu().iff2=1;
+        } else actual.schedule_nmi(actual.cycles()+distance);
+        Machine native=actual;
+        Machine::PortTrace expected_ports(native),actual_ports(actual);
+        using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>;
+        std::vector<Write> expected,observed;
+        std::uint64_t instruction_start=0;
+        struct Stopped {};
+        auto run=[&](Machine& m,RoutineRegistry* r,std::vector<Write>& writes) {
+            Machine::WriteObserver observer=[&](std::uint16_t a,std::uint8_t v) {writes.emplace_back(a,v,m.cycles());};
+            Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
+                if(pc==0x0500) instruction_start=m.cycles();
+                if(pc==0x0180) throw Stopped{};
+                return {};
+            };
+            try {for(unsigned frame=0;frame<4;++frame) m.run_frame({},r,hook,observer);}
+            catch(const Stopped&) {return;}
+            throw std::runtime_error("INI observer fixture did not return");
+        };
+        run(native,nullptr,expected);const auto native_start=instruction_start;
+        run(actual,&registry,observed);
+        check(actual.equivalent(native),"INI callback operation preserves complete state, flags, WZ, R and events");
+        check(expected==observed,"INI preserves every callback address, byte, order and cycle");
+        check(expected_ports.accesses()==actual_ports.accesses(),"INI preserves exact port values, order and timestamps");
+        const auto store=std::find_if(observed.begin(),observed.end(),[&](const auto& w) {return std::get<0>(w)==destination;});
+        check(store!=observed.end() && std::get<2>(*store)==native_start,"INI store callback stays at instruction entry");
+        const auto read=std::find_if(actual_ports.accesses().begin(),actual_ports.accesses().end(),[&](const auto& a) {return !a.write && a.port==port && a.cycle==native_start+12;});
+        check(read!=actual_ports.accesses().end() && read->value==std::get<1>(*store),"INI stores the byte read at T12");
+    }
+    for(unsigned destination:{0xC100u,0xFFFCu,0xFFFFu}) {
+        RoutineRegistry registry;
+        const auto bound=destination==0xC100 ? 15u : 26u;
+        registry.add({0,0x0500},mk::segment({0,0x0500},{mk::returned_at(0x0502)}),
+            [=](const Machine&) {return bound;},[=](RoutineContext& c) {
+                c.input_increment(0xBF,static_cast<std::uint16_t>(destination));
+                c.finish_return(0x0502);
+            });
+        auto actual=started(rom,0x0500,1,[](Machine&,auto&) {});const Machine before=actual;
+        Machine::PortTrace ports(actual);
+        bool refused=false;try {actual.step(registry);} catch(const std::runtime_error&) {refused=true;}
+        check(refused && actual.equivalent(before) && ports.accesses().empty(),"INI refuses short bound or unauthorized mapper before I/O and mutation");
+    }
+}
+
 }
 
 int main() {
     try {
         instructions();
-        ports_and_inline();
+        ports_and_inline(); input_increment_observers();
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

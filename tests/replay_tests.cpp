@@ -103,12 +103,12 @@ int main() {
             segment->forced_reasons[1]=3;segment->reasons[3]=2;
             std::ostringstream out;write_census(out,registry);
             std::istringstream in(out.str());std::string header,line;std::getline(in,header);
-            check(header=="entry	unit	cpp	fallback	forced	forced_failed	disabled	irq	nmi	frame	ei_delay	interrupt_delay	halted	unmapped_stack"
-                  "	forced_disabled	forced_irq	forced_nmi	forced_frame	forced_ei_delay	forced_interrupt_delay	forced_halted	forced_unmapped_stack");
+            check(header=="entry	unit	cpp	fallback	forced	forced_failed	disabled	irq	nmi	frame	ei_delay	interrupt_delay	halted	unmapped_stack	mapper_write"
+                  "	forced_disabled	forced_irq	forced_nmi	forced_frame	forced_ei_delay	forced_interrupt_delay	forced_halted	forced_unmapped_stack	forced_mapper_write");
             std::getline(in,line);check(line.starts_with("00:0339	00:0339	10	0	0	0	"));
             std::getline(in,line);check(line.starts_with("00:05B1	00:05B1	0	0	"));
             std::getline(in,line);check(line.starts_with("00:1773	00:1754	"));
-            std::getline(in,line);check(line=="01:5FB1	01:5F63	18	2	0	0	0	0	0	2	0	0	0	0	0	3	0	0	0	0	0	0");
+            std::getline(in,line);check(line=="01:5FB1	01:5F63	18	2	0	0	0	0	0	2	0	0	0	0	0	0	3	0	0	0	0	0	0	0");
             check(!std::getline(in,line));
             // Exactly 90% of 20 passes; one fewer fails; fewer than 20 calls are not gated.
             check(problems().empty());

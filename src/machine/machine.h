@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <vector>
 
 namespace psmodern {
 struct PortAccess {
@@ -28,6 +29,21 @@ struct FrameInput {
 };
 class Machine : private CpuBus {
 public:
+    // Verification instrumentation bound to this machine for one call.
+    // Snapshots carry hardware state only. Leaving the scope restores the
+    // previous collector, including when the verifier reports a divergence.
+    class PortTrace {
+    public:
+        explicit PortTrace(Machine& machine);
+        ~PortTrace();
+        PortTrace(const PortTrace&)=delete;
+        PortTrace& operator=(const PortTrace&)=delete;
+        const std::vector<PortAccess>& accesses() const { return accesses_; }
+    private:
+        Machine& machine_;
+        std::vector<PortAccess> accesses_;
+        std::vector<PortAccess>* previous_;
+    };
     // A fully prepared immutable image. Construction validates shape before
     // a host may reach its proven instruction boundary; installation cannot
     // allocate, throw or change any other machine field. This is not Reset.
@@ -43,7 +59,12 @@ public:
     static RomReplacement prepare_rom_replacement(std::shared_ptr<const Memory::Rom> image);
     void replace_rom(const RomReplacement& prepared) noexcept { memory_.rom_=prepared.image_; }
     static constexpr std::uint64_t frame_cycles=228*262;
-    static constexpr std::uint64_t pause_sample_offset=260*228+212;
+    // MesenCE samples Pause on VDP dot 315 when VCounter reaches 261.
+    // With 342 dots/line and 3 master clocks/T versus 2/dot, this is
+    // 260*228+210 T. CE observes NMI through the instruction end E;
+    // our arbiter samples at E-1, so represent that boundary one T earlier.
+    // This is a reference timing convention, not a hardware measurement.
+    static constexpr std::uint64_t pause_sample_offset=260*228+209;
     using Hook = std::function<std::optional<std::uint16_t>(std::uint16_t, Memory::Mapping)>;
     // Read-only host instrumentation, scoped to one frame and never copied
     // into snapshots. Both native and registered-routine writes pass here.
@@ -60,6 +81,9 @@ public:
     std::uint64_t opcode_fetches() const { return opcode_fetches_; }
     void set_pause(bool level) { pending_pause_=level; }
     std::optional<std::uint64_t> next_nmi() const;
+    unsigned block_copy_cycles() const;
+    unsigned block_copy_frame_cycles() const;
+    unsigned video_register_output_cycles() const;
     std::optional<std::uint64_t> next_irq() const { return vdp_.next_irq(); }
     void schedule_nmi(std::uint64_t cycle);
     void set_pad(unsigned index, Pad pad) { pending_pads_.at(index)=pad; }
@@ -87,6 +111,7 @@ private:
     friend class RoutineContext;
     bool run_routine(RoutineRegistry& routines);
     void bind();
+    void record_access(PortAccess access);
     void sync(std::uint64_t target);
     void latch_input();
     std::uint8_t opcode(std::uint16_t address) override;
@@ -108,6 +133,8 @@ private:
     bool input_latched_ = false, sampled_int_ = false, sampled_nmi_ = false,
         pause_nmi_level_ = false;
     std::optional<PortAccess> last_access_;
+    std::vector<PortAccess>* port_trace_=nullptr;
+    std::uint64_t routine_window() const;
     const WriteObserver* write_observer_=nullptr;
 };
 }

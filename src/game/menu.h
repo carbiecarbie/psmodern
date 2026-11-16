@@ -222,11 +222,12 @@ inline constexpr RoutineEntry search_unit=at0(0x2839);
 inline constexpr RoutineEntry chest_unit=at0(0x28DB);
 inline constexpr RoutineEntry chest_trap_unit=at0(0x2950);
 inline constexpr RoutineEntry chest_trap_member_unit=at0(0x2966);
-inline constexpr std::array<Segment,63> field_segments{{
+inline constexpr std::array<Segment,65> field_segments{{
     {at0(0x1BE1),field_menu_unit}, {at0(0x1BEE),field_menu_unit}, {at0(0x1C02),field_menu_unit},
     {at0(0x1C29),field_menu_unit}, {at0(0x1C51),field_menu_unit}, {at0(0x1C5E),field_menu_unit},
     {at0(0x1CA4),stats_unit}, {at0(0x1CAB),stats_unit}, {at0(0x1CB7),stats_unit}, {at0(0x1CDF),save_unit},
     {at0(0x1CE8),save_unit}, {at0(0x1CF1),save_unit}, {at0(0x1CFF),save_unit}, {at0(0x1D33),save_unit},
+    {at0(0x1D35),save_unit}, {at0(0x1D41),save_unit},
     {at0(0x1D50),magic_unit}, {at0(0x1D58),magic_unit}, {at0(0x1D84),magic_unit}, {at0(0x1D93),magic_unit},
     {at0(0x1DAD),magic_unit}, {at0(0x1DDA),magic_unit}, {at0(0x2168),item_unit}, {at0(0x2178),item_unit},
     {at0(0x21A0),item_unit}, {at0(0x21A7),item_unit}, {at0(0x21CB),item_unit}, {at0(0x21D9),item_unit},
@@ -312,7 +313,7 @@ inline constexpr std::span<const Segment> planned_segments(Part part) {
         default: return {};
     }
 }
-inline constexpr std::size_t planned_total=323;
+inline constexpr std::size_t planned_total=325;
 
 // The code each part may register entries in (the static extent of its units;
 // shared printer bodies belong to the engine).
@@ -350,7 +351,7 @@ inline constexpr std::array<RoutineEntry,15> native_first_units{{
     money_unit,shop_line_unit,row_drawer_unit,save_under_unit,save_slots_unit,
     stats_unit,magic_unit,item_exit_unit,chest_trap_member_unit}};
 
-// ---- Instructions that stay native ------------------------------------------------
+// ---- Instructions the milestone-12 catalog leaves native -----------------------------
 // Every DI and EI, the instruction after each EI (it always falls back with
 // ei_delay), the instructions right before a DI or EI that cannot end a
 // segment (pushes, pops, stores), the cartridge-RAM switches, the host-observed
@@ -358,7 +359,11 @@ inline constexpr std::array<RoutineEntry,15> native_first_units{{
 // scroll's last window call (00:3451, 00:3454) and the end of a window row
 // (00:3A97, 52 cycles): the frame boundary falls on them on most scrolls (ROM
 // run), so a segment there would mostly fall back.
-// No segment may start at one, declare one as an exit, or render one.
+// These exclusions describe the six milestone-12 registrations. Milestone 13
+// registers most of these instructions separately, without changing the six
+// catalogs: the save copy in save_menu.cpp, the DI/EI and pop sites in
+// menu_remainder.cpp, and the dialogue-scroll loads and the window-row end in
+// menu_engine.cpp.
 inline constexpr std::array<RoutineEntry,61> native_instructions{{
     at0(0x1D0E), at0(0x1D0F), at0(0x1D10), at0(0x1D12), at0(0x1D15), at0(0x1D17), at0(0x1D1A), at0(0x1D1D),
     at0(0x1D1F), at0(0x1D21), at0(0x1D24), at0(0x1D25), at0(0x1D26), at0(0x1D28), at0(0x1D2B), at0(0x1D2D),

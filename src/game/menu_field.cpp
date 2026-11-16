@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Menus and windows (milestone 12), part field:
 // The field menu 00:1BE1 and its commands: status 00:1CA1, save 00:1CDF (the
-// cartridge-RAM copy 00:1D0E-00:1D32 stays native), magic 00:1D4D, items
+// cartridge-RAM copy 00:1D0E-00:1D32 is milestone 13's, in save_menu.cpp), magic 00:1D4D, items
 // 00:2168 with use 00:2201, equip 00:26C8 and drop 00:2752, the inventory
 // helpers 00:277C, 00:277F, 00:279F and 00:282E, search 00:2839 and chests
 // 00:28DB (with the trap 00:2950 and its per-member step 00:2966).
@@ -12,7 +12,7 @@
 // few moves: open a window (a call into the windows part), wait for a button,
 // read a choice, read or change a few bytes of the party's records, and open
 // the next window. The windows, the choosing and the text are other parts'
-// routines (and the dialogue printer is native), so every call into them is
+// routines, so every call into them is
 // where a segment ends: the segment does the arithmetic, the table lookups and
 // the tests around those calls and hands the call itself to the Z80 core. The
 // instruction after a call is the next entry (the registration at the end of
@@ -45,14 +45,14 @@
 //            the third member's row (2) of that list.
 //   00:1CDF  SAVE: the confirmation texts, a yes/no, the slot of the cartridge
 //            RAM chosen by the dialogue number, the copy of the 1,024 bytes
-//            at C300h (native) and the "saved" / "now play on" ending. Only a
+//            at C300h (save_menu.cpp) and the "saved" / "now play on" ending. Only a
 //            save into a slot that was unused leaves the field menu
 //            altogether, by dropping two return addresses (`pop hl; pop hl;
 //            ret`); a save over a slot in use shows a message and stays.
 //   00:1D4D  MAGIC: choose a member, refuse a dead member, the third member
 //            (Odin, number 2) or one with no map spells, list the spells,
 //            choose one, check the points (00:1B87) and jump through the spell
-//            table (what a spell does is milestone 13 and stays native).
+//            table (the recovery, battle and field-magic families own the effects).
 //   00:2168  ITEM: list the items, handle the vehicle special case (an item
 //            for a vehicle the party is already using can put it away), pick
 //            USE / EQUIP / DROP and run it.
@@ -285,9 +285,8 @@ template<class Z> Exit save_slot_address(Z& z) {
 // dialogue. A slot that was unused ends the field menu for good: C780 is
 // cleared, the game mode is set to 10h, and the routine drops its own return
 // address and the menu's before returning.
-template<class Z> Exit save_done(Z& z) {
+template<class Z> Exit leave_saved_game(Z& z) {
     auto& r=z.r;
-    if (!z.relative_if(0x1D33,z.zero())) return say(z,0x1D35);
     z.xor_a(0x1D41);
     z.store_a_direct(0x1D42);                                        // C780
     z.load_hl(0x1D45);
@@ -295,6 +294,10 @@ template<class Z> Exit save_done(Z& z) {
     z.pop(0x1D4A,r.h,r.l);
     z.pop(0x1D4B,r.h,r.l);
     return return_at(0x1D4C);
+}
+
+template<class Z> Exit save_done(Z& z) {
+    return z.relative_if(0x1D33,z.zero()) ? leave_saved_game(z) : say(z,0x1D35);
 }
 
 // ---- MAGIC: 00:1D4D-1DDB -----------------------------------------------------------------------
@@ -393,7 +396,7 @@ template<class Z> Exit magic_spell_chosen(Z& z) {
 }
 // 00:1DAD: too few points shows a text (00:1DD1) and then closes the list;
 // otherwise the spell's own routine runs through the jump table (the core's
-// GetPtrAndJump; the spells are milestone 13's).
+// dispatcher at 00:00E6, then the registered spell-effect family).
 template<class Z> Exit magic_cost_checked(Z& z) {
     auto& r=z.r;
     if (z.jump_if(0x1DAD,z.carry())) {
@@ -525,7 +528,7 @@ template<class Z> Exit item_action_chosen(Z& z) {
     return call_at(0x21EF);
 }
 // 00:2201: USE. Only a jump through the table of the 64 item effects, indexed by
-// the item number (what an item does is milestone 13's).
+// the item number; the effect families own the selected action.
 template<class Z> Exit item_use(Z& z) {
     z.load_a_direct(0x2201);
     z.load_hl(0x2204);
@@ -1061,7 +1064,11 @@ void register_all(RoutineRegistry& registry) {
     add(0x1CE8,save,{F(0x1CEB)},{},[](auto& z) -> Exit { return save_second_text(z); });                                    // after the slot window (00:39A5)
     add(0x1CF1,save,{F(0x1CFC),F(0x1D3B)},{},[](auto& z) -> Exit { return save_answer(z); });                               // after the yes/no (00:2D19)
     add(0x1CFF,save,{F(0x1D0B,-2)},{.scratch_stack=2},[](auto& z) -> Exit { return save_slot_address(z); });                // after the third text
-    add(0x1D33,save,{F(0x1D38),R(0x1D4C,4)},{.inherited_stack=4},[](auto& z) -> Exit { return save_done(z); });             // after the native copy (00:1D0E-1D32)
+    add(0x1D33,save,{F(0x1D38),R(0x1D4C,4)},{.inherited_stack=4},[](auto& z) -> Exit { return save_done(z); });             // after the copy (00:1D0E-1D32, save_menu.cpp)
+
+    // When the publication segment executes the branch, dispatch starts at its destination.
+    add(0x1D35,save,{F(0x1D38)},{},[](auto& z) -> Exit { return say(z,0x1D35); });
+    add(0x1D41,save,{R(0x1D4C,4)},{.inherited_stack=4},[](auto& z) -> Exit { return leave_saved_game(z); });
 
     // ---- MAGIC ----
     const auto magic=menu::magic_unit;

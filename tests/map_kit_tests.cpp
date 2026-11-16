@@ -18,6 +18,7 @@
 #include <functional>
 #include <iostream>
 #include <random>
+#include <tuple>
 
 using namespace psmodern;
 using probe::check;
@@ -29,6 +30,7 @@ struct CountingBus {
     Machine& machine;
     std::uint64_t cycles=0, fetches=0;
     void fetch(std::uint16_t) { ++fetches; }
+    void indexed_bit_opcode(std::uint8_t value) { machine.cpu().data.uint8_array[3]=value; }
     std::uint8_t read(std::uint16_t address) { return machine.memory().read(address); }
     void write(std::uint16_t address, std::uint8_t value) { machine.memory().write(address,value); }
     void advance(std::uint64_t count) { cycles+=count; }
@@ -49,6 +51,7 @@ void kit_case(const KitCase& c, unsigned states) {
         auto rom=std::make_shared<Memory::Rom>(512*1024,0);
         const auto code=c.code(n);
         std::copy(code.begin(),code.end(),rom->begin()+code_at);
+        if (code.size()==4 && code[1]==0xCB) (*rom)[code_at+4]=0xDD;
         Machine native(rom);
         (void)native.read_port(0xbf,native.cycles()); native.advance(1);
         auto& cpu=native.cpu();
@@ -82,12 +85,19 @@ void kit_case(const KitCase& c, unsigned states) {
         compare("IX",a.ix_iy[0].uint16_value,b.ix_iy[0].uint16_value); compare("IY",a.ix_iy[1].uint16_value,b.ix_iy[1].uint16_value);
         compare("SP",a.sp.uint16_value,b.sp.uint16_value); compare("MEMPTR",a.memptr.uint16_value,b.memptr.uint16_value);
         compare("PC",a.pc.uint16_value,pc);
+        if (code.size()==4 && code[1]==0xCB) compare("indexed opcode",a.data.uint8_array[3],b.data.uint8_array[3]);
         compare("cycles",static_cast<unsigned>(native.cycles()-cycles),static_cast<unsigned>(bus.cycles));
         compare("fetches",static_cast<unsigned>(native.opcode_fetches()-fetches),static_cast<unsigned>(bus.fetches));
         // R counts M1 fetches only (7 bits).
         compare("R",static_cast<unsigned>((native.cpu().r-r_before)&0x7f),static_cast<unsigned>(bus.fetches&0x7f));
         if (native.memory().ram()!=rendered.memory().ram()) fields+=" RAM";
         check(fields.empty(),std::string("map kit rendering of ")+c.name+" differs from the core (state "+std::to_string(seed)+"):"+fields);
+        if (code.size()==4 && code[1]==0xCB) {
+            native.step(); // The next prefix makes the saved opcode byte observable.
+            check(native.cpu().resume==Z80_RESUME_XY &&
+                  native.cpu().data.uint8_array[3]==rendered.cpu().data.uint8_array[3],
+                  "indexed operation byte differs at the next prefix");
+        }
     }
 }
 std::vector<std::uint8_t> bytes(std::initializer_list<std::uint8_t> list) { return list; }
@@ -136,6 +146,9 @@ void instructions() {
         {"push bc",[](auto) { return bytes({0xC5}); },[](Z& z) { z.push(code_at,z.r.b,z.r.c); return next(1); }},
         {"ld de,(nn)",[](auto n) { return bytes({0xED,0x5B,n,0xC5}); },[](Z& z) { z.load_pair_direct(code_at,z.r.d,z.r.e); return next(4); }},
         {"call nn",[](auto) { return bytes({0xCD,0x45,0x23}); },[](Z& z) { return z.call(code_at); }},
+        {"call nz,nn",[](auto n) { return bytes({0xC4,n,0x23}); },[](Z& z) {
+            return z.call_if(code_at,!z.zero()) ? z.r.wz : next(3);
+        }},
         {"ret p",[](auto) { return bytes({0xF0}); },[](Z& z) { return z.return_if(code_at,!z.sign()) ? z.r.wz : next(1); }},
         {"jp m,nn",[](auto n) { return bytes({0xFA,n,0x23}); },[](Z& z) { return z.jump_if(code_at,z.sign()) ? z.r.wz : next(3); }},
     };
@@ -313,12 +326,226 @@ void ports_and_inline() {
     }
     std::cout<<"Port output, RST 08 and inline calls match the original through the mechanism; bounds are exact.\n";
 }
+void restart_write_observers() {
+    for(unsigned variant=0;variant<4;++variant) {
+    const unsigned duration=variant==0 ? 100 : variant==3 ? 20 : 67;
+    const std::uint16_t entry=variant==0 ? 0x0400 : variant==1 ? 0x0500 : 0x0600;
+    const auto rom=authored(0xBF,{{0x0400,{0xCF,0x0E,0xBE,0xED,0xA3,0xED,0xA3,0xC9}},
+        {0x0038,{0xF5,0xDB,0xBF,0xF1,0xFB,0xED,0x4D}},{0x0066,{0xED,0x45}},
+        {0x0500,{0xCD,0x08,0x00,0xC9}},{0x0600,{0xC4,0x08,0x00,0xC9}}});
+    const auto logic=[=](auto& z) {
+        if(variant==0) {
+            z.restart_vdp_address(0x0400);
+            z.load_immediate(0x0401,z.r.c);
+            z.output_increment_run(0x0403,2);
+            return mk::returns(0x0407,mk::return_cycles);
+        }
+        const bool called=variant==1 ? (z.call(entry),true) : z.call_if(entry,!z.zero());
+        if(called) {
+            z.copy(0x0008,z.r.a,z.r.e);
+            z.output(0x0009);
+            z.copy(0x000B,z.r.a,z.r.d);
+            z.output(0x000C);
+            check(z.return_from(0x000E)==entry+3,"inline CALL returns to its exact continuation");
+        }
+        return mk::returns(static_cast<std::uint16_t>(entry+3),mk::return_cycles);
+    };
+    for(unsigned sp:{0xC100u,0xDF00u,0xE100u,0x8100u})
+    for(unsigned event=0;event<3;++event)
+    for(unsigned distance:{0u,1u,duration-1,duration,duration+1}) {
+        if(event==0 && distance==0) continue;
+        RoutineRegistry registry;
+        mk::add_segment(registry,{0,entry},mk::segment({0,entry},{mk::returned_at(static_cast<std::uint16_t>(variant==0 ? 0x0407 : entry+3))}, {.scratch_stack=2}),logic);
+        auto actual=started(rom,entry,sp+distance,[&](Machine& m,auto&) {
+            if(sp==0x8100) m.memory().write(0xFFFC,8);
+            m.cpu().sp.uint16_value=static_cast<std::uint16_t>(sp);
+            m.memory().write(static_cast<std::uint16_t>(sp),0x80);
+            m.memory().write(static_cast<std::uint16_t>(sp+1),1);
+            m.cpu().hl.uint16_value=0xC000;
+            m.cpu().de.uint16_value=0x4000;
+            m.cpu().bc.uint16_value=0x027F;
+            if(variant>=2) {
+                if(variant==3) m.cpu().af.uint8_values.at_0|=mk::zero_flag;
+                else m.cpu().af.uint8_values.at_0&=static_cast<std::uint8_t>(~mk::zero_flag);
+            }
+        });
+        if(event==0) {
+            const auto phase=actual.cycles()%Machine::frame_cycles;
+            actual.advance((Machine::frame_cycles-distance+Machine::frame_cycles-phase)%Machine::frame_cycles);
+        } else if(event==1) {
+            actual.write_port(0xBF,0x20,actual.cycles());
+            actual.write_port(0xBF,0x81,actual.cycles());
+            const auto irq=actual.vdp().next_irq();
+            check(irq && *irq>=actual.cycles()+distance,"RST observer fixture has a future frame IRQ");
+            actual.advance(*irq-actual.cycles()-distance);
+            actual.cpu().iff1=actual.cpu().iff2=1;
+        } else actual.schedule_nmi(actual.cycles()+distance);
+        Machine native=actual;
+        Machine::PortTrace expected_ports(native),actual_ports(actual);
+        using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>;
+        std::vector<Write> expected,observed;
+        std::vector<std::uint64_t> expected_starts,actual_starts;
+        struct Stopped {};
+        auto run=[=](Machine& m,RoutineRegistry* r,std::vector<Write>& writes,std::vector<std::uint64_t>& starts) {
+            Machine::WriteObserver observer=[&](std::uint16_t address,std::uint8_t value) {
+                writes.emplace_back(address,value,m.cycles());
+            };
+            Machine::Hook stop=[&](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
+                if(pc==entry) starts.push_back(m.cycles());
+                if(pc==0x0180) throw Stopped{};
+                return {};
+            };
+            try { for(unsigned frame=0;frame<4;++frame) m.run_frame({},r,stop,observer); }
+            catch(const Stopped&) { return; }
+            throw std::runtime_error("RST observer fixture did not return");
+        };
+        run(native,nullptr,expected,expected_starts);
+        run(actual,&registry,observed,actual_starts);
+        check(expected_starts.size()==1,"native RST/CALL instruction entry observed exactly once");
+        check(actual.equivalent(native),"RST callback correction keeps CPU, VDP, PSG and event state");
+        check(expected==observed,"RST stack writes have identical addresses, values, order and instruction cycles");
+        check(expected_ports.accesses()==actual_ports.accesses(),"RST callback correction keeps every port offset");
+        bool found=false;
+        for(std::size_t i=1;i<observed.size();++i) {
+            const auto& high=observed[i-1]; const auto& low=observed[i];
+            if(std::get<0>(high)==sp-1 && std::get<1>(high)==(entry>>8) &&
+               std::get<0>(low)==sp-2 && std::get<1>(low)==(variant==0 ? 1 : 3) &&
+               std::get<2>(high)==expected_starts.front()) {
+                check(std::get<2>(high)==std::get<2>(low),"both RST stack bytes share the native callback cycle");
+                found=true;
+            }
+        }
+        check(found==(variant!=3),"RST/CALL return pair: variant="+std::to_string(variant)+" sp="+std::to_string(sp)+" event="+std::to_string(event)+" distance="+std::to_string(distance));
+    }
+    }
+}
+
+void index_push_write_observers() {
+    for(const auto which:{Index::ix,Index::iy})
+    for(unsigned sp:{0xC100u,0xDF00u,0xE100u,0x8100u})
+    for(unsigned remaining:{1u,38u,39u,40u,1000u}) {
+        const auto prefix=static_cast<std::uint8_t>(which==Index::ix ? 0xDD : 0xFD);
+        const auto rom=authored(0xBF,{{0x0500,{prefix,0xE5,prefix,0xE1,0xC9}}});
+        RoutineRegistry registry;
+        mk::add_segment(registry,{0,0x0500},mk::segment({0,0x0500},{mk::returned_at(0x0504)},
+            {.scratch_stack=2}),[=](auto& z) {
+                z.push_index(0x0500,which);
+                z.pop_index(0x0502,which);
+                return mk::returns(0x0504,mk::return_cycles);
+            });
+        auto actual=started(rom,0x0500,sp+remaining,[&](Machine& m,auto&) {
+            if(sp==0x8100) m.memory().write(0xFFFC,8);
+            m.cpu().sp.uint16_value=static_cast<std::uint16_t>(sp);
+            m.memory().write(static_cast<std::uint16_t>(sp),0x80);
+            m.memory().write(static_cast<std::uint16_t>(sp+1),1);
+            m.cpu().ix_iy[0].uint16_value=0xA15C;
+            m.cpu().ix_iy[1].uint16_value=0xA15C;
+        });
+        const auto phase=actual.cycles()%Machine::frame_cycles;
+        actual.advance((Machine::frame_cycles-remaining+Machine::frame_cycles-phase)%Machine::frame_cycles);
+        Machine native=actual;
+        using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>;
+        std::vector<Write> expected,observed;
+        std::uint64_t start=0;
+        struct Stopped {};
+        auto run=[&](Machine& m,RoutineRegistry* r,std::vector<Write>& writes) {
+            Machine::WriteObserver observer=[&](std::uint16_t a,std::uint8_t v) {
+                writes.emplace_back(a,v,m.cycles());
+            };
+            Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
+                if(pc==0x0500) start=m.cycles();
+                if(pc==0x0180) throw Stopped{};
+                return {};
+            };
+            try {for(unsigned frame=0;frame<3;++frame) m.run_frame({},r,hook,observer);}
+            catch(const Stopped&) {return;}
+            throw std::runtime_error("index PUSH fixture did not recover its stack and return");
+        };
+        run(native,nullptr,expected);
+        const auto native_start=start;
+        run(actual,&registry,observed);
+        check(actual.equivalent(native),"index PUSH/POP preserves complete state and stack recovery");
+        check(expected==observed && observed.size()==2,"index PUSH preserves every write callback");
+        check(observed[0]==Write{static_cast<std::uint16_t>(sp-1),0xA1,native_start+4} &&
+              observed[1]==Write{static_cast<std::uint16_t>(sp-2),0x5C,native_start+4},
+              "IX/IY writes high then low exactly four cycles after instruction entry");
+    }
+}
+
+void indexed_write_observers() {
+    struct RecordingBus {
+        Machine& machine;
+        std::uint64_t cycles=0,fetches=0;
+        std::vector<std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>> writes;
+        void fetch(std::uint16_t) {++fetches;}
+        void indexed_bit_opcode(std::uint8_t value) {machine.cpu().data.uint8_array[3]=value;}
+        std::uint8_t read(std::uint16_t a) {return machine.peek(a);}
+        void write(std::uint16_t a,std::uint8_t v) {writes.emplace_back(a,v,cycles);machine.memory().write(a,v);}
+        void advance(std::uint64_t n) {cycles+=n;}
+        std::uint64_t elapsed() const {return cycles;}
+    };
+    unsigned differences=0;
+    for(unsigned mode=0;mode<9;++mode)
+    for(const auto which:{Index::ix,Index::iy}) {
+        const auto prefix=static_cast<std::uint8_t>(which==Index::ix ? 0xDD : 0xFD);
+        const auto code=mode==0 ? std::vector<std::uint8_t>{prefix,0x77,3} :
+            mode==1 ? std::vector<std::uint8_t>{prefix,0x36,3,0xA5} :
+            mode==2 ? std::vector<std::uint8_t>{prefix,0x34,3} :
+            mode==3 ? std::vector<std::uint8_t>{prefix,0x35,3} :
+                      mode==4 ? std::vector<std::uint8_t>{prefix,0xCB,3,0xDE} :
+            mode==5 ? std::vector<std::uint8_t>{0xED,0xA0} :
+            mode==6 ? std::vector<std::uint8_t>{0xCB,0xDE} :
+            mode==7 ? std::vector<std::uint8_t>{0xED,0xB0} :
+                      std::vector<std::uint8_t>{0xED,0x43,3,0xC1};
+        auto rom=std::make_shared<Memory::Rom>(512*1024,0);
+        std::copy(code.begin(),code.end(),rom->begin()+0x0500);
+        Machine native(rom);
+        native.cpu().pc.uint16_value=0x0500;
+        native.cpu().iff1=native.cpu().iff2=0;
+        native.cpu().ix_iy[0].uint16_value=native.cpu().ix_iy[1].uint16_value=0xC100;
+        native.cpu().af.uint16_value=0x5AFF;
+        native.cpu().hl.uint16_value=0xC103; native.cpu().de.uint16_value=0xC200;
+        native.cpu().bc.uint16_value=1;
+        native.memory().write(0xC103,0x7F);
+        Machine rendered=native;
+        using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>;
+        std::vector<Write> expected;
+        struct Stopped {};
+        Machine::WriteObserver observer=[&](std::uint16_t a,std::uint8_t v) {expected.emplace_back(a,v,native.cycles());};
+        Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
+            if(pc==0x0500+code.size()) throw Stopped{};
+            return {};
+        };
+        try {native.run_frame({},nullptr,hook,observer);} catch(const Stopped&) {}
+        RecordingBus bus{rendered,0,0,{}};
+        auto registers=mk::load(rendered.cpu());
+        mk::Instructions<RecordingBus> z(bus,registers);
+        if(mode==0) z.store_to_indexed(0x0500,which,z.r.a);
+        if(mode==1) z.store_immediate_indexed(0x0500,which);
+        if(mode==2) z.increment_indexed(0x0500,which);
+        if(mode==3) z.decrement_indexed(0x0500,which);
+        if(mode==4) z.set_bit_indexed(0x0500,which,3);
+        if(mode==5) z.load_increment(0x0500);
+        if(mode==6) z.set_bit_at_hl(0x0500,3);
+        if(mode==7) z.block_copy_byte(0x0500);
+        if(mode==8) z.store_pair_direct(0x0500,z.r.b,z.r.c);
+        if(expected!=bus.writes) {
+            ++differences;
+            std::cerr<<"indexed callback mode="<<mode<<" prefix="<<unsigned(prefix)
+                <<" native="<<std::get<2>(expected.front())<<" cpp="<<std::get<2>(bus.writes.front())<<'\n';
+        }
+        check(expected.size()==(mode==8 ? 2u : 1u) && native.cycles()==bus.cycles,"indexed write preserves total instruction duration");
+        check(native.memory().ram()==rendered.memory().ram(),"indexed write value matches native");
+    }
+    check(differences==0,"every indexed write has the original callback time");
+}
+
 }
 
 int main() {
     try {
         instructions();
-        ports_and_inline();
+        ports_and_inline(); restart_write_observers(); index_push_write_observers(); indexed_write_observers();
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

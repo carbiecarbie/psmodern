@@ -292,9 +292,13 @@ into line 261, near the end of the frame; FluBBa's measurements in the same
 discussion match a check two cycles after the chip moves on to the next
 line.
 
-**Hardware documentation; inference.** Counted from the selected starting phase, PSModern
-checks the Pause button 212 cycles into line 260: 260 x 228 + 212 = 59,492
-cycles into the frame.
+**Reference emulator.** The pinned MesenCE build samples Pause at VDP dot
+315 as the vertical counter advances to 261. In the selected frame phase
+that is 260 × 228 + 210 CPU cycles. MesenCE checks for the pending interrupt
+at the end of the instruction. PSModern samples one cycle before the end
+and schedules the Pause edge at 260 × 228 + 209 to accept it at the same
+instruction boundary. The return address on the stack distinguishes these
+phases even when the next frame looks identical.
 
 **ROM static.** The game checks the Reset bit in its interrupt routine at
 `00:010F` and, on a press, jumps back to its start-up code at `00:0084`. It
@@ -448,3 +452,33 @@ ones is not settled.
 **Maintainer decision.** PSModern uses the same clock for both and leaves a
 possible small difference out of scope; it would affect only the playing
 speed and pitch on the computer.
+## Game transfers to video memory
+
+**ROM static; ROM run.** The address helper at `00:0008` sends the two
+bytes of DE to the control port in order. The byte transfer at `00:0346`
+streams a block from memory. The word fill at `00:0363` alternates its low
+and high bytes. The row writers at `00:0377` and `00:0390` start each row
+64 video bytes after the previous one. The first inserts the current
+attribute after each tile. The second writes the source bytes directly.
+
+The graphics decoders at `00:03CD` and `00:03FA` make four passes, one
+for each byte in a group of four in video memory. A zero packet ends a
+pass. A positive count repeats one source byte. A count with bit 7 set
+copies literal bytes, using 256 when the low seven bits are zero. The
+original jump at the end of a literal run goes straight to the next
+header. After a repeated run, the decoder first advances the source
+pointer past the byte it reused. The
+second decoder disables interrupts for each address and data write and
+restores them before advancing to the next byte. The original instruction
+following EI keeps its one-instruction interrupt delay. Tests compare
+ordered port writes, cycles, final video memory and the source pointer on
+both cartridges.
+
+## Arithmetic used by the game
+
+The byte multiplier at `00:0429` builds a 16-bit product. The word
+multiplier at `00:044C` returns a 32-bit result, carrying from its low word
+into its high word. The divider at `00:04FE` consumes a 16-bit dividend
+and an 8-bit divisor. On both cartridges a zero divisor yields quotient
+65,535 and leaves the low byte of the dividend as the remainder. The probes
+compare intermediate registers and execution time as well as the result.

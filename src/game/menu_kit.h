@@ -46,6 +46,9 @@ class Live : public map_kit::Live {
 public:
     explicit Live(RoutineContext& context) : map_kit::Live(context), context_(context) {}
     std::uint8_t in(std::uint16_t port, std::uint64_t delay) { return context_.read_port(port,elapsed()+delay); }
+    std::uint8_t input_increment(std::uint16_t port,std::uint16_t destination) {
+        return context_.input_increment(port,destination);
+    }
 private:
     RoutineContext& context_;
 };
@@ -53,6 +56,9 @@ class Estimate : public map_kit::Estimate {
 public:
     explicit Estimate(const Machine& machine) : map_kit::Estimate(machine) {}
     std::uint8_t in(std::uint16_t, std::uint64_t delay) { advance(delay); return 0; }
+    std::uint8_t input_increment(std::uint16_t,std::uint16_t destination) {
+        write(destination,0); advance(16); return 0;
+    }
 };
 
 // ---- Instructions --------------------------------------------------------------
@@ -69,15 +75,13 @@ public:
     void input_increment(std::uint16_t at) {
         bus().fetch(at); bus().fetch(at+1);
         const auto port=this->bc();
-        const auto value=bus().in(port,12);
-        bus().write(this->hl(),value);
+        const auto value=bus().input_increment(port,this->hl());
         this->set_hl(static_cast<std::uint16_t>(this->hl()+1));
         r.wz=static_cast<std::uint16_t>(port+1);
         r.b=static_cast<std::uint8_t>(r.b-1);
         const unsigned t=value+static_cast<std::uint8_t>(r.c+1);
         r.f=static_cast<std::uint8_t>((r.b&(sign_flag|y_flag|x_flag))|(r.b ? 0 : zero_flag)|
             kit::parity(static_cast<std::uint8_t>((t&7)^r.b))|(t>255 ? (half_flag|carry_flag) : 0)|((value>>6)&subtract_flag));
-        bus().advance(4);
     }
     // cpl: A inverted; H and N set, S, Z, P/V and C kept, the undocumented
     // bits from the result.

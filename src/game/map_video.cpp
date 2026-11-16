@@ -63,15 +63,7 @@ template<class Z> Exit jump_tail(Z& z, std::uint16_t at) {
 // VDP register 8 takes the horizontal scroll (C300h), register 9 the vertical
 // one (C304h); then the sprite table upload is called.
 template<class Z> Exit scroll_registers(Z& z, std::uint16_t at) {
-    auto& r=z.r;
-    z.load_a_direct(at);
-    z.output(at+3);
-    z.load_immediate(at+5,r.a);
-    z.output(at+7);
-    z.load_a_direct(at+9);
-    z.output(at+12);
-    z.load_immediate(at+14,r.a);
-    z.output(at+16);
+    map_kit::write_scroll_registers(z,at);
     return continues(at+18,call_cycles);
 }
 
@@ -487,6 +479,23 @@ std::vector<SegmentExit> animator_tile_exits() {
 }
 }
 
+void register_sprite_output_slices(RoutineRegistry& registry) {
+    // Other call and resume positions use eight writes at a time. The last
+    // OUTI is stepped by the core so the next opcode remains an observable boundary.
+    for (std::uint16_t from=0x58AE;from<tail_return;from+=16) {
+        if (from==0x595E) continue; // already has a full-tail entry
+        auto final=mk::core_final_at(from+14);
+        final.sprite_outputs=8;
+        registry.add(at1(from),mk::segment(map::sprite_upload_unit,{final}),
+            [](const Machine&){return 128u;},[from](RoutineContext& c) {
+                mk::run(c,[from](auto& z) {
+                    z.output_increment_run(from,7);
+                    return mk::continues(from+14,16);
+                });
+            });
+    }
+}
+
 void register_map_video(RoutineRegistry& registry) {
     // The frame handlers.
     mk::add_segment(registry,map::frame_handler_unit,
@@ -507,9 +516,7 @@ void register_map_video(RoutineRegistry& registry) {
     mk::add_segment(registry,map::sprite_upload_unit,
         mk::segment(map::sprite_upload_unit,{mk::returned_at(tail_return)},{.scratch_stack=2}),
         [](auto& z) { return sprite_upload(z); });
-    // 01:591E is not registered on its own: entered directly (after a longer call fell back) its
-    // 64 OUTI always held a frame boundary in the recordings, and the registry cannot end a
-    // segment at an OUTI. It stays native there; the inline renderings above are unaffected.
+    // Preserve the full-tail entries already used by the sprite and palette uploads.
     for (const std::uint16_t from:{std::uint16_t{0x589E},std::uint16_t{0x595E}})
         mk::add_segment(registry,at1(from),mk::segment(map::sprite_upload_unit,{mk::returned_at(tail_return)}),
             [from](auto& z) { upload_tail(z,from); return returns(tail_return,return_cycles); });

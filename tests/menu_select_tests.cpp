@@ -374,8 +374,8 @@ bool selection_scenarios(Found& found) {
              <<", handler "<<handler.cpp_calls<<"/"<<handler.cpp_calls+handler.fallback_calls<<", poll "<<poll.cpp_calls<<"/"<<poll.cpp_calls+poll.fallback_calls
              <<" in C++ (machine equal with routines on and off every frame).\n";
     s.frame(pad(false,false,false,false,false,true)); s.frames(pad(),12);   // cancel (button 2)
-    const auto leave=s.counters(at0(0x2D94)), end=s.counters(at0(0x2D9D));
-    check(leave.cpp_calls+leave.fallback_calls>0 && leave.cpp_calls>0 && end.cpp_calls>0,"the cancel leaves through 00:2D94 and 00:2D9D in C++");
+    const auto cancel=s.counters(menu::menu_cancel_point),end=s.counters(at0(0x2D9D));
+    check(cancel.cpp_calls>0 && end.cpp_calls>0,"cancel did not execute the observed selection exit and its return in C++");
     return true;
 }
 

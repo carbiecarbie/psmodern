@@ -14,8 +14,8 @@
 // wait. The frame interrupt handlers (the three bodies) do the same on the
 // other side: they write the scroll registers and call the shared uploads.
 // The cancel point of the cursor loop (00:2D93, one instruction the host
-// watches) is native: the segment of the poll ends on the jump just before it
-// and the next segment starts right after it, at 00:2D94.
+// watches) is an observed entry. The host can release the cancel button
+// before either the rewritten leave path or its original instruction runs.
 #include "game/menu.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
@@ -39,15 +39,7 @@ namespace menu_ns=game::menu;
 // register 9 the vertical one (C304h); then the sprite table upload is called
 // (the call is the final instruction, 18 bytes after the start).
 template<class Z> Exit scroll_registers(Z& z, std::uint16_t at) {
-    auto& r=z.r;
-    z.load_a_direct(at);
-    z.output(at+3);
-    z.load_immediate(at+5,r.a);
-    z.output(at+7);
-    z.load_a_direct(at+9);
-    z.output(at+12);
-    z.load_immediate(at+14,r.a);
-    z.output(at+16);
+    map_kit::write_scroll_registers(z,at);
     return continues(at+18,call_cycles);
 }
 // 00:017A: after the fade steps, the palette (C220h, 32 bytes) goes to colour
@@ -425,4 +417,13 @@ void register_menu_select(RoutineRegistry& registry) {
     add(registry,0x2E62,m::cursor_blink_unit,{returned_at(0x2E66),returned_at(0x2EAB)},{.scratch_stack=2},
         [](auto& z) { return cursor_blink(z); });
 }
+void register_observed_menu_cancel(RoutineRegistry& registry) {
+    auto spec=mk::segment(menu::selection_unit,{mk::core_final_at(0x2D9A)},{.scratch_stack=2});
+    spec.observe_entry=true;
+    mk::add_segment(registry,menu::menu_cancel_point,std::move(spec),[](auto& z) {
+        z.copy(0x2D93,z.r.c,z.r.a);
+        return selection_leave(z);
+    });
+}
+
 }

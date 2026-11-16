@@ -69,6 +69,7 @@ enum class Index { ix, iy };
 class Live : public kit::Live {
 public:
     explicit Live(RoutineContext& context) : kit::Live(context), context_(context) {}
+    void indexed_bit_opcode(std::uint8_t value) { context_.cpu().data.uint8_array[3]=value; }
     void out(std::uint16_t port, std::uint8_t value, std::uint64_t delay) {
         context_.write_port(port,value,elapsed()+delay);
     }
@@ -78,6 +79,7 @@ private:
 class Estimate : public kit::Estimate {
 public:
     explicit Estimate(const Machine& machine) : kit::Estimate(machine) {}
+    void indexed_bit_opcode(std::uint8_t) {}
     void out(std::uint16_t, std::uint8_t, std::uint64_t delay) { advance(delay); }
 };
 
@@ -172,8 +174,9 @@ public:
     // maximum, above one frame, makes dispatch fall back) and the live side
     // never meets such a state, so reaching one there is a logic error.
     bool restart_vdp_address(std::uint16_t at) {
-        bus().fetch(at); r.wz=vdp_address_helper; bus().advance(1);
-        push_word(static_cast<std::uint16_t>(at+1)); bus().advance(10);
+        bus().fetch(at); r.wz=vdp_address_helper;
+        // Native memory callbacks occur at the RST instruction's entry cycle.
+        push_word(static_cast<std::uint16_t>(at+1)); bus().advance(11);
         this->copy(vdp_address_helper,r.a,r.e);
         output(vdp_address_helper+1);
         this->copy(vdp_address_helper+3,r.a,r.d);
@@ -201,7 +204,8 @@ public:
         r.wz=static_cast<std::uint16_t>(x+1); x=static_cast<std::uint16_t>(sum); bus().advance(15);
     }
     void push_index(std::uint16_t at, Index which) {                                                 // push ix
-        bus().fetch(at); bus().fetch(at+1); push_word(index(which)); bus().advance(15);
+        bus().fetch(at); bus().fetch(at+1); bus().advance(4);
+        push_word(index(which)); bus().advance(11);
     }
     void pop_index(std::uint16_t at, Index which) {                                                  // pop ix
         bus().fetch(at); bus().fetch(at+1); index(which)=pop_word(); bus().advance(14);
@@ -210,11 +214,12 @@ public:
         const auto address=indexed_address(at,which); to=bus().read(address); bus().advance(19);
     }
     void store_to_indexed(std::uint16_t at, Index which, std::uint8_t value) {                       // ld (ix+d),r
-        const auto address=indexed_address(at,which); bus().write(address,value); bus().advance(19);
+        const auto address=indexed_address(at,which); bus().advance(4);
+        bus().write(address,value); bus().advance(15);
     }
     void store_immediate_indexed(std::uint16_t at, Index which) {                                    // ld (ix+d),n
         const auto address=indexed_address(at,which); const auto value=operand(at+3);
-        bus().write(address,value); bus().advance(19);
+        bus().advance(4); bus().write(address,value); bus().advance(15);
     }
     void add_from_indexed(std::uint16_t at, Index which) {                                           // add a,(ix+d)
         const auto address=indexed_address(at,which); kit::add8(r,bus().read(address),0); bus().advance(19);
@@ -223,12 +228,14 @@ public:
         const auto address=indexed_address(at,which); kit::compare8(r,bus().read(address)); bus().advance(19);
     }
     void increment_indexed(std::uint16_t at, Index which) {                                          // inc (ix+d)
-        const auto address=indexed_address(at,which); const auto v=bus().read(address);
-        bus().write(address,kit::increment8(r,v)); bus().advance(23);
+        const auto address=indexed_address(at,which); bus().advance(4);
+        const auto v=bus().read(address);
+        bus().write(address,kit::increment8(r,v)); bus().advance(19);
     }
     void decrement_indexed(std::uint16_t at, Index which) {                                          // dec (ix+d)
-        const auto address=indexed_address(at,which); const auto v=bus().read(address);
-        bus().write(address,kit::decrement8(r,v)); bus().advance(23);
+        const auto address=indexed_address(at,which); bus().advance(4);
+        const auto v=bus().read(address);
+        bus().write(address,kit::decrement8(r,v)); bus().advance(19);
     }
     // DD CB d op: only the two prefix bytes are opcode fetches; d and the
     // operation byte are plain reads. The undocumented bits of BIT come from
@@ -238,8 +245,9 @@ public:
         kit::bit_flags(r,bit,v,high_byte(address)); bus().advance(20);
     }
     void set_bit_indexed(std::uint16_t at, Index which, unsigned bit) {                              // set n,(ix+d)
-        const auto address=indexed_bit_address(at,which); const auto v=bus().read(address);
-        bus().write(address,static_cast<std::uint8_t>(v|(1u<<bit))); bus().advance(23);
+        const auto address=indexed_bit_address(at,which); bus().advance(4);
+        const auto v=bus().read(address);
+        bus().write(address,static_cast<std::uint8_t>(v|(1u<<bit))); bus().advance(19);
     }
 
 private:
@@ -264,7 +272,7 @@ private:
         bus().fetch(at); bus().fetch(at+1);
         const auto offset=static_cast<std::int8_t>(operand(at+2));
         r.wz=static_cast<std::uint16_t>(index(which)+offset);
-        (void)operand(at+3);
+        bus().indexed_bit_opcode(operand(at+3));
         return r.wz;
     }
     bool came_back(std::uint16_t target, std::uint16_t expected) {
@@ -307,4 +315,14 @@ template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry e
 template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry entry, SegmentSpec spec, Logic logic) {
     add_segment(registry,entry,std::move(spec),uncertain_maximum,std::move(logic));
 }
+// Each scroll update writes the horizontal and vertical register pairs.
+template<class Z> void write_scroll_registers(Z& z,std::uint16_t at) {
+    for (unsigned offset:{0u,9u}) {
+        z.load_a_direct(at+offset);
+        z.output(at+offset+3);
+        z.load_immediate(at+offset+5,z.r.a);
+        z.output(at+offset+7);
+    }
+}
+
 }

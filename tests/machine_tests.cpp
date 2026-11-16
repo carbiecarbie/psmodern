@@ -372,6 +372,33 @@ void interrupts() {
           "NMI at E misses the previous sample");
     check(nmi_at.step()==11 && nmi_at.cpu().pc.uint16_value==0x66,
           "NMI at E enters after the next instruction");
+    // Reference CE checks the edge from dot 315 after each instruction. For
+    // NOPs ending one T before, exactly on, and one T after that boundary,
+    // assert both the selected return PC and NMI priority over a pending IRQ.
+    constexpr std::uint64_t ce_pause_edge=260*228+210;
+    check(Machine::pause_sample_offset+1==ce_pause_edge,"Pause phase conversion");
+    for (int delta : {-1,0,1}) for (bool irq_pending : {false,true}) {
+        Machine phase(program({0,0,0})); phase.set_pause(true);
+        phase.cpu().sp.uint16_value=0xdff0;
+        if (irq_pending) {
+            phase.read_port(0xbf,0);
+            phase.write_port(0xbf,0,0);
+            phase.write_port(0xbf,0x80,0);
+        }
+        phase.advance(ce_pause_edge+delta-4);
+        check(phase.step()==4 && phase.cpu().pc.uint16_value==1,"Pause phase initial NOP");
+        phase.cpu().iff1=phase.cpu().iff2=irq_pending;
+        if (delta<0 && !irq_pending)
+            check(phase.step()==4 && phase.cpu().pc.uint16_value==2,"earlier boundary executes another instruction");
+        const auto duration=phase.step();
+        if (delta<0 && irq_pending)
+            check(duration==13 && phase.cpu().pc.uint16_value==0x38,"earlier boundary accepts pending IRQ");
+        else
+            check(duration==11 && phase.cpu().pc.uint16_value==0x66,"Pause edge selects NMI before IRQ");
+        const auto expected_pc=static_cast<std::uint8_t>(delta<0 && !irq_pending ? 2 : 1);
+        check(phase.cpu().sp.uint16_value==0xdfee && phase.memory().read(0xdfee)==expected_pc &&
+              phase.memory().read(0xdfef)==0,"interrupt preserves the correct boundary PC");
+    }
     Machine pause_before(program({0})); pause_before.set_pause(true);
     pause_before.advance(Machine::pause_sample_offset-3);
     check(pause_before.step()==4 && pause_before.step()==11,

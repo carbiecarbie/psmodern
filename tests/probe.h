@@ -77,7 +77,7 @@ inline void randomize(Z80& cpu, std::uint64_t seed) {
 class Harness {
 public:
     explicit Harness(Rom rom, const game::Options& options = {})
-        : rom_(std::move(rom)), power_on_(rom_.image), verifier_("probe") {
+        : rom_(std::move(rom)), power_on_(rom_.image), verifier_("probe",true) {
         // The VDP powers on with its frame interrupt pending. Reading its
         // status clears it, and one cycle later the CPU has sampled the
         // released line, so a probe can set IFF1 without an immediate

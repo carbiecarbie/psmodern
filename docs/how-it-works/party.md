@@ -7,8 +7,8 @@ before its character joins the party.
 
 **ROM static.** The code described here is identical at the same addresses
 in the US Rev-A and Brazilian cartridges. This follows the code comparison
-in [design, section 5.5](../design.md#55-languages). The runs described below
-are US runs only.
+in [design, section 5.5](../design.md#55-languages). The experience runs described below
+are US runs only; the recovery checks described at the end run on both cartridges.
 
 ## What a record holds
 
@@ -17,21 +17,26 @@ repeats in the other records. Each field occupies a byte, except experience,
 which occupies two. The flag at the start decides whether the experience
 and record-refresh routines process that record (`00:1754`, `00:17BA`).
 
-**Community source.** HP, MP, attack, defense, equipment and magic names
-below come from community notes. In those names, HP means health points
-and MP means magic points. These meanings have not been independently
-confirmed here. Knowing where a byte is copied does not confirm its name.
+**Community source.** Equipment and magic-count names below started with
+community notes. Those meanings remain provisional.
+
+**ROM static.** The recovery and damage paths now establish current HP,
+maximum HP, current and maximum MP, attack and defense: HP is health, and MP is the
+resource a spell spends. The counter at offset `$0D` blocks a character's
+turn while it is nonzero. These roles are explained in
+[the battle chapter](battle.md).
 
 | First-record location | Part and evidence |
 | --- | --- |
 | `$C400` | **ROM static:** processing flags; the lowest bit enables the work described here |
-| `$C401`, `$C402` | **Community source:** current HP and MP |
+| `$C401`, `$C402` | **ROM static:** current HP and MP; recovery uses these fields as described below |
 | `$C403`–`$C404` | **ROM static:** accumulated experience |
 | `$C405` | **ROM static:** level |
-| `$C406`, `$C407` | **Community source:** maximum HP and MP |
-| `$C408`, `$C409` | **Community source:** attack and defense |
+| `$C406` | **ROM static:** maximum HP, the recovery cap |
+| `$C407` | **ROM static:** maximum MP, copied into current MP by revival |
+| `$C408`, `$C409` | **ROM static:** attack and defense, used by the damage calculations |
 | `$C40A`, `$C40B`, `$C40C` | **Community source:** weapon, armor and shield identifiers |
-| `$C40D` | **Unknown:** meaning; **ROM static:** cleared during record refresh |
+| `$C40D` | **ROM static:** turn-blocking counter; cleared during record refresh |
 | `$C40E`, `$C40F` | **Community source:** counts of battle and map magic |
 
 **ROM static.** When enabling a character record, `00:16F1` sets its
@@ -195,3 +200,51 @@ text code, in each version; the pictures were inspected by eye).
 
 **A saved game.** The option is not stored in a save. A save made with it on,
 loaded later without it, holds totals the cartridge alone might not produce.
+
+## Recovering health
+
+**ROM static.** Two healing amounts are selected by the entries at
+`00:1E27` and `00:1E2B`: 20 or 80 points. Those entries ask for a recipient;
+`00:1E46` and `00:1E4A` use the recipient already selected. Cancelling the
+choice or choosing someone whose record is inactive leaves the recovery
+unperformed. The routine at `00:1B87` looks up a spell's cost in the player's
+ROM and computes the caster's remaining MP. It reports insufficient points
+to its caller without storing a new balance. On a successful healing path,
+`00:1E53` stores that balance before the recovery message.
+
+**ROM static.** The shared effect at `00:1E5F` displays the message, requests
+the healing sound and adds the amount to the recipient's current HP. A sum
+above 255 first becomes 255, then the result is capped at that character's
+maximum HP. This establishes the roles of the record's offsets 1 and 6.
+It can lower an already inconsistent HP value above the maximum; it does
+not assume that saved state is consistent.
+
+**ROM static.** The food entries at `00:2333` and `00:2337` supply 10 and 40
+points to the same effect. In the field they ask who receives the food;
+in battle they use the chosen character. The inventory removes the food
+only after the target check and the shared recovery effect. Cancellation
+or an inactive recipient leaves the item in the inventory.
+
+**ROM run.** The recovery probes compare every replacement with the original
+on both cartridges, including every HP byte and amount byte, all four caster
+slots and every possible MP balance. Whole calls from an initialized town
+state compare the original and C++ paths through messages, sounds and
+inventory removal, including inactive recipients. These checks establish
+those cases; they do not measure every recovery route in a complete game.
+
+**ROM static.** Stat refresh (`00:17BA`) visits all four records. A record
+whose activity bit 0 is clear is preserved. An active record resets flags to
+1 and blocking to 0, copies maximum HP/MP and the two spell counts from its
+eight-byte level row, and adds equipment boosts to attack and defense with
+the original byte arithmetic. Current HP/MP, level, experience and equipment
+are preserved. Actor lookup (`00:187A`, `00:187D`) preserves the actor number
+and returns its record and bit-0 activity result. The warning helper
+(`00:188E`) also preserves its caller's other registers while showing the
+inactive-member message.
+
+**ROM run.** Both cartridges pass 16,384 segment/activity probes, 1,920
+complete refresh calls spanning all thirty levels and all sixty-four boost
+table indices, and eight complete active/inactive warnings. Expected stats
+are computed directly from ROM table rows and boost bytes, separately from
+the rendered instruction sequence. Non-equippable table indices in these
+prepared cases probe arithmetic; they are not claimed as ordinary equipment.

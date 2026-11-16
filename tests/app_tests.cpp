@@ -282,13 +282,16 @@ void guard() {
     for (const auto& options:{game::Options{},game::Options{0,400}}) {
         RoutineRegistry real;
         check(game::register_routines(real,"07fcf297be4f4c9d92cd3f119a7ac48467e06838",options),"identified registry");
-        unsigned dungeon_entries=0,dungeon_exits=0;
-        for (const auto& [entry,routine]:real.entries())
-            if (entry.bank==1 && entry.address>=0x65ee && entry.address<0x6c06) { ++dungeon_entries; dungeon_exits+=static_cast<unsigned>(routine.spec.exits.size()); }
-        check(dungeon_entries==53 && dungeon_exits>dungeon_entries,"the 53 dungeon segments are registered");
-        for (const RoutineEntry entry:{RoutineEntry{1,0x65ee},RoutineEntry{1,0x661c},RoutineEntry{1,0x681b},RoutineEntry{1,0x68bc},
-                                        RoutineEntry{1,0x6963},RoutineEntry{1,0x6bca},RoutineEntry{1,0x6be9}})
-            check(real.find(entry)!=nullptr,"a dungeon routine entry is registered");
+        auto check_segments=[&](const auto& segments) {
+            for (const auto& segment:segments) {
+                const auto* routine=real.find(segment.entry);
+                check(routine && routine->spec.unit==segment.unit && !routine->spec.exits.empty(),
+                      "the dungeon segment retains its game unit and exits");
+            }
+        };
+        check_segments(game::dungeon::cell_segments);
+        check_segments(game::dungeon::movement_segments);
+        check_segments(game::dungeon::object_segments);
         guard_observed_instructions(real);
     }
 }

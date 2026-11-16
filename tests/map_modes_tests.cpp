@@ -278,7 +278,35 @@ void probe_entry(Rig& g, RoutineEntry entry, const probe::Rom& rom) {
 
 void state_probes(const map_probe::Inputs& inputs) {
     Rig g(inputs.rom);
+    for (unsigned moving:{0u,1u,255u}) for (unsigned remaining:{1u,64u,1000u,59000u}) {
+        auto actual=g.harness.prepare(at(0x0B3B),{.seed=moving+remaining});
+        actual.memory().write(busy,static_cast<std::uint8_t>(moving));
+        actual.memory().write(0xC810,0x91);
+        actual.memory().write(0xC29D,0xAA);
+        actual.memory().write(0xC202,9);
+        const auto phase=actual.cycles()%Machine::frame_cycles;
+        actual.advance((Machine::frame_cycles-remaining+Machine::frame_cycles-phase)%Machine::frame_cycles);
+        auto native=actual;
+        for (unsigned steps=0;actual.cpu().pc.uint16_value!=0x0180;++steps) {
+            check(steps<2000,"button-test continuation returned");
+            actual.step(g.harness.registry());
+            while (native.cycles()<actual.cycles()) native.step();
+            check(native.cycles()==actual.cycles(),"button-test continuation cycle boundary");
+        }
+        check(native.equivalent(actual),"resumed walking-mode exit agrees with original");
+        check(actual.peek(0xC202)==(moving ? 9 : 12) && actual.peek(0xC29D)==(moving ? 0xAA : 0),
+              "only a stationary party leaves walking mode");
+        if (!moving) {
+            check(actual.peek(0xC2D7)==0x91,"leader type saved before object clear");
+            for (unsigned i=0;i<256;++i) check(actual.peek(0xC800+i)==0,"cleared object slot");
+            for (unsigned i=0;i<24;++i) check(actual.peek(0xC26F+i)==0,"cleared animation record");
+        }
+    }
     for (const auto& w:wanted()) probe_entry(g,at(w.entry),inputs.rom);
+    for (auto entry:game::map_button_resume_entries)
+        check(g.harness.routine(entry).counters.cpp_calls>0,"button-test resumption ran in C++");
+    for (auto entry:game::map_exit_copies)
+        check(g.harness.routine(entry).counters.cpp_calls>0,"map exit fill ran in C++");
     std::uint64_t cpp=0;
     for (const auto& [entry,n]:g.per_entry) cpp+=n;
     check(g.per_entry.size()==wanted().size(),"every modes entry was probed in C++");
@@ -306,12 +334,9 @@ bool run_until_mode(map_probe::Scenario& s, std::uint8_t mode, unsigned limit) {
 
 // One load of a map: the location (and the transport) poked on a map frame, the
 // mode set to "load a map", run until the map is walking again.
-void load_scenario(const map_probe::Inputs& inputs, const Later& later, unsigned loc, std::uint8_t carrier,
+void load_scenario(const map_probe::Scenario& start, unsigned loc, std::uint8_t carrier,
                    std::uint64_t& cpp_calls, std::uint64_t& fallback_calls) {
-    map_probe::Scenario s(inputs.rom,later.image,"load location "+std::to_string(loc)+" transport "+std::to_string(carrier));
-    std::uint64_t from=0;
-    check(s.play(later.recording,from,map_probe::on_map),"later-town reaches a map frame");
-    s.frames({},2);
+    map_probe::Scenario s(start,"load location "+std::to_string(loc)+" transport "+std::to_string(carrier));
     s.poke(map::location,static_cast<std::uint8_t>(loc));
     s.poke(map::transport,carrier);
     s.poke(map::game_mode,map::load_map_mode);
@@ -321,21 +346,18 @@ void load_scenario(const map_probe::Inputs& inputs, const Later& later, unsigned
     cpp_calls+=cpp; fallback_calls+=fall;
     check(s.counters(at(0x0B75)).cpp_calls+s.counters(at(0x0B75)).fallback_calls>=1,"the load ran 00:0B75");
 }
-void load_probes(const map_probe::Inputs& inputs, const Later& later) {
+void load_probes(const map_probe::Inputs& inputs, const map_probe::Scenario& start) {
     std::uint64_t cpp=0, fallback=0;
-    for (unsigned loc=0;loc<24;++loc) load_scenario(inputs,later,loc,0,cpp,fallback);
-    for (const std::uint8_t carrier:{4,8,0x0C,0x10,0x11}) load_scenario(inputs,later,2,carrier,cpp,fallback);
+    for (unsigned loc=0;loc<24;++loc) load_scenario(start,loc,0,cpp,fallback);
+    for (const std::uint8_t carrier:{4,8,0x0C,0x10,0x11}) load_scenario(start,2,carrier,cpp,fallback);
     std::cout<<"map loading ("<<inputs.version<<"): 24 locations on foot and 5 loads in vehicles and ship, routines on and off equal "
              <<"every frame ("<<cpp<<" C++ calls, "<<fallback<<" fallbacks).\n";
 }
 
 // The road: the six legs, set up the way the transfer code does (the index and
 // the road's load mode); run until the leg has played and the map walks again.
-void road_scenario(const map_probe::Inputs& inputs, const Later& later, unsigned index, std::uint64_t& cpp_calls) {
-    map_probe::Scenario s(inputs.rom,later.image,"road leg "+std::to_string(index));
-    std::uint64_t from=0;
-    check(s.play(later.recording,from,map_probe::on_map),"later-town reaches a map frame");
-    s.frames({},2);
+void road_scenario(const map_probe::Scenario& start, unsigned index, std::uint64_t& cpp_calls) {
+    map_probe::Scenario s(start,"road leg "+std::to_string(index));
     s.poke(road_index,static_cast<std::uint8_t>(index));
     s.poke(map::game_mode,map::load_road_mode);
     bool walked=false;
@@ -348,9 +370,9 @@ void road_scenario(const map_probe::Inputs& inputs, const Later& later, unsigned
     s.frames({},10);
     cpp_calls+=s.counters(at(0x0ED7)).cpp_calls+s.counters(at(0x0E8B)).cpp_calls;
 }
-void road_probes(const map_probe::Inputs& inputs, const Later& later) {
+void road_probes(const map_probe::Inputs& inputs, const map_probe::Scenario& start) {
     std::uint64_t cpp=0;
-    for (unsigned index=1;index<=6;++index) road_scenario(inputs,later,index,cpp);
+    for (unsigned index=1;index<=6;++index) road_scenario(start,index,cpp);
     check(cpp>0,"the road ran in C++");
     std::cout<<"road ("<<inputs.version<<"): six legs, routines on and off equal every frame ("<<cpp<<" calls of 00:0ED7 and 00:0E8B in C++).\n";
 }
@@ -358,8 +380,12 @@ void road_probes(const map_probe::Inputs& inputs, const Later& later) {
 bool scenario_probes(const map_probe::Inputs& inputs) {
     const auto later=later_town(inputs);
     if (!later) { std::cout<<"later-town start image missing (reference folder not configured), scenario probes skipped.\n"; return false; }
-    load_probes(inputs,*later);
-    road_probes(inputs,*later);
+    map_probe::Scenario start(inputs.rom,later->image,"later-town prefix");
+    std::uint64_t from=0;
+    check(start.play(later->recording,from,map_probe::on_map),"later-town reaches a map frame");
+    start.frames({},2);
+    load_probes(inputs,start);
+    road_probes(inputs,start);
     return true;
 }
 }

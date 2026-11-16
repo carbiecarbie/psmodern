@@ -6,11 +6,13 @@
 namespace psmodern::replay {
 class CallVerifier final : public RoutineVerifier {
 public:
-    explicit CallVerifier(std::string recording) : recording_(std::move(recording)) {}
+    explicit CallVerifier(std::string recording,bool game_observers=false)
+        : recording_(std::move(recording)),game_observers_(game_observers) {}
     void run(Machine&, RoutineEntry, const SegmentSpec&, bool forced, std::uint64_t bound,
              std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override;
 private:
     std::string recording_;
+    bool game_observers_;
 };
 using Manifest = std::array<std::string,7>;
 inline constexpr std::array<const char*,7> manifest_components{

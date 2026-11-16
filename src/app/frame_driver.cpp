@@ -58,12 +58,12 @@ void guard_observed_instructions(const RoutineRegistry& registry) {
         return text;
     };
     for(const auto watched:host_observed_instructions) {
-        if(registry.find(watched))
-            throw std::logic_error("Host-observed instruction "+name(watched)+" must remain a native instruction (it is a registered entry).");
+        if(const auto* r=registry.find(watched); r && !r->spec.observe_entry)
+            throw std::logic_error("Host-observed instruction "+name(watched)+" requires observation before admitting its registered entry.");
         for(const auto& [entry,routine]:registry.entries())
             for(const auto& exit:routine.spec.exits)
-                if(exit.address==watched.address)
-                    throw std::logic_error("Host-observed instruction "+name(watched)+" must remain a native instruction (it is a declared exit of "+name(entry)+").");
+                if(exit.address==watched.address && !(entry==watched && routine.spec.observe_entry && routine.spec.single_instruction))
+                    throw std::logic_error("Host-observed instruction "+name(watched)+" is a declared exit of "+name(entry)+".");
     }
 }
 FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,bool routines_enabled,game::OptionOverrides overrides,bool original_only)
@@ -98,7 +98,7 @@ bool same_catalogue(const RoutineRegistry& a,const RoutineRegistry& b) {
         const auto& x=routine.spec;const auto& y=other->spec;
         if(x.unit!=y.unit || x.slot2_mapper!=y.slot2_mapper || x.scratch_stack!=y.scratch_stack ||
            x.single_instruction!=y.single_instruction || x.force_admit!=y.force_admit ||
-           x.absolute_wram_store!=y.absolute_wram_store || x.inherited_stack!=y.inherited_stack ||
+           x.absolute_wram_store!=y.absolute_wram_store || x.inherited_stack!=y.inherited_stack || x.observe_entry!=y.observe_entry ||
            x.exits.size()!=y.exits.size() || !std::equal(x.exits.begin(),x.exits.end(),y.exits.begin(),
                [](const auto& first,const auto& second){return first.same_declaration(second);}))return false;
     }

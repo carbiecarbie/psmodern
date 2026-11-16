@@ -11,15 +11,38 @@ addresses in the US Rev-A and Brazilian cartridges (the comparison in
 Addresses below are the US Rev-A ones and serve both. Runs described as
 "ROM run" are US runs.
 
-**What runs where.** Since milestone 7 the walking code runs in C++: the
+**What runs where.** The walking code runs in C++: the
 dungeon handler `01:65EE` with its pitfall, steps, turns, stairs, door passing
 and buttons; the door opening `01:681B`; the exit lookup `01:68BC`; the object
 check `01:6963` with its event part; and the two cell readers `01:6BCA` and
-`01:6BE9`. Each rewritten piece ends where the original calls something that
-stays on the Z80: drawing the 3D view and its animations, the fades, the
-battle and the field menu, the dialogue, the layout loading `01:6D56`, and the
-video copies of the pitfall. Three short stretches of the pitfall and the 3D
-drawing run with interrupts off and stay on the Z80 as they are. The
+`01:6BE9`. Floor loading at `01:6D56` also runs in C++. It takes one packed
+byte at a time, reads its two cells into consecutive RAM locations and
+applies the floor's lighting and palette. **ROM run.** All 61 layouts and
+their floor setup matched the original in both cartridges with and without
+light. The view uses two compressed streams for tile words at `01:6B62`,
+one for each byte of a word. For graphics at `01:6B8E`, each row supplies
+three bitplanes. The fourth sets each pixel where any of the first three
+planes has a set bit. A positive count repeats one row and a negative
+header introduces literal rows. A zero header ends the stream. Probes
+compare the decoded RAM, video memory and the timing of all four writes
+with the cartridge on both versions.
+
+**ROM static.** The frame selector at `01:6AED` reads a bank and pointer for
+the graphics and another pair for the tilemap. It sets the video address
+with interrupts masked, then enables interrupts before calling the pattern
+decoder. The CPU executes the mask changes and the first instruction
+following the enable at its original boundary. The cone at `01:6C46` draws
+the front and two sides at each visible distance. After each cell read,
+the original branch uses the zero flag to select the open-center or
+front-wall drawing routine. A blocked front ends the scan.
+The row copier at `01:6E64` advances the destination by 64 bytes per
+row. The near-wall path at `01:6E38` checks the opened-door bit to choose
+the overlay. Fake-wall animation at `01:6E04` replaces only the opaque
+tile bytes in each row.
+
+**ROM run.** Probes compare 256 combinations of position, facing, walls
+and animation frame, including the machine state on return. Both versions
+also exercise all possible source tile IDs for the fake wall. The
 [generated coverage](../coverage.md) lists what runs in C++ in each recording.
 
 **Maintainer decision.** Original mode behaves exactly like the cartridge. The
@@ -252,6 +275,36 @@ fires. One exit record is dead (above).
 **ROM static.** The game never draws a chest in the 3D view. A chest cell is
 drawn as plain floor; the game announces the chest with text when it is the
 cell ahead.
+
+## Entering a floor and playing a movement animation
+
+**ROM static.** The spell check at `01:684A` asks for a type-eight cell and
+scans the bank-3 object table by floor and cell. Any matching record blocks
+the spell. The retreat check at `01:687A` queries three possible directions
+in order. After the escape, `01:688C` turns when necessary, steps backward
+and checks for objects. When both alternative turns qualify, one random bit
+chooses the direction.
+
+**ROM run.** Both versions are checked against every object record in the
+player's cartridge, all 256 cell-type values and both turn outcomes for
+every possible random byte.
+
+**ROM static.** The dungeon loading mode (`00:0F7D`) fades the previous
+screen and selects the floor's music before switching into walking mode.
+The music selector (`01:6DE2`) reads the first byte of a four-byte record in
+bank 3. Two compressed graphics streams supply the video patterns. The game
+checks the inventory for a light, clears the sprite shadow, loads the floor
+and draws the standing view. The clear at `00:0FF3` first writes a zero,
+then copies it forward through 255 adjacent bytes. A separate sprite
+terminator follows. If the floor is dark, the player gets a message and the
+field menu. Leaving the menu without light sends the party back to the map.
+
+**ROM run.** Walking and turning use the ten frame sequences selected at
+`01:6A58`. The driver marks an encounter check pending once, saves the
+position in the sequence before each render and resumes at the next byte
+after the frame wait. A byte of FF ends the sequence. The tests compare
+the frame IDs and terminators from both cartridges, all 61 floor music
+selections and the sprite clear at every offset around a frame, IRQ or NMI.
 
 ## What the 3D view looks at
 

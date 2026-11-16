@@ -425,7 +425,7 @@ void register_encounters(RoutineRegistry& registry, const Options& options) {
         [](auto& z) { return group_choice(z); });
     add_segment(registry,group_choice_after_draw_entry,group_choice_unit,{E{ret,0x5FF8}},false,66,
         [](auto& z) { return group_pick(z); });
-    // Dungeon unit. The three bare instructions (00:0F48, 0F72, 0F7C) stay native.
+    // The dungeon loop also has two calls and a return registered by dungeon_view::register_load.
     add_segment(registry,dungeon_check_unit,dungeon_check_unit,{E{fin,0x0F40}},false,34,
         [](auto& z) { return dungeon_pause(z); });
     add_segment(registry,{0,0x0F43},dungeon_check_unit,{E{fin,0x0F45}},false,24,

@@ -33,6 +33,14 @@ below say where they changed what is known. Addresses are the US Rev-A ones.
 The two cartridges share this code (the comparison in
 [design, section 5.5](../design.md#55-languages)); the census ran on both.
 
+## Map display transfers
+
+**ROM run.** Loading a map masks interrupts around the display setup and
+the video address writes. The breakable ice update (`01:75CC`) selects the
+video address, writes four tile bytes, advances the row address by 64 and
+writes the next four. A two-ROM test checks both rows in video memory and
+the machine state after interrupts are enabled again.
+
 ## How the maps are stored
 
 **ROM static.** A map is a grid of screens, and a screen is a grid of
@@ -177,6 +185,13 @@ clears the animator block (`$C26F`, 24 bytes) and the eight object slots
 (`$C800`-`$C8FF`). Anything else returns, and the main loop calls it again next
 frame.
 
+If a frame ends inside that check, the game can resume after the button
+test. It reads the movement flag again before allowing the menu to open.
+Both clearing loops can pause between bytes and continue with the remaining
+count. **ROM static:** `00:0B3B`, `00:0B47`, `00:0B5A`, `00:0B5C` and
+`00:0B67`. **ROM run:** both releases exercise a moving party and a
+stationary party at four distances from a frame boundary.
+
 **Loading a map, step by step.** **ROM static.** `00:0B6A` does this on every
 path:
 1. Fades the picture out and switches the display off (`00:003E`).
@@ -214,6 +229,12 @@ in `$C2F4`. The loader asks for B8h when the transport byte (`$C30E`) is 10h or
 more (the ship), 8Fh for any other vehicle, and otherwise for the byte a table of
 24 gives for the location. A load that lands on the tune already playing does
 not restart it. Other code requests tunes through the same routine.
+
+**ROM static; ROM run.** Two map paths clear a row of object records by
+writing a zero and then copying it one position ahead, repeatedly. The
+source and destination overlap on purpose. The copies at `00:0CB1` and
+`01:7926` now run in short sections with the same register state, work RAM
+and timing as the original at each return to the machine.
 
 **The party on the map.** **ROM static.** `00:0CA6` clears the eight object slots
 and then fills them. In a vehicle (`$C30E` nonzero) it makes one object of type 9
@@ -253,11 +274,11 @@ and on with interrupts disabled in three places: around `00:003E`
 (`00:0B6D`-`00:0B71`), around the party frame upload (`00:0BB4`-`00:0BB8`, four
 times) and around the write to video register 0 (`00:0C91`-`00:0C93`). Those
 stretches, the instruction after each switch-on (it runs before an interrupt can
-be taken) and the call at `00:0B14` stay on the Z80. So do the first three
-instructions of the sprite-table clearing and its second fill (191 bytes): the
-frame interrupt tends to be due as the loader jumps there, and a piece that
-included them fell back to the Z80 in 11 of 18 arrivals in the road recording and
-9 of 20 in first-battle (**ROM run**).
+be taken) and the call at `00:0B14` stay on the Z80. The sprite-table clearing
+now also has an entry at `00:02FD`: it runs the setup and first fill when the
+interrupt window permits, and otherwise falls back to the Z80. The second fill
+(191 bytes) uses bounded copy slices at `00:030E`. Earlier recordings found the interrupt due in 11 of
+18 road arrivals and 9 of 20 first-battle arrivals (**ROM run**).
 
 The 255-byte clearing of the object slots (`00:0CAC`-`00:0CB1`, about 5,400
 cycles) stays on the Z80 for the same reason: inside a piece it made 9 of 71

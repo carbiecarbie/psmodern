@@ -27,6 +27,8 @@
 // A ROM run exits 77 without the ROM, or when a start image or the work
 // folder is not available (after running everything else).
 #include "menu_probe.h"
+#include "game/menu_remainder.h"
+#include "game/frame_updates.h"
 #include <filesystem>
 #include <iostream>
 #include <set>
@@ -140,14 +142,28 @@ void registrations_together() {
     // entry and nothing else outside the plan's own table.
     check(registered==menu::planned_total,"the six parts register exactly the planned segments");
     app::guard_observed_instructions(all);
-    // No other system registers inside the menu code, and every menu entry the
-    // game registers comes from the six parts.
+    // Independently register the later continuations that fall inside the
+    // historical menu ranges, including the IRQ dispatcher and save copies.
+    RoutineRegistry extensions;
+    game::register_menu_remainder(extensions);
+    game::register_save_menu(extensions);
+    game::register_observed_menu_cancel(extensions);
+    game::register_window_rows(extensions);
+    game::register_block_transfers(extensions);
+    game::frame_updates::register_updates(extensions);
     RoutineRegistry game_registry;
     check(game::register_routines(game_registry,"07fcf297be4f4c9d92cd3f119a7ac48467e06838"),"identified ROM registry");
     std::size_t in_menu=0;
-    for (const auto& [entry,routine]:game_registry.entries())
-        if (in_menu_ranges(entry)) { ++in_menu; check(all.find(entry)!=nullptr,"entry "+name(entry)+" in the menu code is registered by another system"); }
-    check(in_menu==registered,"the game registers exactly the menu parts' entries in the menu code");
+    for (const auto& [entry,routine]:game_registry.entries()) {
+        if (!in_menu_ranges(entry)) continue;
+        if (const auto* extension=extensions.find(entry)) {
+            check(!all.find(entry) && extension->spec.unit==routine.spec.unit,"wrong continuation owner at "+name(entry));
+        } else {
+            ++in_menu;
+            check(all.find(entry)!=nullptr,"entry "+name(entry)+" in menu code has no planned owner");
+        }
+    }
+    check(in_menu==registered,"the game registers all menu parts in their assigned ranges");
     app::guard_observed_instructions(game_registry);
     std::cout<<registered<<" of "<<menu::planned_total<<" planned menu segments registered; plan and registrations pass the base checks.\n";
 }

@@ -142,6 +142,14 @@ public:
     }
     Scenario(const Scenario&)=delete;
     Scenario& operator=(const Scenario&)=delete;
+    // Branch from an already compared frame. Keep each side's actual state,
+    // pending audio writes and call counters, and bind a fresh verifier.
+    Scenario(const Scenario& base,std::string name)
+        : name_(std::move(name)), on_(base.on_), off_(base.off_), routines_(base.routines_),
+          disabled_(base.disabled_), verifier_(name_), on_writes_(base.on_writes_),
+          off_writes_(base.off_writes_), frame_(base.frame_) {
+        routines_.verifier=&verifier_;
+    }
 
     void frame(const FrameInput& input) {
         ++frame_;

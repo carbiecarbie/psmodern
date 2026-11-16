@@ -605,4 +605,32 @@ void register_menu_engine(RoutineRegistry& registry) {
         mk::segment(menu::save_under_unit,{mk::conditional_at(0x3ABE,+2)},{.inherited_stack=2}),
         [](auto& z) { return save_under(z,Save::end); });
 }
+void register_window_rows(RoutineRegistry& registry) {
+    // Dialogue reuses the current destination for the final strip of tiles.
+    auto last_load=mk::core_final_at(0x3454);
+    last_load.native_frame_tail=true;
+    mk::add_segment(registry,window_row_entries[0],mk::segment(menu::dialogue_scroll_unit,
+        {last_load}),[](auto& z) {
+            z.load_hl(0x3451);
+            return mk::continues(0x3454,10);
+        });
+    mk::add_segment(registry,window_row_entries[1],mk::segment(menu::dialogue_scroll_unit,
+        {mk::core_final_at(0x3457)},{.scratch_stack=2}),[](auto& z) {
+            z.load_bc(0x3454);
+            return mk::continues(0x3457,mk::call_cycles);
+        });
+    mk::add_segment(registry,window_row_entries[2],mk::segment(menu::draw_window_at_once_unit,
+        {mk::core_final_at(0x3A9B)}),[](auto& z) {
+            z.exchange_de_hl(0x3A97);
+            z.load_bc(0x3A98);
+            return mk::continues(0x3A9B,11);
+        });
+    mk::add_segment(registry,window_row_entries[3],mk::segment(menu::draw_window_at_once_unit,
+        {mk::conditional_at(0x3A9E,2)},{.inherited_stack=2}),[](auto& z) {
+            z.exchange_de_hl(0x3A9C);
+            z.pop(0x3A9D,z.r.b,z.r.c);
+            return mk::decrement_jump_exit(z,0x3A9E);
+        });
+}
+
 }

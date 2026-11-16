@@ -4,10 +4,26 @@ What this chapter covers: how the game draws a window and puts back what
 was under it, the windows it opens on the field and in battle, how a choice
 is made with the cursor, the field menu with its commands, the hospital, the
 church and the shops, and how the screen fades in and out. The game rules
-behind the items and spells chosen here (what they do) belong to the battle
-chapter of a later milestone.
+behind the spells chosen here are described in [battles and magic](battle.md);
+the item selector also hands its effects to separate routines.
 
 ## What runs where
+
+**ROM run.** The save transfer at `00:1D1D` can copy part of a slot before
+the video frame ends. The source, destination and remaining byte count then
+pick up exactly where they left off. The C++ version copies short sections
+and preserves the order in which the host observes the bytes. Both cartridges
+were checked against the original across interrupt and frame boundaries.
+
+**ROM static.** Menus share a small selection routine with other parts of
+the game. The caller supplies a list of addresses and a choice number. The
+routine doubles the choice to find a two-byte address, reads it and sends
+control there. The chosen action returns directly to the caller. Doubling
+uses eight bits, so a choice of 128 would select the same entry as zero.
+The per-frame selector already holds a byte offset. An interaction uses
+a third form that doubles the choice in sixteen bits. The C++ replacements
+use the live table in the player's machine each time
+(`00:00E6`, `00:0131`, `01:4769`).
 
 **ROM run.** Everything in this chapter was first code of the cartridge's
 Z80 processor. Since milestone 12 PSModern runs the decisions of these
@@ -29,7 +45,9 @@ because the end of a picture falls in the middle of it) is not run at all and
 the original code runs it instead, so a rare fallback costs nothing in
 accuracy.
 
-**What stays on the Z80, and why.**
+**Where milestone 12 stopped.** The following boundaries describe the menu
+implementation at the end of milestone 12. Milestone 13 changes the save,
+host observers and dialogue rows described below.
 - The instructions that switch the console's interrupts off and on around the
   drawing of a window, and the one or two instructions next to them. A window
   is written to the video chip with interrupts off so that nothing interrupts
@@ -51,7 +69,7 @@ accuracy.
 - What the commands do once chosen: the effects of items and spells, the
   battle commands and the name entry belong to milestone 13.
 
-**How much runs in C++.** In the twenty recordings the menu pieces were
+**Milestone 12 coverage.** In its twenty recordings the menu pieces were
 called 694,553 times and 693,170 of those calls (99.8%) ran in C++; every piece
 called 20 times or more in a recording ran in C++ on at least 93.9% of its
 calls in that recording, and no call was forced. 296 of the 323 pieces are
@@ -231,8 +249,8 @@ around at the ends (Up on the first option gives the last one, Down on the last
 gives the first; both in the same picture cancel out). The number of options
 minus one is in `$C26E`. Then it reads the buttons again, and button 1 or 2
 leaves the loop. The one instruction that notices the confirmation, `00:2D93`,
-is left on the original code on purpose: the program that hosts the game
-watches it to know that the menu was left. The choice is then returned after
+is observed before the registered routine runs. This lets the host keep the
+field menu open or accept the selection at the original cycle. The choice is then returned after
 one more wait with the selection switched off (**ROM static**, **Lockstep**).
 
 **The item list (`00:2DA5`).** The same loop, with two additions: Left and
@@ -349,9 +367,9 @@ member 3 as row 2). The low five bits of the byte are the spell number (the
 upper three are ignored, `00:1DA7`). The cost comes from a 19-byte table at
 `00:1DDC` (`00:1B87`): the member's magic points minus the cost; a borrow is
 "not enough points" and shows a message, anything else jumps through a table of
-19 spell routines at `00:1DFE`. The spell routines (milestone 13) take the points
-off themselves, show their messages and may leave a value in `$C2D8` for the menu
-to act on.
+19 spell routines at `00:1DFE`. The [spell effects](battle.md) perform their
+own MP subtraction, show their messages and may leave a value in `$C2D8` for
+the menu to act on.
 
 ### Items
 
@@ -423,6 +441,13 @@ the routine drops its own return address and the menu's with two pops before it 
 (`00:1D41`-`00:1D4C`). A slot that was in use shows a fourth message and closes the slot
 window and the dialogue (`00:1D35`-`00:1D3E`).
 
+**Lockstep.** The C++ save path invalidates the selected slot before the
+first data write. The copy can stop at a frame or interrupt with the slot
+still invalid. After the last byte the game sets its flag to one. The host
+observes `00:1D2D` while cartridge RAM is still mapped and can associate
+the completed bytes with the automap. Tests compare every cartridge write,
+its cycle and the contents visible at that callback for all five slots.
+
 ### Search and chests
 
 **ROM static.** Search (`00:2839`) first looks at the first object slot's state
@@ -452,7 +477,7 @@ sprite's Y byte is set to the end marker at the end.
 
 ### What runs where
 
-**ROM run.** The menu, the commands and the inventory helpers run in C++ in 63 short
+**Milestone 12 ROM run.** The menu, the commands and the inventory helpers ran in C++ in 63 short
 pieces. A piece starts where the Z80 code starts after one of its calls and ends
 where the next call begins: the calls themselves (windows, the cursor loop, the text,
 the spell and item effects, the map code) stay on the Z80 core, and so does the
@@ -606,3 +631,37 @@ from a real frame beside the original and comparing the two machines, as
 well as with state probes of every entry. *Evidence: ROM static
 (01:7C85-7D16); ROM run (state probes and whole-effect chains, US and
 Brazilian).*
+
+
+## Completing the drawing boundaries
+
+Milestone 13 adds the interrupt and cartridge-memory handoffs that surrounded
+the milestone 12 pieces. The original processor executes each DI and EI as
+the last instruction of a declared segment. Restoring saved registers before
+EI is now part of that segment too, with the saved words explicitly counted.
+The drawing, numbers, prices and text keep their original video timing.
+
+The save-slot window enables cartridge RAM while it draws the names, then
+restores ROM before asking which slot the player wants. Interrupts can run
+between rows; their own bank and cartridge-control saves remain in order.
+Drawing a window without row waits also preserves the old bank. Its one
+mapper store immediately before DI is a separate processor-owned boundary,
+restricted to that exact window routine and instruction address.
+
+**ROM static:** `00:2FD8`, `00:2FE1`, `00:3036`, `00:315C`,
+`00:356B`, `00:35BC`, `00:35C4`, `00:393A`, `00:39B1–39C7`,
+`00:3A68–3A8C`, `00:3AC0–3AC3`. **ROM run:** both cartridges' boundary
+probes compare registers, memory, clock cycles and the processor's interrupt
+state. Complete save-name and immediate-window chains compare every memory
+write callback and every video/sound port operation, including values,
+addresses and cycles, with cartridge RAM enabled or disabled and several
+original bank selections.
+
+The instruction directly protected by EI still executes on the original
+processor. Seven drawing/text waits use a simple immediate load at that
+point (`00:3030`, `00:30A1`, `00:332B`, `00:3411`, `00:35B6`,
+`00:3633`, `00:3A7A`). Other epilogues restore a saved register or return
+(`00:319D`, `00:33C7`, `00:3AA1`, `00:3AC3`). These are individually
+identified machine scaffolding for milestone 14. They preserve the exact
+interrupt-delay step and are not counted as rewritten game decisions.
+The chapter's earlier counts and exclusion lists describe milestone 12.

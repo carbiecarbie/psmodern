@@ -2,11 +2,9 @@
 // The dungeon handler 01:65EE with its pitfall, forward and back steps and
 // turns (milestone 7, part R2): the 26 segments of dungeon::movement_segments,
 // rendered with dungeon_kit.h. Every segment renders the original instructions
-// from its entry for any machine state and ends with one instruction executed
-// by the core: a return, or a call or jump into code that stays native (the
-// 3D view and its animations, the fades, the video copies of the pitfall, the
-// object check, the exit lookup and the door opening, which another part
-// rewrites).
+// from its entry for any machine state. The core executes the final return,
+// call or jump. The drawing, fades, pitfall transfers and object checks then
+// dispatch to their own registered game routines.
 //
 // What the handler does, in the order it does it. It reads the cell under the
 // party. A value of 8 there is an object cell or a pitfall: the handler scans
@@ -274,6 +272,21 @@ template<class Z> Exit b_one_then(Z& z, std::uint16_t at, unsigned cycles) {
 }
 }
 
+void register_pitfall_video(RoutineRegistry& registry) {
+    // Clear the pictured rows before the drop, then erase and redraw rows
+    // as the camera moves. Each transfer runs between the original DI/EI.
+    for (auto start:pitfall_video_copies) {
+        for (const unsigned offset:{0,1,4}) {
+            const auto pc=static_cast<std::uint16_t>(start+offset);
+            auto exit=kit::core_final_at(pc);
+            if (offset!=1) exit.interrupt_mask=offset==0 ? InterruptMask::disable : InterruptMask::enable;
+            auto spec=kit::segment(dungeon::pitfall_unit,{exit},{.scratch_stack=offset==1 ? 2u : 0u});
+            spec.single_instruction=true;
+            registry.add({1,pc},std::move(spec),[offset](const Machine&){return offset==1 ? kit::call_cycles : 4;},
+                         [pc](RoutineContext& context){context.finish_core(pc);});
+        }
+    }
+}
 void register_dungeon_movement(RoutineRegistry& registry) {
     using dungeon::handler_unit;
     using dungeon::pitfall_unit;

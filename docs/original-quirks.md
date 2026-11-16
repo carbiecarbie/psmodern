@@ -748,3 +748,82 @@ here (compared over these ranges). All of it is kept in original mode.
   in bank 3.
 - **ROM run.** Whole-effect chains from a real frame (both ROMs) matched the
   original; no recording reaches the effect.
+
+## Battle effects
+
+### Cancelling revival still spends its MP
+
+- **Where:** `00:20BF`, `00:20C3`, `00:20C7`, `00:20D8`.
+- **ROM static.** Revival commits the MP subtraction before opening its
+  recipient picker. Cancelling closes that picker without restoring the
+  points. Choosing an already active recipient also leaves the debit in
+  place. Ordinary HP recovery validates its recipient before committing its
+  own debit.
+- **ROM run.** On both cartridges, complete calls from a real battle frame
+  cancel the revival choice and confirm an unchanged recipient alongside
+  the actual nonzero ROM spell cost spent by a different caster. Active
+  refusal and inactive restoration are checked separately against the
+  original, with state, cycles and ordered sound output compared.
+
+### Some strength gates use the first records rather than the caster
+
+- **Where:** `00:192B`, `00:1B0D`, `00:1F36`, `00:1FDF`.
+- **ROM static.** The strength checks for talking, one communication spell,
+  blocking and weakening read the first party member's attack field and the
+  first enemy's attack field directly. They do not select the currently casting character's attack or
+  the enemy that will later receive the effect.
+- **ROM run.** Both cartridges pass every pair of byte strength values for
+  the blocking and weakening gates while the caster's attack is kept
+  different from the first party member's. Their control flow matches the
+  fixed first-record comparison, including equality and the ordering of the MP debit.
+
+### Direct death ignores protection after the Mirror Shield check
+
+- **Where:** `00:151A`, `00:1544`.
+- **ROM static.** The direct-death action checks the Mirror Shield in Odin's
+  record specifically. After that check it consumes protection but clears the
+  selected actor's activity and HP without testing protection again.
+- **ROM run.** Prepared complete calls confirm that a high protection value
+  does not prevent that direct death.
+
+### The Crystal-dependent group action can wrap HP
+
+- **Where:** `00:1561`, `00:1514`, `00:15C2`.
+- **ROM static.** The group action uses physical variance when the inventory
+  contains the Crystal. Without it, the shared HP writer receives a positive
+  amount 1..16. Its carry/clamp rule usually produces zero HP; if HP plus that
+  amount overflows a byte, it keeps the wrapped result.
+- **ROM run.** A prepared 250-HP party checks each target's actual draw and
+  resulting HP on both cartridges.
+
+### Escaper and Magic Hat are spent even when refused
+
+- **Where:** `00:23E2`, `00:2419`.
+- **ROM static.** Escaper is consumed in battle before the shared escape
+  effect checks permission, so a refusal can still spend the item. Magic Hat
+  (following its native removal call) is also already spent when field use is
+  refused.
+- **ROM run.** Complete prepared calls confirm both cases and their unchanged
+  alternatives on both cartridges.
+
+### Nuts have two acceptance routes
+
+- **Where:** `00:25C3`, `00:25EF`.
+- **ROM static.** Castle location 17h checks field/battle context, while
+  scene B0h plus auxiliary FFh reaches the same request through `00:25EF`
+  without that additional battle check. The door-key handlers similarly gate
+  by dungeon interaction and cell state rather than battle state.
+- **ROM run.** Prepared battle and field calls confirm the distinction; this
+  does not claim the prepared combination is reachable in ordinary play.
+
+## Scenes and saves
+
+### Cartridge initialization preserves its last four bytes
+
+- **Where:** `00:0847–0852`.
+- **ROM static.** The initialization seed and overlapping copy clear the first
+  8,188 cartridge RAM bytes. The final four bytes are outside the copy.
+- **ROM run.** Both-release initialization/re-entry chains preserve four
+  distinct trailing canaries while matching the original's whole state and
+  ordered writes across frame boundaries. **Unknown:** whether game code
+  assigns a meaning to these four bytes.

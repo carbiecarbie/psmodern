@@ -5,7 +5,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from generate_coverage import ALL, COLUMNS, COUNTERS, checkpoints, generate
 
-# The number of checkpoint censuses (six per version and the US-only ones).
+# All shared and release-specific checkpoint censuses.
 N = len(checkpoints('us')) + len(checkpoints('br'))
 
 

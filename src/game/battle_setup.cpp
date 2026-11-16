@@ -269,8 +269,10 @@ template<class Logic> void run(RoutineContext& c,const Logic& logic) {
     if(e.segment.kind==RoutineExit::returned) c.finish_return(e.segment.address); else c.finish_core(e.segment.address);
 }
 template<class Logic> void add(RoutineRegistry& registry,RoutineEntry entry,std::vector<SegmentExit> exits,
-                                bool mapper,unsigned scratch,std::uint64_t maximum,Logic logic) {
-    registry.add(entry,SegmentSpec{battle_setup_unit,std::move(exits),mapper,scratch},
+                                bool mapper,unsigned scratch,std::uint64_t maximum,Logic logic,unsigned inherited=0) {
+    SegmentSpec spec{battle_setup_unit,std::move(exits),mapper,scratch};
+    spec.inherited_stack=inherited;
+    registry.add(entry,std::move(spec),
         [logic,maximum](const Machine& m){return cost(m,logic,maximum);},
         [logic](RoutineContext& c){run(c,logic);});
 }
@@ -283,6 +285,32 @@ void register_battle_setup(RoutineRegistry& r,const Options& options) {
     add(r,{1,0x605E},{E{fin,0x6075},E{fin,0x608B}},true,0,256,[](auto& z){return setup_count_start(z);});
     add(r,{1,0x6078},{E{fin,0x6075},E{fin,0x608B}},false,0,192,[](auto& z){return setup_count_drawn(z);});
     add(r,{1,0x608D},{E{fin,0x60B9}},false,2,40000,[](auto& z){return setup_records(z);});
+    // The enemy descriptor pointer is held across the graphics and palette calls.
+    add(r,{1,0x6044},{E{fin,0x604E,-2}},true,4,160,[](auto& z){
+        z.push_hl(0x6044);
+        return setup_picture(z);
+    });
+    add(r,{1,0x6051},{E{fin,0x6058,2}},true,0,160,[](auto& z){
+        z.pop_hl(0x6051);
+        return setup_picture_done(z);
+    },2);
+    add(r,{1,0x6059},{E{fin,0x605A,-2}},false,4,28,[](auto& z){
+        z.push_hl(0x6059);
+        return continues(0x605A,call_cycles);
+    });
+    add(r,{1,0x605D},{E{fin,0x6075,2},E{fin,0x608B,2}},true,0,272,[](auto& z){
+        z.pop_hl(0x605D);
+        return setup_count_start(z);
+    },2);
+    add(r,{1,0x608C},{E{fin,0x60B9,-2}},false,4,40016,[](auto& z){
+        z.push_hl(0x608C);
+        return setup_records(z);
+    });
+    add(r,{1,0x60D3},{E{fin,0x60E7,2}},false,0,160,[](auto& z){
+        z.store_hl_direct(0x60D3);
+        z.pop_hl(0x60D6);
+        return setup_finish_fields(z);
+    },2);
     register_battle_money_store(r,options);
     add(r,{1,0x60BF},{E{fin,0x60D0}},false,2,128,[](auto& z){return setup_experience(z);});
     add(r,{1,0x60D7},{E{fin,0x60E7}},false,0,128,[](auto& z){return setup_finish_fields(z);});

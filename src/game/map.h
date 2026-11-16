@@ -223,10 +223,14 @@ inline constexpr RoutineEntry options_boundary=at0(0x0B14);
 namespace psmodern::game {
 // One registration function per part; register_routines calls all six for an
 // identified image. Each lives in its part's file and registers only there.
+void register_sprite_output_slices(RoutineRegistry& registry);
 void register_map_video(RoutineRegistry& registry);
 void register_map_scroll(RoutineRegistry& registry);
 void register_map_objects(RoutineRegistry& registry);
 void register_map_terrain(RoutineRegistry& registry);
 void register_map_entrances(RoutineRegistry& registry);
 void register_map_modes(RoutineRegistry& registry);
+void register_map_button_resume(RoutineRegistry& registry);
+inline constexpr std::array<RoutineEntry,3> map_button_resume_entries{{{0,0x0B3B},{0,0x0B47},{0,0x0B5C}}};
+inline constexpr std::array<RoutineEntry,2> map_exit_copies{{{0,0x0B5A},{0,0x0B67}}};
 }

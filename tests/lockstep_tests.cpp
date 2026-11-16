@@ -43,7 +43,7 @@ void returned(Machine& m) {
     throw std::runtime_error("Synthetic call did not return");
 }
 void fault(std::string_view name) {
-    const bool port=name=="vdp_late" || name=="psg_late";
+    const bool port=name=="vdp_late" || name=="psg_late" || name=="extra_port_read";
     auto rom=port ? program({0x3e,0x90,0xd3,static_cast<std::uint8_t>(name=="vdp_late" ? 0xbe : 0x7f),0,0,0xc9})
                   : program({0,0,0xc9});
     Machine m(rom); entry(m);
@@ -58,7 +58,8 @@ void fault(std::string_view name) {
             if (port) {
                 c.fetch_opcode(0); z.af.uint8_values.at_1=c.read(1); c.advance(7);
                 c.fetch_opcode(2); const auto p=c.read(3);
-                c.write_port(p,z.af.uint8_values.at_1,inject ? 18 : 17);
+                if (inject && name=="extra_port_read") (void)c.read_port(0x7e,16);
+                c.write_port(p,z.af.uint8_values.at_1,inject && name!="extra_port_read" ? 18 : 17);
                 c.advance(18-c.elapsed());
                 c.fetch_opcode(4); c.advance(4); c.fetch_opcode(5); c.advance(4); c.finish_return(6);
             } else {
@@ -87,7 +88,7 @@ void fault(std::string_view name) {
         {"flag","cpu.f:"},{"memptr","cpu.memptr:"},{"q","cpu.q:"},{"ram","memory.ram[32]:"},
         {"vdp_late","vdp.vram[15723]:"},{"psg_late","psg.writes[1].cycle:"},
         {"latch","vdp.control_latch:"},{"open_bus","machine.open_bus: different (values redacted)\n"},
-        {"bound","understated bound"}};
+        {"extra_port_read","port access sequence differs at event 1"},{"bound","understated bound"}};
     for (const auto& [test,field]:expected) if (name==test) {
         if (text.find(field)==std::string::npos) throw std::runtime_error("Missing expected field: "+std::string(field)+"\n"+text);
     }

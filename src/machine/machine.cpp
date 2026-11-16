@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <limits>
+#include <tuple>
 
 namespace psmodern {
 Machine::RomReplacement Machine::prepare_rom_replacement(std::shared_ptr<const Memory::Rom> image) {
@@ -35,8 +36,25 @@ Machine& Machine::operator=(const Machine& o) {
     return *this;
 }
 void Machine::bind() { cpu_.bind(*this); }
+Machine::PortTrace::PortTrace(Machine& machine)
+    : machine_(machine), previous_(machine.port_trace_) {
+    machine_.port_trace_=&accesses_;
+}
+Machine::PortTrace::~PortTrace() {
+    machine_.port_trace_=previous_;
+}
+void Machine::record_access(PortAccess access) {
+    last_access_=access;
+    if (port_trace_) port_trace_->push_back(access);
+}
 bool Machine::equivalent(const Machine& o) const {
-    return differences(o).empty();
+    auto state=[](const Machine& m) {
+        return std::tie(m.cycle_,m.opcode_fetches_,m.scheduled_nmi_,m.pads_,m.pending_pads_,
+                        m.io_control_,m.open_bus_,m.reset_,m.pause_,m.pending_reset_,m.pending_pause_,
+                        m.input_latched_,m.sampled_int_,m.sampled_nmi_,m.pause_nmi_level_);
+    };
+    return state(*this)==state(o) && cpu_.equivalent(o.cpu_) && memory_==o.memory_ &&
+           vdp_==o.vdp_ && psg_==o.psg_;
 }
 std::uint8_t Machine::peek(std::uint16_t address) const {
     return memory_.mapping(address).kind==Memory::Kind::unmapped ? open_bus_ : memory_.read(address);
@@ -126,6 +144,38 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     constexpr auto reason_count=static_cast<unsigned>(RoutineFallback::count);
     std::array<bool,reason_count> applies{};
     auto reason=[&](RoutineFallback why, bool applied) { applies[static_cast<unsigned>(why)]=applied; };
+    if (!spec.exits.empty() && spec.exits.front().sprite_outputs) {
+        const auto count=spec.exits.front().sprite_outputs;
+        if (bound!=count*16u && (cpu_.raw().bc.uint16_value&255)==0xbe)
+            throw std::runtime_error("Invalid sprite output cycle bound");
+        for (unsigned i=0;i<count;++i) {
+            const auto opcode=static_cast<std::uint16_t>(pc+2*i);
+            if (memory_.mapping(opcode)!=mapping || memory_.mapping(opcode+1)!=mapping ||
+                peek(opcode)!=0xed || peek(opcode+1)!=0xa3)
+                throw std::runtime_error("Sprite output slice must contain only OUTI in bank 1 ROM");
+        }
+
+    }
+    if (!spec.exits.empty() && spec.exits.front().kind==RoutineExit::output_repeat) {
+        if (memory_.mapping(pc+1).kind!=Memory::Kind::rom || peek(pc)!=0xED || peek(pc+1)!=0xB3)
+            throw std::runtime_error("Video register output must start at a ROM OTIR");
+        if (bound!=video_register_output_cycles())
+            throw std::runtime_error("Invalid video register output bound");
+    }
+    if (!spec.exits.empty() && spec.exits.front().kind==RoutineExit::copy_repeat) {
+        const auto second=static_cast<std::uint16_t>(pc+1);
+        if (memory_.mapping(second).kind!=Memory::Kind::rom || peek(pc)!=0xed || peek(second)!=0xb0)
+            throw std::runtime_error("Registered block copy must start at a ROM LDIR");
+        const auto count=(bound+20)/21;
+        if (!count || count>copy_iterations(cpu_.raw().bc.uint16_value) ||
+            copy_duration(cpu_.raw().bc.uint16_value,count)!=bound)
+            throw std::runtime_error("Invalid forward block copy bound");
+        if (spec.exits.front().native_frame_tail &&
+            (memory_.mapping(second)!=mapping || bound!=block_copy_frame_cycles()))
+            throw std::runtime_error("Scene copy frame exit has the wrong mapping or bound");
+        const auto last=static_cast<unsigned>(cpu_.raw().de.uint16_value)+count-1;
+        reason(RoutineFallback::mapper_write,last>=0xfffc);
+    }
     reason(RoutineFallback::halted,cpu_.raw().halt_line!=0);
     reason(RoutineFallback::interrupt_delay,(cpu_.raw().request & Z80_REQUEST_REJECT_NMI)!=0);
     const auto sp=cpu_.raw().sp.uint16_value;
@@ -148,7 +198,22 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     const auto nmi=next_nmi();
     reason(RoutineFallback::irq,irq && *irq<end);
     reason(RoutineFallback::nmi,nmi && *nmi<end);
-    reason(RoutineFallback::frame,frame_cycles-cycle_%frame_cycles<bound);
+    const auto frame_left=frame_cycles-cycle_%frame_cycles;
+    const bool final_copy=!spec.exits.empty() && spec.exits.front().kind==RoutineExit::copy_repeat &&
+        spec.exits.front().native_frame_tail;
+    const auto copy_count=(bound+20)/21;
+    const bool copy_tail=final_copy && copy_count>=2 && 21*(copy_count-1)<frame_left;
+    const bool final_load=!spec.exits.empty() && spec.exits.front().kind==RoutineExit::core_final &&
+        spec.exits.front().native_frame_tail;
+    if (final_load && (bound!=20 || peek(pc)!=0x21 || peek(pc+3)!=0x01 ||
+        memory_.mapping(pc+5)!=mapping))
+        throw std::runtime_error("Dialogue row frame exit must load HL and BC from ROM");
+    // Native execution finishes the instruction which straddles the frame.
+    // The dialogue setup may do the same when its C++ load has finished
+    // strictly before that boundary. IRQ and NMI use the full bound above.
+    const bool wrong_sprite_port=!spec.exits.empty() && spec.exits.front().sprite_outputs &&
+        (cpu_.raw().bc.uint16_value&255)!=0xbe;
+    reason(RoutineFallback::frame,wrong_sprite_port || (final_load ? frame_left<=10 : frame_left<bound && !copy_tail));
     // A forced single instruction runs on the core with no added delay, so
     // window reasons do not apply. HALT must run on the core without the
     // adjustment. The validated RAM store can also run at an NMI-reject
@@ -189,6 +254,57 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     }
     return true;
 }
+std::uint64_t Machine::routine_window() const {
+    std::uint64_t window=frame_cycles-cycle_%frame_cycles;
+    auto limit=[&](std::optional<std::uint64_t> event) {
+        if (event) window=std::min(window,*event>cycle_ ? *event-cycle_ : 0);
+    };
+    if (cpu_.raw().iff1) limit(vdp_.next_irq_conservative());
+    limit(next_nmi());
+    return window;
+}
+unsigned Machine::video_register_output_cycles() const {
+    const auto bc=cpu_.raw().bc.uint16_value;
+    if ((bc&255)!=0xBF) return 2*frame_cycles;
+    const unsigned remaining=bc>>8;
+    if (remaining==1) return 16;
+    const auto source=cpu_.raw().hl.uint16_value;
+    if (memory_.mapping(source).kind==Memory::Kind::unmapped) return 21;
+    const auto reg=vdp_.control_write_register(peek(source));
+    if (reg && (*reg==0 || *reg==1 || *reg==10)) return 21;
+    const unsigned pair=remaining==2 ? 37 : 42;
+    return pair<=routine_window() ? pair : 21;
+}
+unsigned Machine::block_copy_cycles() const {
+    const auto remaining=cpu_.raw().bc.uint16_value;
+    unsigned count=copy_iterations(remaining);
+    const auto maximum=copy_duration(remaining,count);
+    const auto window=routine_window();
+    if (maximum<=window) return maximum;
+    // All shorter sections stop before the last byte, which alone costs 16
+    // cycles. If even one transfer will cross a boundary, ordinary admission
+    // rejects it and the core handles the instruction.
+    count=std::max(1u,static_cast<unsigned>(window/21));
+    return copy_duration(remaining,count);
+}
+// Only the two opted-in scene palette copies use this selection. A real
+// C++ transfer must finish strictly before the frame; the last transfer is
+// still executed by the core. Interrupt windows cover its complete duration.
+unsigned Machine::block_copy_frame_cycles() const {
+    const auto ordinary=block_copy_cycles();
+    const auto remaining=cpu_.raw().bc.uint16_value;
+    const auto frame_left=frame_cycles-cycle_%frame_cycles;
+    if (ordinary>=frame_left || frame_left<=21) return ordinary;
+    const unsigned before_final=static_cast<unsigned>((frame_left-1)/21);
+    const unsigned count=std::min(copy_iterations(remaining),before_final+1);
+    if (count<2 || count<=static_cast<unsigned>((ordinary+20)/21)) return ordinary;
+    const auto candidate=copy_duration(remaining,count);
+    const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;
+    const auto nmi=next_nmi();
+    if ((irq && *irq<cycle_+candidate) || (nmi && *nmi<cycle_+candidate)) return ordinary;
+    return candidate;
+}
+
 bool Machine::interrupt_accepted_at_boundary() const {
     if (cpu_.raw().resume && cpu_.raw().resume!=Z80_RESUME_HALT) return false;
     const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
@@ -208,24 +324,69 @@ bool Machine::interrupt_accepted_at_boundary() const {
         cpu_.raw().data.uint8_array[0]!=0xfb && !reti_delay;
     return nmi || irq;
 }
+namespace {
+// A late NMI edge must not be visible to the hook or core until after this
+// instruction. Restore it even if a host callback throws.
+struct HideLateNmi {
+    Z80& cpu;
+    bool late;
+    HideLateNmi(Z80& cpu,bool late,bool hide=true) : cpu(cpu),late(late) {
+        if (late && hide) cpu.request &= ~Z80_REQUEST_NMI;
+    }
+    ~HideLateNmi() { if (late) cpu.request |= Z80_REQUEST_NMI; }
+};
+}
 std::uint64_t Machine::step(const Hook& hook, RoutineRegistry* routines) {
     sync(cycle_);
     const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
     z80_int(&cpu_.raw(), sampled_int_);
     const bool accepted=interrupt_accepted_at_boundary();
+    const bool boundary=cpu_.raw().resume==0 && !accepted;
+    bool observed=false, native=false, callback_nmi=false;
+    const auto pc=cpu_.raw().pc.uint16_value;
+    if (boundary && hook && routines && routines->may_observe(pc)) {
+        const auto mapping=memory_.mapping(pc);
+        const auto* entry=mapping.kind==Memory::Kind::rom ? routines->find({mapping.bank,pc}) : nullptr;
+        if (entry && entry->spec.observe_entry) {
+            // The callback can replace the ROM and registry, set the PC or
+            // advance the clock. Do not retain its old routine or bound.
+            auto arbitration=[&] {
+                const auto& cpu=cpu_.raw();
+                return std::tuple{cycle_,sampled_int_,sampled_nmi_,vdp_.irq(),+cpu.request,
+                    +cpu.iff1,+cpu.iff2,+cpu.resume,+cpu.halt_line,cpu.data.uint32_value};
+            };
+            const auto before=arbitration();
+            const auto image=memory_.rom_;
+            std::optional<std::uint16_t> target;
+            {
+                HideLateNmi mask(cpu_.raw(),unsampled_nmi);
+                target=hook(pc,mapping);
+                // The pre-existing late edge is hidden in this scope. A bit
+                // asserted by the callback is a new edge, visible to the
+                // native instruction just as on the path without a registry.
+                callback_nmi=unsampled_nmi && (cpu_.raw().request & Z80_REQUEST_NMI);
+            }
+            observed=true;
+            native=callback_nmi || target.has_value() || cpu_.raw().pc.uint16_value!=pc || before!=arbitration() || image!=memory_.rom_;
+            if (target) cpu_.raw().pc.uint16_value=*target;
+        }
+    }
     // Check while an entry-cycle NMI is still visible. Only the native path
     // hides an edge which missed the preceding instruction's E-1 sample.
-    if (cpu_.raw().resume==0 && !accepted && routines && !routines->empty()) {
+    if (boundary && !native && routines && !routines->empty()) {
         const auto entry=cycle_;
         if (run_routine(*routines)) return cycle_-entry;
     }
-    if (unsampled_nmi) cpu_.raw().request &= ~Z80_REQUEST_NMI;
-    if (cpu_.raw().resume==0 && !accepted && hook) {
-        const auto pc=cpu_.raw().pc.uint16_value;
-        if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
+    std::uint64_t elapsed;
+    {
+        // Keep a callback-created edge visible, but still restore the old
+        // late edge after the native step, as the original hook scope does.
+        HideLateNmi mask(cpu_.raw(),unsampled_nmi,!callback_nmi);
+        if (boundary && !observed && hook) {
+            if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
+        }
+        elapsed=cpu_.step(cycle_);
     }
-    const auto elapsed=cpu_.step(cycle_);
-    if (unsampled_nmi) cpu_.raw().request |= Z80_REQUEST_NMI;
     // [S,E) samples the line at E-1, after any earlier I/O in that instruction.
     sync(cycle_+elapsed-1); sampled_int_=vdp_.irq();
     sampled_nmi_=(cpu_.raw().request & Z80_REQUEST_NMI)!=0;
@@ -262,7 +423,7 @@ std::uint8_t Machine::read_port(std::uint16_t raw,std::uint64_t cycle) {
         else value=low(b.left)|(low(b.right)<<1)|(low(b.one)<<2)|(pin(2,6,b.two)<<3)|
             (low(reset_)<<4)|0x20|(pin(1,5,false)<<6)|(pin(3,7,false)<<7);
     }
-    last_access_=PortAccess{cycle,port,value,false};
+    record_access({cycle,port,value,false});
     return value;
 }
 void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle) {
@@ -282,6 +443,6 @@ void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycl
     } else if (port<0xc0) {
         if (port&1) vdp_.write_control(value); else vdp_.write_data(value);
     }
-    last_access_=PortAccess{cycle,port,value,true};
+    record_access({cycle,port,value,true});
 }
 }

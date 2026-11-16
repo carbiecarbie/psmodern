@@ -19,7 +19,14 @@ int main(int argc,char**argv){try{
     Machine::Hook observe=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t>{
         if(pc==0x100f && mapping==Memory::Mapping{Memory::Kind::rom,0})battle=true;return {};
     };
-    for(;frame<recording.frames && !battle;++frame){original.run_frame(recording.input_at(frame),registry,observe);original.take_samples();original.take_psg_writes();original.memory().clear_cartridge_ram_dirty();}
+    // Watch the original battle entry during warm-up. Translated battle
+    // setup can run through this test-only observation point in one call.
+    for(;frame<recording.frames && !battle;++frame){
+        original.run_frame(recording.input_at(frame),nullptr,observe);
+        original.take_samples();
+        original.take_psg_writes();
+        original.memory().clear_cartridge_ram_dirty();
+    }
     if(!battle)throw std::runtime_error("Recording did not enter a battle");
     const auto root=std::filesystem::temp_directory_path()/("psmodern-pending-battle-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);

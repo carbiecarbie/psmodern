@@ -296,24 +296,24 @@ public:
     // ldir: every iteration fetches both opcode bytes again; a repeated
     // iteration takes its undocumented bits from the instruction's address and
     // leaves MEMPTR at address + 1, the last one takes them from A + the byte.
-    void block_copy(std::uint16_t at) {
-        for (;;) {
-            bus_.fetch(at); bus_.fetch(at+1);
-            const auto value=bus_.read(hl());
-            bus_.write(de(),value);
-            set_hl(static_cast<std::uint16_t>(hl()+1)); set_de(static_cast<std::uint16_t>(de()+1));
-            set_bc(static_cast<std::uint16_t>(bc()-1));
-            const auto keep=static_cast<std::uint8_t>(r.f&(sign_flag|zero_flag|carry_flag));
-            if (bc()) {
-                r.f=static_cast<std::uint8_t>(keep|(high_byte(at)&(y_flag|x_flag))|parity_flag);
-                r.wz=static_cast<std::uint16_t>(at+1); bus_.advance(21);
-                continue;
-            }
-            const auto t=static_cast<std::uint8_t>(value+r.a);
-            r.f=static_cast<std::uint8_t>(keep|((t&2)<<4)|(t&x_flag));
-            bus_.advance(16);
+    void block_copy_byte(std::uint16_t at) {
+        bus_.fetch(at); bus_.fetch(at+1);
+        const auto value=bus_.read(hl());
+        bus_.write(de(),value);
+        set_hl(static_cast<std::uint16_t>(hl()+1)); set_de(static_cast<std::uint16_t>(de()+1));
+        set_bc(static_cast<std::uint16_t>(bc()-1));
+        const auto keep=static_cast<std::uint8_t>(r.f&(sign_flag|zero_flag|carry_flag));
+        if (bc()) {
+            r.f=static_cast<std::uint8_t>(keep|(high_byte(at)&(y_flag|x_flag))|parity_flag);
+            r.wz=static_cast<std::uint16_t>(at+1); bus_.advance(21);
             return;
         }
+        const auto t=static_cast<std::uint8_t>(value+r.a);
+        r.f=static_cast<std::uint8_t>(keep|((t&2)<<4)|(t&x_flag));
+        bus_.advance(16);
+    }
+    void block_copy(std::uint16_t at) {
+        do block_copy_byte(at); while (bc());
     }
 
     // -- Control transfers inside a segment (the operand is read either way)
@@ -337,13 +337,13 @@ public:
     // segment, for example the cell readers): the return address goes through
     // the stack exactly as natively.
     std::uint16_t call(std::uint16_t at) {                                                                 // call nn
-        bus_.fetch(at); r.wz=operand_word(at+1); bus_.advance(1);
-        push_word(static_cast<std::uint16_t>(at+3)); bus_.advance(16); return r.wz;
+        bus_.fetch(at); r.wz=operand_word(at+1);
+        push_word(static_cast<std::uint16_t>(at+3)); bus_.advance(17); return r.wz;
     }
     bool call_if(std::uint16_t at, bool taken) {                                                           // call cc,nn
         bus_.fetch(at); r.wz=operand_word(at+1);
         if (!taken) { bus_.advance(10); return false; }
-        bus_.advance(1); push_word(static_cast<std::uint16_t>(at+3)); bus_.advance(16); return true;
+        push_word(static_cast<std::uint16_t>(at+3)); bus_.advance(17); return true;
     }
     std::uint16_t return_from(std::uint16_t at) { bus_.fetch(at); r.wz=pop_word(); bus_.advance(10); return r.wz; } // ret
     bool return_if(std::uint16_t at, bool taken) {                                                         // ret cc
@@ -447,6 +447,7 @@ template<class Logic> void run(RoutineContext& context, const Logic& logic) {
     const auto exit=logic(instructions);
     store(cpu,registers);
     if (exit.segment.kind==RoutineExit::returned) context.finish_return(exit.segment.address);
+    else if (exit.segment.kind==RoutineExit::copy_repeat) context.finish_copy(exit.segment.address);
     else context.finish_core(exit.segment.address);
 }
 // A segment whose bound is its estimated path.

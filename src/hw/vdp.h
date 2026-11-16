@@ -21,8 +21,11 @@ public:
     std::optional<std::uint64_t> next_irq_conservative() const;
     // Decode only a completed register command, without changing the latch.
     std::optional<unsigned> control_write_register(std::uint8_t value) const {
-        if (control_latch_ && (value>>6)==2 && (value&15)<regs_.size()) return value&15;
-        return {};
+        return control_latch_ ? command_register(value) : std::nullopt;
+    }
+    // Exactly one of two consecutive control writes completes a command.
+    std::optional<unsigned> control_pair_register(std::uint8_t first,std::uint8_t second) const {
+        return command_register(control_latch_ ? first : second);
     }
     std::uint64_t cycle() const { return cycle_; }
     std::uint8_t line_counter() const { return line_counter_; }
@@ -34,6 +37,10 @@ public:
     const Picture& picture() const { return completed_picture_; }
     bool operator==(const Vdp&) const = default;
 private:
+    std::optional<unsigned> command_register(std::uint8_t command) const {
+        if ((command>>6)==2 && (command&15)<regs_.size()) return command&15;
+        return {};
+    }
     friend class Machine;
     friend struct VdpFixture;
     std::array<std::uint8_t, 0x4000> vram_{};

@@ -39,11 +39,43 @@ target_include_directories(psmodern_hw PUBLIC src)
 target_link_libraries(psmodern_hw PUBLIC redcode_z80)
 add_library(psmodern_rom src/rom/rom.cpp src/rom/sha1.cpp src/rom/sha256.cpp)
 target_include_directories(psmodern_rom PUBLIC src)
-add_library(psmodern_game src/game/routines.cpp src/game/random.cpp src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp
-  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp src/game/map_screens.cpp
-  src/game/map_video.cpp src/game/map_scroll.cpp src/game/map_objects.cpp src/game/map_terrain.cpp src/game/map_entrances.cpp src/game/map_modes.cpp
-  src/game/menu_engine.cpp src/game/menu_windows.cpp src/game/menu_select.cpp src/game/menu_field.cpp src/game/menu_places.cpp src/game/menu_fades.cpp)
+add_library(psmodern_game
+  src/game/routines.cpp src/game/interaction_messages.cpp src/game/interaction_prompts.cpp
+  src/game/interaction_party.cpp src/game/interaction_state.cpp src/game/interaction_story.cpp
+  src/game/interaction_handoffs.cpp src/game/interaction_replies.cpp src/game/interaction_setup.cpp
+  src/game/interaction_progress.cpp src/game/interaction_companion.cpp
+  src/game/interaction_letter.cpp src/game/interaction_rescue.cpp
+  src/game/interaction_progression.cpp src/game/interaction_sales.cpp src/game/interaction_trade.cpp
+  src/game/common.cpp src/game/dispatch.cpp src/game/arithmetic.cpp src/game/random.cpp
+  src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp
+  src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp
+  src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp src/game/map_screens.cpp
+  src/game/map_video.cpp src/game/map_scroll.cpp src/game/map_objects.cpp src/game/map_terrain.cpp
+  src/game/frame_updates.cpp src/game/map_display.cpp src/game/map_entrances.cpp
+  src/game/map_modes.cpp src/game/menu_engine.cpp src/game/menu_windows.cpp src/game/menu_select.cpp
+  src/game/menu_field.cpp src/game/menu_places.cpp src/game/menu_fades.cpp src/game/sound.cpp
+  src/game/sound_sequence.cpp src/game/sound_output.cpp src/game/sound_voice.cpp
+  src/game/sound_envelope.cpp src/game/sound_tick.cpp src/game/sound_setup.cpp
+  src/game/sound_notes.cpp src/game/sound_effects.cpp src/game/sound_request.cpp
+  src/game/sound_bridge.cpp src/game/recovery.cpp src/game/block_transfer.cpp src/game/save_menu.cpp
+  src/game/battle_commands.cpp src/game/battle_turn.cpp src/game/battle_magic.cpp
+  src/game/battle_sprites.cpp src/game/battle_animation.cpp src/game/scene_objects.cpp
+  src/game/battle_outcomes.cpp src/game/items_field.cpp src/game/items_story.cpp
+  src/game/party_helpers.cpp src/game/battle_enemy_magic.cpp src/game/battle_enemy.cpp
+  src/game/battle_actor.cpp src/game/battle_damage.cpp src/game/battle_status.cpp
+  src/game/field_magic.cpp src/game/dungeon_escape.cpp src/game/dungeon_load.cpp
+  src/game/dungeon_layout.cpp src/game/dungeon_stream.cpp src/game/dungeon_view.cpp
+  src/game/dungeon_frame.cpp src/game/dungeon_overlay.cpp src/game/video_transfer.cpp
+  src/game/scenes.cpp src/game/scenes_name.cpp src/game/scenes_script.cpp
+  src/game/scenes_animation.cpp src/game/scenes_persistence.cpp src/game/scenes_interaction.cpp
+  src/game/scenes_visual.cpp src/game/scenes_quests.cpp src/game/menu_remainder.cpp)
 target_link_libraries(psmodern_game PUBLIC psmodern_hw psmodern_rom)
+if(MINGW)
+  # GCC 16 reports a false -Wmaybe-uninitialized in the inlined destructor of
+  # the estimating bus's optional memory copy (game/dungeon_kit.h) when it
+  # inlines the sound-note segments' cost estimates.
+  set_source_files_properties(src/game/sound_notes.cpp PROPERTIES COMPILE_OPTIONS -Wno-maybe-uninitialized)
+endif()
 add_library(psmodern_replay src/replay/recording.cpp src/replay/verification.cpp src/replay/census.cpp)
 target_link_libraries(psmodern_replay PUBLIC psmodern_game)
 configure_file(cmake/PSModernVersion.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/PSModernVersion.h @ONLY)
@@ -175,6 +207,88 @@ if(BUILD_TESTING)
   endforeach()
   # Python tests run with -B: they import from tools/ and must not leave
   # __pycache__ in the source tree.
+  add_executable(psmodern_interaction_messages_tests tests/interaction_messages_tests.cpp)
+  add_executable(psmodern_battle_sprites_tests tests/battle_sprites_tests.cpp)
+  target_link_libraries(psmodern_interaction_messages_tests PRIVATE psmodern_replay)
+  target_link_libraries(psmodern_battle_sprites_tests PRIVATE psmodern_replay)
+  add_executable(psmodern_common_tests tests/common_tests.cpp)
+  target_link_libraries(psmodern_common_tests PRIVATE psmodern_replay)
+  add_executable(psmodern_sound_tests tests/sound_tests.cpp)
+  add_executable(psmodern_recovery_tests tests/recovery_tests.cpp)
+  add_executable(psmodern_battle_commands_tests tests/battle_commands_tests.cpp)
+  add_executable(psmodern_battle_turn_tests tests/battle_turn_tests.cpp)
+  add_executable(psmodern_battle_magic_tests tests/battle_magic_tests.cpp)
+  add_executable(psmodern_battle_damage_tests tests/battle_damage_tests.cpp)
+  add_executable(psmodern_battle_status_tests tests/battle_status_tests.cpp)
+  add_executable(psmodern_field_magic_tests tests/field_magic_tests.cpp)
+  add_executable(psmodern_battle_actor_tests tests/battle_actor_tests.cpp)
+  add_executable(psmodern_battle_enemy_tests tests/battle_enemy_tests.cpp)
+  add_executable(psmodern_menu_remainder_tests tests/menu_remainder_tests.cpp)
+  target_link_libraries(psmodern_menu_remainder_tests PRIVATE psmodern_replay)
+  add_executable(psmodern_battle_outcomes_tests tests/battle_outcomes_tests.cpp)
+  add_executable(psmodern_battle_option_victory_tests tests/battle_option_victory_tests.cpp)
+  add_executable(psmodern_items_field_tests tests/items_field_tests.cpp)
+  add_executable(psmodern_items_story_tests tests/items_story_tests.cpp)
+  add_executable(psmodern_party_helpers_tests tests/party_helpers_tests.cpp)
+  add_executable(psmodern_battle_enemy_magic_tests tests/battle_enemy_magic_tests.cpp)
+  target_link_libraries(psmodern_battle_turn_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_magic_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_damage_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_status_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_field_magic_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_actor_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_enemy_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_outcomes_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_option_victory_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_items_field_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_items_story_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_party_helpers_tests PRIVATE psmodern_app)
+  target_link_libraries(psmodern_battle_enemy_magic_tests PRIVATE psmodern_app)
+  add_test(NAME battle_turn_unit COMMAND psmodern_battle_turn_tests)
+  add_test(NAME battle_magic_unit COMMAND psmodern_battle_magic_tests)
+  add_test(NAME battle_damage_unit COMMAND psmodern_battle_damage_tests)
+  add_test(NAME battle_status_unit COMMAND psmodern_battle_status_tests)
+  add_test(NAME field_magic_unit COMMAND psmodern_field_magic_tests)
+  add_test(NAME battle_actor_unit COMMAND psmodern_battle_actor_tests)
+  add_test(NAME battle_enemy_unit COMMAND psmodern_battle_enemy_tests)
+  add_test(NAME battle_outcomes_unit COMMAND psmodern_battle_outcomes_tests)
+  add_test(NAME items_field_unit COMMAND psmodern_items_field_tests)
+  add_test(NAME items_story_unit COMMAND psmodern_items_story_tests)
+  add_test(NAME party_helpers_unit COMMAND psmodern_party_helpers_tests)
+  add_test(NAME battle_enemy_magic_unit COMMAND psmodern_battle_enemy_magic_tests)
+  set_tests_properties(battle_turn_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_magic_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_damage_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_status_unit PROPERTIES LABELS fast)
+  set_tests_properties(field_magic_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_actor_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_enemy_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_outcomes_unit PROPERTIES LABELS fast)
+  set_tests_properties(items_field_unit PROPERTIES LABELS fast)
+  set_tests_properties(items_story_unit PROPERTIES LABELS fast)
+  set_tests_properties(party_helpers_unit PROPERTIES LABELS fast)
+  set_tests_properties(battle_enemy_magic_unit PROPERTIES LABELS fast)
+  target_link_libraries(psmodern_battle_commands_tests PRIVATE psmodern_app)
+  add_test(NAME battle_commands_unit COMMAND psmodern_battle_commands_tests)
+  set_tests_properties(battle_commands_unit PROPERTIES LABELS fast)
+  target_link_libraries(psmodern_recovery_tests PRIVATE psmodern_app)
+  add_test(NAME recovery_unit COMMAND psmodern_recovery_tests)
+  set_tests_properties(recovery_unit PROPERTIES LABELS fast)
+  add_executable(psmodern_dispatch_tests tests/dispatch_tests.cpp)
+  add_executable(psmodern_arithmetic_tests tests/arithmetic_tests.cpp)
+  add_executable(psmodern_block_transfer_tests tests/block_transfer_tests.cpp)
+  target_link_libraries(psmodern_block_transfer_tests PRIVATE psmodern_replay)
+  add_executable(psmodern_dungeon_layout_tests tests/dungeon_layout_tests.cpp)
+  add_executable(psmodern_video_transfer_tests tests/video_transfer_tests.cpp)
+  add_executable(psmodern_scenes_tests tests/scenes_tests.cpp)
+  target_link_libraries(psmodern_scenes_tests PRIVATE psmodern_replay)
+  target_link_libraries(psmodern_dungeon_layout_tests PRIVATE psmodern_replay)
+  target_link_libraries(psmodern_video_transfer_tests PRIVATE psmodern_replay)
+  add_test(NAME block_transfer_observer COMMAND psmodern_block_transfer_tests)
+  set_tests_properties(block_transfer_observer PROPERTIES LABELS fast)
+  target_link_libraries(psmodern_dispatch_tests PRIVATE psmodern_replay)
+  target_link_libraries(psmodern_arithmetic_tests PRIVATE psmodern_replay)
+  target_link_libraries(psmodern_sound_tests PRIVATE psmodern_replay)
   add_executable(psmodern_game_routine_tests tests/game_routine_tests.cpp)
   add_executable(psmodern_text_tests tests/text_tests.cpp)
   add_executable(psmodern_text_recording_tests tests/text_recording_tests.cpp)
@@ -322,7 +436,7 @@ if(BUILD_TESTING)
   set_tests_properties(routine_unit routine_irq_query PROPERTIES LABELS fast)
   add_executable(psmodern_lockstep_tests tests/lockstep_tests.cpp)
   target_link_libraries(psmodern_lockstep_tests PRIVATE psmodern_replay)
-  foreach(case cycle r fetches flag memptr q ram vdp_late psg_late latch open_bus bound dispatch clean windows fields segments forced exits)
+  foreach(case cycle r fetches flag memptr q ram vdp_late psg_late extra_port_read latch open_bus bound dispatch clean windows fields segments forced exits)
     add_test(NAME "lockstep_${case}" COMMAND psmodern_lockstep_tests "${case}")
     set_tests_properties("lockstep_${case}" PROPERTIES LABELS fast)
   endforeach()
@@ -365,6 +479,58 @@ if(BUILD_TESTING)
   # Every test that needs a game ROM carries the label rom beside its own.
   function(psmodern_rom_test name path version)
     if(PSMODERN_ROM_TESTS)
+      add_test(NAME "${name}_block_transfer" COMMAND psmodern_block_transfer_tests "${path}" "${version}")
+      add_test(NAME "${name}_battle_turn" COMMAND psmodern_battle_turn_tests "${path}" "${version}")
+      add_test(NAME "${name}_battle_magic" COMMAND psmodern_battle_magic_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_battle_damage" COMMAND psmodern_battle_damage_tests "${path}" "${version}")
+      add_test(NAME "${name}_battle_status" COMMAND psmodern_battle_status_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_field_magic" COMMAND psmodern_field_magic_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_battle_actor" COMMAND psmodern_battle_actor_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_battle_enemy" COMMAND psmodern_battle_enemy_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_menu_remainder" COMMAND psmodern_menu_remainder_tests "${path}" "${version}")
+      set_tests_properties("${name}_menu_remainder" PROPERTIES LABELS "rom;menu" SKIP_RETURN_CODE 77)
+      add_test(NAME "${name}_battle_outcomes" COMMAND psmodern_battle_outcomes_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_battle_option_victory" COMMAND psmodern_battle_option_victory_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_items_field" COMMAND psmodern_items_field_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_items_story" COMMAND psmodern_items_story_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_party_helpers" COMMAND psmodern_party_helpers_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      add_test(NAME "${name}_battle_enemy_magic" COMMAND psmodern_battle_enemy_magic_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      set_tests_properties("${name}_battle_turn" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_magic" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_damage" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_status" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_field_magic" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_actor" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_enemy" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_outcomes" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_option_victory" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_items_field" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_items_story" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_party_helpers" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_battle_enemy_magic" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      add_test(NAME "${name}_battle_commands" COMMAND psmodern_battle_commands_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      set_tests_properties("${name}_battle_commands" PROPERTIES LABELS "rom;battle" SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_block_transfer" PROPERTIES LABELS rom SKIP_RETURN_CODE 77)
+      add_test(NAME "${name}_dungeon_layout" COMMAND psmodern_dungeon_layout_tests "${path}" "${version}")
+      add_test(NAME "${name}_video_transfer" COMMAND psmodern_video_transfer_tests "${path}" "${version}")
+      add_test(NAME "${name}_scenes" COMMAND psmodern_scenes_tests "${path}" "${version}")
+      set_tests_properties("${name}_scenes" PROPERTIES LABELS rom SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_dungeon_layout" PROPERTIES LABELS rom SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_video_transfer" PROPERTIES LABELS rom SKIP_RETURN_CODE 77)
+      add_test(NAME "${name}_recovery" COMMAND psmodern_recovery_tests "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}" "${PSMODERN_REFERENCE_DIR}")
+      set_tests_properties("${name}_recovery" PROPERTIES LABELS "rom;recovery" SKIP_RETURN_CODE 77)
+      add_test(NAME "${name}_dispatch" COMMAND psmodern_dispatch_tests "${path}" "${version}")
+      add_test(NAME "${name}_arithmetic" COMMAND psmodern_arithmetic_tests "${path}" "${version}")
+      set_tests_properties("${name}_dispatch" PROPERTIES LABELS rom SKIP_RETURN_CODE 77)
+      set_tests_properties("${name}_arithmetic" PROPERTIES LABELS rom SKIP_RETURN_CODE 77)
+      add_test(NAME "${name}_interaction_messages" COMMAND psmodern_interaction_messages_tests "${path}" "${version}")
+      add_test(NAME "${name}_battle_sprites" COMMAND psmodern_battle_sprites_tests "${path}" "${version}")
+      set_tests_properties("${name}_interaction_messages" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      set_tests_properties("${name}_battle_sprites" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      add_test(NAME "${name}_common" COMMAND psmodern_common_tests "${path}" "${version}")
+      set_tests_properties("${name}_common" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      add_test(NAME "${name}_sound" COMMAND psmodern_sound_tests "${path}" "${version}")
+      set_tests_properties("${name}_sound" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       add_test(NAME "${name}_text" COMMAND psmodern_text_tests "${path}" "${version}")
       set_tests_properties("${name}_text" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       if(version STREQUAL "br")
@@ -393,10 +559,32 @@ if(BUILD_TESTING)
       add_test(NAME "${name}_replay" COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/replay_rom_tests.py $<TARGET_FILE:psmodern_replay_runner> "${path}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}/short.psrec")
       set_tests_properties("${name}_replay" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       # Milestone 7 added three US dungeon recordings (a walk in two parts and a
-      # Continue that leaves the dungeon); the Brazilian checkpoints stay six.
+      # Continue that leaves the dungeon).
       set(checkpoints opening first-battle first-dungeon later-town boss deep-dungeon)
       if(version STREQUAL "us")
-        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice ${menu_new_recordings})
+        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice ${menu_new_recordings} ending sound-flute pause-gameplay pause-walk pause-phase-sweep party-defeat)
+        add_test(NAME "${name}_sound_flute_census" COMMAND ${Python3_EXECUTABLE} -B
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/sound_flute_census.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/routine-census/us/sound-flute.tsv")
+        set_tests_properties("${name}_sound_flute_census" PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;checkpoint" DEPENDS "${name}_sound-flute")
+        add_test(NAME "${name}_pause_walk_census" COMMAND ${Python3_EXECUTABLE} -B
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/pause_walk_census.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/routine-census/us/pause-walk.tsv")
+        set_tests_properties("${name}_pause_walk_census" PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;checkpoint" DEPENDS "${name}_pause-walk")
+        add_test(NAME "${name}_pause_sweep_census" COMMAND ${Python3_EXECUTABLE} -B
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/pause_walk_census.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/routine-census/us/pause-phase-sweep.tsv" 48)
+        set_tests_properties("${name}_pause_sweep_census" PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;checkpoint" DEPENDS "${name}_pause-phase-sweep")
+        add_test(NAME "${name}_pause_gameplay_census" COMMAND ${Python3_EXECUTABLE} -B
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/pause_gameplay_census.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/routine-census/us/pause-gameplay.tsv")
+        set_tests_properties("${name}_pause_gameplay_census" PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;checkpoint" DEPENDS "${name}_pause-gameplay")
+      else()
+        list(APPEND checkpoints save-name)
+        add_test(NAME "${name}_save_name_census" COMMAND ${Python3_EXECUTABLE} -B
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/save_name_census.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/routine-census/br/save-name.tsv")
+        set_tests_properties("${name}_save_name_census" PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;checkpoint" DEPENDS "${name}_save-name")
       endif()
       foreach(checkpoint IN LISTS checkpoints)
         set(manifest "")

@@ -56,8 +56,14 @@ The game-system chapters explain [controller reading](how-it-works/controls.md),
 [random numbers and encounters](how-it-works/random-numbers.md),
 [party records and experience](how-it-works/party.md),
 [the sound driver](how-it-works/sound.md),
-[walking in the dungeons](how-it-works/dungeons.md) and
-[the world map and the towns](how-it-works/world-map.md).
+[walking in the dungeons](how-it-works/dungeons.md),
+[the world map and the towns](how-it-works/world-map.md),
+[menus and windows](how-it-works/menus.md),
+[text](how-it-works/text.md),
+[battles](how-it-works/battle.md),
+[town and dungeon interactions](how-it-works/interactions.md),
+[the title screen, saved games and story scenes](how-it-works/scenes.md) and
+[interrupts, reset and frame waits](how-it-works/interrupts.md).
 
 ## Program
 
@@ -648,6 +654,60 @@ same folder, flushed, closed and atomically published without replacing an
 existing destination. A crash before publication leaves no destination. A
 failed publication reports an error; a partial destination is never published.
 
+## Final battle recordings
+
+The US `ending` checkpoint starts at Continue, opens the sealed door on
+Governor's Palace B3F, wins the final battle, answers the governor and plays
+through the credits to the title. All 16,902 frames match the pinned MesenCE
+reference across all seven components. The recording contains only inputs.
+To reproduce the external cartridge RAM image, begin with the `dungeon-continue`
+checkpoint's image (SHA-1 `ea27a71b21c14c2eb236b84cc453266c0bb5aa40`).
+In slot 1, set the saved floor, position and facing at `$C30D`, `$C30C`,
+`$C30A` to 31, 222 and 0, respectively, the light at `$C315` to 1 and
+the item at `$C4C1` to 62 (the Miracle Key). In each of the three active
+party records at `$C400`, `$C410` and `$C420`, set current and maximum HP
+(offsets 1 and 6) to 230 and attack and defense (offsets 8 and 9) to 220.
+The slot byte for a work RAM address is at `0x400 + address - 0xC300`.
+The resulting image has SHA-1 `b7ce2726b1e979da2db1d1b52794cb01acf3e629`.
+
+The US `party-defeat` checkpoint takes the same door into the Darkfalz
+battle. It records all three party members reaching zero HP, followed by
+the return to the title. All seven components matched MesenCE for all
+3,678 frames. Start from the same `dungeon-continue` image and apply the
+same floor, cell, direction, light and Miracle Key settings as for
+`ending`. In the first three party records set current HP, attack and
+defense (offsets 1, 8 and 9) to one. Keep the original maximum HP.
+The resulting cartridge RAM has SHA-1 `f232af1759411ba5df43c129c4be956dbc864620`.
+
+## Pause during dungeon exploration
+
+The US `pause-walk` recording uses the original `dungeon-continue` starting
+image (SHA-1 `ea27a71b21c14c2eb236b84cc453266c0bb5aa40`). Holding Up
+through the first press places the party in the walking loop. The pause flag
+changes on frames 1691 and 1745. The separate `pause-phase-sweep` recording
+uses the same image with 48 pause transitions. Its 2,309 frames distinguish
+NMI instruction boundaries by the return address written to the stack. Both
+external manifests include all seven components.
+
+The Brazilian `save-name` recording uses the same unmodified starting
+image. Continue from slot one, save into slot three, type two letters,
+erase one, type another and choose the keyboard's confirmation key. The
+party returns to the dungeon. All seven components are checked over 2,664
+frames. The final cartridge RAM SHA-256 is
+`5ccfe3ce7d63374c56a46b3f8be030b59aaef52d328f2e03f63bfd1eff89b3e9`.
+
+## Rare sound recording
+
+The US `sound-flute` recording starts from the `field-menu` cartridge-RAM
+image, with the first inventory item changed to a flute. It continues the
+saved game, encounters an enemy, selects the flute for Alis and attacks with
+the other two party members. The reference folder supplies the edited start
+image next to its manifest. The checkpoint compares the seven components at
+every frame and verifies every admitted rewrite; its census test additionally
+requires the shared-voice stop at `0C:8215` to run in C++ without fallback.
+The edited image, its provenance and the reference capture stay outside the
+repository.
+
 ## Replay runner
 
 ```text
@@ -809,31 +869,54 @@ aids and no test needs them.
 
 Every replay writes `routine-census.tsv` beside its manifest, one line per
 registered entry. The columns are `entry`, `unit` (the routine the entry
-belongs to), `cpp`, `fallback`, `forced`, `forced_failed`, then the eight
-fallback reasons, then the same eight reasons prefixed with `forced_`. An empty
+belongs to), `cpp`, `fallback`, `forced`, `forced_failed`, then the nine
+fallback reasons (including a write to a mapper register), then the same reasons prefixed with `forced_`. An empty
 registry writes just the header. Counts contain no ROM bytes. A dungeon segment
 refused because its stack does not give back a pushed return address (stack
 bytes in ROM, reached only by the state probes) is filed under the `frame`
 reason, since its bound is set above one frame; such refusals never occur in a
 recording.
 
-The twenty checkpoint tests (six per version and the eight US-only
-recordings) check every admitted C++ call, compare
+- The native copy stops at a boundary at a declared core-final address only
+  when SP is the entry SP plus that exit's offset and, for a loop exit, at
+  least `after` cycles have passed. The context refuses an earlier arrival
+  in C++; a body that stops a record late reaches the same address with other
+  cycles and registers, and the whole-machine comparison names them. Held words stay in memory, so the
+  words pushed by one segment are compared at every later exit of the chain.
+- The stop at a return to the word read at the entry SP (SP = entry + 2)
+  applies as before, except in a segment with `inherited_stack` above 0 that
+  declares no returned exit at offset 0: there that word is held data, and a
+  pop leaving PC equal to it must not end the copy. For each returned exit at
+  offset s above 0, the copy also stops when the instruction at that address,
+  started at a boundary with SP = entry + s, leaves SP = entry + s + 2 and PC
+  equal to the word that was at that SP. An untaken conditional return there
+  continues.
+- The exit the copy stopped at is the declared exit, offset included, and it
+  must equal the body's exit in every field; a different address, kind or
+  offset is reported as `exit mismatch` (offsets are printed as `stack -2`).
+  A native path that returns at an undeclared offset never stops and fails as
+  `understated bound` or at the frame boundary. A conditional exit needs no
+  new rule: the copy stops at the declared address and steps once, and a body
+  that left the wrong flags or B ends at another PC, which the comparison
+  names together with the flags or B.
+
+The 27 checkpoint tests (20 US and seven Brazilian recordings) check
+every admitted C++ call, compare
 routines on/off frame by frame, and compare the resulting frames with the
 pinned milestone 1 reference. In each checkpoint an entry with at least 20
 calls needs at least 90% C++ calls; entries with fewer calls are reported, not
 gated. `forced` and `forced_failed` must be 0 there, since the checkpoints run
 in original mode. The controller must be called in every checkpoint and keeps
 the 90% share whatever its call count. The tests write counts to
-`build-rel/routine-census/{us,br}/`. Generate [the coverage chapter](coverage.md)
-after all twenty pass:
+`build-rel/routine-census/{us,br}/`. Once all checkpoints pass, regenerate
+[the coverage chapter](coverage.md) with this command.
 
 ```sh
 python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
 ```
 
 The generator groups segments under their unit and applies the same 90% rule
-to every entry with at least 20 calls, over the twenty censuses together and in
+to every entry with at least 20 calls, over all 27 censuses together and in
 each census. An entry with at least one call needs at least one C++ call,
 unless it is on the explicit allow-list in the generator, which carries a
 written reason per entry and is empty now. An allow-listed entry that has C++
@@ -861,7 +944,7 @@ R and fetch count; the random, encounter and experience tests probe their
 segments against the original from many machine states. The ROM-free catalog
 and coverage-generator tests run in CI.
 
-Besides the twenty checkpoints, every checkpoint recording has an `_options` test
+Every checkpoint recording also has an `_options` test
 (`rom_us_<recording>_options`, `rom_br_<recording>_options`, label
 `checkpoint`; the script is `tests/replay_rom_tests.py <runner> <rom> <recording>
 options <reference-folder> [full|identity-only] [marker-file]`). Each test runs
@@ -892,9 +975,8 @@ after the cell test in a dungeon; a fixed fight does not pass through them
 (Inference). At recording level the dungeon side proves only that the first
 compares run and no group choice follows with encounters off, because the
 play diverges soon after; the state probes cover the compare and the
-dungeon segments exhaustively. The twenty `_options` tests take about 10
-minutes of test time in all, and the complete suite about 17 minutes of real
-time at `-j 16` (measured at milestone 11: 1,045 seconds).
+dungeon segments exhaustively. At milestone 11 the complete suite took
+1,045 seconds of real time at `-j 16`.
 
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
@@ -1159,28 +1241,18 @@ exits with the same kind and address.
 
 What the per-call verifier compares, and why a divergence cannot hide:
 
-- The native copy stops at a boundary at a declared core-final address only
-  when SP is the entry SP plus that exit's offset and, for a loop exit, at
-  least `after` cycles have passed. The context refuses an earlier arrival
-  in C++; a body that stops a record late reaches the same address with other
-  cycles and registers, and the whole-machine comparison names them. Held words stay in memory, so the
-  words pushed by one segment are compared at every later exit of the chain.
-- The stop at a return to the word read at the entry SP (SP = entry + 2)
-  applies as before, except in a segment with `inherited_stack` above 0 that
-  declares no returned exit at offset 0: there that word is held data, and a
-  pop leaving PC equal to it must not end the copy. For each returned exit at
-  offset s above 0, the copy also stops when the instruction at that address,
-  started at a boundary with SP = entry + s, leaves SP = entry + s + 2 and PC
-  equal to the word that was at that SP. An untaken conditional return there
-  continues.
-- The exit the copy stopped at is the declared exit, offset included, and it
-  must equal the body's exit in every field; a different address, kind or
-  offset is reported as `exit mismatch` (offsets are printed as `stack -2`).
-  A native path that returns at an undeclared offset never stops and fails as
-  `understated bound` or at the frame boundary. A conditional exit needs no
-  new rule: the copy stops at the declared address and steps once, and a body
-  that left the wrong flags or B ends at another PC, which the comparison
-  names together with the flags or B.
+- Each machine records its port accesses during the call. The verifier
+  compares every access in order, including its cycle, decoded port,
+  direction and value. A mismatch reports its position in the sequence.
+  The trace is scoped to the verifier and is released after the call.
+- An indirect handler-table exit can end at a plain jump through HL. The
+  verifier follows the original jump and checks its destination and stack.
+- A registered forward block copy processes up to sixteen bytes. Each
+  repeated transfer takes 21 cycles and the final byte takes 16. Admission
+  checks the entire slice against the next interrupt and frame. A slice
+  that would write to a mapper register takes the original path. The
+  verifier executes the matching number of original transfers, including
+  the final one that the replacement also executes on the core.
 
 ### Options
 
@@ -1384,7 +1456,7 @@ lowered to 55 and sixteen more items (the count 23). The edits are saved
 fields only, each listed byte by byte in notes kept outside the repository, and the
 game's own Continue loads both normally; each recording was compared frame by
 frame with the patched MesenCE. `field-menu` ends on the save-name screen
-after the last save; the code of that screen belongs to milestone 13.
+after the last save; milestone 13 rewrote that screen in C++.
 
 The `road` recording starts from the `later-town` image unedited. The
 `vehicles` and `ice` images could not be game-made, since the vehicles are
@@ -1553,8 +1625,9 @@ reloads R10 on 192–260. This is the 0–192 decrement window of the
 [VDP notes](https://www.smspower.org/uploads/Development/msvdp-20021112.txt)
 when lines are named by the V-counter value after its transition. Underflow
 sets the line pending flag and reloads R10; a write to R10 takes effect at the
-next reload, not immediately. The Pause NMI sample at line 260, cycle 212,
-two cycles after the frame event, reproduces FluBBa's NMI value.
+next reload, not immediately. Pause uses the reference's line-260 dot-315 sample. The machine converts
+that position to its instruction-boundary sampling convention as described
+in the [Master System chapter](how-it-works/master-system.md).
 
 A status read clears both pending interrupt flags and the readable sprite and
 frame flags. INT is the OR of the two pending flags gated by their enables,

@@ -162,6 +162,64 @@ void integration(std::shared_ptr<const Memory::Rom> rom,RomVersion version,const
     check(!fast.power_cycle(),"power cycle could not flush save");
     const auto reset=fast.run({});check(!reset.playback && !reset.audio_error,"power cycle retained an accelerated sound timeline");
 }
+// Compare the host-observed sound event sequence and actual application
+// output with game replacements enabled and disabled. The same inputs cover
+// normal and accelerated playback, a request and two Pause edges.
+void observed_sound_events(std::shared_ptr<const Memory::Rom> rom,RomVersion version,
+                           const replay::Recording& recording,const std::filesystem::path& root) {
+    app::FrameDriver replaced(rom,app::SaveStore(root/"events-cpp",version),true);
+    app::FrameDriver native(rom,app::SaveStore(root/"events-native",version),false);
+    std::array<unsigned,4> totals{};
+    for(unsigned frame=0;frame<400;++frame) {
+        const unsigned speed=frame<100 ? 1 : frame<250 ? 2 : 4;
+        replaced.speed(speed);
+        native.speed(speed);
+        auto input=recording.input_at(frame);
+        input.pause=(frame>=150 && frame<154) || (frame>=200 && frame<204);
+        if(frame==50) {
+            replaced.machine().memory().write(0xc004,0x81);
+            native.machine().memory().write(0xc004,0x81);
+        }
+        if (frame==260 || frame==300) {
+            for (auto* driver : {&replaced,&native}) {
+                auto& machine=driver->machine();
+                machine.cpu().pc.uint16_value=frame==260 ? 0x02f5 : 0x02ed;
+                machine.cpu().sp.uint16_value=0xdf00;
+                machine.cpu().iff1=machine.cpu().iff2=0;
+                machine.memory().write(0xdf00,0x55);
+                machine.memory().write(0xdf01,0);
+            }
+        }
+        Machine cpp_shadow(replaced.machine()), native_shadow(native.machine());
+        using Event=std::array<std::uint64_t,4>;
+        std::vector<Event> cpp_events,native_events;
+        auto trace=[&](Machine& machine,std::vector<Event>& events) {
+            return [&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
+                const bool relevant=(mapping==Memory::Mapping{Memory::Kind::rom,0} && (pc==0x02ed || pc==0x02f5)) ||
+                                    (mapping==Memory::Mapping{Memory::Kind::rom,12} && (pc==0x8043 || pc==0x82ef));
+                if(relevant) events.push_back({pc,machine.cycles(),mapping.bank,machine.peek(0xc004)});
+                return {};
+            };
+        };
+        cpp_shadow.run_frame(input,replaced.routines(),trace(cpp_shadow,cpp_events));
+        native_shadow.run_frame(input,native.routines(),trace(native_shadow,native_events));
+        check(cpp_events==native_events,"observed sound event order, cycle or request differs");
+        for(const auto& event:cpp_events) {
+            const unsigned index=event[0]==0x02ed ? 0 : event[0]==0x02f5 ? 1 : event[0]==0x8043 ? 2 : 3;
+            ++totals[index];
+        }
+        const auto a=replaced.run(input), b=native.run(input);
+        check(a.writes==b.writes && a.samples==b.samples && a.playback==b.playback && a.audio_error==b.audio_error,
+              "observed sound bridge changed application audio");
+        if (!replaced.machine().equivalent(native.machine())) {
+            std::cerr<<"sound comparison frame "<<frame<<" differences:";
+            for(const auto& d:replaced.machine().differences(native.machine())) std::cerr<<" "<<d.field;
+            std::cerr<<"\n";
+            throw std::runtime_error("observed sound bridge changed gameplay state");
+        }
+    }
+    check(totals[0] && totals[1] && totals[2] && totals[3],"sound event fixture missed an observed entry");
+}
 void fade_provenance(std::shared_ptr<const Memory::Rom> rom,RomVersion version,
                      const replay::Recording& recording,const std::filesystem::path& root) {
     app::FrameDriver driver(rom,app::SaveStore(root/"fade",version));
@@ -230,7 +288,7 @@ int main(int argc,char** argv) {try {
     const auto root=std::filesystem::temp_directory_path()/("psmodern-tempo-audio-"+
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto version=identify_rom(argv[1]);const auto recording=replay::read(argv[2]);
-    integration(rom,version,recording,root);fade_provenance(rom,version,recording,root);registered_request(rom);
+    integration(rom,version,recording,root);observed_sound_events(rom,version,recording,root);fade_provenance(rom,version,recording,root);registered_request(rom);
     test::remove_temporary_folder(root);
     std::cout<<"Native sound oracle: exact music PCM at 2x/4x, mixed timing, requests and unchanged gameplay passed.\n";
     return 0;
