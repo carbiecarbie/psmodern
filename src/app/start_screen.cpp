@@ -56,10 +56,12 @@ void StartScreen::render(std::span<std::uint32_t> pixels,const RomFont& font,Lan
         const auto action=entries_[i];
         const std::string text=std::string(label(action,language))+
             (action==StartAction::language ? " "+std::string(language_label(preference,language)) : "");
-        font.text(pixels,x+16,y+16+16*i,text,0xffffffff);
+        font.text(pixels,x+16,y+16+16*i,text,menu_style::white);
     }
+    // The version in a window of its own at the bottom, as Options' explanation window (milestone 12).
+    menu_style::window(pixels,font,version_window);
     const auto version=footer();
-    font.text(pixels,(256-8*static_cast<int>(version.size()))/2,176,version,0xffaaaaaa);
+    menu_style::text(pixels,font,(menu_style::columns-static_cast<int>(version.size()))/2,version_window.row+1,version,menu_style::grey);
 }
 const char* StartScreen::label(StartAction action,Language language) {
     switch (action) {

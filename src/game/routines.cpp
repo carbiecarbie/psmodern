@@ -66,6 +66,12 @@ bool register_routines(RoutineRegistry& registry, std::string_view digest, const
     register_map_terrain(registry);
     register_map_entrances(registry);
     register_map_modes(registry);
+    register_menu_engine(registry);
+    register_menu_windows(registry);
+    register_menu_select(registry);
+    register_menu_field(registry);
+    register_menu_places(registry);
+    register_menu_fades(registry);
     return true;
 }
 }

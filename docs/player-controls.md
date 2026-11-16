@@ -55,20 +55,25 @@ controller work together.
 
 The start screen and Options also offer Language. It changes the game and
 PSModern's own screens between English and Portuguese when the corresponding
-ROM is available. During play, finish the current dialogue or battle first;
-the game changes language after Options closes, without restarting.
-Language has its own Save/Cancel, like Controls. Leaving Options saves its
-displayed rates, automap and widescreen settings and keeps a language already
-saved.
+ROM is available. On the start screen, LANGUAGE opens a Language screen with
+its own Save/Cancel, like Controls. In Options, LANGUAGE is the sixth row:
+left and right step through AUTO, ENGLISH and PORTUGUES (each language named
+in its own words, a language without its ROM skipped and shown dark grey),
+and each step is saved at once and switches PSModern's screens at once.
+During play, finish the current dialogue or battle first; the game's own text
+changes language after Options closes, without restarting. If the choice
+cannot be saved, the previous one comes back and the bottom line says SAVE
+FAILED - RETRY. Leaving Options saves its displayed rates, automap and
+widescreen settings.
 This preference is global; all languages use the same saved games, options
 and automap. The start screen
 has one PLAY entry; ADD ROM makes another language available.
 
 ## Options: widescreen
 
-The Options window has a WIDESCREEN row (TELA LARGA in Portuguese), the fourth
-after Encounters, Experience / Meseta and Automap. Left or right switches it
-OFF or ON; it is OFF by default. Like Automap it takes effect when you leave
+The Options screen has a WIDESCREEN row (the same word in Portuguese), the
+fourth after Encounters, EXP / Meseta and Automap. Left or right switches it
+OFF or ON (NAO or SIM in Portuguese); it is OFF by default. Like Automap it takes effect when you leave
 Options, with no restart, and is saved with your other options.
 
 - **Where it applies.** With WIDESCREEN ON the world map, the towns and the
@@ -93,7 +98,8 @@ Options, with no restart, and is saved with your other options.
   times its size instead of 4.
 - **Restricted modes.** While recording and with `--no-routines` the row is
   read-only and shows OFF: the game stays exactly as the cartridge ran it.
-  The footer says RECORDING - READ ONLY or Z80 MODE - READ ONLY.
+  The last line of the explanation window says RECORDING - READ ONLY or Z80
+  MODE - READ ONLY.
 - **The game never notices.** WIDESCREEN only changes what is shown. With it ON
   the game runs exactly as with it OFF; see
   [how widescreen reads the map](how-it-works/world-map.md#how-widescreen-reads-this).
@@ -108,8 +114,8 @@ Options, with no restart, and is saved with your other options.
 
 The screen lists the 13 actions with their keyboard key and controller
 button, then RESTORE DEFAULTS, SAVE and CANCEL. Only seven rows fit, so the
-list scrolls and MORE ABOVE or MORE BELOW tells you there is more. The bottom
-line says CONTROLLER CONNECTED or NO CONTROLLER FOUND. It shows the prompt
+list scrolls and MORE ABOVE or MORE BELOW tells you there is more. A small
+window at the bottom says CONTROLLER CONNECTED or NO CONTROLLER FOUND. It shows the prompt
 while an entry waits for an answer and, for two seconds, the result of what
 you just did (SWAPPED WITH, CLEARED and the like). DEFAULTS - NOT SAVED YET and
 SAVE FAILED - RETRY stay until your next press.

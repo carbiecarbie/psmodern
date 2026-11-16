@@ -463,3 +463,288 @@ Quirks of `00:0B08`, `00:0B6A` and the road `00:0E8B`.
   entering a map whose tune is the one already playing does not restart it.
 - **ROM run.** The state probes ran both outcomes (the same request and a new
   one) against the original.
+
+## Menus and windows
+
+How these work is in [menus and windows](how-it-works/menus.md). Each part of
+milestone 12 records here the oddities it keeps, with evidence and location.
+
+### Found in the window engine (milestone 12)
+
+#### The five-digit printer counts without clearing carry
+
+- **Where:** `00:3054`-`00:3069` (inside `00:3036`).
+- **ROM static.** The thousands and hundreds of the five-digit number start
+  counting from `ld a,FFh`, which leaves carry as it was, and the subtraction
+  they use takes carry away too. The `add hl,de` before each count always
+  sets carry, which would take one extra away; the money printer (`00:35D5`)
+  clears it with `xor a` before each count. What saves the five-digit
+  printer is the digit helper `00:3645` called in between, whose `and 0Fh`
+  clears carry.
+- **ROM run.** The original prints 0, 7, 345, 1000, 2345, 10000, 12345,
+  40009 and 65535 exactly (the engine probes, both ROMs). PSModern keeps the
+  code as it is, flags included.
+
+#### A shop line of an empty item repeats its top row
+
+- **Where:** `00:393E`-`00:3942`.
+- **ROM static.** When the record's item is 0, the printer forces the top
+  tile row, so the line's bottom row is drawn with the name's top tiles and
+  six blanks, and no price is printed.
+- **ROM run.** The probes draw item 0 on both rows and get the same tiles; no
+  recording reaches this path.
+- **Unknown.** Whether any shop record of the game holds item 0.
+
+### Found in the windows (milestone 12)
+
+#### Closing a window is drawing the saved copy back
+
+- **Where:** every close routine, for example `00:36FB`, `00:3A12`, `00:38C1`.
+- **ROM static.** A close routine loads the same screen position and size as the
+  opening one and calls the window engine with the saved copy as the picture.
+  Nothing is erased; if the holding area (`$D700`-`$DEAF`) were overwritten
+  while a window is open, the close would paint that data.
+- **ROM run.** The state probes ran every close routine against the original.
+
+#### A member number of 3 or more draws Noah's box
+
+- **Where:** `00:2F93`-`00:2FD5`.
+- **ROM static.** The refresh of one party member's box picks Alis, Myau and
+  Odin for 0, 1 and 2 (`dec a` and `jp z` at `00:2FB9`, `00:2FC7`) and then jumps
+  to the common code for Noah without a further test, so any larger number
+  draws Noah's box.
+- **ROM run.** The state probes called the entry with random numbers in the
+  accumulator and the rewrite equals the original on all of them.
+- **Unknown.** Whether the game ever calls it with a number above 3.
+
+#### The enemy windows skip the party's HP column for one marker value
+
+- **Where:** `00:3127`-`00:312C`, `00:31A7`-`00:31AC`.
+- **ROM static.** When `$C2E6` holds 49h the list draws no HP column for the
+  party and the close does not restore it; any other value draws it.
+- **ROM run.** Both cases were met in the state probes (`$C2E6` set to 49h on a
+  third of them).
+- **Unknown.** What puts 49h there.
+
+#### The HP column shows one byte
+
+- **Where:** `00:3145`-`00:3148`.
+- **ROM static.** The column reads the byte at offset 1 of each party member's
+  record (`$C401`, `$C411`, ...) and prints it as an 8-bit number; no other
+  byte of the HP is read there. The status window prints experience with the
+  16-bit printer (`00:37FF`-`00:3805`) and the other fields with the 8-bit one.
+
+#### Windows that change the slot-2 bank and do not put it back
+
+- **Where:** `00:3A2D` (two-choice window, bank 18), `00:3726`-`00:3729`
+  (equipment window, bank 2), `00:38E5`-`00:38E8` and `00:392B`-`00:392E` (shop
+  list, bank 3 in and out).
+- **ROM static.** The two-choice and equipment windows write the bank register
+  for slot 2 and leave it. The drawing routine at `00:3A57` saves and restores
+  whatever was there when it was called, so its own bank switch does not undo
+  them; only the shop list sets bank 3 again after the choice.
+- **Inference.** The code that follows these windows must not depend on the
+  previous slot-2 bank, or the game would misbehave; the recordings showed no
+  difference between routines on and off.
+
+
+### Found in choosing (milestone 12)
+
+#### The item list loses a confirm pressed together with a direction
+
+- **Where:** `00:2DB8` and `00:2DFE`.
+- **ROM static.** When Up or Down is pressed, the item list replaces the
+  button copy it keeps in C with the direction bits only, and tests for button
+  1 or 2 on that copy. The cursor loop of `00:2D51` reads the buttons again
+  instead (`00:2D8B`). So in the item list a confirm pressed in the same picture
+  as Up or Down is ignored, while in every other menu both take effect.
+- **ROM static.** The rewrite renders the same copy and the same test, so the quirk is kept.
+
+#### Button 1 leaves the item list with A = 0
+
+- **Where:** `00:2E0C` to `00:2E12`.
+- **ROM static.** The leave clears A and returns at once when button 1 was the
+  one pressed; the choice is read only on the other path.
+- **ROM run.** The state probes took the exit with random button, count and
+  page states.
+
+#### Up and Down together cancel out
+
+- **Where:** `00:2D78` to `00:2D87`.
+- **ROM static, ROM run.** Both directions are applied one after the other to
+  the same choice, so the choice ends where it started (including the wrap).
+  The scenario probe pressed both in one picture on the field menu and the
+  machines stayed equal with routines on and off.
+
+### Found in the field menu (milestone 12)
+
+Quirks of `00:1BE1`-`00:1C79`, `00:1CA1`-`00:1DDB`, `00:2168`-`00:21FA`,
+`00:2201` and `00:26C8`-`00:297A`. Both cartridges have byte-identical code
+here (compared over these ranges). All of it is kept in original mode.
+
+#### The inventory search answers "zero" when the item is there
+
+- **Where:** `00:282E`, called from `00:28B4` and by the shops.
+- **ROM static.** One might expect a routine that looks for an empty slot. It
+  compares each of the 24 inventory slots with the item number in A and answers
+  "zero" when a slot holds it. Callers use it as "does the party already have this
+  item".
+  **ROM run.** The state probes ran it over random inventories.
+
+#### The two search places guard against a second item in different ways
+
+- **Where:** `00:2877`-`00:28B4`.
+- **ROM static.** The first place (location 7) gives its item once: it needs a
+  story byte, `$C507`, to be set and not `FFh`, and writes `FFh` there when it gives
+  the item. The second (location 1) does not write its story byte, `$C509`; it
+  refuses only when the third member's shield byte is already the item or when the
+  item is already in the inventory. An item given at the second place and then
+  dropped or sold, and not carried or worn, can be found there again.
+  **ROM run.** Both places were run against the original, with the flag, the
+  shield byte and the camera at and off the place.
+
+#### A trap can fall on nobody, and never kills
+
+- **Where:** `00:2950`-`00:2979`.
+- **ROM static.** A chest whose byte `$C80F` is not `3Dh` hurts one member picked by
+  two bits of the random generator (`3Eh` hurts all four). A dead or absent member is
+  skipped, so a pick can hurt nobody. The damage is a third of the current hit
+  points, rounded down, taken off the hit points, so a member with one or two
+  hit points loses nothing and nobody dies. **ROM run.** The branch for all
+  members (`3Eh`) was reached by no recording; the probes run it on both cartridges.
+
+#### Using an item always starts with the first living member
+
+- **Where:** `00:21C1`-`00:21D3`.
+- **ROM static.** Before the use / equip / drop window the menu searches
+  members 0 to 3 for the first one alive and makes it the current character
+  (`$C2C2`). The player is not asked. Only equip asks (it opens the member choice
+  itself).
+
+#### An empty item list is opened and closed again without a redraw
+
+- **Where:** `00:216C`-`00:2172`.
+- **ROM static.** With no items the menu opens the item list window and closes it
+  at once, without the party window redraw that the other leaves do (`00:21F5`).
+
+#### The fourth member is drawn as the third in the spell window
+
+- **Where:** `00:1CC8`-`00:1CCC` (status), `00:1D77`-`00:1D7B` (magic).
+- **ROM static.** The spell list window takes the member number minus one for
+  member 3, so the fourth member's spells are drawn in the third member's row; the
+  count and the record are still the fourth member's. In the magic menu the
+  third member (number 2) is refused with its own message and the 15-byte spell
+  table has three rows, so the fourth member uses the third row.
+
+#### A saved game leaves the field menu for good, only into a slot that was unused
+
+- **Where:** `00:1D33`-`00:1D4C`.
+- **ROM static.** The copy into the slot runs whatever the slot held. Only a slot
+  whose used flag was clear before ends the menu (game mode 16, two return
+  addresses dropped); saving over a slot in use shows a message and returns to the
+  menu. **ROM run.** The probes run both zero-flag states on both cartridges.
+
+#### The upper three bits of a spell byte are ignored
+
+- **Where:** `00:1DA7`.
+- **ROM static.** The spell table keeps one byte per slot and the menu uses only
+  its low five bits as the spell number.
+  Whatever the upper bits hold is not looked at here.
+
+### Found in shops, the hospital and the church (milestone 12)
+
+#### Buying a vehicle-class item the party already carries costs money for nothing
+
+- **Where:** `00:2C09`-`00:2C0C` and `00:2C0F`-`00:2C1D`.
+- **ROM static.** In a shop, items 21h to 23h get an already-carried check, but
+  the game takes the money and redraws it (`00:2C09`-`00:2C0C`) before it looks
+  the item up in the party's list (`00:2C0F`-`00:2C1D`). A party that already
+  carries it pays, hears the line that follows a purchase and gets nothing.
+- **ROM run.** State probes on both ROMs reach the path (`00:2C1D` taken) and
+  equal the original.
+
+#### The Road Pass takes three tries
+
+- **Where:** `00:2C46`-`00:2C8C`.
+- **ROM static.** A shop line numbered 40h or more is not a real item: the
+  first two choices only show a line (0142h, 0144h) and count in `$C2EC`; the
+  third buys the Road Pass (item 33h) at that line's price and clears the
+  counter. A party that already carries the Road Pass is sent back to the
+  counter, which was just cleared, so the first line returns.
+- **ROM run.** State probes on both ROMs.
+
+#### The hospital's price is a sum of two bytes
+
+- **Where:** `00:29E4`-`00:29F3`.
+- **ROM static.** The price is the missing hit points plus the missing magic
+  points, each a one-byte subtraction, added in one byte; the high byte of the
+  price is always zero, so a sum of 256 or more would wrap.
+- **Unknown.** Whether the game's maxima allow such a sum was not checked.
+
+### Found in the fades (milestone 12)
+
+#### A fade only raises colours on the way in
+
+- **Where:** `01:7B92`-`01:7BAB`.
+- **ROM static.** The fade-in compares the whole colour value with its target,
+  not each channel: it adds a blue step while the sum does not pass the
+  target, then green, then red. A channel that is already above its target is
+  never lowered, so the screen can end a fade-in brighter than its target
+  palette. The long fade-in starts from black (`01:7B20` clears the working
+  copy), and the short one (`01:7B18`) starts from whatever the buffer holds.
+- **ROM run.** A state probe ran all 4,096 pairs of current and target colour
+  against the original on both ROMs; the recordings fade in from black only.
+
+#### The fade-out takes red, then green, then blue
+
+- **Where:** `01:7B5F`-`01:7B79`.
+- **ROM static.** One step lowers only the first non-zero channel in the
+  order red, green, blue, so a white colour takes nine steps and a pure blue
+  takes three. Fade-in climbs the other way round, blue first.
+- **ROM run.** All 256 colour byte values were probed on both ROMs, the two
+  unused top bits included (they are never touched by the step).
+
+#### The fade acts only on every fourth frame
+
+- **Where:** `01:7B40`-`01:7B44`.
+- **ROM static.** A counter at the start of the step is lowered on each frame
+  of the fade kind; the step runs only when it goes below zero and then
+  restarts from three. A fade's length in frames depends on where this counter
+  stood when the fade began (a first step comes after 1 to 4 frames).
+- **ROM run.** The counter is not reset by the fade waits, so every
+  recording's fades start from the leftover value; the C++ step matched the
+  original in about 20,000 calls on 14 US and 6 Brazilian recordings.
+
+#### A flash is five blinks, and its colour range differs by spell
+
+- **Where:** `01:7BAC`-`01:7BED`, `01:7BEE`-`01:7C17`.
+- **ROM static.** A flash sets a counter of ten; each frame the step lowers it
+  and, when the new value is odd, paints a run of working-copy colours white,
+  otherwise restores the whole palette from the target copy. The battle flash
+  paints 13 sprite colours (19 to 31); the magic flash paints 13 background
+  colours (3 to 15), or 14 (3 to 16, one sprite colour more) when the effect
+  byte holds 46h, 49h or 4Ah.
+- **ROM run.** State probes ran each effect byte and every counter value from
+  0 to 255; a run length of zero would paint 256 bytes, which no caller asks
+  for and no probe tried.
+
+#### The palette effects leave slot 2 on bank 3
+
+- **Where:** `01:7C85`, `01:7CA6`, `01:7CBB`, `01:7CE4`.
+- **ROM static.** Each effect switches the third cartridge window to bank 3
+  for its colour tables and does not put the previous bank back, so a C++
+  replacement must keep the write. **Unknown:** whether any caller depends on
+  the bank left behind.
+- **ROM run.** The probes ran the effects with every window mapping
+  (including cartridge RAM) against the original, and whole effects from a
+  real frame equal to the original, on both ROMs.
+
+#### The palette cycle changes colours after 15 frames, then every sixteenth
+
+- **Where:** `01:7C85`-`01:7CA5`.
+- **ROM static.** The effect counts 111 frames down from 6Fh and copies eight
+  colours into the last group of the working copy whenever the low four bits
+  of the count are zero: six times, the first after 15 frames. The tables are
+  in bank 3.
+- **ROM run.** Whole-effect chains from a real frame (both ROMs) matched the
+  original; no recording reaches the effect.

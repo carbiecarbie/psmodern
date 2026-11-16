@@ -99,7 +99,8 @@ With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
 the ROM's font, so labels are uppercase. Entries: `PLAY PHANTASY STAR (US)`
 and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`, `CONTROLS`,
-`OPEN SAVES FOLDER` and `QUIT`, with the footer `PSMODERN 0.6.0`. The window
+`OPEN SAVES FOLDER` and `QUIT`, and `PSMODERN 0.6.0` in a small window under
+them (tile row 20, as Options' explanation window). The window
 title is `PSModern 0.6.0`.
 
 Arrows, the d-pad or the left stick move the selection (it wraps, with the
@@ -130,8 +131,9 @@ program expands each component to eight bits by multiplying by 85.
 
 ## Language
 
-The global Language screen is available from the start screen and Options.
-English and Portuguese require their respective identified ROMs. The start
+The global language preference is set by the Language screen on the start
+screen and by the LANGUAGE row of Options (milestone 12; Options no longer
+opens the Language screen). English and Portuguese require their respective identified ROMs. The start
 screen has one PLAY entry and ADD ROM. AUTO prefers English when both ROMs
 are present, or the language of the sole available ROM. An explicit CLI ROM
 sets the session origin for AUTO and restricted modes, independently of saves.
@@ -144,12 +146,14 @@ If the preferred ROM is unavailable, the session uses the available ROM
 language and retains the preference. Both images are loaded and identified
 before play; later language changes perform no file reads of the ROMs.
 
-Language has its own SAVE/CANCEL, like Controls. Its Save does not apply or
-discard the parent's encounter/experience/automap draft. A saved language
-updates host labels immediately and changes game text after native Options
-cleanup. Leaving the parent saves its rates and automap setting and keeps
-that independent Save. A failed language write leaves the screen open and
-the previous choice intact. Quitting before
+The Language screen has its own SAVE/CANCEL, like Controls; a failed write
+leaves it open. In Options each Left/Right step on LANGUAGE is saved at once
+(`prepare_language`, `save_language`, `commit_language`, as that Save) and does
+not apply or discard the encounter/experience/automap/widescreen draft. A
+saved language updates host labels immediately and changes game text after
+native Options cleanup. Leaving Options saves its rates and switches and keeps
+the language already saved. A failed language write restores the previous
+choice and shows SAVE FAILED - RETRY. Quitting before
 cleanup keeps the saved preference for the next launch. Power cycle remains
 unavailable while a host menu is open.
 
@@ -319,8 +323,8 @@ drawn over the captured picture (`src/app/automap_screen.cpp`), with the floor
 label (`FLOOR 2`, `FLOOR B1`) in the title row beside `MAP`, from
 `DungeonTables::floor_level`, which counts inside each stack of floors joined
 by stairs ([dungeons](how-it-works/dungeons.md#floors-in-stacks-and-the-maps-floor-label)); the Map, Options or Button 2
-binding closes it. The Options window has a third row, AUTOMAP OFF (DEFAULT)
-or ON, and the window title adds the Map binding (`Map: M / X` by default)
+binding closes it. The Options window has a third row, AUTOMAP OFF or ON,
+and the window title adds the Map binding (`Map: M / X` by default)
 while the option is on.
 
 **Tests.** `automap_unit` and `automap_store_unit` (ROM-free) cover the model
@@ -469,23 +473,35 @@ world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Pause remains the original Pause. Up/Down
 selects one of the six rows (the two rates, Automap, Widescreen, CONTROLS and
-LANGUAGE); four rows fit, so the list scrolls (footer 1/3 to 3/3). Left/Right changes a value.
+LANGUAGE), all on one page; Left/Right changes a value.
 Button 1, Button 2 or the Options binding persists the four displayed values
 and closes; there is no separate confirmation step. On the CONTROLS row Button
 1 opens the [Controls screen](#controls-screen) instead, also in the read-only
-modes, because controls never touch the game. LANGUAGE opens the
-[Language screen](#language), with its own Save/Cancel; recording and raw-Z80
-sessions cannot change language. The screen marks each
-100% value as DEFAULT, encounters 25% as RECOMMENDED and experience/meseta
-400% as RECOMMENDED; other values have no marker. Only restrictions, pending
-activation or a failed save replace the SAVES ON EXIT footer; otherwise the
-footer also indicates which of the two list positions is visible.
+modes, because controls never touch the game. On the LANGUAGE row Left/Right
+steps through AUTO, ENGLISH and PORTUGUES, skipping a preference without its
+ROM, and each step is saved and committed at once as the Language screen's
+Save is (`MenuAction::language`); a failed write restores the previous choice.
+Recording and raw-Z80 sessions cannot change language.
 A failed save keeps the draft open; either exit binding retries the save.
+
+Since milestone 12 the screen is three windows on the 32x24 tile grid
+(`options_layout` and `menu_style` in `src/app/options_menu.h`): the list at
+tile column 1, row 1 (20 by 13 tiles, a line every two tile rows because the
+cartridge's letters fill their tile, the current values right-aligned in
+grey); the values of the selected row in a window at column 20 that overlaps
+the list's right border (11 wide, the current choice yellow, the others grey,
+a language without its ROM dark grey; moved up whole lines when it would
+reach below the list); and the explanation window at column 1, row 15 (30 by
+9) with three lines about the selected row and a state line: SAVES ON EXIT,
+RECORDING or Z80 MODE - READ ONLY, SAVED - WAITING (routine options only) or
+SAVE FAILED - RETRY. The 100% original and the recommended 25% and 400% are
+named in the explanations instead of being marked on the values. The scene
+shows at the right and between the windows.
 
 The screen consumes opening and closing inputs until all gameplay buttons
 are released. Focus loss does not count as a physical release: the menu
 rearms only after a neutral focused snapshot, and closing-button suppression
-survives focus loss. Its black and white window overlays the current scene
+survives focus loss. Its windows overlay the current scene
 and the music continues. The window title shows active rates and saved
 changes waiting for a safe game boundary.
 
@@ -498,7 +514,7 @@ To implement the approved labels, the host composes those symbols at runtime
 from the ROM's Z diagonal, C curves and reduced zero rings. These
 are composed UI punctuation, not literal glyphs present in the cartridge;
 no font pixels or new image assets are stored in the repository. Host drawing
-preserves every background pixel outside the window and does not modify
+preserves every background pixel outside its windows and does not modify
 console VRAM or the cartridge save.
 
 The host captures the exploration picture, then runs the original field menu
@@ -714,6 +730,53 @@ to it, and `rom_<version>_map_observed` compares the instructions the host
 watches, with routines on and off, on `later-town` and `first-battle`. The
 [world map chapter](how-it-works/world-map.md) explains each group.
 
+Milestone 12 adds the game's menus and windows as 323 segments in six groups,
+one source file and one test file each, registered by `register_menu_<part>`
+(declared in `src/game/menu.h`, which lists the planned segments of each part,
+the code each part may register in and the instructions that stay native):
+`menu_engine.cpp` (29 segments: drawing and saving a window, `00:3A57`,
+`00:3A83`, `00:3AA6`, the printers with interrupts off for numbers, money,
+names and shop lines, and the dialogue scroll), `menu_windows.cpp` (125: every
+window the game opens on the field and in battle, `00:2EAC`-`00:3A21`),
+`menu_select.cpp` (25: the cursor loop `00:2D51`, the item list `00:2DA5`,
+yes or no, the waits, the cursor blink `00:2E62` and the frame handlers
+`00:015F`, `00:01AD`, `00:01D1`), `menu_field.cpp` (63: the field menu
+`00:1BE1` and its commands, the inventory helpers, search and chests),
+`menu_places.cpp` (58: the hospital, the church, the shops and selling) and
+`menu_fades.cpp` (23: fades, flashes and palette effects, `01:7AFD`-`01:7D11`).
+`src/game/menu_kit.h` extends the map kit with the video port read (INI), CPL,
+RES/SET, SUB with an index register and the rendering of a bare call together
+with its callee, proved against the core by the ROM-free `menu_kit_unit`.
+What stays on the Z80, on purpose: every DI and EI of the printers and the
+window engine with the instruction after each EI and the pushes and pops next
+to them (a window is drawn with interrupts off, as the text output is since
+milestone 9), the cartridge-RAM switches and the 1,024-byte save copy
+(`00:1D0E`-`00:1D32`), the cancel point `00:2D93`, the whole end of a row of a
+window drawn at once (`00:3A97`-`00:3A9E`, six instructions) and the two loads
+before the dialogue scroll's last window call (`00:3451`, `00:3454`): the
+frame boundary falls on those on most scrolls, so a segment there would
+mostly fall back (ROM run). The frame waits,
+the jump-table dispatchers and the routines that other milestones own stay
+native, as do bare calls between units. The host opens Options, Language and
+the automap by holding the field menu at `00:1BE1`; that hold, `00:0B14` and
+`00:0F48` are untouched, and `rom_<version>_menu_observed` compares the
+instructions the host watches, with routines on and off, on four recordings and
+at both waits. The [menus chapter](how-it-works/menus.md) explains each group.
+
+**Menu tests.** `menu_<part>_unit` (label `fast`, no ROM) checks each part's
+registered entries, exits and permissions against its table, and
+`menu_base_unit` the planned lists together (every planned entry registered by
+exactly one part, none at a native or host-watched address). The ROM probes are
+`rom_<version>_menu_<part>` for the six parts (labels `rom` and `menu`, never
+`fast`): state probes from a power-on machine on both ROMs, every call checked
+by the per-call verifier, and scenario probes from real frames of the
+recordings and from reference start images, with routines on and off compared
+every frame. `ctest -L menu` runs all of them. `psmodern_menu_<part>_tests`
+takes `<rom> <us|br> <recordings> <reference> <work>`; `tests/menu_probe.h` holds
+the shared helpers (window sizes read from the ROM, frame-boundary offsets, the
+host hold, the start images). The edited start images are made by
+`edited_start_image` from a game-made image, as the map probes do.
+
 **Map tests.** `map_<part>_unit` (label `fast`, no ROM) checks each part's
 registered entries, exits and permissions against its table; `map_base_unit`
 checks the planned lists together (distinct entries inside their own part's
@@ -754,7 +817,7 @@ bytes in ROM, reached only by the state probes) is filed under the `frame`
 reason, since its bound is set above one frame; such refusals never occur in a
 recording.
 
-The eighteen checkpoint tests (six per version and the six US-only
+The twenty checkpoint tests (six per version and the eight US-only
 recordings) check every admitted C++ call, compare
 routines on/off frame by frame, and compare the resulting frames with the
 pinned milestone 1 reference. In each checkpoint an entry with at least 20
@@ -763,14 +826,14 @@ gated. `forced` and `forced_failed` must be 0 there, since the checkpoints run
 in original mode. The controller must be called in every checkpoint and keeps
 the 90% share whatever its call count. The tests write counts to
 `build-rel/routine-census/{us,br}/`. Generate [the coverage chapter](coverage.md)
-after all eighteen pass:
+after all twenty pass:
 
 ```sh
 python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
 ```
 
 The generator groups segments under their unit and applies the same 90% rule
-to every entry with at least 20 calls, over the eighteen censuses together and in
+to every entry with at least 20 calls, over the twenty censuses together and in
 each census. An entry with at least one call needs at least one C++ call,
 unless it is on the explicit allow-list in the generator, which carries a
 written reason per entry and is empty now. An allow-listed entry that has C++
@@ -798,7 +861,7 @@ R and fetch count; the random, encounter and experience tests probe their
 segments against the original from many machine states. The ROM-free catalog
 and coverage-generator tests run in CI.
 
-Besides the eighteen checkpoints, every checkpoint recording has an `_options` test
+Besides the twenty checkpoints, every checkpoint recording has an `_options` test
 (`rom_us_<recording>_options`, `rom_br_<recording>_options`, label
 `checkpoint`; the script is `tests/replay_rom_tests.py <runner> <rom> <recording>
 options <reference-folder> [full|identity-only] [marker-file]`). Each test runs
@@ -829,7 +892,7 @@ after the cell test in a dungeon; a fixed fight does not pass through them
 (Inference). At recording level the dungeon side proves only that the first
 compares run and no group choice follows with encounters off, because the
 play diverges soon after; the state probes cover the compare and the
-dungeon segments exhaustively. The eighteen `_options` tests take about 9
+dungeon segments exhaustively. The twenty `_options` tests take about 10
 minutes of test time in all, and the complete suite about 17 minutes of real
 time at `-j 16` (measured at milestone 11: 1,045 seconds).
 
@@ -1290,9 +1353,9 @@ ranges justified by the run rather than assuming every high RAM address is stack
 
 Each version has its own inputs under `recordings/us/` or `recordings/br/`.
 The first three checkpoints start at power-on with zero cartridge RAM. The
-other three, the three US-only dungeon recordings and the three US-only map
-recordings (milestone 11) load slot 1 from a cartridge RAM image after
-power-on.
+other three, the three US-only dungeon recordings, the three US-only map
+recordings (milestone 11) and the two US-only menu recordings (milestone 12)
+load slot 1 from a cartridge RAM image after power-on.
 
 | Recording | Play covered |
 | --- | --- |
@@ -1308,6 +1371,20 @@ power-on.
 | `road` (US) | Continue in Paseo, pass the passport guard onto the road to the Motavia spaceport, take the ship over Motavia to Palma, take a second road and walk out onto Palma's world map to the compass ring. |
 | `vehicles` (US) | Continue at Maharu Cave with the three vehicles in the item list: use the Land Rover, drive, get out, use the hovercraft across the lake, get out, take ground damage, step on antlion ground and start its fight. |
 | `ice` (US) | Continue on Dezoris in the Ice Digger with the ground under part of it ice: the map load's ice presetting, then digging through the ice field. |
+| `field-menu` (US) | Continue in Maharu Cave with 24 items: the field menu, STATS, MAGIC (every answer, including FLY and too little MP), ITEM (three pages, EQUIP, DROP, USE), SEARCH, SAVE into a used and an empty slot, the money chest and the item chest with a full list. |
+| `places` (US) | Continue in Paseo with a wounded party, a dead member and 55 meseta: the hospital, the church, the shop and the buy-or-sell shop (buying, selling, too poor, cannot carry more), then FLY from the field menu. |
+
+The `field-menu` and `places` images (milestone 12) are edited game-made
+images too: `field-menu` is the `dungeon-walk-2` image with FLY added to
+Alis's map spells, Myau's MP lowered below the cost of CURE and seventeen
+more items (the count 7 to 24, so that the list pages three times and a chest
+meets a full list); `places` is the `deep-dungeon` image moved to Paseo with
+the position fields of the `later-town` save, FLY added, Odin dead, the money
+lowered to 55 and sixteen more items (the count 23). The edits are saved
+fields only, each listed byte by byte in notes kept outside the repository, and the
+game's own Continue loads both normally; each recording was compared frame by
+frame with the patched MesenCE. `field-menu` ends on the save-name screen
+after the last save; the code of that screen belongs to milestone 13.
 
 The `road` recording starts from the `later-town` image unedited. The
 `vehicles` and `ice` images could not be game-made, since the vehicles are

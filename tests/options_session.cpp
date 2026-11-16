@@ -189,7 +189,8 @@ void checked_bands(app::Display& display,const app::WidePicture* wide) {
     }
     app::upload_bands(display,wide);
 }
-int checked_upload(const Machine& machine,unsigned speed,bool visible,bool controls,bool active,const Vdp::Picture& background,SDL_Texture* texture,const SDL_Rect* rect,const void* pixels,int pitch){
+int checked_upload(const Machine& machine,unsigned speed,const app::OptionsMenu& menu,bool controls,bool active,const Vdp::Picture& background,SDL_Texture* texture,const SDL_Rect* rect,const void* pixels,int pitch){
+    const bool visible=menu.visible();
     const auto* rendered=static_cast<const std::uint32_t*>(pixels);
     if(controls){
         // The Controls screen covers the whole picture over the held game.
@@ -204,7 +205,7 @@ int checked_upload(const Machine& machine,unsigned speed,bool visible,bool contr
         }
         if(machine.cycles()>last_modal_cycle){last_modal_cycle=machine.cycles();++modal_frames;}
         for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x)
-            if((x<24||x>=232||y<24||y>=176) && rendered[y*256+x]!=app::rgb(background[y*256+x]))
+            if(!menu.drawn(int(x),int(y)) && rendered[y*256+x]!=app::rgb(background[y*256+x]))
                 throw std::runtime_error("Options changed pixels outside its window");
     }else if(!active){
         if(speed==4 && !was_active && !saved_game && mode_under_test==0) {
@@ -284,7 +285,7 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 #define sample_controls_input scripted_controls
 #define toggle_fullscreen counted_fullscreen
 #define upload_bands(d,w) checked_bands(d,w)
-#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),menu.visible(),controls_screen.visible(),driver.menu_active(),menu_background,t,r,p,pitch)
+#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),menu,controls_screen.visible(),driver.menu_active(),menu_background,t,r,p,pitch)
 #include "../src/app/main.cpp"
 #undef main
 #undef utf8_arguments

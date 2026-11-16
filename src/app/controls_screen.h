@@ -16,13 +16,15 @@
 namespace psmodern::app {
 // Layout on the 256x192 picture: the title and the column header stay at the
 // top and the status line at the bottom; the 16 rows (13 actions, RESTORE
-// DEFAULTS, SAVE, CANCEL) scroll between them at the Options window's 16-pixel
-// pitch, so neighbouring rows never touch. The scroll hints sit in the free
-// slots beside the header and under the list.
+// DEFAULTS, SAVE, CANCEL) scroll between them at a 16-pixel pitch, so
+// neighbouring rows never touch. The scroll hints sit in the free slots beside
+// the header and under the list; the status line in a window of its own.
 namespace controls_layout {
 inline constexpr int title_x=96, title_y=8, header_y=24, key_header_x=112, pad_header_x=192;
 inline constexpr int action_x=16, key_x=112, pad_x=192, first_row_y=40, row_step=16;
-inline constexpr int hint_x=16, hint_above_y=24, hint_below_y=152, status_x=16, status_y=168;
+inline constexpr int hint_x=16, hint_above_y=24, hint_below_y=152, status_x=16, status_y=176;
+// Milestone 12: the status line has its own window under the list, which overlaps the list's bottom border.
+inline constexpr menu_style::TileWindow list_window{0,0,32,22}, status_window{0,21,32,3};
 inline constexpr unsigned action_rows=unsigned(action_count), command_rows=3, rows=action_rows+command_rows, visible_rows=7;
 inline constexpr unsigned restore_row=action_rows, save_row=action_rows+1, cancel_row=action_rows+2;
 inline constexpr double first_repeat=0.35, next_repeat=0.12, capture_timeout=5.0, result_seconds=2.0;

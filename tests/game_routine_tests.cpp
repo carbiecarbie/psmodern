@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/map.h"
+#include "game/menu.h"
 #include "game/routines.h"
 #include "machine/machine.h"
 #include "rom/rom.h"
@@ -15,12 +16,24 @@ void check(bool condition,const char* message) { if(!condition) throw std::runti
 // Every registered entry must be one the game headers name; the routines
 // already rewritten must be present. No count is fixed, so later parts only
 // add their names.
-bool declared(RoutineEntry entry) {
+bool declared(RoutineEntry entry, RoutineEntry unit) {
     auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
     auto dungeon=[&](const auto& list) { return std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry; }); };
     auto planned=[&](game::map::Part part) { const auto list=game::map::planned_segments(part); return std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry; }); };
     // The world map and towns (milestone 11): the six parts' planned segment lists.
     for (unsigned p=0;p<static_cast<unsigned>(game::map::Part::count);++p) if (planned(static_cast<game::map::Part>(p))) return true;
+    // Menus and windows (milestone 12): a planned entry, or an entry a part adds
+    // inside its own code ranges with a unit of its own planned list.
+    for (unsigned p=0;p<static_cast<unsigned>(game::menu::Part::count);++p) {
+        const auto part=static_cast<game::menu::Part>(p);
+        const auto list=game::menu::planned_segments(part);
+        if (std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.entry==entry && s.unit==unit; })) return true;
+        const bool own_unit=std::any_of(list.begin(),list.end(),[&](const auto& s) { return s.unit==unit; });
+        const auto ranges=game::menu::part_ranges(part);
+        const bool inside=std::any_of(ranges.begin(),ranges.end(),[&](const auto& range) {
+            return entry.bank==range.bank && entry.address>=range.first && entry.address<=range.last; });
+        if (own_unit && inside) return true;
+    }
     return entry==game::controller_poll_entry || entry==game::random_entry || entry==game::money_add_unit || entry==game::text_indexed_entry ||
         in(game::encounter_entries) || in(game::experience_entries) || in(game::battle_setup_entries) || in(game::text_output_entries) || in(game::text_stream_entries) || in(game::text_dictionary_entries) || in(game::text_continuation_entries) || in(game::text_number_entries) || in(game::text_alternate_entries) ||
         dungeon(game::dungeon::cell_segments) || dungeon(game::dungeon::movement_segments) || dungeon(game::dungeon::object_segments);
@@ -48,7 +61,7 @@ void catalog() {
                 for(const auto& [entry,unit]:segments) if(const auto* found=r.find(entry)) check(found->spec.unit==unit,"dungeon segment belongs to its listed unit");
             };
             unit_ok(game::dungeon::movement_segments); unit_ok(game::dungeon::object_segments);
-            for(const auto& [entry,routine]:r.entries()) check(declared(entry),"registered entry is not declared by name");
+            for(const auto& [entry,routine]:r.entries()) check(declared(entry,routine.spec.unit),"registered entry is not declared by name");
         }
 }
 // Option ranges and their validation, shared with the command line.

@@ -41,7 +41,8 @@ add_library(psmodern_rom src/rom/rom.cpp src/rom/sha1.cpp src/rom/sha256.cpp)
 target_include_directories(psmodern_rom PUBLIC src)
 add_library(psmodern_game src/game/routines.cpp src/game/random.cpp src/game/encounters.cpp src/game/experience.cpp src/game/money.cpp src/game/battle_setup.cpp
   src/game/dungeon_tables.cpp src/game/dungeon_cells.cpp src/game/dungeon_movement.cpp src/game/dungeon_objects.cpp src/game/automap.cpp src/game/text.cpp src/game/map_screens.cpp
-  src/game/map_video.cpp src/game/map_scroll.cpp src/game/map_objects.cpp src/game/map_terrain.cpp src/game/map_entrances.cpp src/game/map_modes.cpp)
+  src/game/map_video.cpp src/game/map_scroll.cpp src/game/map_objects.cpp src/game/map_terrain.cpp src/game/map_entrances.cpp src/game/map_modes.cpp
+  src/game/menu_engine.cpp src/game/menu_windows.cpp src/game/menu_select.cpp src/game/menu_field.cpp src/game/menu_places.cpp src/game/menu_fades.cpp)
 target_link_libraries(psmodern_game PUBLIC psmodern_hw psmodern_rom)
 add_library(psmodern_replay src/replay/recording.cpp src/replay/verification.cpp src/replay/census.cpp)
 target_link_libraries(psmodern_replay PUBLIC psmodern_game)
@@ -395,7 +396,7 @@ if(BUILD_TESTING)
       # Continue that leaves the dungeon); the Brazilian checkpoints stay six.
       set(checkpoints opening first-battle first-dungeon later-town boss deep-dungeon)
       if(version STREQUAL "us")
-        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice)
+        list(APPEND checkpoints dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice ${menu_new_recordings})
       endif()
       foreach(checkpoint IN LISTS checkpoints)
         set(manifest "")
@@ -452,7 +453,9 @@ if(BUILD_TESTING)
       # Brazilian boss (19,550 frames) is left out: alone it takes about 45 s.
       set(passivity_recordings first-dungeon deep-dungeon)
       if(version STREQUAL "us")
-        list(APPEND passivity_recordings boss dungeon-walk-1 dungeon-walk-2 dungeon-continue)
+        # Milestone 12's field-menu recording plays in a dungeon; places plays in a
+        # town, which the automap passivity check (it needs the dungeon wait) refuses.
+        list(APPEND passivity_recordings boss dungeon-walk-1 dungeon-walk-2 dungeon-continue field-menu)
         # The wrong-map paths: a new game and Continues after exploring, in
         # one driver, from the walk recordings.
         add_test(NAME "${name}_automap_wrong_map" COMMAND ${automap_session} wrong-map)
@@ -506,7 +509,7 @@ if(BUILD_TESTING)
       set_tests_properties("${name}_wide_view_ship" "${name}_wide_view_ship_routes" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
       set(wide_recordings opening first-battle first-dungeon later-town boss deep-dungeon short)
       if(version STREQUAL "us")
-        list(APPEND wide_recordings dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice)
+        list(APPEND wide_recordings dungeon-walk-1 dungeon-walk-2 dungeon-continue road vehicles ice ${menu_new_recordings})
       else()
         list(APPEND wide_recordings text-dialogue)
       endif()
@@ -533,6 +536,52 @@ if(BUILD_TESTING)
       endif()
     endif()
   endfunction()
+  # ---- Milestone 12 (menus and windows): every target and test of the six
+  # parts, in this one block, so that no part edits this file. The menu kit
+  # against the core and the base checks (no ROM); per ROM, the host-observed
+  # events and the host hold with routines on and off (menu_observed); one
+  # executable per part with its ROM-free registration catalog (no arguments)
+  # and its probes on a ROM. The part probes carry the labels rom and menu,
+  # never fast (they grow with the part); every menu test carries menu.
+  # The new US recordings of the milestone (the field menu in a dungeon; the
+  # shops, hospital and church) join the checkpoints and their _options
+  # variants and the widescreen recording tests through menu_new_recordings
+  # (field-menu also joins the automap passivity tests, above).
+  set(menu_new_recordings field-menu places)
+  set(menu_parts engine windows select field places fades)
+  add_executable(psmodern_menu_kit_tests tests/menu_kit_tests.cpp)
+  target_link_libraries(psmodern_menu_kit_tests PRIVATE psmodern_replay)
+  add_test(NAME menu_kit_unit COMMAND psmodern_menu_kit_tests)
+  add_executable(psmodern_menu_base_tests tests/menu_base_tests.cpp)
+  target_link_libraries(psmodern_menu_base_tests PRIVATE psmodern_app)
+  add_test(NAME menu_base_unit COMMAND psmodern_menu_base_tests)
+  set_tests_properties(menu_kit_unit menu_base_unit PROPERTIES LABELS "fast;menu")
+  foreach(part IN LISTS menu_parts)
+    add_executable(psmodern_menu_${part}_tests tests/menu_${part}_tests.cpp)
+    target_link_libraries(psmodern_menu_${part}_tests PRIVATE psmodern_app)
+    add_test(NAME menu_${part}_unit COMMAND psmodern_menu_${part}_tests)
+    set_tests_properties(menu_${part}_unit PROPERTIES LABELS "fast;menu")
+  endforeach()
+  if(PSMODERN_ROM_TESTS)
+    foreach(_menu_region us br)
+      if(_menu_region STREQUAL us)
+        set(_menu_rom "${PSMODERN_ROM_US}")
+      else()
+        set(_menu_rom "${PSMODERN_ROM_BR}")
+      endif()
+      set(_menu_inputs "${_menu_rom}" ${_menu_region} "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${_menu_region}" "${PSMODERN_REFERENCE_DIR}")
+      foreach(part IN LISTS menu_parts)
+        add_test(NAME rom_${_menu_region}_menu_${part} COMMAND psmodern_menu_${part}_tests ${_menu_inputs}
+          "${CMAKE_CURRENT_BINARY_DIR}/menu-${_menu_region}/${part}")
+        set_tests_properties(rom_${_menu_region}_menu_${part} PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;menu")
+      endforeach()
+      # Four recordings (five with the US field-menu one) on two threads each, then two holds with two drivers.
+      add_test(NAME rom_${_menu_region}_menu_observed COMMAND psmodern_menu_base_tests ${_menu_inputs}
+        "${CMAKE_CURRENT_BINARY_DIR}/menu-${_menu_region}/hold")
+      set_tests_properties(rom_${_menu_region}_menu_observed PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;menu" PROCESSORS 2)
+    endforeach()
+  endif()
+  # ---- End of the milestone 12 block.
   if(PSMODERN_ROM_TESTS)
     add_executable(psmodern_record_session tests/record_session.cpp src/app/sdl_host.cpp)
     target_link_libraries(psmodern_record_session PRIVATE psmodern_app SDL2::SDL2)

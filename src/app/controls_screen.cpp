@@ -8,7 +8,7 @@ using namespace controls_layout;
 // Fixed navigation and reserved scancodes, whatever the bindings.
 constexpr Key scan_x=27, scan_z=29, key_enter=40, key_escape=41, key_backspace=42, key_delete=76, key_right=79, key_left=80, key_down=81, key_up=82,
     key_lalt=226, key_lgui=227, key_ralt=230, key_rgui=231;
-constexpr std::uint32_t white=0xffffffff, grey=0xffaaaaaa, yellow=0xffffff00;
+using menu_style::white; using menu_style::grey; using menu_style::yellow;
 // Every physical source of the fixed navigation, one bit each and three per
 // meaning, so a blocked source never hides another source of the same meaning.
 std::uint32_t sources(const InputSnapshot& s) {
@@ -144,7 +144,10 @@ void ControlsScreen::failed() {
     sticky_=true;message_id_=status_id_=UiText::save_failed;message_action_=status_action_=Action::count;status_=localized_status();
 }
 void ControlsScreen::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
-    font.window(pixels,0,0,256,192,first_row_y+row_step*int(row_-top_));
+    // The list window, and below it the status window overlapping its bottom
+    // border, as Options' explanation window (milestone 12).
+    menu_style::window(pixels,font,list_window,(first_row_y+row_step*int(row_-top_))/menu_style::tile);
+    menu_style::window(pixels,font,status_window);
     auto text=[&](UiText id){return ui_text(id,language);};
     const auto title=text(UiText::controls);
     font.text(pixels,(256-int(title.size())*8)/2,title_y,title,white);

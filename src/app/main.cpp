@@ -2,7 +2,6 @@
 #include "app/sdl_host.h"
 #include "app/automap_screen.h"
 #include "app/controls_screen.h"
-#include "app/language_screen.h"
 #include "app/localization.h"
 #include "app/frame_driver.h"
 #include "app/shared_save.h"
@@ -130,7 +129,6 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         auto& enter=controller.enter();
         controller.set_bindings(loaded_bindings.bindings);
         ControlsScreen controls_screen;
-        LanguageScreen language_screen;
         const double frequency=static_cast<double>(SDL_GetPerformanceFrequency());
         auto now=[&]() { return SDL_GetPerformanceCounter()/frequency; };
         audio.submit({},now()); // Open and prime the device before starting the frame clock.
@@ -187,8 +185,8 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if (const auto down=pad_is(Action::speed)) speed_events.push_back({false,*down});
                 if (key_is(Action::options)==true || pad_is(Action::options)==true) options_pressed=true;
                 if ((key_is(Action::power)==true || pad_is(Action::power)==true) && !recorder && !driver.menu_active() &&
-                    !controls_screen.visible() && !language_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; audio.reset(); power_cycled=true; }
-                if (pad_is(Action::fullscreen)==true && !controls_screen.visible() && !language_screen.visible()) toggle_fullscreen(window);
+                    !controls_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; audio.reset(); power_cycled=true; }
+                if (pad_is(Action::fullscreen)==true && !controls_screen.visible()) toggle_fullscreen(window);
             }
             if (quit) break;
             const auto menu_input=sample_menu_input(window,controller);
@@ -235,19 +233,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             // The Controls screen opens over Options and returns to it; the
             // game stays held by the Options bridge throughout. Its own fixed
             // navigation reads the raw snapshot, never the bindings.
-            if(language_screen.visible()) {
-                if(language_screen.update(menu_input,now())==LanguageAction::save) {
-                    try {
-                        driver.prepare_language(language_screen.draft());
-                        save_language(production_save_folder(),language_screen.draft());
-                        driver.commit_language();
-                        preference=language_screen.draft();language=resolve_language(preference,version);
-                        failure_language=language;
-                        language_screen.saved();
-                    } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';language_screen.failed();}
-                }
-                if(!language_screen.visible())menu.resume();
-            } else if(controls_screen.visible()) {
+            if(controls_screen.visible()) {
                 if(controls_screen.update(sample_controls_input(window,controller,enter),now())==ControlsAction::save) {
                     try {
                         save_bindings(production_save_folder(),controls_screen.draft());
@@ -267,8 +253,19 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                         menu.close();driver.close_menu();report_save({});release.consume(); }
                 } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
                 else if(action==MenuAction::controls) controls_screen.open(controller.bindings());
-                else if(action==MenuAction::language)language_screen.open(preference,session.available(Language::english),
-                    session.available(Language::portuguese),language);
+                else if(action==MenuAction::language) {
+                    // The Language row switches at once, saved as the Language
+                    // screen's Save is: the labels change now, the game text
+                    // when Options closes.
+                    try {
+                        driver.prepare_language(menu.language_draft());
+                        save_language(production_save_folder(),menu.language_draft());
+                        driver.commit_language();
+                        preference=menu.language_draft();language=resolve_language(preference,version);
+                        failure_language=language;
+                        menu.language_saved();
+                    } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';menu.language_failed(preference);}
+                }
             }
             const auto count=clock.due(now());
             for (unsigned i=0;i<count;++i) {
@@ -281,7 +278,11 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 audio.submit(output.playback ? output.playback->values : output.samples.values,now());
                 if(!was_active && driver.menu_active()) {
                     if(driver.menu_purpose()==HostMenu::map) map_screen.open();
-                    else menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false,driver.automap_option(),driver.widescreen_option());
+                    else {
+                        menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false,driver.automap_option(),driver.widescreen_option());
+                        menu.set_language(preference,{session.available(LanguagePreference::native),
+                            session.available(LanguagePreference::english),session.available(LanguagePreference::portuguese)});
+                    }
                     release.consume();
                 }
                 if(was_active && !driver.menu_active())release.consume();
@@ -306,8 +307,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 const WidePicture* wide=!display.wide_canvas ? nullptr :
                     driver.menu_active() ? (wide_menu_background ? &*wide_menu_background : nullptr) : wide_picture();
                 centre_pixels(pixels,picture,wide);
-                if(language_screen.visible())language_screen.render(pixels,font,language);
-                else if(controls_screen.visible())controls_screen.render(pixels,font,language);
+                if(controls_screen.visible())controls_screen.render(pixels,font,language);
                 else if(menu.visible())menu.render(pixels,font,language);
                 else if(map_screen.visible() && driver.map_view())render_automap(pixels,font,*driver.map_view(),language);
                 else if(clock.speed()>1) {

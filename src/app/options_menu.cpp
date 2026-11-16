@@ -106,9 +106,31 @@ void RomFont::window(std::span<std::uint32_t> pixels,int x,int y,int width,int h
     for(int tx=x+8;tx<x+width-8;tx+=8){tile(2,tx,y);tile(2,tx,y+height-8,false,true);}
     for(int ty=y+8;ty<y+height-8;ty+=8){tile(ty==cursor_y ? 0 : 3,x,ty);tile(3,x+width-8,ty,true);}
 }
+namespace menu_style {
+void window(std::span<std::uint32_t> pixels,const RomFont& font,const TileWindow& w,int cursor_row) {
+    font.window(pixels,w.column*tile,w.row*tile,w.width*tile,w.height*tile,cursor_row<0 ? -1 : cursor_row*tile);
+}
+void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row,std::string_view value,std::uint32_t color) {
+    font.text(pixels,column*tile,row*tile,value,color);
+}
+}
+namespace {
+using namespace options_layout;
+constexpr UiText row_labels[]{UiText::encounters,UiText::experience_meseta_short,UiText::automap,UiText::widescreen,UiText::controls,UiText::language};
+constexpr UiText row_explanations[]{UiText::explain_encounters,UiText::explain_experience,UiText::explain_automap,
+    UiText::explain_widescreen,UiText::explain_controls,UiText::explain_language};
+constexpr LanguagePreference language_choices[]{LanguagePreference::native,LanguagePreference::english,LanguagePreference::portuguese};
+// Each language is named in its own words, so that a player who reads only
+// one of them finds it.
+constexpr std::string_view language_names[]{"","ENGLISH","PORTUGUES"};
+}
 void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording,bool automap,bool widescreen) {
     game::validate(options);draft_=options;restricted_=restricted;pending_=pending;automap_=automap;widescreen_=widescreen;
-    visible_=true;armed_=false;failed_=false;recording_=recording;selected_=top_=0;previous_={};next_repeat_=0;
+    visible_=true;armed_=false;failed_=language_failed_=false;recording_=recording;selected_=0;previous_={};next_repeat_=0;
+}
+void OptionsMenu::set_language(LanguagePreference preference,std::array<bool,3> available) {
+    (void)format_language(preference); // refuse unknown values
+    language_=preference;language_available_=available;language_failed_=false;
 }
 MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(!visible_)return MenuAction::none;
@@ -126,11 +148,7 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(cancel)return restricted_ ? MenuAction::close : MenuAction::apply;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
-        if(input.up!=input.down) {
-            selected_=(selected_+(input.down ? 1 : 5))%6;
-            if(selected_<top_)top_=selected_;
-            else if(selected_>=top_+4)top_=selected_-3;
-        }
+        if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : rows-1))%rows;
         if(!restricted_ && selected_==2 && input.left!=input.right)automap_=!automap_;
         if(!restricted_ && selected_==3 && input.left!=input.right)widescreen_=!widescreen_;
         if(!restricted_ && selected_<2 && input.left!=input.right) {
@@ -139,46 +157,124 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
             std::size_t i=0;while(i<choices.count && choices.values[i]!=current)++i;
             current=choices.values[(i+choices.count+(input.right?1:choices.count-1))%choices.count];
         }
-    }
-    if(accept)return selected_==4 ? MenuAction::controls : restricted_ ? MenuAction::close :
-        selected_==5 ? MenuAction::language : MenuAction::apply;
-    return MenuAction::none;
-}
-void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
-    // Four visible rows retain the original 32-pixel pitch. Child-screen
-    // entries have no value line, and WIDESCREEN keeps its value on its own line; the fifth and sixth rows scroll into the same window.
-    static constexpr int rows[]{48,80,112,144};
-    font.window(pixels,24,24,208,152,rows[selected_-top_]);
-    auto text=[&](int x,int y,std::string_view label){font.text(pixels,x,y,label,0xffffffff);};
-    auto label=[&](UiText id){return ui_text(id,language);};
-    auto value=[&](unsigned percent,unsigned recommended) {
-        return std::to_string(percent)+"%"+std::string(percent==100 ? label(UiText::default_suffix) :
-            percent==recommended ? label(UiText::recommended_suffix) : std::string_view{});
-    };
-    const auto title=label(UiText::options);
-    text((256-int(title.size())*8)/2,32,title);
-    static constexpr UiText labels[]{UiText::encounters,UiText::experience_meseta,UiText::automap,UiText::widescreen,UiText::controls,UiText::language};
-    for(unsigned i=0;i<4;++i) {
-        const unsigned row=top_+i;const int y=rows[i];
-        text(40,y,label(labels[row]));
-        if(row==0)text(48,y+16,value(draft_.encounter_percent,game::switch_like_encounter_percent));
-        else if(row==1)text(48,y+16,value(draft_.experience_percent,game::switch_like_experience_percent));
-        else if(row==2)text(48,y+16,label(automap_ ? UiText::on : UiText::off_default));
-        else if(row==3) {
-            // One line, value at the right: a value line here would land on
-            // the status and footer lines when this row sits in the last slot.
-            const auto state=label(widescreen_ ? UiText::on : UiText::off);
-            text(216-int(state.size())*8,y,state);
+        if(!restricted_ && selected_==language_row && input.left!=input.right) {
+            // The next preference with a ROM, skipping those without; the
+            // owner saves the change at once, as the Language screen's Save did.
+            const auto from=std::size_t(language_);
+            for(std::size_t step=1;step<std::size(language_choices);++step) {
+                const auto i=(from+(input.right ? step : std::size(language_choices)-step))%std::size(language_choices);
+                if(language_available_[i]) { language_=language_choices[i];return MenuAction::language; }
+            }
         }
     }
+    if(accept)return selected_==controls_row ? MenuAction::controls : restricted_ ? MenuAction::close : MenuAction::apply;
+    return MenuAction::none;
+}
+std::string_view OptionsMenu::label(unsigned row,Language language) {
+    if(row>=rows)throw std::out_of_range("No such Options row.");
+    return ui_text(row_labels[row],language);
+}
+std::vector<std::string> OptionsMenu::choices(unsigned row,Language language) const {
+    auto percents=[](const game::PercentChoices& choices) {
+        std::vector<std::string> values;
+        for(std::size_t i=0;i<choices.count;++i)values.push_back(std::to_string(choices.values[i])+"%");
+        return values;
+    };
+    switch(row) {
+    case 0:return percents(game::encounter_percent_choices);
+    case 1:return percents(game::experience_percent_choices);
+    case 2:case 3:return {std::string(ui_text(UiText::off,language)),std::string(ui_text(UiText::on,language))};
+    case controls_row:return {};
+    case language_row:return {std::string(ui_text(UiText::automatic_short,language)),std::string(language_names[1]),std::string(language_names[2])};
+    }
+    throw std::out_of_range("No such Options row.");
+}
+std::size_t OptionsMenu::current(unsigned row) const {
+    auto index=[](const game::PercentChoices& choices,unsigned value) {
+        std::size_t i=0;while(i<choices.count && choices.values[i]!=value)++i;return i;
+    };
+    switch(row) {
+    case 0:return index(game::encounter_percent_choices,draft_.encounter_percent);
+    case 1:return index(game::experience_percent_choices,draft_.experience_percent);
+    case 2:return automap_ ? 1 : 0;
+    case 3:return widescreen_ ? 1 : 0;
+    case language_row:return std::size_t(language_);
+    }
+    return 0;
+}
+bool OptionsMenu::available(unsigned row,std::size_t choice) const {
+    return row!=language_row || (choice<language_available_.size() && language_available_[choice]);
+}
+std::optional<menu_style::TileWindow> OptionsMenu::values_window(Language language) const {
+    const auto values=choices(selected_,language);
+    if(values.empty())return {};
+    // Beside the selected row, over the list's right border, its first
+    // choice on the row's line; moved up a line at a time when it would
+    // reach below the list (Language), so the explanation stays apart.
+    std::size_t longest=0;for(const auto& value:values)longest=std::max(longest,value.size());
+    menu_style::TileWindow window{values_column,line_row(selected_)-1,std::max(values_width,int(longest)+2),line_step*int(values.size())+1};
+    while(window.row+window.height>list.row+list.height)window.row-=line_step;
+    return window;
+}
+std::array<std::string_view,explanation_lines> OptionsMenu::explanation(unsigned row,Language language) {
+    if(row>=rows)throw std::out_of_range("No such Options row.");
+    std::array<std::string_view,explanation_lines> lines{};
+    auto text=ui_text(row_explanations[row],language);
+    for(auto& line:lines) {
+        const auto end=text.find('\n');
+        line=text.substr(0,end);
+        text=end==std::string_view::npos ? std::string_view{} : text.substr(end+1);
+    }
+    return lines;
+}
+std::array<std::string,explanation_lines> OptionsMenu::explanation_text(Language language) const {
+    const auto fixed=explanation(selected_,language);
+    std::array<std::string,explanation_lines> lines{std::string(fixed[0]),std::string(fixed[1]),std::string(fixed[2])};
+    // A language without its ROM: say which ROM it needs instead of how AUTO works.
+    if(selected_==language_row && !restricted_) {
+        if(!language_available_[std::size_t(LanguagePreference::english)])lines[2]=ui_text(UiText::english_needs_rom,language);
+        else if(!language_available_[std::size_t(LanguagePreference::portuguese)])lines[2]=ui_text(UiText::portuguese_needs_rom,language);
+    }
+    return lines;
+}
+std::string_view OptionsMenu::state(Language language) const {
     // The pending state concerns the routine options only.
-    if(failed_)text(40,152,label(UiText::save_failed));
-    else if(restricted_)text(40,152,label(recording_ ? UiText::recording_read_only : UiText::z80_read_only));
-    else if(pending_)text(40,152,label(UiText::saved_waiting));
-    auto footer=std::string(label(top_ ? UiText::more_above : UiText::more_below));
-    if(!failed_ && !restricted_ && !pending_)
-        footer=std::string(label(UiText::saves_on_exit))+" "+std::to_string(top_+1)+"/3";
-    font.text(pixels,40,160,footer,0xffaaaaaa);
+    if(failed_ || language_failed_)return ui_text(UiText::save_failed,language);
+    if(restricted_)return ui_text(recording_ ? UiText::recording_read_only : UiText::z80_read_only,language);
+    if(pending_)return ui_text(UiText::saved_waiting,language);
+    return ui_text(UiText::saves_on_exit,language);
+}
+bool OptionsMenu::drawn(int x,int y,Language language) const {
+    const auto values=values_window(language);
+    return list.contains(x,y) || options_layout::explanation.contains(x,y) || (values && values->contains(x,y));
+}
+void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
+    using menu_style::white;using menu_style::grey;
+    // A line per row, the cursor in the list's left border, as the game's
+    // own menus; the current value repeated in grey at the right.
+    menu_style::window(pixels,font,list,line_row(selected_));
+    for(unsigned row=0;row<rows;++row) {
+        const int y=line_row(row);
+        menu_style::text(pixels,font,list.column+1,y,label(row,language),white);
+        const auto values=choices(row,language);
+        if(values.empty())continue;
+        const auto& value=values[current(row)];
+        menu_style::text(pixels,font,list.column+list.width-1-int(value.size()),y,value,grey);
+    }
+    // The values window shows the choices; left and right change them, so
+    // it has no cursor of its own. The current one is yellow.
+    if(const auto window=values_window(language)) {
+        menu_style::window(pixels,font,*window);
+        const auto values=choices(selected_,language);
+        for(std::size_t i=0;i<values.size();++i)
+            menu_style::text(pixels,font,window->column+window->width-1-int(values[i].size()),window->row+1+line_step*int(i),values[i],
+                i==current(selected_) ? menu_style::yellow : available(selected_,i) ? grey : menu_style::dim);
+    }
+    menu_style::window(pixels,font,options_layout::explanation);
+    const auto lines=explanation_text(language);
+    for(unsigned i=0;i<explanation_lines;++i)menu_style::text(pixels,font,options_layout::explanation.column+1,options_layout::explanation.row+1+line_step*int(i),lines[i],white);
+    const bool quiet=!failed_ && !language_failed_ && !restricted_ && !pending_;
+    menu_style::text(pixels,font,options_layout::explanation.column+1,state_row,state(language),quiet ? grey : white);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {
     if(!waiting_)return input;

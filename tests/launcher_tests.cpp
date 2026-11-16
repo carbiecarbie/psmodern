@@ -374,7 +374,17 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
                   "the screen is black with a white window and text and a grey footer");
             check(std::count(pixels.begin(),pixels.end(),0xffaaaaaa)>0,"the footer is drawn");
             if (screen.entries().size()==6)
-                check(std::all_of(pixels.begin()+152*256,pixels.begin()+176*256,[](auto p) { return p==0xff000000; }),"six entries end above the footer");
+                check(std::all_of(pixels.begin()+152*256,pixels.begin()+160*256,[](auto p) { return p==0xff000000; }),"six entries end above the version window");
+            // The version in its own window (milestone 12), centred on its middle row.
+            {
+                std::vector<std::uint32_t> expected(256*192,0xff000000);
+                menu_style::window(expected,font,version_window);
+                const auto version=StartScreen::footer();
+                menu_style::text(expected,font,(32-int(version.size()))/2,version_window.row+1,version,0xffaaaaaa);
+                for (int y=8*version_window.row;y<8*(version_window.row+version_window.height);++y)
+                    for (int x=0;x<256;++x) check(pixels[y*256+x]==expected[y*256+x],"the version window");
+                check(std::all_of(pixels.begin()+184*256,pixels.end(),[](auto p) { return p==0xff000000; }),"nothing under the version window");
+            }
             screen.update(press(&MenuInput::down),double(2*i+1));screen.update(neutral(),double(2*i+2));
         }
     }

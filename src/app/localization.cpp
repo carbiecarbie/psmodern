@@ -9,8 +9,8 @@ namespace {
 struct Translation { std::string_view en,pt; };
 constexpr Translation catalog[]{
     {"",""},{"OPTIONS","OPCOES"},{"ENCOUNTERS","ENCONTROS"},{"EXPERIENCE / MESETA","EXPERIENCIA / MESETA"},
-    {"AUTOMAP","MAPA AUTOMATICO"},{"WIDESCREEN","TELA LARGA"},{"CONTROLS","CONTROLES"},{"LANGUAGE","IDIOMA"},
-    {"ON","LIGADO"},{"OFF (DEFAULT)","DESLIGADO (PADRAO)"},{"OFF","DESLIGADO"},{" (DEFAULT)"," (PADRAO)"},{" (RECOMMENDED)"," (RECOMENDADO)"},
+    {"AUTOMAP","AUTOMAPA"},{"WIDESCREEN","WIDESCREEN"},{"CONTROLS","CONTROLES"},{"LANGUAGE","IDIOMA"},
+    {"ON","SIM"},{"OFF","NAO"},
     {"SAVE FAILED - RETRY","FALHA AO SALVAR - REPITA"},{"RECORDING - READ ONLY","GRAVANDO - SO LEITURA"},
     {"Z80 MODE - READ ONLY","MODO Z80 - SO LEITURA"},{"SAVED - WAITING","SALVO - AGUARDANDO"},
     {"SAVES ON EXIT","SALVA AO SAIR"},
@@ -60,7 +60,23 @@ constexpr Translation catalog[]{
      "Algumas partidas antigas nao podem ser lidas ou estao em uso.\nContinue com o conjunto disponivel ou cancele para recuperar o outro.\nTodos os arquivos originais serao preservados."},
     {"AMERICAN","AMERICANA"},{"BRAZILIAN","BRASILEIRA"},
     {"Saved games could not be prepared.\nYour old files were preserved.\nClose other game instances and check access to the saves folder,\nthen try again.",
-     "Nao foi possivel preparar as partidas salvas.\nSeus arquivos antigos foram preservados.\nFeche outras instancias do jogo e verifique o acesso a pasta de saves.\nDepois, tente novamente."}
+     "Nao foi possivel preparar as partidas salvas.\nSeus arquivos antigos foram preservados.\nFeche outras instancias do jogo e verifique o acesso a pasta de saves.\nDepois, tente novamente."},
+    // The Options screen (milestone 12): its short label, the AUTO language
+    // choice and the explanation window's three lines per row, one per '\n'.
+    {"EXP / MESETA","EXP / MESETA"},{"AUTO","AUTO"},
+    {"HOW OFTEN MONSTERS ATTACK.\n100% IS THE ORIGINAL GAME.\n25% IS RECOMMENDED.",
+     "FREQUENCIA DOS MONSTROS.\n100% E O JOGO ORIGINAL.\n25% E O RECOMENDADO."},
+    {"EXPERIENCE AND MESETA FROM\nBATTLES. 100% IS ORIGINAL.\n400% IS RECOMMENDED.",
+     "EXPERIENCIA E MESETA DAS\nBATALHAS. 100% E O ORIGINAL.\n400% E O RECOMENDADO."},
+    {"DRAWS DUNGEON FLOORS AS YOU\nEXPLORE. SEE IT WITH THE MAP\nBUTTON. OFF IS THE ORIGINAL.",
+     "DESENHA OS ANDARES DAS\nMASMORRAS. VEJA COM O BOTAO\nDO MAPA. O ORIGINAL E NAO."},
+    {"SHOWS MORE OF THE WORLD MAP\nAND TOWNS AT THE SIDES.\nOFF IS THE ORIGINAL.",
+     "MOSTRA MAIS DO MAPA E DAS\nCIDADES NAS LATERAIS.\nO ORIGINAL E NAO."},
+    {"CHANGE KEYS AND CONTROLLER\nBUTTONS. PRESS BUTTON 1 TO\nOPEN THE CONTROLS SCREEN.",
+     "MUDA AS TECLAS E OS BOTOES\nDO CONTROLE. O BOTAO 1 ABRE\nA TELA DE CONTROLES."},
+    {"LANGUAGE OF THE GAME TEXT\nAND OF THESE SCREENS.\nAUTO FOLLOWS YOUR ROM.",
+     "IDIOMA DOS TEXTOS DO JOGO\nE DESTAS TELAS.\nAUTO SEGUE A SUA ROM."},
+    {"ENGLISH NEEDS THE US ROM.","ENGLISH PRECISA DA ROM US."},{"PORTUGUES NEEDS THE BR ROM.","PORTUGUES PRECISA DA ROM BR."}
 };
 static_assert(std::size(catalog)==std::size_t(UiText::count));
 }

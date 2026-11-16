@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Exercises the actual main.cpp child-screen flow with a dummy SDL host.
+// Exercises the actual main.cpp Options flow of the Language row with a dummy SDL host.
 #include "app/sdl_host.h"
 #include "app/frame_driver.h"
-#include "app/language_screen.h"
 #include "app/options_menu.h"
 #include "app/shared_save.h"
 #include "app/localization.h"
@@ -27,7 +26,7 @@ SDL_Window* focused=nullptr;
 std::filesystem::path recording_path,host_folder;
 std::shared_ptr<const Memory::Rom> ui_image;
 Language source_language=Language::english,target_language=Language::portuguese;
-unsigned mode=0,loops=0,step=0,child_frames=0,parent_frames=0;
+unsigned mode=0,loops=0,step=0,language_frames=0,parent_frames=0;
 bool opened=false,quit_sent=false,child_saved=false,failed_shown=false,finished=false;
 std::vector<Command> commands;
 LegacySaves prompt_saves{};
@@ -90,13 +89,13 @@ int scripted_poll(SDL_Event* event) {
         if(mode==3) {
             // Quit while the native parent still owns its window/stack. The
             // preference is durable; no live ROM installation may occur.
-            check(child_saved && tested->menu_active() && tested->language_pending(),"pending-exit fixture did not retain saved choice inside Options");
+            check(child_saved && tested->menu_active() && tested->language_pending(),"pending-exit fixture did not retain the saved choice inside Options");
             check(tested->active_language()==source_language && tested->language_changes()==0,"exit installed language before native return");
             check(tested->store().path()==host_folder/"shared"/shared_save_name,"pending exit changed native save ownership");
         } else {
             if(tested->menu_active())return 0;
-            check(child_saved && tested->active_language()==target_language && !tested->language_pending(),"parent close lost child Save");
-            check(tested->language_changes()==1,"child Save applied more than once");
+            check(child_saved && tested->active_language()==target_language && !tested->language_pending(),"closing Options lost the language change");
+            check(tested->language_changes()==1,"the language change applied more than once");
         }
         check(tested->chosen_options()==(mode==1 ? game::Options{0,100} : mode==3 ? game::Options{} : game::Options{200,100}),"parent exit saved the wrong rate draft");
         finished=quit_sent=true;*event={};event->type=SDL_QUIT;return 1;
@@ -115,50 +114,45 @@ MenuInput scripted_menu(SDL_Window* window,const Controller&) {
     const auto command=commands[step++];
     if(command.hook==Hook::block_write)std::filesystem::create_directory(host_folder/language_file_name);
     if(command.hook==Hook::retry_write) {
-        check(failed_shown && tested->active_language()==source_language && !tested->language_pending(),"failed child write was committed");
+        check(failed_shown && tested->active_language()==source_language && !tested->language_pending(),"failed language write was committed");
         check(std::filesystem::remove(host_folder/language_file_name),"remove failed-save fixture");
     }
     return command.input;
 }
-int inspected_upload(const FrameDriver& driver,const LanguageScreen& child,const OptionsMenu& parent,Language ui,
+int inspected_upload(const FrameDriver& driver,const OptionsMenu& parent,Language ui,
                      SDL_Texture* texture,const SDL_Rect* rect,const void* raw,int pitch) {
-    if(child.visible()) {
-        ++child_frames;check(driver.menu_active(),"Language child escaped native Options hold");
+    if(parent.visible()) {
+        ++parent_frames;check(driver.menu_active(),"Options escaped the native Options hold");
+        if(parent.selected()==options_layout::language_row)++language_frames;
         if(mode==2 && std::filesystem::is_directory(host_folder/language_file_name)) {
-            // Inspect the actual failure line, rather than a test callback.
+            // Inspect the actual state line, rather than a test callback.
             const auto pixels=static_cast<const std::uint32_t*>(raw);
             RomFont font(*ui_image);
             std::vector<std::uint32_t> expected(256*192,0);
-            font.text(expected,32,160,ui_text(UiText::save_failed,ui),0xffffffff);
+            menu_style::text(expected,font,options_layout::explanation.column+1,options_layout::state_row,ui_text(UiText::save_failed,ui),0xffffffff);
             bool matches=true;
             for(unsigned i=0;i<expected.size();++i)if(expected[i] && pixels[i]!=expected[i])matches=false;
             if(matches)failed_shown=true;
         }
-    } else if(parent.visible()) {
-        ++parent_frames;
         if(std::filesystem::is_regular_file(host_folder/language_file_name) && load_language(host_folder).preference!=LanguagePreference::native) {
-            check(driver.language_pending() && driver.active_language()==source_language,"child Save did not wait for native parent close");
-            check(ui==target_language,"parent UI did not localize after independent child Save");child_saved=true;
+            check(driver.language_pending() && driver.active_language()==source_language,"the Language row did not wait for the native Options close");
+            check(ui==target_language,"Options did not switch its labels at once");child_saved=true;
         }
     }
     return SDL_UpdateTexture(texture,rect,raw,pitch);
 }
 void tap(MenuInput input,Hook hook=Hook::none) {commands.push_back({input,hook});commands.push_back({{}});}
 void script() {
-    commands.clear();commands.push_back({{}}); // arm parent
+    commands.clear();commands.push_back({{}}); // arm Options
     tap({.right=true});                      // rates draft 100 -> 200
-    tap({.up=true});tap({.accept=true});     // Language child
-    commands.push_back({{}});               // arm child
-    const unsigned target_row=target_language==Language::english ? 1 : 2;
-    for(unsigned n=0;n<target_row;++n)tap({.down=true});
-    tap({.accept=true});                    // choose target, no persistence yet
-    for(unsigned n=target_row;n<3;++n)tap({.down=true});
+    tap({.up=true});                         // the Language row
+    // From AUTO, right is ENGLISH and left PORTUGUES: one step, one save.
+    const MenuInput step=target_language==Language::english ? MenuInput{.right=true} : MenuInput{.left=true};
     if(mode==2) {
-        tap({.accept=true},Hook::block_write);
+        tap(step,Hook::block_write);         // the save fails and AUTO comes back
         commands.push_back({{},Hook::retry_write});
     }
-    tap({.accept=true});                    // explicit child Save
-    commands.push_back({{}});               // re-arm parent on Language
+    tap(step);                               // saved at once
     if(mode==1) {
         tap({.down=true});tap({.right=true});tap({.accept=true}); // parent Apply 200 -> 0
     } else if(mode!=3)tap({.cancel=true});   // saves parent rates; mode 3 quits with the parent held
@@ -177,7 +171,7 @@ void script() {
 #define SDL_ShowMessageBox scripted_message_box
 #define sample_input scripted_input
 #define sample_menu_input scripted_menu
-#define SDL_UpdateTexture(t,r,p,pitch) inspected_upload(driver,language_screen,menu,language,t,r,p,pitch)
+#define SDL_UpdateTexture(t,r,p,pitch) inspected_upload(driver,menu,language,t,r,p,pitch)
 #include "../src/app/main.cpp"
 #undef main
 #undef utf8_arguments
@@ -230,7 +224,7 @@ int main(int argc,char** argv) {try {
     for(mode=0;mode<4;++mode) {
         const auto folder=root/std::to_string(mode);std::filesystem::create_directories(folder);
         SDL_setenv("APPDATA",folder.string().c_str(),1);host_folder=folder/"PSModern";
-        tested=nullptr;focused=nullptr;loops=step=child_frames=parent_frames=prompts=0;
+        tested=nullptr;focused=nullptr;loops=step=language_frames=parent_frames=prompts=0;
         opened=quit_sent=child_saved=failed_shown=finished=false;script();
         if(mode==0) {
             prompt_language=source_language;prompt_response=1;prompt_saves={};
@@ -243,8 +237,8 @@ int main(int argc,char** argv) {try {
         }
         check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"start dummy SDL host");
         const auto result=play(session,nullptr,{},true,{});
-        check(result==0 && finished && child_frames>0 && parent_frames>0,"actual Language child flow did not finish");
-        check(load_language(host_folder).preference==(target_language==Language::english ? LanguagePreference::english : LanguagePreference::portuguese),"global child preference did not persist");
+        check(result==0 && finished && language_frames>0 && parent_frames>0,"actual Language row flow did not finish");
+        check(load_language(host_folder).preference==(target_language==Language::english ? LanguagePreference::english : LanguagePreference::portuguese),"the global language preference did not persist");
         check(mode!=2 || failed_shown,"failed Save was not visibly reported before retry");
         {
             auto saved=SaveStore::shared(host_folder);
@@ -264,7 +258,7 @@ int main(int argc,char** argv) {try {
                   "reopening shared storage should not prompt");
         } else {
             const auto foreign=host_folder/save_name(language_rom(target_language));
-            check(!std::filesystem::exists(foreign) && !std::filesystem::exists(foreign.string()+".options") && !std::filesystem::exists(foreign.string()+".automap"),"child Save created the other profile");
+            check(!std::filesystem::exists(foreign) && !std::filesystem::exists(foreign.string()+".options") && !std::filesystem::exists(foreign.string()+".automap"),"the language change created the other profile");
             check(prompts==0,"empty startup unexpectedly requested migration choice");
         }
         if(mode==3) {
@@ -280,5 +274,5 @@ int main(int argc,char** argv) {try {
         SDL_Quit();
     }
     test::remove_temporary_folder(root);
-    std::cout<<"Actual main UI: child Save with parent save on exit, failed Save retry, pending exit with clean restart and fixed profile ownership passed.\n";return 0;
+    std::cout<<"Actual main UI: the Language row with save on exit, failed save retry, pending exit with clean restart and fixed profile ownership passed.\n";return 0;
 } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';SDL_Quit();return 1;}}

@@ -9,7 +9,7 @@ enum class Action : std::uint8_t;
 enum class PadInput : std::uint8_t;
 enum class UiText {
     none, options, encounters, experience_meseta, automap, widescreen, controls, language,
-    on, off_default, off, default_suffix, recommended_suffix, save_failed, recording_read_only,
+    on, off, save_failed, recording_read_only,
     z80_read_only, saved_waiting, saves_on_exit, more_above, more_below, play,
     choose_rom, open_saves, quit, keyboard, gamepad, restore_defaults, save, cancel,
     no_binding, controller_connected, no_controller, press_key_for, press_button_for,
@@ -22,8 +22,12 @@ enum class UiText {
     cannot_open_saves, cannot_remember_roms, rom_missing_or_changed, rom_unreadable,
     rom_choose_help, rom_refused, power_cycle_disabled, recording, speed, changes_waiting,
     presentation_language, startup_failed, preferences_warning, automap_warning, audio_unavailable,
-    legacy_title, legacy_choice, legacy_unavailable, legacy_us, legacy_br, legacy_failed, count
+    legacy_title, legacy_choice, legacy_unavailable, legacy_us, legacy_br, legacy_failed,
+    experience_meseta_short, automatic_short, explain_encounters, explain_experience, explain_automap,
+    explain_widescreen, explain_controls, explain_language, english_needs_rom, portuguese_needs_rom, count
 };
+// The explanation texts hold three lines separated by '\n'; every other
+// ROM-rendered entry is a single line.
 // Host-authored labels only. ROM text remains in the player's ROM.
 // ROM-rendered labels use uppercase unaccented ASCII supported by RomFont.
 std::string_view ui_text(UiText id,Language language=Language::english);

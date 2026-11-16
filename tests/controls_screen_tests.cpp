@@ -375,7 +375,10 @@ void check_spacing(const Frame& f,const std::string& state) {
     namespace l=controls_layout;
     for (unsigned i=0;i<l::visible_rows;++i)
         check(blank(f,8,l::first_row_y+l::row_step*int(i)+8,248,l::first_row_y+l::row_step*int(i)+16),state+": a blank tile row follows list row "+std::to_string(i));
-    check(blank(f,8,16,248,24) && blank(f,8,32,248,40) && blank(f,8,160,248,168) && blank(f,8,176,248,184),state+": blank rows around the header, hints and status");
+    check(blank(f,8,16,248,24) && blank(f,8,32,248,40) && blank(f,8,160,248,168),state+": blank rows around the header, hints and status");
+    // Milestone 12: the status line sits in its own window, whose top border overlaps the list's bottom border.
+    check(l::list_window.contains(0,0) && l::status_window.contains(l::status_x,l::status_y) && l::status_window.row==l::list_window.row+l::list_window.height-1 &&
+          l::list_window.contains(l::hint_x,l::hint_below_y) && !l::status_window.contains(l::hint_x,l::hint_below_y),state+": the status window under the list");
     for (auto p:f) check(p==BLACK || p==WHITE || p==GREY || p==YELLOW,state+": only black, white, grey and yellow");
 }
 void rom(const std::filesystem::path& path,const std::filesystem::path& output) {
@@ -419,6 +422,11 @@ void rom(const std::filesystem::path& path,const std::filesystem::path& output) 
     }
     check(shows(frame,l::hint_x,l::hint_below_y,"MORE BELOW",GREY,font) && blank(frame,l::hint_x,l::hint_above_y,100,l::hint_above_y+8),"top: a hint below, none above");
     check(shows(frame,l::status_x,l::status_y,"NO CONTROLLER FOUND",WHITE,font),"the status line");
+    {   // The status window's border, drawn over the list's bottom border.
+        Frame border(256*192,0xff123456);menu_style::window(border,font,l::status_window);
+        for (int y=8*l::status_window.row;y<192;++y) for (int x=0;x<256;++x)
+            if (y<8*l::status_window.row+8 || y>=8*(l::status_window.row+l::status_window.height)-8 || x<8 || x>=248) check(frame[y*256+x]==border[y*256+x],"the status window's border");
+    }
     write_ppm(output/"controls.ppm",frame);
 
     // Scrolled to the bottom: rows 9 to 15 with the fullscreen key grey, a hint above only.

@@ -78,6 +78,10 @@ int main(int argc,char** argv) { try {
     check(static_cast<bool>(f.read(reinterpret_cast<char*>(cart.data()),cart.size())),"cartridge RAM");
     Machine machine(rom->image,cart); RoutineRegistry registry;
     game::register_routines(registry,rom->sha1);
+    // The discovery run watches native instruction addresses (00:2925, 00:28EC, 00:28EE) that sit inside
+    // rewritten segments, where a dispatch runs before the watch. It runs the original code; the measured
+    // runs below keep the real configuration.
+    registry.enabled=false;
     std::optional<Machine> checkpoint,decision,opened; std::uint64_t at_frame=0;
     auto find=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
         if(pc==0x2925 && map==Memory::Mapping{Memory::Kind::rom,0} && !checkpoint) checkpoint=machine;
@@ -158,23 +162,25 @@ int main(int argc,char** argv) { try {
         write_word(a,0xc2dd,123); a.memory().write(0xc2df,0); write_word(a,0xc4e0,20);
         write_word(a,0xc2c5,123); write_word(a,0xc29b,0xc4c0);
         a.memory().write(0xc4c0,1); a.memory().write(0xc4e2,1);
-        Machine b=a; RoutineRegistry original,enhanced; game::register_routines(original,rom->sha1);
+        Machine b=a,c=a; RoutineRegistry original,enhanced,plain; game::register_routines(original,rom->sha1);
         game::register_routines(enhanced,rom->sha1,game::Options{100,400});
-        bool done_a=false,done_b=false;
+        game::register_routines(plain,rom->sha1); plain.enabled=false;
+        // The end is the original code reaching `end`: a third machine runs the same frames without routines
+        // and watches the address (00:2D0A lies inside a rewritten segment, where a dispatch runs before the
+        // watch). The two measured machines keep the real configuration and are compared with it every frame.
+        bool done=false;
         const auto end=static_cast<std::uint16_t>(map_chest ? 0x00af : 0x2d0a);
-        auto hook_a=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
-            if(pc==end && map==Memory::Mapping{Memory::Kind::rom,0}) done_a=true; return {};
+        auto hook_c=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
+            if(pc==end && map==Memory::Mapping{Memory::Kind::rom,0}) done=true; return {};
         };
-        auto hook_b=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
-            if(pc==end && map==Memory::Mapping{Memory::Kind::rom,0}) done_b=true; return {};
-        };
-        for(unsigned n=0;n<2400 && !done_a && !done_b;++n) {
+        for(unsigned n=0;n<2400 && !done;++n) {
             FrameInput input{}; input.pads[0].one=n%30<4;
-            a.run_frame(input,original,hook_a);b.run_frame(input,enhanced,hook_b);
-            a.take_samples();a.take_psg_writes();b.take_samples();b.take_psg_writes();
+            a.run_frame(input,original);b.run_frame(input,enhanced);c.run_frame(input,plain,hook_c);
+            a.take_samples();a.take_psg_writes();b.take_samples();b.take_psg_writes();c.take_samples();c.take_psg_writes();
             check(a.equivalent(b),map_chest ? "map chest diverged" : "sale diverged");
+            check(a.equivalent(c),map_chest ? "map chest differs from the original code" : "sale differs from the original code");
         }
-        check(done_a && done_b,map_chest ? "map chest did not finish" : "sale did not reach message");
+        check(done,map_chest ? "map chest did not finish" : "sale did not reach message");
         check(word(b,0xc4e0)==143,map_chest ? "map chest reward changed" : "sale price changed");
         check(enhanced.find(game::money_add_unit)->counters.cpp_calls>0,"shared money addition did not run");
         if(!map_chest) check(b.memory().read(0xc4e2)==0,"sold item was not removed");

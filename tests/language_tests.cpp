@@ -149,28 +149,28 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
         if(row==0)preview(output,"start",language,pixels);
         start.update({.down=true},2*row+1);start.update({},2*row+2);
     }
+    // Options (milestone 12): every row on one page, the state on the
+    // explanation window's last line; options_tests checks the layout in full.
     OptionsMenu menu;menu.open({25,400},false,false,false,true,true);menu.update({},0);
-    for(unsigned row=0;row<6;++row) {
+    for(unsigned row=0;row<options_layout::rows;++row) {
         Frame pixels(256*192,0xff123456);menu.render(pixels,font,language);
-        check(shows(pixels,font,40,160,std::string(ui_text(UiText::saves_on_exit,language))+" "+std::to_string(menu.first_visible()+1)+"/3",0xffaaaaaa),"Options footer explains save on exit and viewport in the current language");
-        check(menu.selected()>=menu.first_visible() && menu.selected()<menu.first_visible()+4,"Options cursor remains visible");
-        Frame cursor(256*192);font.window(cursor,24,24,208,152,48+32*int(menu.selected()-menu.first_visible()));
-        for(int y=32;y<168;++y)for(int x=24;x<32;++x)check(pixels[y*256+x]==cursor[y*256+x],"Options cursor matches visible selected row");
+        check(shows(pixels,font,16,8*options_layout::state_row,ui_text(UiText::saves_on_exit,language),0xffaaaaaa),"Options explains save on exit in the current language");
+        for(unsigned r=0;r<options_layout::rows;++r)
+            check(shows(pixels,font,16,8*options_layout::line_row(r),OptionsMenu::label(r,language)),"every Options row is visible");
+        const auto explanation=OptionsMenu::explanation(row,language);
+        check(shows(pixels,font,16,8*(options_layout::explanation.row+1),explanation[0]),"the selected row is explained");
         for(int y=0;y<192;++y)for(int x=0;x<256;++x)
-            if(x<24 || x>=232 || y<24 || y>=176)check(pixels[y*256+x]==0xff123456,"localized Options preserves outside frame");
+            if(!menu.drawn(x,y,language))check(pixels[y*256+x]==0xff123456,"localized Options preserves the game outside its windows");
         if(row==0)preview(output,"options",language,pixels);
         if(row==3) {
             const auto state=ui_text(UiText::on,language);
-            check(shows(pixels,font,40,144,ui_text(UiText::widescreen,language)) && shows(pixels,font,216-int(state.size())*8,144,state),"widescreen row and value localized");
+            check(shows(pixels,font,160-8*int(state.size()),8*options_layout::line_row(3),state,0xffaaaaaa),"widescreen value localized");
         }
-        if(row==5) {
-            check(shows(pixels,font,40,144,ui_text(UiText::language,language)),"Language action visible after scroll");
-            preview(output,"options-language",language,pixels);
-        }
+        if(row==5)preview(output,"options-language",language,pixels);
         menu.update({.down=true},2*row+1);menu.update({},2*row+2);
     }
     menu.failed();Frame failed(256*192);menu.render(failed,font,language);
-    check(shows(failed,font,40,152,ui_text(UiText::save_failed,language)),"localized save failure fits Options");
+    check(shows(failed,font,16,8*options_layout::state_row,ui_text(UiText::save_failed,language)),"localized save failure fits Options");
     ControlsScreen controls;controls.open(Bindings::defaults());controls.update({},0);
     for(unsigned row=0;row<controls_layout::rows;++row) {
         Frame pixels(256*192);controls.render(pixels,font,language);
@@ -187,7 +187,7 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
     const auto capture=std::string(ui_text(UiText::press_key_for,language))+std::string(ui_action_label(Action::up,language));
     check(controls.localized_status(language)==capture,"capture status resolves language dynamically");
     Frame capture_pixels(256*192);controls.render(capture_pixels,font,language);
-    check(shows(capture_pixels,font,16,168,capture),"localized capture status is fully rendered");
+    check(shows(capture_pixels,font,controls_layout::status_x,controls_layout::status_y,capture),"localized capture status is fully rendered");
     preview(output,"controls-capture",language,capture_pixels);
     controls.failed();check(controls.localized_status(language)==ui_text(UiText::save_failed,language),"failure status resolves language dynamically");
     game::MapView view{};view.floor_level=-12;view.party_ahead=-16;

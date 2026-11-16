@@ -4,6 +4,7 @@
 #include "game/encounters.h"
 #include "game/experience.h"
 #include "game/map.h"
+#include "game/menu.h"
 #include "game/money.h"
 #include "game/options.h"
 #include "game/text.h"
@@ -32,4 +33,7 @@ void register_dungeon_objects(RoutineRegistry& registry);
 // The milestone 11 map routines register through the six functions declared
 // in game/map.h (map_video.cpp, map_scroll.cpp, map_objects.cpp,
 // map_terrain.cpp, map_entrances.cpp, map_modes.cpp).
+// The milestone 12 menu routines register through the six functions declared
+// in game/menu.h (menu_engine.cpp, menu_windows.cpp, menu_select.cpp,
+// menu_field.cpp, menu_places.cpp, menu_fades.cpp).
 }

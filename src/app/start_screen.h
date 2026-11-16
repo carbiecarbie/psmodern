@@ -12,6 +12,8 @@
 
 namespace psmodern::app {
 enum class StartAction { none,play,choose,controls,language,open_saves,quit };
+// The version line's window, under the list (which ends by tile row 18 with six entries).
+inline constexpr menu_style::TileWindow version_window{2,20,28,3};
 // The start screen shown when psmodern.exe runs without arguments: one entry
 // when at least one ROM is available, then Add ROM, Controls, Language,
 // Open saves folder and Quit. Language names the global presentation choice.
