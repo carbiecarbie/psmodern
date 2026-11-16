@@ -188,3 +188,23 @@ Implementation: `78254af`; closed by `f5cc348`; private annotations: `dd72681` i
 ## Release 0.6.0 - World map and towns (2026-11-15)
 
 The Windows release carries milestone 11: the world map and towns on C++ code, with no change to how the game looks or plays, and the widescreen broken-ice fix. At the maintainer's request the complete suite was not rerun for the release (it had passed 237 of 237 at milestone 11, and 0.6.0 changes only the version text); the build was warning-free and the 123 fast tests passed. The exact zip was published without a manual release play-test. Published as GitHub release v0.6.0 from `2b6fef6`.
+
+## Milestone 12 - Menus and windows, then the new interface (2026-11-15)
+
+The game's menus and windows run in C++ in both versions: windows, the cursor
+and every choice, the field menu with its commands and chests, the hospital,
+the church, the shops and the palette fades, as 323 short pieces checked
+against the original on every call. The mechanism was unchanged; the interrupt
+switches, the save copy, the points the program watches, the dispatchers and
+frame waits stay on the Z80, and what items and spells do, the battle commands,
+name entry and the title menus wait for milestone 13. Two new US recordings
+(field menu; hospital, church and shops) match the reference emulator on every
+frame. The Options screen was redone as three windows in the game's own style,
+with Language as a live row; Controls and the start screen follow. An
+independent implementation review approved the work with required changes (the
+field menu's code rewritten into one function per command, the documentation of
+what stays native), all applied, and the complete suite passed 266 of
+266 with no skips. The maintainer play-tested the kit build in one US
+session, noticed nothing different from the original, accepted the milestone on
+2026-11-15 and decided that the play-test need not be repeated after the
+review's fixes. [Plan](milestone-12-plan.md).

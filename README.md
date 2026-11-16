@@ -24,15 +24,15 @@ the way the project writes down [how the game works inside][how-it-works].
 
 | Start screen (0.6.0) | Options | Widescreen |
 | --- | --- | --- |
-| ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options window over a town, with the recommended rates and Widescreen on](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
+| ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options screen over a town: the six options, the choices of the selected one beside them and its explanation below, in the game's own windows](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
 
 ## What works today
 
 The whole game can be played, in English (US) or Portuguese (Brazilian Tec
 Toy release). Controller polling, the random numbers, the random-encounter
-checks, experience, battle setup, battle money, walking in the dungeons, text
-and walking on the world map and in towns already run in C++; the rest of the
-game still runs on the virtual Z80.
+checks, experience, battle setup, battle money, walking in the dungeons, text,
+walking on the world map and in towns, and the menus, windows and screen fades
+already run in C++; the rest of the game still runs on the virtual Z80.
 
 What you get today:
 
@@ -112,20 +112,27 @@ runs at 1x and then goes back to the speed you chose.
 ## Options
 
 Press Escape (or Y on a controller, or whatever you set) while walking around
-a town, the world map or a dungeon. Up and down pick a row, left and right change its value. Z
-(or A), X or B, and Escape/Y all save the displayed values and close. The
-scene stays behind the window and the music keeps playing.
+a town, the world map or a dungeon. Every option is on one page, in the
+game's own windows: the list at the left with each current value in grey,
+the choices of the selected row in a small window beside it (the current one
+in yellow), and a window at the bottom that explains that row. Up and down
+pick a row, left and right change its value. Z (or A), X or B, and Escape/Y
+all save the displayed values and close. The last line of the bottom window
+says SAVES ON EXIT, or that the options are read-only (while a recording
+plays, or without the rewritten routines), saved and waiting, or that saving
+failed. The scene stays behind the windows and the music keeps playing.
 
 | Option | Values | What it does |
 | --- | --- | --- |
 | Encounters | 0, 25, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
-| Experience / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
-| Automap | Off, On | A map of the dungeon floor you are on. Off by default. |
-| Widescreen | Off, On | The world map, the towns and the spaceship flight in 16:9. Off by default. |
-| CONTROLS | - | Opens the Controls screen to change keys and buttons. |
+| EXP / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
+| Automap | Off, On | A map of the dungeon floor you are on. Off is the original game. |
+| Widescreen | Off, On | The world map, the towns and the spaceship flight in 16:9. Off is the original game. |
+| CONTROLS | - | Button 1 opens the Controls screen to change keys and buttons. |
+| Language | Auto, English, Portugues | The language of the game text and of these screens, each named in its own words. It switches at once and is saved right away; the game's own text changes when Options closes. Each language needs its ROM; Auto follows the ROM you play. |
 
-100% is the original game and is marked DEFAULT. Encounters at 25% and
-experience at 400% are marked RECOMMENDED; together they give the pace of
+100% is the original game. The explanations recommend encounters at 25% and
+experience at 400%; together they give the pace of
 the Nintendo Switch release's easy mode (a quarter of the encounters, four
 times the experience and money). A change applies once the current action
 ends, so a battle in progress, its rewards included, finishes under the old
@@ -214,8 +221,8 @@ displayed values, including launch flags. The developer modes `--record` and
 - [Roadmap][roadmap]: the next milestones.
 - [Project history][history]: the finished milestones.
 - [How it works][how-it-works]: the console, the controls, the random
-  numbers, the party, the sound, the dungeons and the world map, explained for
-  readers who don't program.
+  numbers, the party, the sound, the dungeons, the world map and the menus and
+  windows, explained for readers who don't program.
 - [Original quirks][quirks]: oddities of the original kept on purpose, and
   the differences between the US and Brazilian versions.
 - [Design][design]: the goals and the decisions behind them.

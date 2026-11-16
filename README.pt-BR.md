@@ -26,16 +26,16 @@ No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 
 | Tela inicial (0.6.0) | Opções | Tela larga |
 | --- | --- | --- |
-| ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A janela de opções sobre uma cidade, com os valores recomendados e a tela larga ligada](docs/images/options.png) | ![Uma cidade na visão larga de 344 x 192](docs/images/widescreen.png) |
+| ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A tela de opções sobre uma cidade: as seis opções, as escolhas da selecionada ao lado e a explicação embaixo, nas janelas do próprio jogo](docs/images/options.png) | ![Uma cidade na visão larga de 344 x 192](docs/images/widescreen.png) |
 
 ## O que já funciona
 
 Dá para jogar o jogo inteiro, em inglês (versão americana) ou em português
 (versão brasileira da Tec Toy). A leitura do controle, os números aleatórios,
 a checagem de encontros aleatórios, a experiência, a preparação das batalhas,
-o dinheiro das batalhas, o caminhar nas masmorras, o texto e o caminhar pelo
-mapa-múndi e pelas cidades já rodam em C++; o resto do jogo ainda roda no Z80
-virtual.
+o dinheiro das batalhas, o caminhar nas masmorras, o texto, o caminhar pelo
+mapa-múndi e pelas cidades e os menus, as janelas e os fades de tela já rodam
+em C++; o resto do jogo ainda roda no Z80 virtual.
 
 O que você tem hoje:
 
@@ -119,20 +119,28 @@ você escolheu.
 ## Opções
 
 Aperte Escape (ou Y no controle, ou o que você configurou) enquanto anda por
-uma cidade, pelo mapa-múndi ou por uma masmorra. Para cima e para baixo escolhem a linha, esquerda e
-direita mudam o valor. Ao sair com Z/A, X/B ou Escape/Y, os valores exibidos
-são salvos automaticamente. A cena continua atrás da janela e a música não para.
+uma cidade, pelo mapa-múndi ou por uma masmorra. Todas as opções ficam numa
+página só, nas janelas do próprio jogo: a lista à esquerda, com o valor atual
+de cada linha em cinza, as escolhas da linha selecionada numa janelinha ao
+lado (a atual em amarelo) e, embaixo, uma janela que explica essa linha. Para
+cima e para baixo escolhem a linha, esquerda e direita mudam o valor. Ao sair
+com Z/A, X/B ou Escape/Y, os valores exibidos são salvos automaticamente. A
+última linha da janela de baixo diz SALVA AO SAIR, ou que as opções são só de
+leitura (durante uma gravação, ou sem as rotinas reescritas), que foram salvas
+e aguardam o jogo, ou que a gravação falhou. A cena continua atrás das janelas
+e a música não para.
 
 | Opção | Valores | O que faz |
 | --- | --- | --- |
-| Encounters (encontros) | 0, 25, 50, 100, 200% | Frequência das lutas aleatórias. 0 desliga. As lutas da história e as fixas não mudam. |
-| Experience / Meseta | 100, 200, 400% | Experiência e dinheiro de cada luta. Um personagem continua subindo no máximo um nível por luta. |
-| Automap (mapa automático) | Off, On | Um mapa do andar da masmorra onde você está. Desligado por padrão. |
-| Widescreen (tela larga) | Off, On | O mapa-múndi, as cidades e o voo da nave em 16:9. Desligado por padrão. |
-| CONTROLS (controles) | - | Abre a tela de Controles para mudar teclas e botões. |
+| Encontros | 0, 25, 50, 100, 200% | Frequência das lutas aleatórias. 0 desliga. As lutas da história e as fixas não mudam. |
+| EXP / Meseta | 100, 200, 400% | Experiência e dinheiro de cada luta. Um personagem continua subindo no máximo um nível por luta. |
+| Automapa | Não, Sim | Um mapa do andar da masmorra onde você está. O jogo original equivale a Não. |
+| Widescreen | Não, Sim | O mapa-múndi, as cidades e o voo da nave em 16:9. O jogo original equivale a Não. |
+| Controles | - | O botão 1 abre a tela de Controles para mudar teclas e botões. |
+| Idioma | Auto, English, Portugues | O idioma do texto do jogo e destas telas, cada um com o próprio nome. Muda na hora e é salvo na mesma hora; o texto do próprio jogo muda quando as Opções fecham. Cada idioma exige sua ROM; Auto segue a ROM que você joga. |
 
-100% é o jogo original e aparece como DEFAULT. Encontros em 25% e experiência
-em 400% aparecem como RECOMMENDED; juntos, dão o ritmo do modo fácil do
+100% é o jogo original. As explicações recomendam encontros em 25% e
+experiência em 400%; juntos, dão o ritmo do modo fácil do
 relançamento para Nintendo Switch (um quarto dos encontros, quatro vezes a
 experiência e o dinheiro). Uma mudança vale quando a ação atual
 termina, então uma batalha em andamento, recompensas incluídas, termina com os
@@ -226,8 +234,8 @@ A documentação do projeto é em inglês.
 - [Roteiro][roadmap]: os próximos marcos.
 - [Histórico][history]: os marcos já concluídos.
 - [Como funciona][how-it-works]: o console, os controles, os números
-  aleatórios, o grupo, o som, as masmorras e o mapa-múndi, explicados para
-  quem não programa.
+  aleatórios, o grupo, o som, as masmorras, o mapa-múndi e os menus e janelas,
+  explicados para quem não programa.
 - [Peculiaridades do original][quirks]: esquisitices do original mantidas de
   propósito e as diferenças entre as versões americana e brasileira.
 - [Design][design]: os objetivos e as decisões por trás deles.
