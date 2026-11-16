@@ -209,3 +209,12 @@ session, noticed nothing different from the original, accepted the milestone on
 2026-11-15 and decided that the play-test need not be repeated after the
 review's fixes. [Plan](milestone-12-plan.md).
 Implementation: `eacc0d2`; closed by `467e589`; private annotations: `1c5579b` in `psmodern-re`.
+
+## Milestone 13 - The remaining game routines (2026-11-16)
+
+Battles, items, spells, dungeon graphics, sound, story scenes and saved-game
+menus now run in C++ on both cartridges. All 222,246 frames across 27 recordings
+matched the reference. The maintainer played the US dungeon and Pause, the
+Brazilian saved-name flow, and the US final battle and credits, and accepted
+the milestone on 2026-11-16. The [plan](milestone-13-plan.md) identifies the
+accepted build and records the test results.

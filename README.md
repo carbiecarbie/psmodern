@@ -28,11 +28,12 @@ the way the project writes down [how the game works inside][how-it-works].
 
 ## What works today
 
-The whole game can be played, in English (US) or Portuguese (Brazilian Tec
-Toy release). Controller polling, the random numbers, the random-encounter
-checks, experience, battle setup, battle money, walking in the dungeons, text,
-walking on the world map and in towns, and the menus, windows and screen fades
-already run in C++; the rest of the game still runs on the virtual Z80.
+The whole game can be played in English (US) or Portuguese (Brazilian Tec
+Toy release). In the current source, battles, items, dungeon exploration,
+menus, sound and story scenes through the ending run in C++. The virtual
+Z80 still runs a few original instructions where the exact timing depends on
+them; removing it is the next milestone. The latest Windows release, 0.6.0,
+covers milestone 11.
 
 What you get today:
 

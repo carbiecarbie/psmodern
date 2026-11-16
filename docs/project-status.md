@@ -1,23 +1,16 @@
 # PSModern - Project Status
 
-**Milestone 12 (menus and windows in C++, then the new interface) is
-complete,** accepted on 2026-11-15 ([plan](milestone-12-plan.md)): the
-game's windows, the cursor and every choice, the field menu, the hospital,
-the church, the shops and the palette fades now run in C++, and the Options,
-Controls and start screens were redone in the game's own window style.
-Milestone 11 ([plan](milestone-11-plan.md)) did the same for walking on the
-world map and in towns, milestone 10 ([plan](milestone-10-plan.md)) added the
-16:9 view and milestone 9 ([plan](milestone-9-plan.md)) put text in C++. The
-[project history](project-history.md) lists every milestone and release; 0.6.0
-(2026-11-15, milestone 11) is the latest published version and does not yet
-include milestone 12.
+**Milestone 13 was completed and accepted on 2026-11-16.** The maintainer
+played the US dungeon, pause and sound, the Brazilian saved-name flow, and
+the US final battle and credits. The [plan](milestone-13-plan.md) records
+the tested build. Release 0.6.0 covers milestone 11. The
+[project history](project-history.md) lists subsequent milestones.
 
-Phantasy Star runs from the player's own ROM on a virtual Master System, in
-the US and the Brazilian version. Controller polling, the random-number
-routine, the random-encounter checks, experience, battle setup, money award,
-dungeon walking, text, walking on the map and in towns, and now menus,
-windows and fades run in C++; the rest of the original program runs on the
-virtual Z80. Optional features are saved encounter and experience/battle-meseta
+Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
+Game routines run in C++ by default. The virtual Z80 still handles original
+instruction boundaries and takes over when a C++ routine cannot preserve
+interrupt or frame timing. The next milestone in the [roadmap](roadmap.md),
+milestone 14, removes the Z80. Optional features include saved encounter and experience
 rates, a dungeon automap, session-only 2x/4x fast-forward, changeable
 controls, language selection and a widescreen view. Without saved settings,
 rates are original, the automap and widescreen are off and controls follow
@@ -133,7 +126,7 @@ layer.
 | --- | --- | --- |
 | Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
-| Game | `src/game/` | Registered C++ routines (controller, random numbers, encounters, experience, battle setup and money, dungeon walking, text, the six groups of the map and the six of the menus), the options, the dungeon tables, the automap's exploration model and `MapScreens`, the world-map and town reader |
+| Game | `src/game/` | Cartridge-driven C++ game routines, optional game rules, dungeon exploration and map-screen readers |
 | Program | `src/app/` | SDL window, sound, input and its bindings, save files, the start, Options, Controls, Language and map screens (the first three in the game's window style), `WideView` (the widescreen renderer), frame pacing, command-line options |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
@@ -148,30 +141,14 @@ Some properties matter for the next milestones:
 - **Verified replacements.** Registered C++ routines replace the original
   only where interrupts and frame boundaries permit exact timing. Other
   calls stay on the Z80. A developer switch disables replacements.
-- **Segments.** A routine that calls original code, for instance to wait for
-  a frame or show text, is cut into pieces. Each piece runs in C++ and ends
-  by handing one original instruction to the Z80 core, so that cycles and
-  interrupts come out as on the console. A piece may also end with words held
-  on the stack across an original call, with a conditional jump, or partway
-  through a long loop (milestone 7). Milestones 11 and 12 used the mechanism
-  unchanged, with larger kits (`src/game/map_kit.h`: video-chip port output,
-  the index registers and more instructions; `src/game/menu_kit.h`: video-memory
-  reads and a few more) proved against the core, and one rule: a loop that
-  crosses a frame boundary on most calls is cut into pieces (the menus cut
-  window copies per row), and a copy too long to fit between frames is left to
-  the Z80. The map's 153 entries form six groups, one file each in `src/game/`
-  (`map_video`, `map_scroll`, `map_objects`, `map_terrain`, `map_entrances`,
-  `map_modes`), and the menus' 323 six more (`menu_engine`, `menu_windows`,
-  `menu_select`, `menu_field`, `menu_places`, `menu_fades`); `src/game/map.h`
-  and `src/game/menu.h` list them and the code that stays native.
-- **Host-observed instructions.** The program watches 13 original
-  instructions (the Options and map hold, frame waits, the normal-tempo audio
-  points and the automap's points) without changing anything, among them the
-  map loop's frame wait at `00:0B14`, where Options and Language open, and the
-  field menu's cancel point `00:2D93` and save point `00:1D2D`. No piece
-  contains, starts or ends at one: activating the routines fails if one does,
-  and tests compare the watched events and a hold at the field menu with
-  routines on and off.
+- **Timing.** Each replacement accounts for the original CPU cycles. Long
+  copies resume from the remaining byte count and the two pointers.
+  The Z80 executes selected final instructions and samples interrupts at
+  their original boundaries.
+- **Host observations.** The frame driver sees the game at the points used
+  for Options, language switching, saves, sound and the automap. When a
+  replacement begins at one of these points, the callback runs before the
+  machine decides whether the replacement can execute.
 - **Widescreen is a read-only presentation layer.** After each frame, while
   the option is on, the driver copies video memory, palette, registers and a
   few work-RAM bytes; `WideView` and `MapScreens` read the maps from the
@@ -205,92 +182,29 @@ catalog.
 
 ## Rewritten and original systems
 
-| Game system | State |
+| Game system | Implementation |
 | --- | --- |
-| Controller polling (`00:0339`), random numbers (`00:05B1`) | C++ by default; original Z80 fallback when needed |
-| Map encounter check (`01:5F63`, with the group choice `01:5FD8`) | C++ by default, in pieces |
-| Dungeon update with its encounter check (`00:0F3C`) | C++ by default, in pieces |
-| Experience award (`00:170D`, helper `00:1754`) | C++ by default, in pieces |
-| Battle setup (`01:5FFE`) and money addition (`00:297A`) | C++ by default; battle meseta scales with the experience option |
-| Dungeon walking (input handler `01:65EE`, steps, turns, pitfall, doors, exit lookup, checks for chests, fights and events, cell readers) | C++ by default, eleven routines in 53 pieces; three short pitfall sequences that switch interrupts off stay on the Z80 |
-| Map picture update in the frame interrupt (`00:0235`, `00:029F`, `01:588B`, `01:61F5`, `01:73D0`, `01:7C18`), steps, camera and screens in memory (`01:7143`, `01:723D`, `01:72A6`, `01:733A`, `01:744B`); sprites and object list (`01:576A`, `01:5818`, `01:5853`, object types from `01:599F`); ground, vehicles, ice and ground damage (`01:7764`, `01:74E4`, `01:756C`, `01:7602`) | C++ by default, in pieces, with the video-chip writes at their original cycles; long loops cut at their exits |
-| Entrances, transfers, special ground (`01:77AC`, `01:7877`, `01:792A`); map modes, loading and the road (`00:0B08`, `00:0B6A`, `00:0CA6`, `00:0E8B`, `00:0ED7`) | C++ by default, in pieces |
-| Text readers, dictionary, control codes, names/numbers, character output and waits | C++ by default in segments, with both-ROM timing verification |
-| The 3D dungeon view and its animations, the dungeon load | Original Z80 code |
-| Windows and printers (`00:3AA6`, `00:3A57`, `00:3A83`, `00:2FE1`, `00:356B`, `00:35C4`), field, item, status, shop, save and battle windows, choosing with the cursor and the waits (`00:2D51`, `00:2DA5`, `00:2E62`) | C++ by default, 179 pieces; long window copies cut per row |
-| Field menu with status, magic, items, equip, drop, search, save and chests (`00:1BE1` and its commands); hospital, church and shops (`00:298D`, `00:2A85`, `00:2BC0`, `00:2C98`) | C++ by default, 121 pieces |
-| Palette fades and palette effects (`01:7B05`, `01:7B20`, `01:7B40`, `01:7BEE`, `01:7C85`-`01:7D16`) | C++ by default, 23 pieces |
-| What items and spells do, battle commands, name entry and title menus, the other tile animators, sound driver, native saves and the rest | Original Z80 code; host options and the map use the original field-menu wait |
+| Walking, vehicles and dungeon exploration | C++ handles movement, map transfers, dungeon loading, the 3D view and animations. |
+| Battles, items, spells and party | C++ chooses actions and targets, resolves effects and awards experience and meseta. |
+| Menus, text, saves and scenes | C++ handles selection, dialogue, name entry, saving and Continue, story events and the ending. Text and graphics come from the player's ROM. |
+| Music, sound effects and display updates | C++ interprets the cartridge's sound commands and schedules chip writes at the original cycles. |
+| Original Z80 execution | Handles documented instruction boundaries, interrupt timing and fallback. It also provides the original execution path for verification. |
 
-**What stays on the Z80 in the map area** (the tile animators that are not the
-map's are left for milestone 13, Maintainer decision, 2026-11-15; the palette
-fades moved to C++ in milestone 12):
-- the four short stretches that run with interrupts off: three in the map
-  load (`00:0B6D`-`00:0B71`, `00:0BB4`-`00:0BB8` four times, `00:0C91`-`00:0C93`)
-  and one in the ice breaking (`01:75CC`-`01:75E4`);
-- the map loop's call at `00:0B14`, where Options and Language open;
-- block copies too long to fit between frames: the 255-byte clearing of the
-  object slots (`00:0CAC`-`00:0CB1`), the second clearing of a transfer
-  (`01:7921`) and the sprite-table clearing's second fill;
-- the 64-byte sprite copy `01:591E` when entered directly (it runs in C++
-  inside the pieces that jump to it);
-- the tile animators that are not the map's, the battle object types, the
-  handler dispatcher and step controller, the jump-table dispatchers, the
-  graphics decompressor, interrupt entry and exit, the sound driver and the
-  spaceship scene (`00:0A5C`, `00:086F`).
-
-**What stays on the Z80 in the menu area** (Maintainer decision, 2026-11-15;
-all of it left for milestone 13):
-- the instructions that switch interrupts off and on around a window's
-  drawing, and the instruction next to each;
-- the save: the cartridge-RAM switching and the 1,024-byte copy
-  (`00:1D0E`-`00:1D32`), with the save point `00:1D2D` the host watches, and
-  the field menu's cancel point `00:2D93`;
-- the two loads `00:3451` and `00:3454` before the last window of a dialogue
-  scroll and the end of each row of a window drawn at once
-  (`00:3A97`-`00:3A9E`, six instructions, 52 cycles), because the frame
-  boundary falls on them almost every time;
-- the jump-table dispatchers and the frame waits;
-- what items and spells do, the battle commands, the name entry and the title
-  menus.
-
-On the twenty checkpoint recordings, controller polling ran in C++ on all
-of its calls and the other routines, the map's included, on about 99% of
-theirs; the few fallbacks are calls where a frame boundary could fall inside
-the piece. The menu pieces were called 694,553 times and 99.8% ran in C++. Every
-entry reached 20 or more times runs in C++ on at least 90% of them (the
-lowest in the menus, 93.9%). The generated [coverage census](coverage.md) gives the counts per
-piece and recording. It describes these recordings, not every possible route
-through the game.
+See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.md),
+[scenes](how-it-works/scenes.md) and the [per-recording census](coverage.md).
 
 ## How it is verified
 
-- **Frame-by-frame comparison** with a patched MesenCE 2.2.1, on twenty
-  recordings: six per version (the opening, the first battle, the first
-  dungeon, a later town, a boss fight and a deep dungeon), three US dungeon
-  walks, three US map recordings made in milestone 11 (`road`, `vehicles`
-  and `ice`: the road from a town to a spaceport and the ship to Palma, the
-  Land Rover and the hovercraft, and the digging through an ice field on
-  Dezoris) and two US menu recordings made in milestone 12: `field-menu` (the
-  field menu with its commands, chests and saving) and `places` (the hospital,
-  the church and the shops of Paseo). Every frame matches in the picture,
-  RAM, video memory, palette, cartridge RAM, CPU state and sound writes, with
-  the rewritten routines on and off. `vehicles`, `ice`, `field-menu` and
-  `places` start from a game-made save whose fields were edited, since the
-  game reaches them late; `road` starts from an unedited save. The edits are
-  listed in [development](development.md) (Maintainer decision, 2026-11-15).
-- **Each C++ call** is checked against a copy running the original,
-  including hidden machine state, cycles, R and opcode fetches; the map's
-  video-chip writes keep their original cycles. All previous/current button
-  combinations are checked for both ROMs.
-- **State probes** run each piece against the original from many machine
-  states, in both versions: the random-number routine, all 192 map region
-  records, every threshold, reward and level-up case, every dungeon cell value
-  in every facing, for the map vehicles, ice, the road, special ground, both
-  world wraps, entrances, transfers and loading, and for the menus all 323
-  pieces (the window engine from many video and window states, every
-  command of the field menu), from power-on machines and from real states.
-  Where the recordings reach few paths, the probes carry the exactness.
+- **Recordings.** All seven reference components matched on 222,246 frames
+  from 20 US and seven Brazilian recordings, including the ending, defeat,
+  pause, the flute and Brazilian name entry. Together they reached 1,616
+  of 2,486 registered segments. See the [census](coverage.md) and the
+  [recording and save provenance](development.md).
+- **Routine checks.** Per-call comparisons include CPU state, cycles and
+  ordered port accesses. The 27 recordings and 96 cartridge tests account
+  for the 14,195 listed instruction addresses through measured execution or
+  an individually documented role. State probes cover branches the recorded
+  journeys missed.
 - **The options** are checked against their formulas over every input, with
   interrupt and frame boundaries forced at each cycle, and by running the
   recordings with the options on. At 100 the game is byte-identical to the
@@ -308,32 +222,9 @@ through the game.
   recording check the distinct text paths; switching and legacy-import tests
   cover preserved state, cancellation, missing or locked files, concurrency
   and crashes.
-- **Independent review:** an implementation review of milestone 12, authorized
-  by the maintainer, approved it with required changes and no behavioural
-  defect: the field menu's code was rewritten from generated listing form into
-  one function per command with a comment on each step, the documentation of
-  what stays native was corrected, a comment was fixed, and five of its seven
-  recommended items were applied (the original-quirks labels, the test
-  assertions, the private annotation, the save-process test's scheduling, the
-  line endings and wording). The sixth, a log of the order of video writes
-  inside a piece, was not made and stays a documented limit, as in milestone
-  11 (see Known gaps).
-- **The complete suite** has 266 tests; at the closure of milestone
-  12 all passed with none skipped, on both ROMs, in about 17
-  minutes of real time at `-j 16`. It runs once per milestone
-  ([tools/AGENTS.md](../tools/AGENTS.md)).
-- **Conformance programs:** the Cringle, Rak and Woodmass Z80 suites, and
-  the VDPTest results for the SMS1 video chip.
-- **CI** on a clean Windows machine runs every test that needs no ROM, and of
-  the external conformance suites only the three Rak Z80 tests. The ROM,
-  probe and reference tests run locally ([development](development.md)).
-- **Play-tests:** the maintainer played milestone 12 with the US cartridge, in
-  one session with a kit of test saves (the redone screens, the field menu, a
-  hospital, a church, the shops, chests, fades, saving and Continue, a battle),
-  and found everything approved and no difference from the original. He played
-  the build from before the review's code fixes and decided the play-test need
-  not be repeated; the tests cover the difference (Maintainer decision,
-  2026-11-15).
+- **Review and acceptance.** Independent reviews covered the timing
+  mechanism and game routines. The full suite ran 353 tests without skips.
+  The maintainer approved all three play-test scenarios.
 
 ## Known gaps
 
@@ -343,22 +234,10 @@ through the game.
   first controller is used, and there is no second pad or shortcut back to the
   start screen during play. A damaged `controls.txt` is reported only on the
   console; a trigger held when a controller connects is ignored best-effort.
-- **Recording coverage is thin where some routines act.** The recordings
-  reach few encounter paths and one level gain. Thirteen dungeon pieces, some
-  map pieces and 27 menu pieces (among them the second kind of shop and some
-  story-bound palette effects) are reached by no recording and are covered by
-  state probes only; the road, the vehicles and the ice have one US recording
-  each ([coverage](coverage.md)). `field-menu` ends on the save-name screen,
-  which is milestone 13 code.
-- **There are no Brazilian map or menu recordings.** The map and menu code is
-  the same in both versions (design 5.5) and the probes of every piece run on
-  both ROMs, but only the six shared checkpoints and the text recording are
-  Brazilian (Maintainer decision, 2026-11-15). This is not a full Brazilian
-  playthrough; development uses the US cartridge first.
-- **Port-write order inside a piece is not logged.** The per-call comparison
-  checks the state afterwards and the total cycles, not each video-port
-  access; the order and cycle of the writes inside a video segment rest on
-  reading the code and on the kit's timing tests ([development](development.md)).
+- **Recording coverage.** The recordings reach 1,616 registered segments.
+  The remaining 870 are exercised by state probes. The Brazilian recordings
+  include name entry and Continue. Several late-game journeys, including
+  the ending, have US recording evidence only. See [coverage](coverage.md).
 - **An unusable map file is kept only briefly.** `.automap` that cannot be
   read becomes `.automap.bak` at the next save, and the first save of the next
   session replaces that backup ([development](development.md#automap)).
@@ -375,15 +254,10 @@ through the game.
   sequence of battles reaches it ([original quirks](original-quirks.md)). With
   experience at 200 or 400 PSModern keeps one level per fight, also for a
   character at the ceiling (Maintainer decision, 2026-11-11).
-- **The registered-routine mechanism has limits.** It refuses routines that
-  change interrupt sources, adjust the stack beyond declared held words (so
-  the pitfall's three interrupt-off sequences stay native), write mapping
-  registers other than the declared upper-bank one, or end a piece on a
-  repeated port-write instruction (so `01:591E` stays native on direct entry)
-  ([development](development.md#segments)).
-- **Study coverage is route-bound.** Routes the recordings never reach, such
-  as the ending, rare battle and sound paths, and many work-RAM fields are
-  still Unknown.
+- **Original execution.** The remaining instruction boundaries and fallback
+  rules are documented in the [milestone 13 plan](milestone-13-plan.md).
+  The inventory accounts for the verified listing and measured routes.
+  Unobserved cartridge data still requires evidence before assigning it a role.
 - **Windows only** for the save location.
 - **Some details of the first Master System's video chip are unmeasured.**
   PSModern follows the reference and [development](development.md) labels

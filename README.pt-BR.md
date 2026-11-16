@@ -30,12 +30,12 @@ No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 
 ## O que já funciona
 
-Dá para jogar o jogo inteiro, em inglês (versão americana) ou em português
-(versão brasileira da Tec Toy). A leitura do controle, os números aleatórios,
-a checagem de encontros aleatórios, a experiência, a preparação das batalhas,
-o dinheiro das batalhas, o caminhar nas masmorras, o texto, o caminhar pelo
-mapa-múndi e pelas cidades e os menus, as janelas e os fades de tela já rodam
-em C++; o resto do jogo ainda roda no Z80 virtual.
+Dá para jogar o jogo inteiro em inglês (versão americana) ou em português
+(versão brasileira da Tec Toy). No código atual, as batalhas, os itens, as
+masmorras, os menus, o som e as cenas até o final rodam em C++. O Z80
+virtual ainda executa algumas instruções originais onde o tempo exato depende
+delas; removê-lo é o próximo milestone. A versão publicada para Windows,
+0.6.0, cobre o milestone 11.
 
 O que você tem hoje:
 
