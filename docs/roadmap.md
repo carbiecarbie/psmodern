@@ -5,7 +5,7 @@ with the maintainer on 2026-11-13; milestones 10 to 14 renumbered on
 2026-11-14.** It orders the stages of
 [design](design.md) section 8 and names what each needs; it starts nothing.
 The maintainer starts each milestone explicitly, and each gets its own plan.
-It is revised at each milestone closure, most recently that of milestone 14
+It is revised at each milestone closure, most recently that of milestone 15
 (2026-11-19).
 
 ## Done so far
@@ -27,6 +27,7 @@ It is revised at each milestone closure, most recently that of milestone 14
 | 12 | Menus and windows in C++ (323 pieces: the window engine and printers, the windows, choosing with the cursor, the field menu, the hospital, church and shops, and the palette fades); two new US recordings; the Options screen redone as three game-style windows with Language as a live row, and Controls and the start screen on the same windows |
 | [13](milestone-13-plan.md) | Remaining game routines in C++, including battles, items, dungeon drawing, sound, story scenes, saves and the ending, verified on both cartridges |
 | [14](milestone-14-plan.md) | Removing the Z80 from the program: the game runs on C++ alone with exact instruction timing and interrupts; the Z80 remains only in the tests as the referee |
+| [15](milestone-15-plan.md) | Recovery from Windows audio stalls without added silence. Five cartridge fixes were tested and withdrawn by maintainer decision |
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 2026-11-12), 0.3.0 (adds the changeable controls, 2026-11-13), 0.4.0
@@ -38,14 +39,8 @@ milestone 14.
 
 ## Next milestones
 
-All 14 planned milestones from the original roadmap are complete and
-accepted (milestone 14 accepted on 2026-11-19). Later milestones are chosen
-by the maintainer from the longer-term directions below or new goals, and
-each is started explicitly.
-
-| Milestone | Scope |
-| --- | --- |
-| [15](milestone-15-plan.md) | An option that fixes defects of the original game, and the cause of the short sound stalls (Maintainer decision, 2026-11-19; planned, not started) |
+The original 14 milestones and the follow-up milestone 15 are complete.
+The maintainer chooses and starts each subsequent milestone explicitly.
 
 ## Longer-term direction
 

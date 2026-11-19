@@ -126,9 +126,7 @@ de cada linha em cinza, as escolhas da linha selecionada numa janelinha ao
 lado (a atual em amarelo) e, embaixo, uma janela que explica essa linha. Para
 cima e para baixo escolhem a linha, esquerda e direita mudam o valor. Ao sair
 com Z/A, X/B ou Escape/Y, os valores exibidos são salvos automaticamente. A
-última linha da janela de baixo diz SALVA AO SAIR, ou que as opções são só de
-leitura (durante uma gravação), que foram salvas
-e aguardam o jogo, ou que a gravação falhou. A cena continua atrás das janelas
+última linha informa se as opções serão salvas ao sair, se aguardam o jogo ou se houve falha ao salvar. Durante uma gravação de comandos, as Opções ficam desativadas. A cena continua atrás das janelas
 e a música não para.
 
 | Opção | Valores | O que faz |

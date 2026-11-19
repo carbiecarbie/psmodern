@@ -31,6 +31,16 @@ void codec(){
  image.pending.reset();check(image.matching(a)==game::Options{},"committed wins backup tie");
  refuses([&]{parse_settings("");});refuses([&]{parse_settings("psmodern-options 2\n");});refuses([&]{parse_settings(text+"junk\n");});
  refuses([&]{parse_settings("psmodern-options 4\ncommitted "+a+" 100 100 0 0\npending -\nbackup -\n");});
+ {
+  const auto legacy="psmodern-options 4\ncommitted "+a+" 25 400 1 0 1\npending "+b+" 50 100 0 1 0\nbackup "+c+" 0 200 1 0 1\n";
+  SettingsImage expected{{a,{25,400},true,false},SettingsRecord{b,{50,100},false,true},SettingsRecord{c,{0,200},true,false}};
+  const auto migrated=parse_settings(legacy);
+  check(migrated==expected,"retired preference leaves all other settings intact");
+  check(write_settings(migrated).starts_with("psmodern-options 3\n") && parse_settings(write_settings(migrated))==expected,"legacy settings save in the widescreen format");
+  const auto narrow=parse_settings("psmodern-options 4\ncommitted "+a+" 0 100 0 0 1\npending -\nbackup -\n");
+  check(write_settings(narrow)=="psmodern-options 2\ncommitted "+a+" 0 100 0\npending -\nbackup -\n","legacy settings without widescreen return to format 2");
+  refuses([&]{parse_settings("psmodern-options 4\ncommitted "+a+" 100 100 0 0 2\npending -\nbackup -\n");});
+ }
  // A saved 25 (the recommended encounter rate) and an older saved 50 are both valid; 24 is not.
  {
   SettingsImage rates{{a,{25,400},false},SettingsRecord{b,{50,400},false},std::nullopt};

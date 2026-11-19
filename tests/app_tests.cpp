@@ -741,11 +741,21 @@ void pacing() {
     shortcut.update(true,false,false,true); shortcut.focus_lost();
     check(!shortcut.update(true,true,true,true),"queued focus loss and regain cannot arm held sources");
     check(!shortcut.update(true,false,false,false) && !shortcut.update(true,true,true,true),"disabled shortcut requires release");
+    // Fake a full queue, let only the device clock advance until the
+    // producer can append its next frame. No queued output is discarded.
+    double depth=audio_high_water_seconds+frame_seconds;
+    unsigned waited=0;
+    while (const auto delay=AudioQueuePolicy::wait_ms(depth)) {
+        waited+=delay;depth-=delay/1000.0;
+        check(waited<100,"bounded wait while device drains");
+    }
+    check(waited>0 && depth>audio_target_seconds,"high water retains the existing stream");
+    check(AudioQueuePolicy::underrun(0) && !AudioQueuePolicy::wait_ms(0),"empty queue accepts next real sample immediately");
     for (double device_error:{-0.002,0.002}) {
         double queue=audio_target_seconds;
         for (int frame=0;frame<11000;++frame) {
             queue+=frame_seconds/rate_adjustment(queue)-frame_seconds*(1+device_error);
-            check(queue>0.02 && queue<0.12,"queue remains bounded with device clock mismatch");
+            check(queue>0.02 && queue<audio_high_water_seconds,"queue remains bounded with device clock mismatch");
         }
     }
 }
@@ -802,6 +812,7 @@ void flags() {
     // Values that used to be accepted (ranges) are refused, with the allowed values in the message.
     for (const auto* old:{"1","24","26","99","101","150","400","401"}) rejects({"--encounter-rate",old},"must be one of 0, 25, 50, 100 or 200 percent");
     for (const auto* old:{"0","25","50","99","101","300","1000","1001"}) rejects({"--experience-rate",old},"must be one of 100, 200 or 400 percent");
+    rejects({"--bug-fixes","on"},"Usage:");
     rejects({"--bogus"},"Usage:");
     // Milestone 14: --no-routines (the game on the Z80 core) is gone; it is an
     // unknown argument now, and the usage no longer offers it.

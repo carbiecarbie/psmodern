@@ -25,9 +25,9 @@ std::optional<game::Options> SettingsImage::matching(std::string_view digest) co
 SettingsImage parse_settings(std::string_view text) {
     if(text.empty() || text.size()>1024)throw std::runtime_error("Invalid settings file size.");
     std::istringstream input{std::string(text)};std::string line;
-    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2" && line!="psmodern-options 3"))
+    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2" && line!="psmodern-options 3" && line!="psmodern-options 4"))
         throw std::runtime_error("Unsupported settings format or version.");
-    const bool format2=line.back()=='2' || line.back()=='3',format3=line.back()=='3';
+    const int version=line.back()-'0';
     auto record=[&](std::string_view name,bool optional)->std::optional<SettingsRecord> {
         if(!std::getline(input,line))throw std::runtime_error("Incomplete settings file.");
         std::istringstream row(line);std::string label,digest,extra;SettingsRecord result;
@@ -36,13 +36,19 @@ SettingsImage parse_settings(std::string_view text) {
         result.digest=digest;
         std::string encounter,experience,automap,widescreen;
         if(!(row>>encounter>>experience))throw std::runtime_error("Invalid settings percentages.");
-        if(format2) {
+        if(version>=2) {
             if(!(row>>automap) || (automap!="0" && automap!="1"))throw std::runtime_error("Invalid settings automap token.");
             result.automap=automap=="1";
         }
-        if(format3) {
+        if(version>=3) {
             if(!(row>>widescreen) || (widescreen!="0" && widescreen!="1"))throw std::runtime_error("Invalid settings widescreen token.");
             result.widescreen=widescreen=="1";
+        }
+        if(version==4) {
+            // The milestone 15 play-test appended a cartridge-fix switch.
+            std::string retired;
+            if(!(row>>retired) || (retired!="0" && retired!="1"))
+                throw std::runtime_error("Invalid legacy settings switch.");
         }
         if(row>>extra)throw std::runtime_error("Trailing settings record data.");
         auto percent=[](const std::string& text) {

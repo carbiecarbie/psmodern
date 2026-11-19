@@ -29,6 +29,7 @@ struct SettingsImage {
 // off) and format 1 (no automap field either, both off) are read. A file is
 // written as format 3 only when some record has widescreen on; otherwise it is
 // written as format 2, so release 0.4.0 keeps reading it. At most 1,024 bytes.
+// The unpublished format 4 reads as format 3 with its last switch discarded.
 SettingsImage parse_settings(std::string_view text);
 std::string write_settings(const SettingsImage& image);
 }

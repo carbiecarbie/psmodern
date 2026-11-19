@@ -244,3 +244,13 @@ for the release (it had passed 389 of 389 at milestone 14, and 1.0.0 changes
 only the version strings, READMEs and start-screen picture); the build was
 warning-free and all 181 fast tests passed. The exact zip was published without
 a manual release play-test. Published as GitHub release v1.0.0 from `60d620d`.
+
+## Milestone 15 - Original bug fixes and sound stalls (2026-11-19)
+
+The Windows host preserves queued audio and resumes with game samples after an
+underrun. A 30-minute WASAPI session recorded zero underruns and resets. A
+prototype also fixed five cartridge defects and passed all 394 tests. After
+playing it successfully, the maintainer chose to keep the original game rules
+and six-row Options menu. The [plan](milestone-15-plan.md) records each fix,
+its verification and the recovery patch. The audio-only revision passed
+all 389 tests with zero skips.

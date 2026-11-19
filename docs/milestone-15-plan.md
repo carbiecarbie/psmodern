@@ -1,115 +1,66 @@
 # Milestone 15 plan - Original bug fixes and the sound stalls
 
-**Tier B. Status: planned, not started (2026-11-19).** Fifteenth milestone of
-the [roadmap](roadmap.md); the first after the complete C++ reimplementation.
-The maintainer asked for it on 2026-11-19 and starts it explicitly.
+**Tier B. Status: completed and accepted (2026-11-19).** The initial play-test build
+was based on `165b646` and is identified by its SHA-256 below.
 
-## Goal
+## Withdrawn cartridge fixes
 
-1. One new option, off by default, that fixes defects of the original game.
-   With it off the game stays the cartridge, as today.
-2. Find the cause of the short sound stalls and remove it. This part is not
-   an option: a stall that comes from PSModern is a defect of PSModern.
+After the successful play-test, the maintainer decided the five defects were
+minor enough to keep the original behavior. The audio change remains.
+The game again uses the six-row Options screen and the original rules for
+these cases. The prototype implemented and verified the following fixes:
 
-The two parts touch different code (`src/game/` and `src/app/`) and can be
-done in either order or by two agents in separate worktrees.
+- Cancelling RISE or choosing a living recipient returns its MP to the caster.
+- A shop checks whether the party owns a vehicle before charging for it.
+- A refused use of Escaper or Magic Hat leaves the item in the inventory.
+- The group attack used when the Crystal is missing can reduce HP to zero
+  without wrapping back to a positive value.
+- The hospital charges the full cost when missing HP plus MP reaches 256.
+  With Myau at 13/214 HP and 0/55 MP, both original cartridges quoted zero.
 
-## Part 1 - Bug fixes option
+Profiles saved during the play-test retain their encounter rate, experience
+rate, automap and widescreen settings. The game discards the withdrawn switch
+when reading format 4 and uses format 2 or 3 on the next settings save.
+The recovery patch includes the implementation and its tests. It was checked
+against base `165b646`. Its local path from the repository root is
+`../m15-verification/withdrawn-cartridge-fixes/cartridge-fixes.patch`.
 
-No community list of bugs for this game was found (2026-11-19 search); the
-source is [original quirks](original-quirks.md). The lists below are the
-planner's proposal; the maintainer may move entries before the start.
+Both supported cartridges also let the party escape
+all four investigated dungeon wall landings. The reported Tajim lockup
+came from a Japanese fan patch. A visit without Noah returned to dungeon
+control on both supported cartridges. [Evidence](original-quirks.md).
 
-**Fix (each already has ROM static and ROM run evidence):**
+## Audio
 
-- [ ] Revival keeps its MP when the choice is cancelled or the recipient is
-      already active (`00:20BF`-`00:20D8`).
-- [ ] A shop does not charge for a vehicle-class item the party already
-      carries (`00:2C09`-`00:2C1D`): check first, then charge.
-- [ ] Escaper and Magic Hat are not spent when their use is refused
-      (`00:23E2`, `00:2419`).
-- [ ] The Crystal-dependent group action cannot wrap a member's HP
-      (`00:1561`, `00:1514`, `00:15C2`): the result is clamped.
+During a Windows fullscreen transition the old host exhausted its queue
+and added 75 ms of silence. The revised host targets a 150 ms reserve,
+preserves queued samples when it gets ahead, and resumes with the next
+game samples after an underrun. All PSG writes matched MesenCE across
+9,886 field-menu frames, including a 33 ms interval between writes
+during which the chip continues playing. [Measurements](development.md#audio-and-pacing).
 
-**Investigate first; fix only if play can reach it (report the evidence):**
+## Original play-test and verification
 
-- [ ] The hospital price wrapping at 256 (`00:29E4`-`00:29F3`): compare with
-      the largest missing HP plus MP the game's tables allow.
-- [ ] Stairs and the pitfall that land inside a wall (`01:6715`, `01:6734`,
-      `01:661C`; floors 10, 55 and 25): can the party reach them, and what
-      happens next? Fix only if the player can get stuck.
-- [ ] A lockup when visiting Tajim, named by a retranslation project's change
-      log (Community source, about the Japanese ROM): check whether the US
-      Rev-A and Brazilian code has it.
+- The play-test build passed all 394 tests with zero skips. All 30 recordings
+  matched the original across 227,270 frames with fixes enabled. A separate
+  RISE recording verified that cancelling left Noah with 70 MP (58 on
+  the original). State probes covered the other corrected paths.
+- A 1,810.24-second WASAPI session covered both menus, all three speeds,
+  fullscreen toggles and focus changes. Across 108,843 frames, the host
+  recorded zero underruns and zero queue resets.
+- The maintainer completed the play-test and reported no problems on
+  2026-11-19. The saved profile had Bug fixes enabled. The last audio report
+  from that session, at 130 seconds, showed zero underruns and resets.
+  The tested executable's SHA-256 was
+  `b7de64ee1f7dc5cf031d02dce6284b8c614d4252a0509097867ad7c24451cfa7`.
 
-**Not fixed (intent unknown, or it changes balance or input feel):** the
-strength gates that read the first records, direct death ignoring protection,
-the second search place, the item list losing a confirm pressed with a
-direction, traps, doors closing on reload, the experience ceiling, and every
-text matter (text is read from the player's ROM).
+## Verification after withdrawal
 
-Tasks:
-
-- [ ] Add `bool bug_fixes=false` to `game::Options` (`src/game/options.h`), a
-      `--bug-fixes on|off` flag, and a seventh Options row with its choice and
-      explanation windows in English and Portuguese (cartridge font: uppercase,
-      no accents). The explanation lists what is fixed in player terms.
-- [ ] Save it in the options companion file as a new format, written only
-      while the option is on, as widescreen did with format 3; older formats
-      read as off. Read-only while recording and with `--no-routines`.
-- [ ] Each fix is one guarded branch inside the routine it corrects. With
-      the option off the routine runs as now, and the existing lockstep runs
-      prove it. With it on, the fixed path has no original to compare with:
-      state probes check its result, and that every byte it does not mean to
-      change, the cycles of the untouched paths and the sound requests stay
-      as the original's.
-- [ ] One test runs every recording with the option on and reports where the
-      run leaves the original; a recording that never meets a fixed path must
-      stay equal on every frame.
-- [ ] Docs: each fixed entry of `original-quirks.md` gains a line saying the
-      option changes it (Maintainer decision, with the date); the matching
-      how-it-works chapters, `development.md`, both READMEs, and the option
-      list in the root `AGENTS.md`. `design.md` needs the maintainer's word.
-
-## Part 2 - Sound stalls
-
-**Maintainer report (2026-11-19).** Short audio faults heard several times,
-one of them while opening the menu near the start of the game, during the
-1.0.0 play-test. Earlier measurement: stalls of about 90 ms in one of three
-host runs, cause Unknown ([development](development.md#audio-and-pacing)).
-Which menu it was (the game's field menu or Options) is not recorded; test
-both.
-
-- [ ] Reproduce with the queue diagnostics on, logging each underrun and
-      queue reset with its frame number and what the host was doing.
-- [ ] Decide which of two things each fault is:
-  - **The cartridge's own behavior.** Windows are drawn with interrupts off,
-    so the sound driver may miss frames. Compare PSModern's sound with the
-    patched MesenCE on the `field-menu` recording. If the original does it,
-    it stays, and is recorded in `original-quirks.md`; smoothing it would be
-    a new option and needs the maintainer's decision.
-  - **The host.** A lead, not yet evidence (Inference from reading
-    `Audio::submit` and `Audio::reset` in `src/app/sdl_host.cpp`): an empty
-    queue, or one above 150 ms, clears the queued sound and primes 75 ms of
-    silence, which would be heard as a gap of about that size. Opening
-    Options, pacing after a slow frame, vsync and focus changes are the
-    suspects for what empties or overfills the queue.
-- [ ] Fix a host cause without clearing sound that was already queued and
-      without changing what the machine produces; keep latency bounded.
-      Put the queue policy behind a seam so a unit test can drive it with a
-      simulated clock and queue.
-- [ ] Update the audio section of `development.md` and the known gap in
-      `project-status.md` (at closure).
-
-If the fix needs changes to frame pacing in `frame_driver` or to the
-machine, stop and ask the maintainer for an independent review (Tier A area).
-
-## Acceptance
-
-- Complete suite passing once, after the last production build
-  (`tools/AGENTS.md`); option off equals the original on every recording.
-- A 30-minute session log with no queue reset and no underrun, including
-  opening both menus, fast-forward, Alt+Enter and losing focus.
-- One maintainer play-test at the end: the Options row in both languages, one
-  fix seen in play from a prepared save (the vehicle purchase or revival),
-  and listening for sound faults while opening menus.
+The revised executable passed all 389 tests with zero skips. In the
+2,057-frame RISE recording every frame matched the original, including
+Noah's 58 MP after cancellation. A format 4 profile imported all retained
+settings, and tests verified saving again in formats 2 and 3. A 35-second
+WASAPI check of the revised executable loaded a copy of the maintainer's
+Portuguese profile and recorded zero underruns and zero queue resets.
+The revised Windows executable has SHA-256
+`896a0950299c5575812a4245f413c45f0b80ea35a729cc9bfddb213b5a7cce90`.

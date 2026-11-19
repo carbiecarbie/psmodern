@@ -108,7 +108,8 @@ public:
     explicit Audio(std::function<void(const std::string&)> warning={});
     ~Audio();
     void removed(SDL_AudioDeviceID device);
-    void submit(std::span<const std::int16_t> samples,double now);
+    void submit(std::span<const std::int16_t> samples,double now, std::uint64_t frame=0,
+                std::string_view activity="startup",unsigned speed=1);
     void reset();
     void pause(bool paused);
     void report() const;

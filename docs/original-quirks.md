@@ -145,6 +145,8 @@ US Rev-A ROM (the Brazilian tables are identical here).
   without testing that cell. Three approaches from open cells (one on floor 10,
   two on floor 55) land on a wall of the floor above. Every stairs cell has its
   opposite at the same place, so no other landing differs.
+- **ROM run.** From prepared approaches on both cartridges, the wall at 11:91 allows a half-turn and a step back down to 10:B1. From 56:84 or 56:8B the next forward step reaches open floor at 56:74 or 56:7B.
+- **Inference.** A search from the normal world entrances allowing locked doors found no route to the three starting cells. Each landing has a way out even from a prepared save.
 
 ### A pitfall that lands inside a wall
 
@@ -152,6 +154,16 @@ US Rev-A ROM (the Brazilian tables are identical here).
 - **ROM static.** The fall keeps the cell and lowers the floor by one. The
   pitfall on floor 25 lands on a wall cell of floor 24. Of the 33 pitfalls, 28
   land on open floor.
+- **ROM static.** The pit is accessible from the Palma entrance on floor 23 via floors 24 and 25.
+- **ROM run.** From the wall at 24:7A, facing south and stepping forward reached open floor at 24:8A on both cartridges.
+
+### A gap between sound writes while a field window is open
+
+- **Where:** the US `field-menu` recording, frames 1735–1737.
+- **Reference emulator / ROM run.** The patched MesenCE and PSModern both
+  went 119,106 CPU cycles between sound-chip writes here (about 33 ms).
+  The chip continues the last tone or noise until the next write. All 9,886
+  frames have the same ordered writes and cycle offsets on both runs.
 
 ### Cascading pits
 
@@ -662,6 +674,7 @@ here (compared over these ranges). All of it is kept in original mode.
   carries it pays, hears the line that follows a purchase and gets nothing.
 - **ROM run.** State probes on both ROMs reach the path (`00:2C1D` taken) and
   equal the original.
+- **Maintainer decision (2026-11-19).** Keep the cartridge behavior. The [tested and withdrawn fix](milestone-15-plan.md#withdrawn-cartridge-fixes) checked the three vehicle IDs before charging.
 
 #### The Road Pass takes three tries
 
@@ -679,7 +692,9 @@ here (compared over these ranges). All of it is kept in original mode.
 - **ROM static.** The price is the missing hit points plus the missing magic
   points, each a one-byte subtraction, added in one byte; the high byte of the
   price is always zero, so a sum of 256 or more would wrap.
-- **Unknown.** Whether the game's maxima allow such a sum was not checked.
+- **ROM static.** At level 30 Myau can have 214 HP and 55 MP, and Noah 195 HP and 83 MP.
+- **ROM run.** With 13 HP and no MP, Myau received a zero quote for 256 missing points on both cartridges in Paseo.
+- **Maintainer decision (2026-11-19).** Keep the cartridge behavior. The [tested and withdrawn fix](milestone-15-plan.md#withdrawn-cartridge-fixes) kept the ninth bit and charged 256 meseta in this case.
 
 ### Found in the fades (milestone 12)
 
@@ -764,6 +779,7 @@ here (compared over these ranges). All of it is kept in original mode.
   the actual nonzero ROM spell cost spent by a different caster. Active
   refusal and inactive restoration are checked separately against the
   original, with state, cycles and ordered sound output compared.
+- **Maintainer decision (2026-11-19).** Keep the cartridge behavior. The [tested and withdrawn fix](milestone-15-plan.md#withdrawn-cartridge-fixes) refunded the caster on cancellation or refusal of a living recipient.
 
 ### Some strength gates use the first records rather than the caster
 
@@ -795,6 +811,7 @@ here (compared over these ranges). All of it is kept in original mode.
   amount overflows a byte, it keeps the wrapped result.
 - **ROM run.** A prepared 250-HP party checks each target's actual draw and
   resulting HP on both cartridges.
+- **Maintainer decision (2026-11-19).** Keep the cartridge behavior. The [tested and withdrawn fix](milestone-15-plan.md#withdrawn-cartridge-fixes) clamped the unprotected, missing-Crystal result to zero HP.
 
 ### Escaper and Magic Hat are spent even when refused
 
@@ -805,6 +822,7 @@ here (compared over these ranges). All of it is kept in original mode.
   refused.
 - **ROM run.** Complete prepared calls confirm both cases and their unchanged
   alternatives on both cartridges.
+- **Maintainer decision (2026-11-19).** Keep the cartridge behavior. The [tested and withdrawn fix](milestone-15-plan.md#withdrawn-cartridge-fixes) kept the item when escape was refused or the Hat was used outside battle.
 
 ### Nuts have two acceptance routes
 

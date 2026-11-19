@@ -134,6 +134,10 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         auto now=[&]() { return SDL_GetPerformanceCounter()/frequency; };
         audio.submit({},now()); // Open and prime the device before starting the frame clock.
         const auto start=now(); double next_report=start+10;
+        auto report_slow=[&](std::string_view operation,double began,std::uint64_t frame) {
+            const auto elapsed=now()-began;
+            if(elapsed>=.045)std::cerr<<"host_slow="<<operation<<" frame="<<frame<<" duration_ms="<<elapsed*1000<<'\n';
+        };
         FrameClock clock(start);
         std::uint64_t frames=0; bool quit=false,toggle_held=false,map_held=false;
         unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
@@ -154,6 +158,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             SDL_Event event;
             struct SpeedEvent { bool keyboard,down; };
             std::vector<SpeedEvent> speed_events;
+            bool fullscreen_changed=false;
             bool lost_focus=false,controller_changed=false,options_pressed=false,power_cycled=false;
             while (SDL_PollEvent(&event)) {
                 if (event.type==SDL_QUIT) quit=true;
@@ -165,7 +170,8 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if (event.type==SDL_AUDIODEVICEREMOVED && !event.adevice.iscapture) audio.removed(event.adevice.which);
                 if ((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && event.key.keysym.sym==SDLK_RETURN &&
                     enter.event(event.type==SDL_KEYDOWN,event.key.keysym.mod&KMOD_ALT,event.key.repeat)) {
-                    toggle_fullscreen(window);
+                    fullscreen_changed=true;
+                    const auto began=now();toggle_fullscreen(window);report_slow("fullscreen",began,frames);
                 }
                 // The shortcuts follow the bindings. A pad change is read once
                 // per event (a held trigger reports one press). Return, when
@@ -186,8 +192,8 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if (const auto down=pad_is(Action::speed)) speed_events.push_back({false,*down});
                 if (key_is(Action::options)==true || pad_is(Action::options)==true) options_pressed=true;
                 if ((key_is(Action::power)==true || pad_is(Action::power)==true) && !recorder && !driver.menu_active() &&
-                    !controls_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; audio.reset(); power_cycled=true; }
-                if (pad_is(Action::fullscreen)==true && !controls_screen.visible()) toggle_fullscreen(window);
+                    !controls_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; std::cerr<<"audio_event=power_cycle frame="<<frames<<" host=game\n"; audio.reset(); power_cycled=true; }
+                if (pad_is(Action::fullscreen)==true && !controls_screen.visible()) { fullscreen_changed=true; toggle_fullscreen(window); }
             }
             if (quit) break;
             const auto menu_input=sample_menu_input(window,controller);
@@ -245,7 +251,10 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             } else if(menu.visible()) {
                 const auto action=menu.update(menu_input,now());
                 if(action==MenuAction::apply) {
-                    if(const auto error=driver.choose_options(menu.draft(),menu.automap_draft(),menu.widescreen_draft())) { report_save(error);menu.failed(); }
+                    const auto began=now();
+                    const auto error=driver.choose_options(menu.draft(),menu.automap_draft(),menu.widescreen_draft());
+                    report_slow("save-options",began,frames);
+                    if(error) { report_save(error);menu.failed(); }
                     else {
                         // Applied at once, as the automap is.
                         wide_canvas=driver.widescreen_option();
@@ -273,6 +282,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 const auto input=release.filter(sample_input(window,controller,enter),menu_input.any(),menu_input.focused);
                 const bool was_active=driver.menu_active();
                 FrameOutput output;
+                const auto began=now();
                 try { output=driver.run(input); }
                 catch(const std::exception& error) {
                     // Milestone 14 (planning decision 6): code with no C++ body,
@@ -283,10 +293,14 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                     stopped=error.what();
                     break;
                 }
+                report_slow(driver.menu_active() ? "menu-frame" : "game-frame",began,frames+1);
                 if(recorder) recorder->add(input);
                 ++frames; report_save(output.save_error);
                 if(output.audio_error)std::cerr<<*output.audio_error<<'\n';
-                audio.submit(output.playback ? output.playback->values : output.samples.values,now());
+                audio.submit(output.playback ? output.playback->values : output.samples.values,now(),frames,
+                    fullscreen_changed ? "fullscreen" : lost_focus || !menu_input.focused ? "unfocused" :
+                    driver.menu_active() ? "host-menu" : options_pressed ? "options-request" :
+                    input.pads[0].one || input.pads[0].two ? "game-button" : "game",clock.speed());
                 if(!was_active && driver.menu_active()) {
                     if(driver.menu_purpose()==HostMenu::map) map_screen.open();
                     else {
@@ -339,7 +353,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 upload_bands(display,wide);
                 const auto centre=centre_rect(display);
                 sdl_check(SDL_UpdateTexture(display.texture.get(),&centre,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
-                present(display);
+                const auto began=now();present(display);report_slow("present",began,frames);
             }
             if (now()>=next_report) { report(); next_report=now()+10; }
             // Yield even in the last two milliseconds; the frame clock still

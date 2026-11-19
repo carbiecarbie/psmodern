@@ -1,8 +1,9 @@
 # PSModern - Project Status
 
-**Milestone 14 was completed and accepted on 2026-11-19.** The maintainer
-played all twelve play-test items on both the US Rev-A and Brazilian
-cartridges. The [plan](milestone-14-plan.md) records the tested build. Release
+**Milestone 15 was completed and accepted on 2026-11-19.** Its Windows
+audio fix is active. After playing the prototype the maintainer chose to
+keep the cartridge rules and the six-row Options menu. The
+[plan](milestone-15-plan.md) records the five tested fixes. Release
 1.0.0 (2026-11-19) is the latest published version and covers through milestone
 14. The [project history](project-history.md) lists every milestone and
 release.
@@ -102,8 +103,7 @@ off the game plays and looks as it did.
   / MESETA, AUTOMAP, WIDESCREEN, CONTROLS, LANGUAGE) with their values in grey;
   beside the selected row a window lists every choice, the current one in
   yellow; at the bottom a window explains the row, its last line showing the
-  state (SAVES ON EXIT, read-only while recording or without the routines,
-  saved and waiting, or save failed). Left/Right changes a value directly;
+  state (SAVES ON EXIT, saved and waiting, or save failed). Left/Right changes a value directly;
   button 1 on CONTROLS opens its own screen, which saves independently;
   leaving with button 1, button 2 or the shortcut saves the displayed values.
   Combat, title, dialogue and other menus ignore the shortcut. The
@@ -114,7 +114,8 @@ off the game plays and looks as it did.
   cartridge save format. Format 2 (the automap) is refused by release 0.1.0,
   and release 0.2.0 refuses a file saved with encounters 25; format 3
   (widescreen) is written only while a record has widescreen on, and formats 1
-  and 2 read as widescreen off. Battle meseta follows the experience rate;
+  and 2 read as widescreen off. The reader also imports play-test format 4,
+  keeping all current preferences and dropping the retired switch. Battle meseta follows the experience rate;
   other money is unchanged. Recording ignores the shortcuts and keeps no map
   ([development](development.md#options), [automap](development.md#automap)).
 
@@ -226,7 +227,8 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   cover preserved state, cancellation, missing or locked files, concurrency
   and crashes.
 - **Review and acceptance.** Independent reviews covered the timing
-  mechanism and game routines. The full suite ran 389 tests without skips (milestone 14).
+  mechanism and game routines. The full suite passed all 389 tests after the milestone 15
+  cartridge-fix withdrawal, including the six-row menu and audio queue tests.
   The maintainer approved all three play-test scenarios.
 
 ## Known gaps
@@ -284,5 +286,7 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   undecided, see the [roadmap](roadmap.md)), and the redone Options page covers
   more of the scene than the old window did.
 - **No aspect correction of the picture** yet.
-- **Rare sound stalls are not ruled out.** One of three measured sessions
-  had stalls of about 90 ms; their cause is not known.
+- **Audio under heavy host load.** Windows can delay the game beyond its
+  150 ms audio reserve. After an underrun the next samples resume immediately.
+  A 30-minute WASAPI session with the revised audio queue recorded zero
+  underruns and zero queue resets. [Audio measurements](development.md#audio-and-pacing).

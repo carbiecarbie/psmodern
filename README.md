@@ -121,9 +121,9 @@ the choices of the selected row in a small window beside it (the current one
 in yellow), and a window at the bottom that explains that row. Up and down
 pick a row, left and right change its value. Z (or A), X or B, and Escape/Y
 all save the displayed values and close. The last line of the bottom window
-says SAVES ON EXIT, or that the options are read-only (while a recording
-plays), saved and waiting, or that saving
-failed. The scene stays behind the windows and the music keeps playing.
+shows whether the choices will be saved on exit, are waiting to take effect,
+or could not be saved. Recording disables Options. The scene stays behind the
+windows and the music keeps playing.
 
 | Option | Values | What it does |
 | --- | --- | --- |

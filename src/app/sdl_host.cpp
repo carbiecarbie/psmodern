@@ -256,16 +256,30 @@ void Audio::reset() {
     }
     SDL_PauseAudioDevice(device_,0);
 }
-void Audio::submit(std::span<const std::int16_t> input,double now) {
+void Audio::submit(std::span<const std::int16_t> input,double now,std::uint64_t frame,std::string_view activity,unsigned speed) {
     if (!device_) open(now);
     if (!device_) return;
     if(paused_)return;
-    auto queued=SDL_GetQueuedAudioSize(device_)/(2.0*hz_);
-    if (queued==0) { ++underruns_; reset(); }
-    if (queued>0.150) { ++resets_; reset(); }
-    if (!device_) return;
-    queued=SDL_GetQueuedAudioSize(device_)/(2.0*hz_);
+    if(input.empty())return;
+    auto depth=[&] { return SDL_GetQueuedAudioSize(device_)/(2.0*hz_); };
+    auto queued=depth();
     queue_min_=std::min(queue_min_,queued); queue_max_=std::max(queue_max_,queued);
+    if (AudioQueuePolicy::underrun(queued)) {
+        ++underruns_;
+        std::cerr<<"audio_event=underrun frame="<<frame<<" host="<<activity<<" speed="<<speed<<" queued_ms=0\n";
+    }
+    // Keep every queued sample. On starvation submit this frame immediately.
+    // A stalled/disconnected device must not block event processing forever.
+    const auto wait_start=SDL_GetTicks64();
+    while (const auto delay=AudioQueuePolicy::wait_ms(queued)) {
+        SDL_Delay(delay);
+        queued=depth();
+        if (SDL_GetTicks64()-wait_start>=250 && AudioQueuePolicy::wait_ms(queued)) {
+            std::cerr<<"audio_event=queue_reset frame="<<frame<<" host="<<activity<<" speed="<<speed
+                     <<" queued_ms="<<queued*1000<<" reason=device-stopped-draining\n";
+            ++resets_;close();return;
+        }
+    }
     auto output=resampler_->process(input,rate_adjustment(queued));
     submitted_+=output.size();
     nonzero_+=std::count_if(output.begin(),output.end(),[](auto s) { return s!=0; });

@@ -79,7 +79,16 @@ private:
 };
 double rate_adjustment(double queued_seconds);
 inline constexpr double frame_seconds=59736.0/3579545.0;
-inline constexpr double audio_target_seconds=0.075;
+// Leave enough queued for a blocking Windows fullscreen transition. Above
+// the high water mark the producer waits for the device to take a slice.
+inline constexpr double audio_target_seconds=0.150;
+inline constexpr double audio_high_water_seconds=audio_target_seconds+2*frame_seconds;
+struct AudioQueuePolicy {
+    static unsigned wait_ms(double queued) {
+        return queued>audio_high_water_seconds ? 8 : 0;
+    }
+    static bool underrun(double queued) { return queued==0; }
+};
 
 // A release must be observed in the focused context before a source arms.
 class SpeedShortcut {

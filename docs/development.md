@@ -298,6 +298,11 @@ session from whatever file is there, a preserved unusable file lasts only
 until the first save of the next session, which replaces that backup with the
 file it finds then. Two games with byte-identical game blocks share one record.
 
+The unpublished milestone 15 play-test wrote format 4 with one extra switch
+at the end of each record. The reader validates and ignores that switch,
+keeps the other settings in all three records, and writes format 2 or 3
+on the next settings save.
+
 **Settings format 3 (widescreen).** A record gains a last field,
 `<label> <sha256> <encounter> <experience> <automap> <widescreen>`, both
 switches `0` or `1`; formats 1 and 2 read as widescreen off. The file is
@@ -483,8 +488,7 @@ selects one of the six rows (the two rates, Automap, Widescreen, CONTROLS and
 LANGUAGE), all on one page; Left/Right changes a value.
 Button 1, Button 2 or the Options binding persists the four displayed values
 and closes; there is no separate confirmation step. On the CONTROLS row Button
-1 opens the [Controls screen](#controls-screen) instead, also in the read-only
-modes, because controls never touch the game. On the LANGUAGE row Left/Right
+1 opens the [Controls screen](#controls-screen) instead. On the LANGUAGE row Left/Right
 steps through AUTO, ENGLISH and PORTUGUES, skipping a preference without its
 ROM, and each step is saved and committed at once as the Language screen's
 Save is (`MenuAction::language`); a failed write restores the previous choice.
@@ -588,16 +592,35 @@ emulation or audio.
 223,721.5625 Hz mono stream, including fractional endpoints, retaining its
 fractional state across frames. This box filter is the minimal averaging
 filter for downsampling; it attenuates high-frequency aliases but is not an
-ideal brick-wall filter. The preferred device rate is 48 kHz. Queue feedback
-adjusts the resampling ratio by at most ±0.5%, targeting 75 ms. The queue is
-primed with silence; an empty queue triggers a refill and a queue above 150 ms
-is cleared and refilled. A power cycle also resets it. Device removal closes
-the device and retries the default device at most once per second; emulation
-continues without sound while it is unavailable. Queue diagnostics are sampled
-before adding a frame and their range is cumulative for the run.
+ideal brick-wall filter. The preferred device rate is 48 kHz. The host primes the device on
+opening or starting a new timeline. Its 150 ms target covers brief Windows
+display transitions. Feedback adjusts the resampling ratio by up to ±0.5%.
+An empty queue accepts the next game samples immediately. Above the target
+plus two frame periods, the producer waits in 8 ms slices for playback to
+make room, preserving both the backlog and the incoming frame. If the device
+fails to drain for 250 ms, the host closes it and retries. Device removal also
+reopens the default device. The machine's sound and frame clock run as before.
 
-**Unknown.** The cause of rare sound stalls of about 90 ms, seen in one of
-three measured host runs.
+The stderr log reports the queue range, underruns and recovery resets every
+ten seconds, and logs each fault with frame number, host activity and speed.
+Host operations taking at least 45 ms also report their duration.
+
+**ROM run / reference emulator.** All 9,886 frames of the US `field-menu`
+recording matched the patched MesenCE PSG writes, including their cycle offsets.
+A two-frame interval between writes near the menu is present on both. The PSG
+keeps playing its current notes between writes.
+
+**Windows host measurement (2026-11-19).** During a fullscreen transition the
+old policy exhausted its queue at frame 7,859 and enqueued 3,600 silent samples
+before the next game audio. A separate 110 ms pause of only the producer thread
+reproduced this path on WASAPI at 48 kHz. A later run during parallel linking also
+exhausted a 150 ms queue. Windows scheduling and storage can still delay production
+longer than the reserve. The revised policy adds no silence after a stall.
+
+On the milestone 15 play-test build, a 1,810.24-second WASAPI session at 48 kHz with a 144 Hz
+display exercised the field menu, Options, all three speeds, fullscreen and
+focus loss and regain. The queue ranged from 88.27 to 158.31 ms across
+108,843 frames, with zero underruns and zero recovery resets.
 
 ## Input recordings
 

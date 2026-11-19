@@ -2,27 +2,20 @@
 
 Last updated: 2026-11-19
 
-## Done in the last session
+The maintainer withdrew the five cartridge fixes after playing the milestone
+15 prototype. The six-row menu and original game rules are restored. The
+Windows audio repair remains. Existing play-test profiles keep their other
+settings. The [milestone plan](milestone-15-plan.md) identifies both builds
+and the recovery patch. The local launcher is `../m15-playtest/Jogar.cmd`.
 
-- Discussed the next direction with the maintainer. Chosen order: milestone
-  15 (bug fixes option and the sound stalls), then an Android build for the
-  maintainer's family. Modding waits until the requester says what they want
-  to change; a new look for the menus is not wanted now.
-- Wrote [milestone 15 plan](milestone-15-plan.md) and added milestone 15 and
-  the Android direction to the [roadmap](roadmap.md). Documentation only.
+The lightweight runner reported completion of
+`ctest --test-dir build-rel -j 16 --output-on-failure --no-tests=error` with
+exit 0 after 1,534.15 seconds. All 389 tests passed with zero skips.
+`build-rel/m15-audio-only-ctest.log` holds the full output. All 2,057 RISE
+recording frames matched the cartridge, and cancelling the spell left Noah
+with 58 MP.
 
-## Current state
-
-- Release `v1.0.0` is published; no production code changed since.
-- Milestone 15 is planned and not started. The maintainer will hand it to a
-  Codex session.
-
-## Pending / next steps
-
-- The fix list in the plan is the planner's proposal: the maintainer may move
-  entries between "fix", "investigate first" and "not fixed" before the start.
-- Part 2 of the plan holds an unconfirmed lead on the sound stalls
-  (`Audio::submit` / `Audio::reset` in `src/app/sdl_host.cpp`); confirm by
-  measurement before changing anything.
-- Old milestone 14 worktrees under `D:\Projetos\Phantasy Star\m14-wt\` and
-  `r100-readme-images\` can still be pruned.
+The original 1,810.24-second WASAPI exercise with this queue policy is in
+`../m15-audio/accepted-build-30m-final/`. A separate 35-second WASAPI check
+of the revised kit recorded zero underruns or resets. Its log is
+`../m15-audio/audio-only-wasapi/host.log`. The milestone is closed.

@@ -526,6 +526,8 @@ it offers to heal another; a lone party goes straight to the goodbye line
 separate routine, restores every living member's points the same way without
 asking and without a price.
 
+**ROM run.** A living Myau missing 201 HP and 55 MP was quoted zero on both cartridges.
+
 **The church (00:2A85).** It remembers which church this is (C2DB, copied to
 C317; the field menu's fly transfer, 00:1C6C, reads it to come back here) and
 asks whether the party wants a dead member revived. It lets the player pick a
