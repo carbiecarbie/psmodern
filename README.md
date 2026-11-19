@@ -7,7 +7,7 @@ English | [Português (Brasil)](README.pt-BR.md)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/carbiecarbie/psmodern)](LICENSE)
 
 > [!IMPORTANT]
-> PSModern is an unofficial fan project in an early stage. It ships no game
+> PSModern is an unofficial fan project. It ships no game
 > data: you need your own dump of the Phantasy Star cartridge for the Sega
 > Master System, either the US Rev-A or the Brazilian Tec Toy release.
 
@@ -24,19 +24,18 @@ Z80. The original survives in the tests, which run it beside the C++ and
 compare the two instruction by instruction. Along the way the project writes
 down [how the game works inside][how-it-works].
 
-| Start screen (0.6.0) | Options | Widescreen |
+| Start screen (1.0.0) | Options | Widescreen |
 | --- | --- | --- |
 | ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options screen over a town: the six options, the choices of the selected one beside them and its explanation below, in the game's own windows](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
 
 ## What works today
 
 The whole game can be played in English (US) or Portuguese (Brazilian Tec
-Toy release). In the current source, everything runs in C++: battles, items,
-dungeon exploration, menus, sound and story scenes through the ending, with
-no Z80 in the program (milestone 14). If the game
-ever reaches a part of the cartridge that PSModern cannot run, it stops with a
-message and keeps your save as it was. The latest Windows release, 0.6.0,
-covers milestone 11.
+Toy release). Everything runs in C++: battles, items, dungeon exploration,
+menus, sound and story scenes through the ending, with no Z80 in the
+program (milestone 14, released in 1.0.0). If the game ever reaches a part
+of the cartridge that PSModern cannot run, it stops with a message and
+keeps your save as it was.
 
 What you get today:
 
@@ -123,7 +122,7 @@ in yellow), and a window at the bottom that explains that row. Up and down
 pick a row, left and right change its value. Z (or A), X or B, and Escape/Y
 all save the displayed values and close. The last line of the bottom window
 says SAVES ON EXIT, or that the options are read-only (while a recording
-plays, or without the rewritten routines), saved and waiting, or that saving
+plays), saved and waiting, or that saving
 failed. The scene stays behind the windows and the music keeps playing.
 
 | Option | Values | What it does |

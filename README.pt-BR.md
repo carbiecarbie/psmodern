@@ -7,7 +7,7 @@
 [![Licença: GPL-3.0-or-later](https://img.shields.io/github/license/carbiecarbie/psmodern)](LICENSE)
 
 > [!IMPORTANT]
-> O PSModern é um projeto de fã, não oficial, e ainda está no começo. Ele não
+> O PSModern é um projeto de fã, não oficial. Ele não
 > vem com nenhum dado do jogo: você precisa de um dump do seu próprio cartucho
 > de Phantasy Star para Master System, da versão americana (US Rev-A) ou da
 > versão brasileira da Tec Toy.
@@ -25,19 +25,18 @@ sobrevive nos testes, que o rodam ao lado do C++ e comparam os dois
 instrução por instrução. No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 (em inglês).
 
-| Tela inicial (0.6.0) | Opções | Tela larga |
+| Tela inicial (1.0.0) | Opções | Tela larga |
 | --- | --- | --- |
 | ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A tela de opções sobre uma cidade: as seis opções, as escolhas da selecionada ao lado e a explicação embaixo, nas janelas do próprio jogo](docs/images/options.png) | ![Uma cidade na visão larga de 344 x 192](docs/images/widescreen.png) |
 
 ## O que já funciona
 
 Dá para jogar o jogo inteiro em inglês (versão americana) ou em português
-(versão brasileira da Tec Toy). No código atual, tudo roda em C++: as batalhas, os
-itens, as masmorras, os menus, o som e as cenas até o final, sem Z80 no
-programa (milestone 14). Se o jogo chegar a uma
-parte do cartucho que o PSModern não sabe executar, ele para com uma mensagem
-e mantém o seu save como estava. A versão publicada para Windows, 0.6.0,
-cobre o milestone 11.
+(versão brasileira da Tec Toy). Tudo roda em C++: as batalhas, os itens, as
+masmorras, os menus, o som e as cenas até o final, sem Z80 no programa
+(milestone 14, publicado na 1.0.0). Se o jogo chegar a uma parte do
+cartucho que o PSModern não sabe executar, ele para com uma mensagem e
+mantém o seu save como estava.
 
 O que você tem hoje:
 
@@ -128,7 +127,7 @@ lado (a atual em amarelo) e, embaixo, uma janela que explica essa linha. Para
 cima e para baixo escolhem a linha, esquerda e direita mudam o valor. Ao sair
 com Z/A, X/B ou Escape/Y, os valores exibidos são salvos automaticamente. A
 última linha da janela de baixo diz SALVA AO SAIR, ou que as opções são só de
-leitura (durante uma gravação, ou sem as rotinas reescritas), que foram salvas
+leitura (durante uma gravação), que foram salvas
 e aguardam o jogo, ou que a gravação falhou. A cena continua atrás das janelas
 e a música não para.
 

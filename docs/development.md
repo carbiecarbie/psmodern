@@ -82,7 +82,7 @@ and applying the option resizes a normal window to the canvas at its current
 scale, lowered until it fits the usable display bounds; maximized and
 fullscreen windows change only the viewport. Alt+Enter toggles borderless desktop fullscreen.
 
-`psmodern.exe --version` prints `PSModern 0.6.0` and exits with 0 before any
+`psmodern.exe --version` prints `PSModern 1.0.0` and exits with 0 before any
 window or SDL start-up; combined with any other argument it is refused. The
 version comes from `project(PSModern VERSION ...)` in `CMakeLists.txt`,
 through the generated header `PSModernVersion.h`.
@@ -106,9 +106,9 @@ With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
 the ROM's font, so labels are uppercase. Entries: `PLAY PHANTASY STAR (US)`
 and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`, `CONTROLS`,
-`OPEN SAVES FOLDER` and `QUIT`, and `PSMODERN 0.6.0` in a small window under
+`OPEN SAVES FOLDER` and `QUIT`, and `PSMODERN 1.0.0` in a small window under
 them (tile row 20, as Options' explanation window). The window
-title is `PSModern 0.6.0`.
+title is `PSModern 1.0.0`.
 
 Arrows, the d-pad or the left stick move the selection (it wraps, with the
 same key repeat as Options). Z, Enter (without Alt), controller A or Start

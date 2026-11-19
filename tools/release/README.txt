@@ -1,9 +1,10 @@
 PSModern - Phantasy Star for the Sega Master System, rebuilt in C++
 
 PSModern is an unofficial, free fan reimplementation of Phantasy Star for the
-Sega Master System. It runs the original game from your own cartridge dump and
-replaces its routines with C++ one at a time. It is not affiliated with, or
-endorsed by, SEGA or Tec Toy. No game data is included in this download.
+Sega Master System. The whole game runs in C++, reading text, graphics, maps
+and music from your own cartridge dump, with no Z80 interpreter in the program.
+It is not affiliated with, or endorsed by, SEGA or Tec Toy. No game data is
+included in this download.
 
 WHAT YOU NEED
 
@@ -59,12 +60,13 @@ town, the world map or a dungeon. Left/Right changes a value. Leaving with
 Z/A, X/B or Escape/Y automatically saves the displayed values.
 
   Encounters   0, 25, 50, 100 or 200 percent of the original random fights.
-  Experience   100, 200 or 400 percent; battle meseta follows it.
+  EXP / Meseta 100, 200 or 400 percent; battle meseta follows experience.
   Automap      Off or On; a map of the current dungeon floor (off by default).
   Widescreen   Off or On; a 344x192 (16:9) view of the world map, towns and
                spaceship flight (off by default).
   Controls     Opens the Controls screen.
-  Language     Changes the language during exploration after saving your choice.
+  Language     Auto, English or Portugues; saves immediately and switches the
+               game text when Options closes. Each language needs its ROM.
 
 100 is the original game. Recommended: encounters 25, experience 400.
 Story and fixed fights never change.
