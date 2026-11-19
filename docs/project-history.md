@@ -231,4 +231,16 @@ program is about 15% slower per frame and its executable larger, a cost the
 maintainer accepted. He played both cartridges and accepted the milestone on
 2026-11-19. [Plan](milestone-14-plan.md).
 Implementation: `4aeec95`; design and agent-instruction amendments in the
-closing commit that adds this entry.
+closing commit `2f9d4e5`.
+
+## Release 1.0.0 - Complete C++ reimplementation (2026-11-19)
+
+The Windows release brings milestones 12, 13 and 14 together: menus and windows
+in C++ with the redesigned Options, Controls and start screens, all remaining
+game routines (battles, items, spells, dungeon drawing, sound, story scenes,
+saves and the ending), and the complete removal of the Z80 interpreter from
+`psmodern.exe`. At the maintainer's request the complete suite was not rerun
+for the release (it had passed 389 of 389 at milestone 14, and 1.0.0 changes
+only the version strings, READMEs and start-screen picture); the build was
+warning-free and all 181 fast tests passed. The exact zip was published without
+a manual release play-test. Published as GitHub release v1.0.0 from `60d620d`.

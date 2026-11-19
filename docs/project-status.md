@@ -1,14 +1,15 @@
 # PSModern - Project Status
 
-**Milestone 13 was completed and accepted on 2026-11-16.** The maintainer
-played the US dungeon, pause and sound, the Brazilian saved-name flow, and
-the US final battle and credits. The [plan](milestone-13-plan.md) records
-the tested build. Release 0.6.0 covers milestone 11. The
-[project history](project-history.md) lists subsequent milestones.
+**Milestone 14 was completed and accepted on 2026-11-19.** The maintainer
+played all twelve play-test items on both the US Rev-A and Brazilian
+cartridges. The [plan](milestone-14-plan.md) records the tested build. Release
+1.0.0 (2026-11-19) is the latest published version and covers through milestone
+14. The [project history](project-history.md) lists every milestone and
+release.
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
-The whole game runs in C++ (milestone 14, see its [plan](milestone-14-plan.md);
-it awaits the maintainer's play-test). The program has no Z80: interrupts are
+The whole game runs in C++ (milestone 14, see its [plan](milestone-14-plan.md)).
+The program has no Z80: interrupts are
 accepted in C++ at the exact instruction, and cartridge code that has no C++
 version stops the game with a message. The Z80 survives only in the tests, as
 the original that the C++ is compared with. Optional features include saved encounter and experience
