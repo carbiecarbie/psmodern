@@ -39,11 +39,23 @@ milestone 14.
 ## Next milestones
 
 All 14 planned milestones from the original roadmap are complete and
-accepted (milestone 14 accepted on 2026-11-19). Future milestones are open
-and will be started explicitly by the maintainer from the longer-term
-directions below or new goals.
+accepted (milestone 14 accepted on 2026-11-19). Later milestones are chosen
+by the maintainer from the longer-term directions below or new goals, and
+each is started explicitly.
+
+| Milestone | Scope |
+| --- | --- |
+| [15](milestone-15-plan.md) | An option that fixes defects of the original game, and the cause of the short sound stalls (Maintainer decision, 2026-11-19; planned, not started) |
 
 ## Longer-term direction
+
+- **An Android build.** The maintainer's choice for after milestone 15
+  (2026-11-19): a personal build to give the game to family members, with
+  on-screen buttons drawn from the cartridge's own font and borders, the ROM
+  chosen through the system file picker and saves in the app's folder. No
+  design yet and no milestone. It comes after the changes to the game so that
+  they need not be checked twice. A native Linux build stays deferred: the
+  Windows release ran under Wine unchanged.
 
 - **Easier modding.** Requested by the maintainer on 2026-11-11 as a
   direction, with no design yet and no milestone. A first step could be a
