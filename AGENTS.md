@@ -45,6 +45,17 @@ below automatically, so read each one whose trigger applies before acting.
 - Agents without local access must use a verified commit SHA as their
   baseline and report when it cannot be retrieved; do not invent local state.
 
+## Project memory
+
+- **State:** `docs/project-status.md` (what runs now, architecture, known gaps).
+- **Decisions and history:** `docs/design.md`, `docs/roadmap.md`,
+  `docs/milestone-N-plan.md`, `docs/original-quirks.md` and
+  `docs/project-history.md`.
+- **Session handoff:** `docs/handoff.md` (maintainer decision, 2026-11-19).
+  Read it before starting and rewrite it before ending a session that changes
+  files or takes decisions; keep it short and about the current moment only.
+- `CLAUDE.md` is a one-line pointer (`@AGENTS.md`).
+
 ## Development principles
 
 - **The original program is the authority.** Unlike most reimplementations,

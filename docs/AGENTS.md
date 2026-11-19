@@ -18,8 +18,9 @@ exception is `README.pt-BR.md`, the Brazilian Portuguese translation of
 | `docs/images/` | README screenshots taken from the running game (maintainer decision, 2026-11-11); no other images from the ROM | Few files |
 | `docs/design.md` | The approved design: goals, architecture, decisions. Changes need the maintainer's approval | Stable |
 | `docs/project-status.md` | What runs and can be done now; architecture overview; rewritten vs Z80 systems; known gaps | ~100-300 lines |
+| `docs/handoff.md` | Current-moment session handoff: last session summary, pending items and next steps (no history) | Short |
 | `docs/milestone-N-plan.md` | That milestone's plan; condensed at closure | Closed: ~30-100 lines |
-| `AGENTS.md`, `docs/AGENTS.md` | Agent instructions: every task; documentation | Root under 240 lines |
+| `AGENTS.md`, `docs/AGENTS.md`, `CLAUDE.md` | Agent instructions: every task; documentation; one-line pointer `@AGENTS.md` | Root under 240 lines |
 | `docs/dependencies.md` | Toolchain, libraries and versions, build setup (authoritative) | As needed |
 | `docs/project-history.md` | One short entry per completed milestone, with its closing commit | ~5-10 lines per milestone |
 | `docs/playtests.md` | How to prepare a maintainer play-test | Short |
