@@ -4,7 +4,8 @@
 played the twelve play-test items on both cartridges in the accepted Windows
 build (SHA-256
 `60d835d95f03f05773b6bdafd44567047150b259d698aaa2bb46392770c18179`) and found
-everything correct. Fourteenth milestone of the [roadmap](roadmap.md); stage
+everything correct. Implemented in `4aeec95`; the closing commit amends
+design and agent instructions. Fourteenth milestone of the [roadmap](roadmap.md); stage
 11 of [design](design.md) section 8. Started 2026-11-16.
 
 ## Goal

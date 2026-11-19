@@ -219,3 +219,16 @@ Brazilian saved-name flow, and the US final battle and credits, and accepted
 the milestone on 2026-11-16. The [plan](milestone-13-plan.md) identifies the
 accepted build and records the test results.
 Implementation: `762a48d`; closed by `a278d54`; private annotations: `c93b373` in `psmodern-re`.
+
+## Milestone 14 - Removing the Z80 (2026-11-16 to 2026-11-19)
+
+The game runs on C++ alone: the program contains no Z80 interpreter, and the
+Z80 stays only in the tests as the referee they compare against. Interrupts
+are taken in C++ at the exact instruction, so timing and slowdowns are kept.
+All 27 recordings match the reference and the original instruction by
+instruction; the complete suite passed 389 tests in 23 minutes 36 seconds. The
+program is about 15% slower per frame and its executable larger, a cost the
+maintainer accepted. He played both cartridges and accepted the milestone on
+2026-11-19. [Plan](milestone-14-plan.md).
+Implementation: `4aeec95`; design and agent-instruction amendments in the
+closing commit that adds this entry.

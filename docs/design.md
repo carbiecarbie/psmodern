@@ -153,7 +153,7 @@ Facts verified on 2026-11-09 (milestone 3; ROM static, ROM run):
 | Static recompilation | A tool translates Z80 to C mechanically; the result runs but stays "a Master System inside". Good for encounters, experience and the minimap; poor for widescreen, a new interface and language selection. | Rejected: limits four of the five wanted features and reduces the study. |
 | Rewrite by system, from scratch | Study a whole system and write it cleanly in C++, checked against emulator recordings. | Rejected: nothing playable for months, errors hard to locate, integration bugs. |
 | New engine from the data formats | An engine of our own built from the maps and texts only. | Rejected: cannot guarantee an identical original mode. |
-| **Gradual replacement with a scaffold Z80** | The program runs the original ROM on a virtual Z80 from the start and replaces routines with C++ one by one, checking each against the original. At the end the Z80 is removed. | **Chosen by the maintainer.** The same principle as OpenRCT2. |
+| **Gradual replacement with a scaffold Z80** | The program ran the original ROM on a virtual Z80 from the start and replaced routines with C++ one by one, checking each against the original. The Z80 left the program in milestone 14 and survives only as a test-side referee. | **Chosen by the maintainer.** The same principle as OpenRCT2. |
 
 Why: the game is never broken, every routine is verified at once, the
 maintainer picks the order of study (comfort features arrive early), and it
@@ -176,12 +176,17 @@ verifiable milestones.
    "talking" to them as the original talks to the hardware, which is what
    guarantees a pixel-exact original mode without extracting or converting
    graphics.
-2. **Virtual Z80 (scaffold, temporary):** runs the ROM. Removed once all game
-   code has been rewritten.
+2. **Virtual Z80 (scaffold, removed in milestone 14):** ran the ROM until
+   all game code had been rewritten. It now exists only in the test-side
+   oracle library, which runs the original beside the C++ for comparison;
+   the program does not link it.
 3. **Routines rewritten in C++:** registered by entry address (bank +
-   address). When the virtual Z80 reaches a registered routine, the C++
-   version runs instead. It reads and writes the same state (registers, the
-   8 KiB RAM, the virtual hardware) and returns as the original would.
+   address) as segments. When execution reaches the entry of a segment, its
+   C++ body runs. It renders the original's instructions one by one, reading
+   and writing the same state (registers, the 8 KiB RAM, the virtual
+   hardware) with the same cycles, and takes interrupts at the exact
+   instruction as the original would. Execution that reaches an address with
+   no segment stops the game with a message.
 4. **New-feature layer:** options that change behavior only outside original
    mode, for example the experience multiplier inside the rewritten
    experience routine, or the automap drawn from the dungeon state the
@@ -199,10 +204,12 @@ verifiable milestones.
 - **Input recordings:** frame-by-frame button sequences that take the game
   to known situations (walking the world map, entering a town, a battle, a
   dungeon, saving).
-- **Lockstep run:** the same recording runs on two paths, Z80 only and with
-  the rewritten routines enabled. The tool compares RAM, VRAM, CRAM, VDP
-  registers and sound output, and reports the first frame and the first
-  routine that differ. All new features are off on this path.
+- **Lockstep run:** the same recording runs on two paths, the original on
+  the test-side Z80 and the rewritten C++, side by side. The tool compares
+  registers, cycles, memory writes and port accesses at every instruction
+  boundary and the whole machine (RAM, VRAM, CRAM, VDP registers and sound
+  output) at every frame, and reports the first frame, routine and
+  instruction that differ. All new features are off on this path.
 - **Virtual hardware validation:** before the Z80-only path is trusted as the
   reference, it is checked against an established emulator on the same
   recordings: the patched MesenCE 2.2.1, with Emulicious as second opinion
@@ -225,8 +232,10 @@ verifiable milestones.
     routine ends, not only the state;
   - the same input recording is valid on both paths, with no separate
     recordings;
-  - once the Z80 is removed (stage 11), the final engine needs a "time budget
-    per frame" model that reproduces the same slowdowns.
+  - since the Z80 was removed (stage 11, milestone 14) the engine keeps this
+    exactness: it renders every instruction with its own cycles and accepts
+    interrupts at the exact instruction, so the same slowdowns follow without
+    a separate "time budget per frame" model.
 - A routine may compute its cycles with a formula derived from the original
   code (instruction counts per path), checked against the Z80 on the
   recordings. Milestone 2 settled how: see
@@ -419,8 +428,8 @@ study base (stage 3) shows how the code is organized.
 9. **Menus and windows:** then the new interface.
 10. **The rest:** battle, 3D dungeon drawing, the sound driver, scenes, the
     opening and the ending, until no Z80 routine is left.
-11. **Removing the Z80:** the game runs on C++ alone, and the ROM becomes a
-    data source.
+11. **Removing the Z80:** the game runs on C++ alone with exact timing, and
+    the ROM becomes a data source. The Z80 core stays as a test-only oracle.
 
 ## 9. Left to the builder
 
@@ -430,7 +439,8 @@ study base (stage 3) shows how the code is organized.
   citations are checked against.
 - Which Z80 core to use (an existing one with a compatible license, or our
   own). Settled in milestone 1: redcode/Z80, vendored
-  ([dependencies](dependencies.md#z80-core)).
+  ([dependencies](dependencies.md#z80-core)); since milestone 14 it is built
+  only into the test-side oracle.
 - The format of input recordings and of the divergence report. Settled in
   milestones 1 and 2 ([development](development.md#input-recordings) and
   [development](development.md#registered-routines)).

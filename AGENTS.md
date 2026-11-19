@@ -4,9 +4,10 @@ PSModern is an open-source, faithful reimplementation of **Phantasy Star**
 for the Sega Master System, in C++, running from the player's own ROM.
 
 **The goal is a faithful reimplementation reached by gradual replacement**:
-the original ROM runs on a virtual Z80 from the first milestone, and its
-routines are rewritten in C++ one at a time, each verified against the
-original, until no Z80 code is left. Original mode must behave, look, sound
+the original ROM ran on a virtual Z80 from the first milestone, and its
+routines were rewritten in C++ one at a time, each verified against the
+original, until no Z80 code was left (milestone 14). The Z80 survives only in
+the tests, as the referee. Original mode must behave, look, sound
 and feel like the Master System cartridge - rules, formulas, random draws,
 timing, input, interface and text - in both the US Rev-A and the Brazilian
 (Tec Toy) versions. The approved design is [docs/design.md](docs/design.md).
@@ -48,13 +49,13 @@ below automatically, so read each one whose trigger applies before acting.
 
 - **The original program is the authority.** Unlike most reimplementations,
   PSModern always has the exact original program at hand: the identified ROM
-  running on the validated Z80 path. When a plan, prompt or code is unclear
+  running on the validated Z80 in the test-side oracle. When a plan, prompt or code is unclear
   about a behavior, run the original and observe it instead of guessing. Ask
   the maintainer only when observation cannot settle a question, or when
   reproducing the behavior would leave the milestone scope. Never invent
   behavior the original does not have.
 - **A divergence means the rewrite is wrong.** When the lockstep run shows a
-  rewritten routine differing from the Z80 path, fix the rewrite. The only
+  rewritten routine differing from the original on the oracle, fix the rewrite. The only
   exception is a defect in the virtual hardware itself, and that must be
   shown against an established reference emulator first.
 - **Timing is behavior.** Every rewritten routine accounts for the cycles the
@@ -65,7 +66,9 @@ below automatically, so read each one whose trigger applies before acting.
   serves both and must also pass the Brazilian recordings. Never assume the
   US text: the Brazilian text has its own control codes and timing.
 - **Rewrite whole routines.** Replace a routine at its entry point with the
-  same inputs, outputs, side effects and cycle cost. Early rewrites may keep
+  same inputs, outputs, side effects and cycle cost. Every instruction is
+  rendered in C++; cartridge code with no C++ version stops the game, and
+  there is no fallback to the Z80. Early rewrites may keep
   the original RAM layout and look "Z80-shaped"; cleaning them up is later,
   separately verified work.
 - **Features are layered, never mixed in.** A new feature reads or adjusts
@@ -96,10 +99,9 @@ Each milestone is classified in its plan as Tier A or Tier B. Acceptance for
 both is tests plus a maintainer play-test or, for a milestone that changes
 nothing playable, the maintainer reading its deliverables, as its plan
 states. Plan formats are in `docs/AGENTS.md`.
-- **Tier A - core** (virtual hardware, the Z80 scaffold and the
-  registered-routine mechanism, the verification harness, cycle accounting
-  and timing, saves, the random number generator, architecture, removing the
-  Z80): an independent review of the plan and of the implementation is
+- **Tier A - core** (virtual hardware, the segment mechanism and the
+  test-side oracle, the verification harness, cycle accounting
+  and timing, saves, the random number generator, architecture): an independent review of the plan and of the implementation is
   mandatory. These scheduled reviews are part of the workflow and need no
   separate authorization.
 - **Tier B - routines and features** (rewriting game routines verified by
