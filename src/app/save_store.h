@@ -64,7 +64,7 @@ public:
     const std::optional<std::string>& settings_warning() const { return settings_warning_; }
     std::filesystem::path settings_path() const { auto p=path_;p+=".options";return p; }
     // The automap companion <save>.automap (milestone 7). Only a tracking
-    // driver calls these; recording mode and --no-routines never read or write
+    // driver calls these; recording mode never reads or writes
     // the file. A missing file is an empty image. An unusable one (unsupported
     // version, corrupt, too large, not a regular file) gives a warning and an
     // empty map; at the next save it is kept as .automap.bak before the new
@@ -89,6 +89,9 @@ public:
     // failure, up to 3,600 (a minute). Staging a new record (the next save) or
     // `retry_now` (exit, power cycle) retries at once.
     std::optional<std::string> flush(Memory& memory,bool retry_now=false);
+    // A flush would write even for a clean image: a failed write waits for
+    // its retry, or an automap record is staged.
+    bool flush_pending() const { return retry_ || automap_dirty_; }
     const std::filesystem::path& path() const { return path_; }
     std::uint64_t writes() const { return writes_; }
 private:

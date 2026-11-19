@@ -142,7 +142,7 @@ struct Run {
             if (std::find(dump.begin(),dump.end(),n)!=dump.end() && !out.empty())
                 write_png(out/(tag+"-rate"+std::to_string(rate)+"-stored"+std::to_string(stored)+"-frame"+std::to_string(n)+".png"),machine.picture());
         }
-        for (const auto& [entry,routine]:registry.entries()) check(routine.counters.forced_failed==0,"a forced call failed");
+        for (const auto& [entry,routine]:registry.entries()) check(routine.counters.fallback_calls==0,"a call was refused");
         // The number the message shows is the stored reward as the option scales it.
         const unsigned expected=rate==100 ? stored : std::min(65535u,stored*rate/100);
         check(shown==expected,"the displayed reward is the scaled stored reward");
@@ -160,7 +160,10 @@ struct Run {
 };
 }
 
-int main(int argc, char** argv) { try {
+int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try {
     if (argc!=5 && argc!=6) throw std::runtime_error("Expected ROM, version, recording, cartridge RAM image and optional output folder.");
     const auto rom=probe::load(argv[1],argv[2]);
     if (!rom || !std::filesystem::exists(argv[3]) || !std::filesystem::exists(argv[4])) { std::cout<<"An input is missing; skipping.\n"; return 77; }

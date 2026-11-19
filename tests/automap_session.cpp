@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <map>
+#include "oracle/native_machine.h"
 // The automap in the frame driver (milestone 7, parts M2 and I) on the
 // player's ROM. Arguments: <rom> <us|br> <recordings folder> <reference
 // folder> <work folder> <part> [argument] (exit 77 without the ROM; the work
@@ -128,15 +130,25 @@ Trace play(app::FrameDriver& d,const replay::Recording& rec,const std::string& w
     Trace t;t.frames.reserve(rec.frames);t.cycles.reserve(rec.frames);
     d.log_map_events(&events);
     replay::FrameWrites writes;
+    // Milestone 14: a driver with routines can return after the segment
+    // crossing the frame end; the frame's state is taken at its frame
+    // observer, where a driver without routines returns.
+    std::optional<replay::Manifest> at;
+    std::uint64_t at_cycles=0;
+    d.set_frame_probe([&](const Machine& m) { at=replay::manifest(m,{}); at_cycles=m.cycles(); });
     for(std::uint64_t n=0;n<rec.frames;++n) {
         if(before)before(n);
+        at.reset();
         auto out=d.run(rec.input_at(n));quiet(out,what);
         if(after)after(n);
-        t.frames.push_back(replay::manifest(d.machine(),writes.take(n+1,std::move(out.writes))));
-        t.cycles.push_back(d.machine().cycles());
+        check(at.has_value(),what+": the frame observer did not run");
+        (*at)[6]=sha1(writes.take(n+1,std::move(out.writes)));
+        t.frames.push_back(*at);
+        t.cycles.push_back(at_cycles);
         if(const auto* e=d.exploration(); e && (t.explorations.empty() || t.explorations.back().second!=*e))t.explorations.emplace_back(n,*e);
     }
     d.log_map_events(nullptr);
+    d.set_frame_probe({});
     return t;
 }
 // Runs independent drivers side by side; each job owns its driver and folder.
@@ -275,7 +287,7 @@ struct Timer {
 void session(const Setup& s,const app::RomFont& font,const std::filesystem::path& frames) {
     Timer timer;
     const auto rec=recording(s,"first-dungeon");
-    const auto fb=fresh(s,"off"),fc=fresh(s,"on"),fd=fresh(s,"no-routines");
+    const auto fb=fresh(s,"off"),fc=fresh(s,"on");
     {
         app::SaveStore store(fc,s.version);store.load_preferences(store.load());
         check(!store.choose({},true,store.load()),"applying the automap option");
@@ -283,10 +295,6 @@ void session(const Setup& s,const app::RomFont& font,const std::filesystem::path
     std::vector<std::string> writes;
     auto raw=[&](const std::filesystem::path& p,const Memory::CartridgeRam& image){writes.push_back("sav");app::atomic_save(p,image);};
     auto text=[&](const std::filesystem::path& p,const std::string& t){writes.push_back(p.extension().string());app::atomic_text(p,t);};
-    {
-        app::FrameDriver raw_z80(s.rom,app::SaveStore(fd,s.version),false);
-        check(!raw_z80.automap_tracking() && !raw_z80.request_menu(HostMenu::map),"--no-routines neither tracks nor shows a map");
-    }
     app::FrameDriver b(s.rom,app::SaveStore(fb,s.version));
     app::FrameDriver c(s.rom,app::SaveStore(fc,s.version,raw,app::atomic_settings,text));
     check(b.automap_tracking() && !b.automap_enabled() && c.automap_tracking() && c.automap_enabled(),"tracking always on; the option gates the screen");
@@ -415,7 +423,7 @@ void session(const Setup& s,const app::RomFont& font,const std::filesystem::path
 
 // An unusable .automap: a warning, an empty map at Continue, the file kept
 // until a save preserves it as .automap.bak (app_tests covers the save);
-// recording mode and --no-routines never read it.
+// recording mode never reads it.
 void unusable_file(const Setup& s) {
     const auto rec=recording(s,"deep-dungeon");
     const auto folder=fresh(s,"corrupt");
@@ -423,9 +431,9 @@ void unusable_file(const Setup& s) {
     const std::string bad="psmodern-automap 9\nrecord nothing\n";
     const auto path=folder/(std::string(app::save_name(s.version))+".automap");
     { std::ofstream f(path,std::ios::binary);f<<bad; }
-    for(const bool routines:{false,true}) {
-        app::FrameDriver d(s.rom,app::SaveStore(folder,s.version),routines,{},routines);
-        check(!d.store().automap_warning(),"recording mode and --no-routines never read the file");
+    {
+        app::FrameDriver d(s.rom,app::SaveStore(folder,s.version),{},true);
+        check(!d.store().automap_warning(),"recording mode never reads the file");
     }
     app::FrameDriver d(s.rom,app::SaveStore(folder,s.version));
     check(d.store().automap_warning().has_value(),"an unusable file warns at start");
@@ -663,60 +671,133 @@ void door_frame(const Setup& s,const app::RomFont& font,const std::filesystem::p
     throw std::runtime_error("no floor with both locked and magic doors");
 }
 
+// The tracker on the original (the oracle): the recording on the oracle's
+// native machine, stepped one instruction at a time; at every instruction
+// boundary where the program's host hook is called (the entries the tracker
+// watches, not a boundary where an interrupt response takes the step) the
+// tracker is fed exactly as FrameDriver feeds it, with an in-memory store of
+// the staged explorations. Its events (kind, cycle, values, digest) and its
+// final exploration must equal the program's: the replacement of the
+// routines-off driver of milestone 13 (the program has no core since 14).
+struct OriginalTracker {
+    std::vector<MapEvent> events;
+    std::optional<game::Exploration> final;
+};
+OriginalTracker original_tracker(const Setup& s,const replay::Recording& rec,const std::string& stem) {
+    namespace d=game::dungeon;
+    const game::DungeonTables tables(std::span<const std::uint8_t>(*s.rom));
+    game::ExplorationTracker tracker(tables);
+    std::map<std::string,game::Exploration> staged;
+    // The recording's start image (as place_image puts it in each driver's folder).
+    Memory::CartridgeRam cart{};
+    if(sha1(Memory::CartridgeRam{})!=rec.cart_ram_sha1) {
+        std::ifstream file(s.reference/s.region/stem/"cart-ram.bin",std::ios::binary);
+        check(file.read(reinterpret_cast<char*>(cart.data()),cart.size()).good(),stem+": start image missing");
+    }
+    oracle::NativeMachine m(s.rom,cart);
+    OriginalTracker out;
+    auto at=[&](std::uint16_t pc) {
+        if(m.memory().mapping(pc)!=Memory::Mapping{Memory::Kind::rom,0})return;
+        auto game_block=[&] {
+            std::array<std::uint8_t,d::game_block_bytes> bytes{};
+            for(unsigned i=0;i<bytes.size();++i)bytes[i]=m.peek(static_cast<std::uint16_t>(d::game_block+i));
+            return bytes;
+        };
+        if(pc==d::sample.address) {
+            if(m.peek(d::game_mode)!=d::dungeon_mode)return;
+            game::DungeonSample sample{m.peek(d::floor),m.peek(d::position),static_cast<std::uint8_t>(m.peek(d::facing)&3),{}};
+            for(unsigned i=0;i<sample.layout.size();++i)sample.layout[i]=m.peek(static_cast<std::uint16_t>(d::layout+i));
+            tracker.observe(sample);
+            out.events.push_back({MapEvent::Kind::sample,m.cycles(),sample.floor,sample.cell,sample.facing});
+        } else if(pc==d::after_save.address) {
+            auto digest=app::automap_digest(game_block());
+            staged[digest]=tracker.exploration();
+            out.events.push_back({MapEvent::Kind::stage,m.cycles(),0,0,0,std::move(digest)});
+        } else if(pc==d::after_load.address) {
+            auto digest=app::automap_digest(game_block());
+            const auto found=staged.find(digest);
+            if(found!=staged.end())tracker.replace(found->second); else tracker.reset();
+            out.events.push_back({MapEvent::Kind::replace,m.cycles(),0,0,0,std::move(digest),found!=staged.end()});
+        } else if(pc==d::after_new_game.address) {
+            tracker.reset();
+            out.events.push_back({MapEvent::Kind::reset,m.cycles()});
+        } else if(pc==d::pass_end.address) {
+            const auto mode=m.peek(d::game_mode);
+            if(mode!=d::dungeon_mode && mode!=d::dungeon_load_mode && tracker.leave())
+                out.events.push_back({MapEvent::Kind::leave,m.cycles()});
+        }
+    };
+    for(std::uint64_t n=0;n<rec.frames;++n) {
+        m.set_input(rec.input_at(n));
+        const auto target=(m.cycles()/Machine::frame_cycles+1)*Machine::frame_cycles;
+        while(m.cycles()<target || m.cpu().resume) {
+            if(!m.cpu().resume) {
+                m.settle();
+                if(m.pending_acceptance()==Console::Acceptance::none)at(m.cpu().pc.uint16_value);
+            }
+            m.step();
+        }
+        (void)m.take_psg_writes();(void)m.take_samples();
+    }
+    out.final=tracker.exploration();
+    return out;
+}
+
 // Tracking changes nothing: one recording played by recording mode (no
-// tracker), the option off, the option on and never opened, and routines off
-// (Z80 only, with a tracker), each driver on its own thread from its own copy
-// of the start image. The four machines are equal after every frame (the
-// seven manifest components and the cycle count) and at the end; the three
-// trackers log the same map events, values and cycles included, and hold the
-// same exploration after every frame.
+// tracker), the option off and the option on and never opened, each driver on
+// its own thread from its own copy of the start image. The three machines are
+// equal after every frame (the seven manifest components and the cycle count)
+// and at the end; the two trackers log the same map events, values and cycles
+// included, and hold the same exploration after every frame. (Milestone 14:
+// the fourth driver, the program with its routines off running on the Z80
+// core, no longer exists; the tracker fed by the original on the oracle,
+// original_tracker, replaces it.)
 void passivity(const Setup& s,const std::string& stem) {
     Timer timer;
     const auto rec=recording(s,stem);
     const auto fa=fresh(s,"passivity-"+stem+"-recording"),fb=fresh(s,"passivity-"+stem+"-off"),
-               fc=fresh(s,"passivity-"+stem+"-on"),fd=fresh(s,"passivity-"+stem+"-z80");
-    for(const auto& folder:{fa,fb,fc,fd})place_image(s,stem,rec,folder);
-    for(const auto& folder:{fc,fd}) {
+               fc=fresh(s,"passivity-"+stem+"-on");
+    for(const auto& folder:{fa,fb,fc})place_image(s,stem,rec,folder);
+    for(const auto& folder:{fc}) {
         app::SaveStore store(folder,s.version);store.load_preferences(store.load());
         check(!store.choose({},true,store.load()),"applying the automap option");
     }
-    app::FrameDriver a(s.rom,app::SaveStore(fa,s.version),true,{},true);
+    app::FrameDriver a(s.rom,app::SaveStore(fa,s.version),{},true);
     app::FrameDriver b(s.rom,app::SaveStore(fb,s.version));
     app::FrameDriver c(s.rom,app::SaveStore(fc,s.version));
-    app::FrameDriver d(s.rom,app::SaveStore(fd,s.version));
-    // Routines off with a tracker: the registry stays as registered, disabled.
-    d.routines().enabled=false;
-    check(!a.automap_tracking() && b.automap_tracking() && !b.automap_enabled() && c.automap_enabled() && d.automap_tracking(),
+    check(!a.automap_tracking() && b.automap_tracking() && !b.automap_enabled() && c.automap_enabled(),
           stem+": recording mode has no tracker; the others track");
-    std::vector<MapEvent> la,lb,lc,ld;
-    Trace ta,tb,tc,td;
+    std::vector<MapEvent> la,lb,lc;
+    Trace ta,tb,tc;
     parallel({[&]{ ta=play(a,rec,stem+" recording",la); },[&]{ tb=play(b,rec,stem+" option off",lb); },
-              [&]{ tc=play(c,rec,stem+" option on",lc); },[&]{ td=play(d,rec,stem+" routines off",ld); }});
+              [&]{ tc=play(c,rec,stem+" option on",lc); }});
     same_frames(ta,tb,stem+": recording mode against the option off");
     same_frames(ta,tc,stem+": recording mode against the option on");
-    same_frames(ta,td,stem+": routines on against routines off");
-    check(a.machine().equivalent(b.machine()) && a.machine().equivalent(c.machine()) && a.machine().equivalent(d.machine()),
+    check(a.machine().equivalent(b.machine()) && a.machine().equivalent(c.machine()),
           stem+": the machines are equivalent at the end");
     check(la.empty() && ta.explorations.empty() && !std::filesystem::exists(a.store().automap_path()),
           stem+": recording mode neither tracks nor writes a .automap");
     check(lb==lc,stem+": the same map events with the option off and on");
-    if(lc!=ld) {
-        std::size_t k=0;while(k<lc.size() && k<ld.size() && lc[k]==ld[k])++k;
-        throw std::runtime_error(stem+": map events differ with routines on and off at event "+std::to_string(k)+" of "+
-                                 std::to_string(lc.size())+" / "+std::to_string(ld.size()));
+    // The tracker fed by the original (oracle) logs the same events and ends
+    // with the same exploration.
+    const auto original=original_tracker(s,rec,stem);
+    if(original.events!=lc) {
+        std::size_t k=0;while(k<lc.size() && k<original.events.size() && lc[k]==original.events[k])++k;
+        throw std::runtime_error(stem+": map events differ from the tracker on the original at event "+std::to_string(k)+" of "+
+                                 std::to_string(lc.size())+" / "+std::to_string(original.events.size()));
     }
-    check(tb.explorations==tc.explorations && tc.explorations==td.explorations,stem+": the same exploration after every frame, routines on and off");
+    check(c.exploration() && original.final && *c.exploration()==*original.final,stem+": the exploration differs from the tracker on the original");
+    check(tb.explorations==tc.explorations,stem+": the same exploration after every frame, option off and on");
     check(count(lc,MapEvent::Kind::sample)>0,stem+": the recording reaches the dungeon wait");
-    // The comparison means something only if the dungeon segments ran in C++
-    // in the routines-on drivers and not at all with routines off.
+    // The dungeon segments ran in C++.
     auto cpp=[](app::FrameDriver& driver,RoutineEntry entry) {
         for(const auto& [at,routine]:driver.routines().entries())if(at==entry)return routine.counters.cpp_calls;
         throw std::runtime_error("dungeon handler not registered");
     };
-    check(cpp(c,{1,0x65EE})>0 && cpp(a,{1,0x65EE})>0 && cpp(d,{1,0x65EE})==0,stem+": the dungeon handler ran in C++ with routines on only");
-    std::cout<<s.region<<" "<<stem<<": "<<rec.frames<<" frames x4 equal; "<<lc.size()<<" map events ("<<count(lc,MapEvent::Kind::sample)
+    check(cpp(c,{1,0x65EE})>0 && cpp(a,{1,0x65EE})>0,stem+": the dungeon handler ran in C++");
+    std::cout<<s.region<<" "<<stem<<": "<<rec.frames<<" frames x3 equal; "<<lc.size()<<" map events ("<<count(lc,MapEvent::Kind::sample)
              <<" samples, "<<count(lc,MapEvent::Kind::stage)<<" stage, "<<count(lc,MapEvent::Kind::replace)<<" replace, "
-             <<count(lc,MapEvent::Kind::reset)<<" reset) and "<<tc.explorations.size()<<" exploration changes equal with routines on and off; "
+             <<count(lc,MapEvent::Kind::reset)<<" reset) and "<<tc.explorations.size()<<" exploration changes equal with the option off and on; "
              <<timer.seconds()<<" s.\n";
 }
 
@@ -783,6 +864,8 @@ void chain(const Setup& s,unsigned link) {
 }
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if(argc!=7 && argc!=8)
             throw std::runtime_error("Expected <rom> <us|br> <recordings folder> <reference folder> <work folder> session|wrong-map|chain <1-3>|passivity <stem>|frames <folder>.");

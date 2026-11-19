@@ -43,7 +43,7 @@ std::optional<RomVersion> choose_legacy_save(const LegacySaves& saves,Language l
 // window opens only after the ROM, the save lock and the recording checks
 // pass; from the start screen it is the start screen's window (fullscreen
 // kept) and buttons still held from choosing Play do not reach the game.
-int play(const SessionRoms& session,Display* launcher_display,const std::optional<std::filesystem::path>& record_path,bool routines_enabled,
+int play(const SessionRoms& session,Display* launcher_display,const std::optional<std::filesystem::path>& record_path,
          const game::OptionOverrides& overrides) {
     const auto version=session.source_version; const auto& rom=session.image(session.active);
     auto language=session.active;
@@ -58,7 +58,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         std::cerr<<error.what()<<'\n';message(std::string(ui_text(UiText::legacy_failed,language)));return 1;
     }
     if(!store)return play_cancelled;
-    FrameDriver driver(rom,std::move(*store),routines_enabled,overrides,record_path.has_value());
+    FrameDriver driver(rom,std::move(*store),overrides,record_path.has_value());
     driver.configure_languages(session);
     RomFont font(*rom);OptionsMenu menu;MapScreen map_screen;InputRelease release;
     if(launcher_display) release.consume();
@@ -69,6 +69,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
     std::optional<replay::Recorder> recorder;
     if(record_path) recorder.emplace(sha1(*rom),sha1(driver.machine().memory().cartridge_ram()));
     std::optional<std::string> last_save_error;
+    std::optional<std::string> stopped; // why the engine stopped the game, if it did
     auto report_save=[&](const std::optional<std::string>& error,UiText summary=UiText::save_write_failed) {
         if (error) {
             if (error!=last_save_error) {std::cerr<<*error<<'\n';message(std::string(ui_text(summary,language)));}
@@ -271,7 +272,17 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             for (unsigned i=0;i<count;++i) {
                 const auto input=release.filter(sample_input(window,controller,enter),menu_input.any(),menu_input.focused);
                 const bool was_active=driver.menu_active();
-                const auto output=driver.run(input);
+                FrameOutput output;
+                try { output=driver.run(input); }
+                catch(const std::exception& error) {
+                    // Milestone 14 (planning decision 6): code with no C++ body,
+                    // or a state a body does not handle, stops the game; there
+                    // is no Z80 to fall back on. The recording keeps the frame
+                    // that stopped it, so that it reproduces the stop.
+                    if(recorder) recorder->add(input);
+                    stopped=error.what();
+                    break;
+                }
                 if(recorder) recorder->add(input);
                 ++frames; report_save(output.save_error);
                 if(output.audio_error)std::cerr<<*output.audio_error<<'\n';
@@ -279,7 +290,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if(!was_active && driver.menu_active()) {
                     if(driver.menu_purpose()==HostMenu::map) map_screen.open();
                     else {
-                        menu.open(driver.chosen_options(),driver.options_restricted(),driver.options_pending(),false,driver.automap_option(),driver.widescreen_option());
+                        menu.open(driver.chosen_options(),driver.options_pending(),driver.automap_option(),driver.widescreen_option());
                         menu.set_language(preference,{session.available(LanguagePreference::native),
                             session.available(LanguagePreference::english),session.available(LanguagePreference::portuguese)});
                     }
@@ -289,6 +300,16 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 // A menu may open or finish closing in this frame. Discard
                 // the remainder calculated at the previous effective speed.
                 if (clock.speed()!=effective_speed()) { sync_speed(); break; }
+            }
+            if (stopped) {
+                // The player sees a message box over the game window (in the
+                // session language, the technical details in English below
+                // it); closing it ends the session as closing the window does,
+                // except that the save written is the last frame end's (see
+                // FrameDriver::flush), and the program exits with status 1.
+                std::cerr<<"Game stopped: "<<*stopped<<'\n';
+                message(game_stopped_message(language,*stopped),window);
+                break;
             }
             const auto& effective=driver.effective_options();
             const auto& b=controller.bindings();
@@ -333,7 +354,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         std::cerr<<"recorded_frames="<<recorder->recording().frames<<" recording="<<record_path->string()<<'\n';
     }
     std::cerr<<"save_writes="<<driver.store().writes()<<'\n';
-    return error ? 1 : 0;
+    return session_status(error.has_value(),driver.stopped().has_value());
 }
 }
 int main(int argc,char** argv) {
@@ -354,16 +375,16 @@ int main(int argc,char** argv) {
             do {
                 const auto chosen=run_launcher(display,&failure_language);
                 if(!chosen) {result=0;break;}
-                result=play(*chosen,&*display,{},true,{});
+                result=play(*chosen,&*display,{},{});
             } while(result==play_cancelled);
         } else {
             const auto preferences=load_language(production_save_folder());
             const auto remembered=load_rom_list(production_save_folder());
-            const auto session=load_session_roms(args.rom,remembered.list,preferences.preference,args.record_path.has_value() || !args.routines_enabled);
+            const auto session=load_session_roms(args.rom,remembered.list,preferences.preference,args.record_path.has_value());
             failure_language=session.active;
             if(preferences.warning) {std::cerr<<*preferences.warning<<'\n';message(std::string(ui_text(UiText::language_file_warning,session.active)));}
             if(remembered.warning)std::cerr<<*remembered.warning<<'\n';
-            result=play(session,nullptr,args.record_path,args.routines_enabled,args.overrides);
+            result=play(session,nullptr,args.record_path,args.overrides);
         }
         SDL_Quit(); return result==play_cancelled ? 0 : result;
     } catch (const std::exception& e) {

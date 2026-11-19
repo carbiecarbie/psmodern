@@ -15,7 +15,7 @@ template<class Z> k::Exit tone_table(Z& z) {
     z.load_immediate(0x8514,z.r.b);
     z.add_to_hl(0x8516,z.bc());
     z.add_to_hl(0x8517,z.bc());
-    return k::returns(0x8518,k::return_cycles);
+    return z.final_return(0x8518);
 }
 // Format a tone period into its two ordered PSG writes.
 template<class Z> k::Exit output_tone(Z& z) {
@@ -32,7 +32,7 @@ template<class Z> k::Exit output_tone(Z& z) {
     z.rotate_right_circular_a(0x881F);
     z.rotate_right_circular_a(0x8820);
     z.output(0x8821);
-    return k::returns(0x8823,k::return_cycles);
+    return z.final_return(0x8823);
 }
 // The noise-channel marker selects channel C0 before sharing the tone output.
 template<class Z> k::Exit output_channel_c0(Z& z) {
@@ -53,7 +53,7 @@ template<class Z> k::Exit output_level(Z& z) {
     z.bus().advance(19);
     z.add_immediate(0x886F);
     z.output(0x8871);
-    return k::returns(0x8873,k::return_cycles);
+    return z.final_return(0x8873);
 }
 }
 void register_sound_output(RoutineRegistry& registry) {

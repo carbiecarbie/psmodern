@@ -15,6 +15,7 @@
 //                  equal in order on later-town and first-battle
 // A ROM run exits 77 without the ROM, or when the later-town start image is
 // not available (after running first-battle).
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "map_probe.h"
 #include <iostream>
@@ -79,7 +80,7 @@ void plan() {
             check(own || native_first.count(unit),"unit "+name(unit)+" is not its own entry");
         }
     }
-    check(total==153,"153 planned map segments");
+    check(total==178,"178 planned map segments");
     check(entries.count(map::options_boundary)==0,"00:0B14 is not a planned entry");
 }
 
@@ -99,14 +100,39 @@ void registrations_together() {
                 for (const auto watched:app::host_observed_instructions)
                     check(exit.address!=watched.address,"declared exit at a watched address in "+name(entry));
             }
-            check(!routine.spec.force_admit,"map segments are never force-admitted");
         }
         registrations[p](all);   // throws on an entry registered by two parts
         registered+=entries.size();
     }
     check(all.entries().size()==registered,"the six parts register distinct entries");
     app::guard_observed_instructions(all);
-    std::cout<<registered<<" of 153 planned map segments registered; plan and registrations pass the base checks.\n";
+    std::cout<<registered<<" of 178 planned map segments registered; plan and registrations pass the base checks.\n";
+}
+
+// Milestone 14: nothing stays native. The list of native stretches is empty, and
+// the four stretches that once were (DI and EI around the display-off helper,
+// the party frame upload, VDP register 0 and the ice breaking's name-table
+// update) are registered one-instruction segments that run in C++ with no
+// native core step, DI leaving interrupts off and EI on. Before milestone 14
+// the loop in allowed() proved that no segment lay inside such a stretch;
+// now it would hold vacuously, so this proves the converse.
+void stretches_are_segments(const probe::Rom& rom) {
+    static_assert(map::native_stretches.empty(),"no map stretch stays native");
+    probe::Harness h(rom);
+    struct Stretch { RoutineEntry entry; bool disable; };
+    for (const Stretch& s:{Stretch{{0,0x0B6D},true},{{0,0x0BB4},true},{{0,0x0C91},true},{{1,0x75CC},true},
+                           Stretch{{0,0x0B71},false},{{0,0x0BB8},false},{{0,0x0C93},false},{{1,0x75E3},false}}) {
+        const auto& routine=h.routine(s.entry);
+        check(routine.spec.single_instruction && routine.spec.exits.size()==1 &&
+              routine.spec.exits[0].kind==RoutineExit::core_final &&
+              routine.spec.exits[0].interrupt_mask==(s.disable ? InterruptMask::disable : InterruptMask::enable),
+              "the stretch instruction "+name(s.entry)+" is not a one-instruction segment with the right interrupt mask");
+        probe::Setup setup; setup.iff1=setup.iff2=s.disable; setup.seed=s.entry.address;
+        auto m=h.prepare(s.entry,setup);
+        // (The engine has no core: run_cpp checks the call ran as the segment.)
+        h.run_cpp(m,s.entry);
+        check(m.cpu().iff1==!s.disable && m.cpu().iff2==!s.disable,"the stretch instruction "+name(s.entry)+" left the interrupt flags wrong");
+    }
 }
 
 // ---- Host-observed events ------------------------------------------------------------
@@ -135,32 +161,57 @@ struct FrameEvents {
     }
 };
 std::vector<FrameEvents> watch(const probe::Rom& rom, const map_probe::StartImage& image, const replay::Recording& recording, bool routines_on) {
-    Machine m(rom.image,image);
+    // Milestone 14: routines off is the original on the oracle's native
+    // machine, stepped one instruction at a time with the same observation at
+    // every instruction boundary (the program has no core to run it).
+    Machine engine(rom.image,image);
+    oracle::NativeMachine original(rom.image,image);
+    Console& m=routines_on ? static_cast<Console&>(engine) : static_cast<Console&>(original);
     RoutineRegistry registry;
     check(game::register_routines(registry,rom.sha1),"identified ROM registry");
     app::guard_observed_instructions(registry);
-    registry.enabled=routines_on;
     std::vector<bool> watched_pc(0x10000,false);
     for (const auto watched:app::host_observed_instructions) watched_pc[watched.address]=true;
     std::vector<FrameEvents> frames(recording.frames);
     std::uint64_t frame=0;
+    // Milestone 14: an event belongs to the frame its cycle lies in. A run
+    // with routines can return after the segment crossing the frame end, so
+    // the run_frame call that saw it is not the original's.
+    auto at_frame=[&] { return std::min<std::uint64_t>(m.cycles()/Machine::frame_cycles,frames.size()-1); };
     Machine::Hook hook=[&](std::uint16_t pc, Memory::Mapping mapping) -> std::optional<std::uint16_t> {
         if (!watched_pc[pc]) return {};
         for (const auto watched:app::host_observed_instructions)
             if (watched.address==pc && mapping==Memory::Mapping{Memory::Kind::rom,watched.bank}) {
                 const auto sp=m.cpu().sp.uint16_value;
                 const auto word=static_cast<std::uint16_t>(m.peek(sp)|(m.peek(static_cast<std::uint16_t>(sp+1))<<8));
-                frames[frame].add({frame,'i',watched.bank,pc,sp,word,m.cycles()});
+                frames[at_frame()].add({at_frame(),'i',watched.bank,pc,sp,word,m.cycles()});
             }
         return {};
     };
     Machine::WriteObserver writes=[&](std::uint16_t address, std::uint8_t value) {
         if ((address&0x1fff)!=4 || m.memory().mapping(address).kind!=Memory::Kind::ram) return;
         const auto writer=m.memory().mapping(m.cpu().pc.uint16_value);
-        frames[frame].add({frame,'w',0,0,0,0,0,value,writer==Memory::Mapping{Memory::Kind::rom,12}});
+        frames[at_frame()].add({at_frame(),'w',0,0,0,0,0,value,writer==Memory::Mapping{Memory::Kind::rom,12}});
     };
+    original.set_write_observer(&writes);
     for (;frame<recording.frames;++frame) {
-        m.run_frame(recording.input_at(frame),registry,hook,writes);
+        if (routines_on) engine.run_frame(recording.input_at(frame),registry,hook,writes);
+        else {
+            original.set_input(recording.input_at(frame));
+            const auto target=(original.cycles()/Machine::frame_cycles+1)*Machine::frame_cycles;
+            while (original.cycles()<target || original.cpu().resume) {
+                if (!original.cpu().resume) {
+                    original.settle();
+                    // The engine observes an instruction boundary, not one where
+                    // an interrupt response takes the step instead.
+                    if (original.pending_acceptance()==Console::Acceptance::none) {
+                        const auto pc=original.cpu().pc.uint16_value;
+                        (void)hook(pc,original.memory().mapping(pc));
+                    }
+                }
+                original.step();
+            }
+        }
         m.take_psg_writes(); m.take_samples();
     }
     return frames;
@@ -186,12 +237,15 @@ void compare_events(const map_probe::Inputs& inputs, const std::string& stem, co
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         plan();
         registrations_together();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        stretches_are_segments(inputs->rom);
         check(!inputs->recordings.empty(),"the observed-events test needs the recordings folder");
         bool skipped=false;
         for (const std::string stem:{"first-battle","later-town"}) {

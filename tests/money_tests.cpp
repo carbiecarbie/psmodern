@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "probe.h"
+#include "c4_sweep.h"
 #include <algorithm>
 #include <iostream>
 using namespace psmodern;
 int main(int argc,char** argv) {
+    // Registry-less reference runs only: every run with the game's registry
+    // stops at unrendered code (review R1 H-1).
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if(argc!=3) return 77;
         auto rom=probe::load(argv[1],argv[2]); if(!rom) return 77;
         probe::Harness harness(*rom);
+        {
+            probe::Harness sweeping(*rom);
+            std::vector<RoutineEntry> all(game::battle_setup_entries.begin(),game::battle_setup_entries.end());
+            all.push_back(game::money_add_unit);
+            c4::sweep_file(sweeping,"money and battle setup",all);
+        }
         for(auto entry:game::battle_setup_entries) {
             for(unsigned seed=0;seed<20;++seed) {
                 probe::Setup setup{}; setup.seed=seed;
@@ -84,25 +94,31 @@ int main(int argc,char** argv) {
             original.memory().write(0xc2e6,static_cast<std::uint8_t>(enemy));
             auto rewritten=original;
             complete(original,nullptr); complete(rewritten,&harness.registry());
+            // The documented equality (milestone 14): the pinned core's
+            // per-step scratch is not machine state, and the rewritten run
+            // executes fewer core steps.
             std::string differences;
-            for(const auto& difference:original.differences(rewritten)) differences+=" "+difference.field;
+            for(const auto& difference:oracle::differences(rewritten,original,oracle::Scope::whole)) differences+=" "+difference;
             probe::check(differences.empty(),"whole setup differs from original:"+differences);
         }
         for(unsigned rate:{200u,400u}) for(unsigned enemy:{1u,2u,0x81u}) {
             auto original=harness.prepare(game::battle_setup_unit,{});
             original.memory().write(0xc2e6,static_cast<std::uint8_t>(enemy));
             auto enhanced=original;
-            RoutineRegistry registry; game::register_battle_setup(registry,game::Options{100,rate});
+            // The whole game with the option (review R1 H-1: no part of the run on test scaffolding).
+            RoutineRegistry registry; probe::check(game::register_routines(registry,rom->sha1,game::Options{100,rate}),"registry");
             complete(original,nullptr); complete(enhanced,&registry);
             const unsigned base=original.memory().read(0xc2dd)|(original.memory().read(0xc2de)<<8);
             const auto scaled=std::min(65535u,base*rate/100);
             original.memory().write(0xc2dd,static_cast<std::uint8_t>(scaled));
             original.memory().write(0xc2de,static_cast<std::uint8_t>(scaled>>8));
             std::string differences;
-            for(const auto& difference:original.differences(enhanced)) differences+=" "+difference.field;
+            for(const auto& difference:oracle::differences(enhanced,original,oracle::Scope::whole)) differences+=" "+difference;
             probe::check(differences.empty(),"enhanced whole setup differs beyond money:"+differences);
-            probe::check(registry.find(game::battle_money_store)->counters.forced_calls==1,
-                         "whole setup transforms its money store once");
+            probe::check(registry.census().scaffold_steps==0,"the enhanced setup ran test scaffolding");
+            probe::check(registry.find(game::battle_money_store)->counters.fallback_calls==0 &&
+                         registry.find(game::battle_money_store)->counters.cpp_calls==1,
+                         "whole setup renders its scaled money store once");
         }
         for(unsigned total:{0u,1u,32767u,65534u,65535u})
         for(unsigned award:{0u,1u,32767u,65534u,65535u})

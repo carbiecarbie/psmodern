@@ -15,14 +15,16 @@
 //      rendering that the verifier refuses);
 //   3. the estimating bus: each segment's bound equals the cycles the live
 //      call took, and an inline subroutine that does not return to its call
-//      (a stack in ROM) makes the estimate uncertain, so the call falls back.
+//      (a stack in ROM) makes the estimate uncertain, so the call is refused (the run stops).
 #include "game/menu_kit.h"
+#include "scaffold.h"
 #include "probe.h"
 #include "replay/verification.h"
 #include <functional>
 #include <iostream>
 #include <random>
 #include <tuple>
+#include <type_traits>
 #include <algorithm>
 
 using namespace psmodern;
@@ -38,6 +40,7 @@ struct CountingBus {
     void write(std::uint16_t address, std::uint8_t value) { machine.memory().write(address,value); }
     void advance(std::uint64_t count) { cycles+=count; }
     std::uint64_t elapsed() const { return cycles; }
+    void expect(std::uint16_t, OpcodePattern) {} void interrupts(bool) {} void return_from_nmi() {} bool guard(bool holds, std::string_view) { return holds; }
 };
 using Z=mk::Instructions<CountingBus>;
 constexpr std::uint16_t code_at=0x1000, callee_at=0x1100;
@@ -56,9 +59,9 @@ void kit_case(const KitCase& c, unsigned states) {
         const auto code=c.code(n);
         std::copy(code.begin(),code.end(),rom->begin()+code_at);
         std::copy(c.callee.begin(),c.callee.end(),rom->begin()+callee_at);
-        Machine native(rom);
-        (void)native.read_port(0xbf,native.cycles()); native.advance(1);
-        auto& cpu=native.cpu();
+        Machine rendered(rom);
+        (void)rendered.read_port(0xbf,rendered.cycles()); rendered.advance(1);
+        auto& cpu=rendered.cpu();
         probe::randomize(cpu,seed+1);
         std::mt19937_64 random(seed*977+5);
         cpu.hl.uint16_value=static_cast<std::uint16_t>(0xC000+random()%0x0F00);
@@ -68,8 +71,8 @@ void kit_case(const KitCase& c, unsigned states) {
         cpu.ix_iy[1].uint16_value=static_cast<std::uint16_t>(0xC100+random()%0x1D00);
         if (seed%7==0) cpu.af.uint8_values.at_1=0;                    // zero results and taken conditions
         cpu.pc.uint16_value=code_at; cpu.iff1=cpu.iff2=0;
-        for (std::uint16_t a=0xC000;a<0xE000;a+=3) native.memory().write(a,static_cast<std::uint8_t>(random()));
-        Machine rendered=native;
+        for (std::uint16_t a=0xC000;a<0xE000;a+=3) rendered.memory().write(a,static_cast<std::uint8_t>(random()));
+        oracle::NativeMachine native(rendered);   // the original: the pinned core
         const auto cycles=native.cycles(), fetches=native.opcode_fetches();
         const auto r_before=native.cpu().r;
         CountingBus bus{rendered};
@@ -80,7 +83,7 @@ void kit_case(const KitCase& c, unsigned states) {
         // The native steps up to the PC the rendering reached (an index
         // prefix is its own core step, resume XY).
         for (unsigned steps=0;steps<16;++steps) {
-            do native.step(); while (native.cpu().resume==Z80_RESUME_XY);
+            do native.step(); while (native.cpu().resume==Z80::resume_xy);
             if (native.cpu().pc.uint16_value==pc) break;
         }
         const auto& a=native.cpu(); const auto& b=rendered.cpu();
@@ -164,8 +167,10 @@ Machine started(const std::shared_ptr<const Memory::Rom>& rom, std::uint16_t pc,
     arrange(m,random);
     return m;
 }
-void until_return(Machine& m, RoutineRegistry* registry) {
+template<class M> void until_return(M& m, RoutineRegistry* registry) {
     for (unsigned i=0;i<1000000 && m.cpu().pc.uint16_value!=0x0180;++i) {
+        if constexpr (!std::is_same_v<M,Machine>) { (void)registry; (void)m.step(); continue; }
+        else {
         if (!registry) { (void)m.step(); continue; }
         // The estimate of every C++ call equals the cycles the call takes.
         const auto* routine=registry->find({0,m.cpu().pc.uint16_value});
@@ -174,16 +179,21 @@ void until_return(Machine& m, RoutineRegistry* registry) {
         const auto elapsed=m.step(*registry);
         if (routine && routine->counters.cpp_calls==before+1)
             check(bound==elapsed,"estimated bound "+std::to_string(bound)+" differs from the live call's "+std::to_string(elapsed)+" cycles");
+        }
     }
     check(m.cpu().pc.uint16_value==0x0180,"authored program returned");
 }
 struct Calls { std::uint64_t cpp=0, fallbacks=0; };
 Calls same_as_native(Machine cpp, RoutineRegistry& registry, const std::string& what) {
-    replay::CallVerifier verifier("menu kit");
-    registry.verifier=&verifier;
-    Machine native=cpp;
+    {
+        // Every call is also compared with the oracle at each of its
+        // instruction boundaries (milestone 14), on copies of both.
+        Machine checked=cpp; RoutineRegistry copy=registry;
+        oracle::Lockstep lockstep(checked,what,oracle::Mode::instructions);
+        for (unsigned i=0;i<1000000 && checked.cpu().pc.uint16_value!=0x0180;++i) lockstep.step(checked,&copy);
+    }
+    oracle::NativeMachine native(cpp);
     until_return(cpp,&registry); until_return(native,nullptr);
-    registry.verifier=nullptr;
     std::string fields;
     for (const auto& difference:native.differences(cpp)) fields+=" "+difference.field;
     check(fields.empty(),what+" differs from the original program:"+fields);
@@ -224,8 +234,8 @@ void ports_and_inline() {
     auto read_loop=[](auto& z, std::uint16_t at) {
         for (;;) {
             z.input_increment(at);
-            if (z.loop_exit(after)) return continues(0x0505,jump_cycles);
-            if (!z.jump_if(0x0505,!z.zero())) return returns(0x0508,return_cycles);
+            if (z.loop_exit(after)) return scaffold::continues(0x0505,jump_cycles);
+            if (!z.jump_if(0x0505,!z.zero())) return scaffold::returns(0x0508,return_cycles);
             at=0x0503;
         }
     };
@@ -233,7 +243,7 @@ void ports_and_inline() {
         z.load_immediate(0x0600,z.r.c);
         for (;;) {
             if (mistimed) mistimed_input_increment(z,0x0602); else z.input_increment(0x0602);
-            if (!z.jump_if(0x0604,!z.zero())) return returns(0x0607,return_cycles);
+            if (!z.jump_if(0x0604,!z.zero())) return scaffold::returns(0x0607,return_cycles);
         }
     };
     auto program_g=[](auto& z) {
@@ -243,7 +253,7 @@ void ports_and_inline() {
             c.increment(0x0712,c.r.a);
             return c.return_from(0x0713);
         });
-        return returns(0x0703,return_cycles);
+        return scaffold::returns(0x0703,return_cycles);
     };
     unsigned buffers=0, mistimed_refused=0, mistimed_bytes=0;
     for (std::uint64_t seed=1;seed<=60;++seed) {
@@ -281,10 +291,10 @@ void ports_and_inline() {
             }
             try { (void)same_as_native(m,rf,"mistimed INI"); }
             catch (const std::exception& error) {
-                // The verifier sees different bytes (a read across a line change),
+                // The lockstep sees different bytes (a read across a line change),
                 // or the final comparison sees the port access one cycle early.
                 const std::string what=error.what();
-                if (what.find("Divergence")!=std::string::npos) ++mistimed_bytes;
+                if (what.find("Lockstep divergence")!=std::string::npos) ++mistimed_bytes;
                 else if (what.find("last port access")!=std::string::npos) ++mistimed_refused;
             }
         }
@@ -301,16 +311,19 @@ void ports_and_inline() {
     check(mistimed_bytes+mistimed_refused==60,"a read one T-state early is refused on every start cycle");
 
     // A stack in ROM: the call pushes nothing and the callee's return reads a
-    // ROM word. The estimate becomes uncertain and dispatch falls back.
+    // ROM word. The estimate becomes uncertain and dispatch refuses the call.
     {
         RoutineRegistry rg;
         add_segment(rg,{0,0x0700},segment({0,0x0700},{returned_at(0x0703)},{.scratch_stack=2}),program_g);
         Machine m=started(g,0x0700,3,[](Machine& machine, std::mt19937_64&) { machine.cpu().sp.uint16_value=0x7000; });
         check(rg.find({0,0x0700})->bound(m)==uncertain_maximum,"a ROM stack makes the inline subroutine's estimate uncertain");
-        m.step(rg);
+        const auto before=m.cycles();
+        bool stopped=false;
+        try { m.step(rg); } catch (const UnhandledState&) { stopped=true; }
         const auto& counters=rg.find({0,0x0700})->counters;
-        check(counters.cpp_calls==0 && counters.fallback_calls==1 && counters.fallback(RoutineFallback::frame)==1,
-              "a ROM stack falls back (reason frame)");
+        check(stopped && counters.cpp_calls==0 && counters.fallback_calls==1 && counters.fallback(RoutineFallback::frame)==1,
+              "a ROM stack refuses the call (reason frame) and stops the run");
+        check(m.cycles()==before && m.cpu().pc.uint16_value==0x0700,"the refusal runs nothing");
     }
     std::cout<<"INI from VRAM and from the V counter and the inline subroutine match the original through the mechanism ("
              <<"a read one T-state early stores another byte on "<<mistimed_bytes<<" of 60 start cycles and is refused by its port timing on the rest); bounds are exact.\n";
@@ -325,7 +338,7 @@ void input_increment_observers() {
         if(event==0 && distance==0) continue;
         RoutineRegistry registry;
         mk::add_segment(registry,{0,0x0500},mk::segment({0,0x0500},{mk::returned_at(0x0502)}),
-            [](auto& z) {z.input_increment(0x0500);return mk::returns(0x0502,mk::return_cycles);});
+            [](auto& z) {z.input_increment(0x0500);return scaffold::returns(0x0502,mk::return_cycles);});
         auto actual=started(rom,0x0500,destination+port,[&](Machine& m,auto&) {
             if(destination==0x8100) m.memory().write(0xFFFC,8);
             m.cpu().hl.uint16_value=static_cast<std::uint16_t>(destination);
@@ -375,7 +388,7 @@ void input_increment_observers() {
         registry.add({0,0x0500},mk::segment({0,0x0500},{mk::returned_at(0x0502)}),
             [=](const Machine&) {return bound;},[=](RoutineContext& c) {
                 c.input_increment(0xBF,static_cast<std::uint16_t>(destination));
-                c.finish_return(0x0502);
+                scaffold::native_return(c,0x0502);
             });
         auto actual=started(rom,0x0500,1,[](Machine&,auto&) {});const Machine before=actual;
         Machine::PortTrace ports(actual);
@@ -387,6 +400,8 @@ void input_increment_observers() {
 }
 
 int main() {
+    // The authored programs' code that no test renders runs on the oracle's core.
+    oracle::Scaffold scaffold;
     try {
         instructions();
         ports_and_inline(); input_increment_observers();

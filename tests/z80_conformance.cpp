@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "hw/cpu.h"
+// The conformance of the pinned Z80 core, which since milestone 14 exists only
+// in the test oracle (psmodern_oracle).
+#include <Z80.h>
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -9,17 +11,17 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-using namespace psmodern;
 namespace {
-struct Bus : CpuBus {
+struct Bus {
     std::array<std::uint8_t,65536> mem{};
     bool protect_rom = false;
     bool woodmass = false;
-    std::uint8_t opcode(std::uint16_t a) override { return woodmass && a==0x1601 ? 0xc9 : mem[a]; }
-    std::uint8_t read(std::uint16_t a) override { return mem[a]; }
-    void write(std::uint16_t a,std::uint8_t v) override { if (!protect_rom || a >= 0x4000) mem[a]=v; }
-    std::uint8_t input(std::uint16_t p,std::uint64_t) override { return p&1 ? 0xff : 0xbf; }
-    void output(std::uint16_t,std::uint8_t,std::uint64_t) override {}
+    static Bus& of(void* p) { return *static_cast<Bus*>(p); }
+    static zuint8 opcode(void* p, zuint16 a) { return of(p).woodmass && a==0x1601 ? 0xc9 : of(p).mem[a]; }
+    static zuint8 read(void* p, zuint16 a) { return of(p).mem[a]; }
+    static void write(void* p, zuint16 a, zuint8 v) { if (!of(p).protect_rom || a >= 0x4000) of(p).mem[a]=v; }
+    static zuint8 input(void*, zuint16 port) { return port&1 ? 0xff : 0xbf; }
+    static void output(void*, zuint16, zuint8) {}
 };
 std::vector<std::uint8_t> load(const std::filesystem::path& path) {
     std::ifstream in(path,std::ios::binary);
@@ -48,7 +50,13 @@ void ret(Bus& bus,Z80& cpu) {
 int run(const std::filesystem::path& path, const std::string& kind, const std::filesystem::path& firmware) {
     const bool cpm=kind=="cpm";
     const bool woody=kind=="wood-flags" || kind=="wood-memptr";
-    Bus bus; Cpu wrapper(bus); auto& cpu=wrapper.raw(); auto data=load(path);
+    Bus bus; Z80 cpu{}; auto data=load(path);
+    cpu.context=&bus; cpu.fetch_opcode=Bus::opcode; cpu.fetch=Bus::read; cpu.read=Bus::read; cpu.write=Bus::write;
+    cpu.in=Bus::input; cpu.out=Bus::output; cpu.options=Z80_MODEL_ZILOG_NMOS; z80_power(&cpu,0);
+    // The console's post-BIOS register values (hw/initial_state.h), as before.
+    cpu.af.uint16_value=0xab42; cpu.bc.uint16_value=0x0002; cpu.de.uint16_value=0xa51b;
+    cpu.bc_.uint16_value=0x0200; cpu.de_.uint16_value=0xc700; cpu.hl_.uint16_value=0xc75f;
+    cpu.sp.uint16_value=0xdff0; cpu.r=0x1d; cpu.im=1;
     if (woody) {
         bus.protect_rom=true; bus.woodmass=true;
         auto rom=load(firmware);
@@ -78,7 +86,7 @@ int run(const std::filesystem::path& path, const std::string& kind, const std::f
             ret(bus,cpu); continue;
         }
         if (!cpm && pc==(woody ? 0x70f2 : 0x10) && cpu.resume==0) text.push_back(cpu.af.uint16_value>>8);
-        cycles+=wrapper.step(cycles);
+        cycles+=z80_run(&cpu,1);
     }
     std::cout << text << "\ncycles: " << cycles << '\n';
     if (woody) {

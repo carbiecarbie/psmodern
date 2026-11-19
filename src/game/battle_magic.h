@@ -16,7 +16,8 @@ inline constexpr std::array segments{
     Segment{{0, 0x1EE6}, {0, 0x1EE6}}, Segment{{0, 0x1EEA}, {0, 0x1EE6}},
     Segment{{0, 0x1EEE}, {0, 0x1EEE}}, Segment{{0, 0x1EF0}, {0, 0x1EEE}},
     Segment{{0, 0x1EF9}, {0, 0x1EEE}}, Segment{{0, 0x1F04}, {0, 0x1EEE}},
-    Segment{{0, 0x1F0E}, {0, 0x1EEE}}, Segment{{0, 0x1F17}, {0, 0x1EEE}},
+    Segment{{0, 0x1F0E}, {0, 0x1EEE}}, Segment{{0, 0x1F14}, {0, 0x1EEE}},
+    Segment{{0, 0x1F17}, {0, 0x1EEE}},
     Segment{{0, 0x1F1F}, {0, 0x1EEE}}, Segment{{0, 0x1F23}, {0, 0x1EEE}},
     Segment{{0, 0x1F25}, {0, 0x1F25}}, Segment{{0, 0x1F29}, {0, 0x1F25}}};
 } // namespace battle_magic

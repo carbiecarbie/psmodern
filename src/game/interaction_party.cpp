@@ -11,7 +11,7 @@ template<class Z> k::Exit select_party_dialogue(Z& z,std::uint16_t at) {
     z.load_hl(static_cast<std::uint16_t>(at+4));
     if (!z.relative_if(static_cast<std::uint16_t>(at+7),z.zero()))
         z.load_hl(static_cast<std::uint16_t>(at+9));
-    return k::continues(static_cast<std::uint16_t>(at+12),k::jump_cycles);
+    return z.final_jump(static_cast<std::uint16_t>(at+12));
 }
 }
 void register_interaction_party(RoutineRegistry& registry) {

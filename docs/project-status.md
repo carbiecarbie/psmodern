@@ -7,10 +7,11 @@ the tested build. Release 0.6.0 covers milestone 11. The
 [project history](project-history.md) lists subsequent milestones.
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
-Game routines run in C++ by default. The virtual Z80 still handles original
-instruction boundaries and takes over when a C++ routine cannot preserve
-interrupt or frame timing. The next milestone in the [roadmap](roadmap.md),
-milestone 14, removes the Z80. Optional features include saved encounter and experience
+The whole game runs in C++ (milestone 14, see its [plan](milestone-14-plan.md);
+it awaits the maintainer's play-test). The program has no Z80: interrupts are
+accepted in C++ at the exact instruction, and cartridge code that has no C++
+version stops the game with a message. The Z80 survives only in the tests, as
+the original that the C++ is compared with. Optional features include saved encounter and experience
 rates, a dungeon automap, session-only 2x/4x fast-forward, changeable
 controls, language selection and a widescreen view. Without saved settings,
 rates are original, the automap and widescreen are off and controls follow
@@ -113,8 +114,7 @@ off the game plays and looks as it did.
   and release 0.2.0 refuses a file saved with encounters 25; format 3
   (widescreen) is written only while a record has widescreen on, and formats 1
   and 2 read as widescreen off. Battle meseta follows the experience rate;
-  other money is unchanged. Recording ignores the shortcuts and keeps no map;
-  raw-Z80 mode exposes read-only options
+  other money is unchanged. Recording ignores the shortcuts and keeps no map
   ([development](development.md#options), [automap](development.md#automap)).
 
 ## Architecture overview
@@ -124,11 +124,12 @@ layer.
 
 | Part | Folder | What it does |
 | --- | --- | --- |
-| Console | `src/hw/`, `src/machine/` | Z80, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
+| Console | `src/hw/`, `src/machine/` | The register file, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
 | Game | `src/game/` | Cartridge-driven C++ game routines, optional game rules, dungeon exploration and map-screen readers |
 | Program | `src/app/` | SDL window, sound, input and its bindings, save files, the start, Options, Controls, Language and map screens (the first three in the game's window style), `WideView` (the widescreen renderer), frame pacing, command-line options |
-| Recordings | `src/replay/` | Input recordings, the headless replay runner, per-call and frame verification, routine censuses |
+| Recordings | `src/replay/` | Input recordings, the headless replay runner, lockstep and frame verification, routine censuses |
+| Oracle | `src/oracle/`, `third_party/` | Test-only: the pinned Z80 core and a machine running the original, for lockstep. Not linked into `psmodern.exe` |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
 | Tests | `tests/` | Unit, conformance, ROM, probe and checkpoint tests |
 
@@ -138,13 +139,14 @@ Some properties matter for the next milestones:
   same frames, byte for byte; Options shortcuts are ignored while recording.
 - **Copyable.** The whole machine copies as one value, so a run can be
   forked and compared. Immutable ROM images are shared.
-- **Verified replacements.** Registered C++ routines replace the original
-  only where interrupts and frame boundaries permit exact timing. Other
-  calls stay on the Z80. A developer switch disables replacements.
-- **Timing.** Each replacement accounts for the original CPU cycles. Long
-  copies resume from the remaining byte count and the two pointers.
-  The Z80 executes selected final instructions and samples interrupts at
-  their original boundaries.
+- **Verified replacements.** Every instruction the program runs is rendered
+  by a registered C++ segment, each checked against the original running
+  beside it. An address with no segment, or a state a segment does not
+  handle, stops the game with a message.
+- **Timing.** Each instruction accounts for the original CPU cycles, and
+  interrupts are accepted at their original instruction boundaries, also
+  inside a segment. Long copies resume from the remaining byte count and the
+  two pointers.
 - **Host observations.** The frame driver sees the game at the points used
   for Options, language switching, saves, sound and the automap. When a
   replacement begins at one of these points, the callback runs before the
@@ -153,8 +155,8 @@ Some properties matter for the next milestones:
   the option is on, the driver copies video memory, palette, registers and a
   few work-RAM bytes; `WideView` and `MapScreens` read the maps from the
   player's ROM and draw the bands. A frame that is not consistent is shown as
-  the 256 centre between black bars. The virtual Master System and the Z80
-  never see the option; tests prove the machine equal with it on or off every
+  the 256 centre between black bars. The virtual Master System
+  never sees the option; tests prove the machine equal with it on or off every
   frame, and they passed unchanged over the rewritten map.
 - **The automap only reads.** It samples floor, position, facing and layout
   at the dungeon's walking call (`00:0F48`) and stores, restores or clears
@@ -188,7 +190,7 @@ catalog.
 | Battles, items, spells and party | C++ chooses actions and targets, resolves effects and awards experience and meseta. |
 | Menus, text, saves and scenes | C++ handles selection, dialogue, name entry, saving and Continue, story events and the ending. Text and graphics come from the player's ROM. |
 | Music, sound effects and display updates | C++ interprets the cartridge's sound commands and schedules chip writes at the original cycles. |
-| Original Z80 execution | Handles documented instruction boundaries, interrupt timing and fallback. It also provides the original execution path for verification. |
+| Instruction execution and interrupts | C++ renders every instruction and accepts every interrupt. The original Z80 runs only in the tests, beside the C++, for comparison. |
 
 See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.md),
 [scenes](how-it-works/scenes.md) and the [per-recording census](coverage.md).
@@ -197,11 +199,11 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
 
 - **Recordings.** All seven reference components matched on 222,246 frames
   from 20 US and seven Brazilian recordings, including the ending, defeat,
-  pause, the flute and Brazilian name entry. Together they reached 1,616
-  of 2,486 registered segments. See the [census](coverage.md) and the
+  pause, the flute and Brazilian name entry. Together they reached 1,956
+  of 3,154 registered segments. See the [census](coverage.md) and the
   [recording and save provenance](development.md).
-- **Routine checks.** Per-call comparisons include CPU state, cycles and
-  ordered port accesses. The 27 recordings and 96 cartridge tests account
+- **Routine checks.** Lockstep comparisons at every instruction boundary
+  include CPU state, cycles and ordered port accesses. The 27 recordings and 96 cartridge tests account
   for the 14,195 listed instruction addresses through measured execution or
   an individually documented role. State probes cover branches the recorded
   journeys missed.
@@ -223,7 +225,7 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   cover preserved state, cancellation, missing or locked files, concurrency
   and crashes.
 - **Review and acceptance.** Independent reviews covered the timing
-  mechanism and game routines. The full suite ran 353 tests without skips.
+  mechanism and game routines. The full suite ran 389 tests without skips (milestone 14).
   The maintainer approved all three play-test scenarios.
 
 ## Known gaps
@@ -234,8 +236,8 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   first controller is used, and there is no second pad or shortcut back to the
   start screen during play. A damaged `controls.txt` is reported only on the
   console; a trigger held when a controller connects is ignored best-effort.
-- **Recording coverage.** The recordings reach 1,616 registered segments.
-  The remaining 870 are exercised by state probes. The Brazilian recordings
+- **Recording coverage.** The recordings reach 1,956 registered segments.
+  The remaining 1,198 are exercised by state probes. The Brazilian recordings
   include name entry and Continue. Several late-game journeys, including
   the ending, have US recording evidence only. See [coverage](coverage.md).
 - **An unusable map file is kept only briefly.** `.automap` that cannot be
@@ -254,10 +256,15 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   sequence of battles reaches it ([original quirks](original-quirks.md)). With
   experience at 200 or 400 PSModern keeps one level per fight, also for a
   character at the ceiling (Maintainer decision, 2026-11-11).
-- **Original execution.** The remaining instruction boundaries and fallback
-  rules are documented in the [milestone 13 plan](milestone-13-plan.md).
-  The inventory accounts for the verified listing and measured routes.
-  Unobserved cartridge data still requires evidence before assigning it a role.
+- **Unreached code stops the game.** Cartridge code that no recording, probe
+  or static walk reaches has no C++ version; if it ever runs, the game stops
+  with a message and keeps the save of the last frame end
+  ([milestone 14 plan](milestone-14-plan.md)).
+- **The program is slower and larger than before milestone 14:** about
+  1,720 microseconds per emulated frame against 1,495, and a 9.2 MB
+  executable against 5.5 MB, a cost of rendering every instruction. It
+  still uses about a tenth of each frame's time; the maintainer accepted it
+  (Maintainer decision, 2026-11-19).
 - **Windows only** for the save location.
 - **Some details of the first Master System's video chip are unmeasured.**
   PSModern follows the reference and [development](development.md) labels

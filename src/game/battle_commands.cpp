@@ -2,14 +2,13 @@
 // Battle command collection. Window/cursor routines keep their existing owner;
 // this module interprets the choice, writes the action record and advances the
 // actor. Spell and dialogue tables are always read from the player's ROM.
+#include "game/joins.h"
 #include "game/battle_commands.h"
 #include "game/menu_kit.h"
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 
 // The action record has a four-byte stride; only its three command fields
 // are changed. The untouched fourth byte remains as the original left it.
@@ -31,7 +30,7 @@ template <class Z> Exit write_action(Z &z) {
     z.store_register_to_hl(0x1BCA, r.b);
     z.increment_hl(0x1BCB);
     z.store_register_to_hl(0x1BCC, r.a);
-    return returns(0x1BCD, k::return_cycles);
+    return z.final_return(0x1BCD);
 }
 template <class Z> Exit read_action(Z &z) {
     auto &r = z.r;
@@ -49,18 +48,18 @@ template <class Z> Exit read_action(Z &z) {
     z.load_from_hl(0x1BDD, r.b);
     z.increment_hl(0x1BDE);
     z.load_from_hl(0x1BDF, r.c);
-    return returns(0x1BE0, k::return_cycles);
+    return z.final_return(0x1BE0);
 }
 template <class Z> Exit choose_attack(Z &z) {
     z.load_bc(0x191C);
     z.xor_a(0x191F);
-    return continues(0x1920, k::call_cycles);
+    return z.final_call(0x1920);
 }
 template <class Z> Exit advance_after_attack(Z &z) {
     z.load_a_direct(0x1923);
     z.increment(0x1926, z.r.a);
     z.store_a_direct(0x1927);
-    return returns(0x192A, k::return_cycles);
+    return z.final_return(0x192A);
 }
 // Failed communication ends the command phase and records its failure flag.
 template <class Z> Exit talk_failure(Z &z) {
@@ -69,17 +68,17 @@ template <class Z> Exit talk_failure(Z &z) {
     z.load_immediate(0x1956, z.r.a);
     z.store_a_direct(0x1958);
     z.load_hl(0x195B);
-    return continues(0x195E, k::call_cycles);
+    return z.final_call(0x195E);
 }
 template <class Z> Exit talk_success_message(Z &z) {
     z.load_hl(0x1964);
-    return continues(0x1967, k::call_cycles);
+    return z.final_call(0x1967);
 }
 template <class Z> Exit introduce_talker(Z &z) {
     z.load_a_direct(0x1934);
     z.store_a_direct(0x1937);
     z.load_hl(0x193A);
-    return continues(0x193D, k::call_cycles);
+    return z.final_call(0x193D);
 }
 template <class Z> Exit check_talk_permission(Z &z) {
     z.load_a_direct(0x1940);
@@ -99,7 +98,7 @@ template <class Z> Exit choose_talk_reply(Z &z) {
     z.and_immediate(0x196D);
     z.compare_immediate(0x196F);
     if (z.relative_if(0x1971, !z.carry()))
-        return continues(0x196A, k::call_cycles);
+        return z.final_call(0x196A);
     z.copy(0x1973, z.r.l, z.r.a);
     z.load_immediate(0x1974, z.r.h);
     z.add_to_hl(0x1976, z.hl());
@@ -109,30 +108,30 @@ template <class Z> Exit choose_talk_reply(Z &z) {
     z.increment_hl(0x197C);
     z.load_from_hl(0x197D, z.r.h);
     z.copy(0x197E, z.r.l, z.r.a);
-    return continues(0x197F, k::call_cycles);
+    return z.final_call(0x197F);
 }
 template <class Z> Exit finish_talk(Z &z) {
     z.load_immediate(0x1982, z.r.a);
     z.store_a_direct(0x1984);
-    return continues(0x1987, k::jump_cycles);
+    return z.final_jump(0x1987);
 }
 template <class Z> Exit escape_success(Z &z) {
     z.load_immediate(0x19BA, z.r.a);
     z.store_a_direct(0x19BC);
     z.load_immediate(0x19BF, z.r.a);
     z.store_a_direct(0x19C1);
-    return returns(0x19C4, k::return_cycles);
+    return z.final_return(0x19C4);
 }
 template <class Z> Exit escape_failure_message(Z &z) {
     z.load_a_direct(0x19C5);
     z.store_a_direct(0x19C8);
     z.load_hl(0x19CB);
-    return continues(0x19CE, k::call_cycles);
+    return z.final_call(0x19CE);
 }
 template <class Z> Exit draw_escape_chance(Z &z) {
     z.load_a_direct(0x19A5);
     z.copy(0x19A8, z.r.b, z.r.a);
-    return continues(0x19A9, k::call_cycles);
+    return z.final_call(0x19A9);
 }
 template <class Z> Exit check_escape_chance(Z &z) {
     z.compare_register(0x19AC, z.r.b);
@@ -142,7 +141,7 @@ template <class Z> Exit check_escape_chance(Z &z) {
     z.or_a(0x19B2);
     if (z.relative_if(0x19B3, !z.zero()))
         return escape_success(z);
-    return continues(0x19B5, k::call_cycles);
+    return z.final_call(0x19B5);
 }
 template <class Z> Exit check_escape_route(Z &z) {
     if (z.relative_if(0x19B8, !z.zero()))
@@ -154,17 +153,17 @@ template <class Z> Exit finish_failed_escape(Z &z) {
     z.store_a_direct(0x19D3);
     z.load_immediate(0x19D6, z.r.a);
     z.store_a_direct(0x19D8);
-    return continues(0x19DB, k::jump_cycles);
+    return z.final_jump(0x19DB);
 }
 // The third party member cannot cast. The others get their ROM-defined list;
 // the fourth member's list is drawn in the third display row.
 template <class Z> Exit no_known_spells(Z &z) {
     z.load_hl(0x1A42);
-    return continues(0x1A45, k::call_cycles);
+    return z.final_call(0x1A45);
 }
 template <class Z> Exit insufficient_magic_points(Z &z) {
     z.load_hl(0x1A4B);
-    return continues(0x1A4E, k::call_cycles);
+    return z.final_call(0x1A4E);
 }
 template <class Z> Exit choose_magic(Z &z) {
     auto &r = z.r;
@@ -173,7 +172,7 @@ template <class Z> Exit choose_magic(Z &z) {
     z.compare_immediate(0x19E4);
     if (!z.jump_if(0x19E6, !z.zero())) {
         z.load_hl(0x19E9);
-        return continues(0x19EC, k::call_cycles);
+        return z.final_call(0x19EC);
     }
     z.copy(0x19F2, r.c, r.a);
     for (unsigned at = 0x19F3; at <= 0x19F6; ++at)
@@ -192,7 +191,7 @@ template <class Z> Exit choose_magic(Z &z) {
         z.decrement(0x1A07, r.a);
     z.push(0x1A08, r.a, r.f);
     z.push(0x1A09, r.h, r.l);
-    return continues(0x1A0A, k::call_cycles);
+    return z.final_call(0x1A0A);
 }
 template <class Z> Exit show_magic_cursor(Z &z) {
     z.load_hl(0x1A0D);
@@ -201,14 +200,14 @@ template <class Z> Exit show_magic_cursor(Z &z) {
     z.load_from_hl(0x1A14, z.r.a);
     z.decrement(0x1A15, z.r.a);
     z.store_a_direct(0x1A16);
-    return continues(0x1A19, k::call_cycles);
+    return z.final_call(0x1A19);
 }
 template <class Z> Exit accept_magic_choice(Z &z) {
     auto &r = z.r;
     z.pop(0x1A1C, r.h, r.l);
     z.test_bit(0x1A1D, 4, r.c);
     if (z.jump_if(0x1A1F, !z.zero()))
-        return continues(0x1A3F, k::jump_cycles);
+        return z.final_jump(0x1A3F);
     z.copy(0x1A22, r.l, r.a);
     z.copy(0x1A23, r.a, r.h);
     z.add_register(0x1A24, r.a);
@@ -222,66 +221,66 @@ template <class Z> Exit accept_magic_choice(Z &z) {
     z.load_from_hl(0x1A2F, r.a);
     z.and_immediate(0x1A30);
     z.copy(0x1A32, r.b, r.a);
-    return continues(0x1A33, k::call_cycles);
+    return z.final_call(0x1A33);
 }
 template <class Z> Exit check_magic_balance(Z &z) {
     if (z.relative_if(0x1A36, z.carry()))
         return insufficient_magic_points(z);
     z.copy(0x1A38, z.r.a, z.r.b);
     z.load_hl(0x1A39);
-    return continues(0x1A3C, k::call_cycles);
+    return z.final_call(0x1A3C);
 }
 // Some spells ask for a living recipient before queuing the action. The two
 // original entry families have distinct addresses but the same decision flow.
 template <class Z> Exit choose_spell_recipient(Z &z, unsigned at) {
     z.push(at, z.r.b, z.r.c);
-    return continues(at + 1, k::call_cycles);
+    return z.final_call(at + 1);
 }
 template <class Z> Exit accept_spell_recipient(Z &z, unsigned at, unsigned close, unsigned check) {
     z.pop(at, z.r.d, z.r.e);
     z.test_bit(at + 1, 4, z.r.c);
     if (z.relative_if(at + 3, !z.zero()))
-        return continues(close, k::call_cycles);
-    return continues(check, k::call_cycles);
+        return z.final_call(close);
+    return z.final_call(check);
 }
 template <class Z> Exit queue_spell_for_recipient(Z &z, unsigned at, unsigned close) {
     if (z.relative_if(at, z.zero()))
-        return continues(close, k::call_cycles);
+        return z.final_call(close);
     z.load_immediate(at + 2, z.r.c);
     z.copy(at + 4, z.r.b, z.r.d);
-    return continues(at + 5, k::call_cycles);
+    return z.final_call(at + 5);
 }
 template <class Z> Exit advance_spell_recipient(Z &z, unsigned at, unsigned close) {
     z.load_a_direct(at);
     z.increment(at + 3, z.r.a);
     z.store_a_direct(at + 4);
-    return continues(close, k::call_cycles);
+    return z.final_call(close);
 }
 template <class Z> Exit queue_untargeted_spell(Z &z) {
     z.load_immediate(0x1AD0, z.r.c);
     z.xor_a(0x1AD2);
-    return continues(0x1AD3, k::call_cycles);
+    return z.final_call(0x1AD3);
 }
 template <class Z> Exit finish_untargeted_spell(Z &z) {
     z.load_a_direct(0x1AD6);
     z.increment(0x1AD9, z.r.a);
     z.store_a_direct(0x1ADA);
-    return returns(0x1ADD, k::return_cycles);
+    return z.final_return(0x1ADD);
 }
 template <class Z> Exit queue_current_recipient_spell(Z &z) {
     z.load_immediate(0x1AFD, z.r.c);
     z.load_a_direct(0x1AFF);
-    return continues(0x1B02, k::call_cycles);
+    return z.final_call(0x1B02);
 }
 template <class Z> Exit finish_current_recipient_spell(Z &z) {
     z.load_a_direct(0x1B05);
     z.increment(0x1B08, z.r.a);
     z.store_a_direct(0x1B09);
-    return returns(0x1B0C, k::return_cycles);
+    return z.final_return(0x1B0C);
 }
 template <class Z> Exit start_communication_spell(Z &z, unsigned at) {
     z.copy(at, z.r.a, z.r.b);
-    return continues(at + 1, k::call_cycles);
+    return z.final_call(at + 1);
 }
 // Communication spells share the talk outcomes, and one variant also compares
 // the leader's attack with the enemy's threshold before choosing the reply.
@@ -289,7 +288,7 @@ template <class Z> Exit improved_communication_message(Z &z) {
     z.load_immediate(0x1B43, z.r.a);
     z.store_a_direct(0x1B45);
     z.load_hl(0x1B48);
-    return continues(0x1B4B, k::call_cycles);
+    return z.final_call(0x1B4B);
 }
 template <class Z> Exit check_communication_spell(Z &z, bool compare_attack) {
     const unsigned at = compare_attack ? 0x1B17 : 0x1B36;
@@ -308,7 +307,7 @@ template <class Z> Exit check_communication_spell(Z &z, bool compare_attack) {
     z.compare_register(0x1B2B, z.r.b);
     if (z.relative_if(0x1B2C, !z.carry()))
         return improved_communication_message(z);
-    return continues(0x1B2E, k::jump_cycles);
+    return z.final_jump(0x1B2E);
 }
 template <class Z> Exit commit_communication_spell(Z &z, bool compare_attack) {
     if (compare_attack) {
@@ -323,7 +322,7 @@ template <class Z> Exit choose_improved_reply(Z &z) {
     z.and_immediate(0x1B51);
     z.compare_immediate(0x1B53);
     if (z.relative_if(0x1B55, !z.carry()))
-        return continues(0x1B4E, k::call_cycles);
+        return z.final_call(0x1B4E);
     z.copy(0x1B57, z.r.l, z.r.a);
     z.load_immediate(0x1B58, z.r.h);
     z.add_to_hl(0x1B5A, z.hl());
@@ -333,31 +332,29 @@ template <class Z> Exit choose_improved_reply(Z &z) {
     z.increment_hl(0x1B60);
     z.load_from_hl(0x1B61, z.r.h);
     z.copy(0x1B62, z.r.l, z.r.a);
-    return continues(0x1B63, k::call_cycles);
+    return z.final_call(0x1B63);
 }
 template <class Z> Exit finish_improved_talk(Z &z) {
     z.load_immediate(0x1B66, z.r.a);
     z.store_a_direct(0x1B68);
     z.load_immediate(0x1B6B, z.r.a);
     z.store_a_direct(0x1B6D);
-    return continues(0x1B70, k::jump_cycles);
+    return z.final_jump(0x1B70);
 }
 template <class Z> Exit accept_item_choice(Z &z) {
     z.test_bit(0x1BA4, 4, z.r.c);
-    if (!z.zero())
-        return returns(0x1BA6, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x1BA6);
+    if (auto exit=z.final_return_if(0x1BA6,k::Condition::nz)) return *exit;
     z.load_a_direct(0x1BA7);
     z.copy(0x1BAA, z.r.b, z.r.a);
     z.load_immediate(0x1BAB, z.r.c);
     z.xor_a(0x1BAD);
-    return continues(0x1BAE, k::call_cycles);
+    return z.final_call(0x1BAE);
 }
 template <class Z> Exit finish_item_choice(Z &z) {
     z.load_a_direct(0x1BB1);
     z.increment(0x1BB4, z.r.a);
     z.store_a_direct(0x1BB5);
-    return returns(0x1BB8, k::return_cycles);
+    return z.final_return(0x1BB8);
 }
 } // namespace
 void register_battle_commands(RoutineRegistry &registry) {
@@ -398,6 +395,11 @@ void register_battle_commands(RoutineRegistry &registry) {
     add(0x1A36, 0x19DE, {core_final_at(0x1A4E), core_final_at(0x1A3C)}, {},
         [](auto &z) { return check_magic_balance(z); });
     add(0x1A42, 0x19DE, {core_final_at(0x1A45)}, {}, [](auto &z) { return no_known_spells(z); });
+    // After the "no spells" message the window is closed by a jump.
+    auto close_window = segment({0, 0x19DE}, {core_final_at(0x1A48)});
+    close_window.single_instruction = true;
+    k::add_segment(registry, {0, 0x1A48}, std::move(close_window),
+                   [](auto &z) { return z.final_jump(0x1A48); });
     add(0x1A4B, 0x19DE, {core_final_at(0x1A4E)}, {},
         [](auto &z) { return insufficient_magic_points(z); });
     for (unsigned entry : {0x1AB1u, 0x1ADEu})
@@ -453,5 +455,30 @@ void register_battle_commands(RoutineRegistry &registry) {
     add(0x1BB9, 0x1BB9, {returned_at(0x1BCD)}, {.scratch_stack = 2},
         [](auto &z) { return write_action(z); });
     add(0x1BCE, 0x1BCE, {returned_at(0x1BE0)}, {}, [](auto &z) { return read_action(z); });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_battle_commands_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x192B},{0,0x192B},{kit::core_final_at(0x192B)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x192B); });
+    kit::add_joining(registry,{0,0x192E},{0,0x192B},{kit::core_final_at(0x192E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x192E); });
+    kit::add_joining(registry,{0,0x1931},{0,0x192B},{kit::core_final_at(0x1931)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x1931); });
+    kit::add_joining(registry,{0,0x1961},{0,0x192B},{kit::core_final_at(0x1961)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x1961); });
+    kit::add_joining(registry,{0,0x196A},{0,0x192B},{kit::core_final_at(0x196A)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x196A); });
+    kit::add_joining(registry,{0,0x199C},{0,0x199C},{kit::core_final_at(0x199C)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x199C); });
+    kit::add_joining(registry,{0,0x199F},{0,0x199C},{kit::core_final_at(0x199F)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x199F); });
+    kit::add_joining(registry,{0,0x19A2},{0,0x199C},{kit::core_final_at(0x19A2)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x19A2); });
+    kit::add_joining(registry,{0,0x19EF},{0,0x19DE},{kit::core_final_at(0x19EF)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x19EF); });
+    kit::add_joining(registry,{0,0x1A3F},{0,0x19DE},{kit::core_final_at(0x1A3F)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x1A3F); });
+    kit::add_joining(registry,{0,0x1A51},{0,0x19DE},{kit::core_final_at(0x1A51)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x1A51); });
+    kit::add_joining(registry,{0,0x1A54},{0,0x19DE},{kit::core_final_at(0x1A54)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x1A54); });
+    kit::add_joining(registry,{0,0x1AAE},{0,0x1AAE},{kit::core_final_at(0x1AAE)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x1AAE); });
+    kit::add_joining(registry,{0,0x1ACF},{0,0x1AB1},{kit::returned_at(0x1ACF)},kit::return_cycles,0,[](auto& z) { return z.final_return(0x1ACF); });
+    kit::add_joining(registry,{0,0x1AFC},{0,0x1ADE},{kit::returned_at(0x1AFC)},kit::return_cycles,0,[](auto& z) { return z.final_return(0x1AFC); });
+    kit::add_joining(registry,{0,0x1B4E},{0,0x1B0D},{kit::core_final_at(0x1B4E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x1B4E); });
 }
 } // namespace psmodern::game

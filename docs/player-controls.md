@@ -96,10 +96,8 @@ Options, with no restart, and is saved with your other options.
   the screen; a maximized or fullscreen window keeps its size and only the
   picture changes. At 1366 by 768 fullscreen the wide picture is drawn at 3
   times its size instead of 4.
-- **Restricted modes.** While recording and with `--no-routines` the row is
-  read-only and shows OFF: the game stays exactly as the cartridge ran it.
-  The last line of the explanation window says RECORDING - READ ONLY or Z80
-  MODE - READ ONLY.
+- **Recording.** While recording, the Options shortcut is ignored, so the
+  row cannot be changed: the game stays exactly as the cartridge ran it.
 - **The game never notices.** WIDESCREEN only changes what is shown. With it ON
   the game runs exactly as with it OFF; see
   [how widescreen reads the map](how-it-works/world-map.md#how-widescreen-reads-this).

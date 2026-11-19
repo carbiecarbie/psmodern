@@ -3,6 +3,7 @@
 #include "game/dungeon_tables.h"
 #include "game/items_story.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
 #include <bit>
 #include <iostream>
 #include <set>
@@ -340,6 +341,8 @@ int scenarios(probe::Harness &h, const map_probe::Inputs &inputs) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -348,6 +351,10 @@ int main(int argc, char **argv) {
         if (!inputs)
             return 77;
         probe::Harness harness(inputs->rom);
+        {
+            probe::Harness sweeping(inputs->rom);
+            c4::sweep_file(sweeping,"items_story",game::items_story::segments);
+        }
         const auto count = state_probes(harness) + semantic_probes(harness);
         const int chains = scenarios(harness, *inputs);
         if (chains < 0)

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
+#include "scaffold.h"
 #include "app/automap_store.h"
 #include "app/host.h"
+#include "app/localization.h"
+#include "game/dungeon_kit.h"
 #include "game/routines.h"
+#include "oracle/native_machine.h"
 #include "temporary_cleanup.h"
 #include <algorithm>
+#include <cstdio>
+#include <set>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -225,25 +231,29 @@ void driver() {
     check(!d.run({}).save_error && attempts==3 && d.store().load()[0]==7,"retry survives new machine's clean flag");
     check(!d.power_cycle() && attempts==3,"clean power cycle does not write");
     Machine fixed(rom,d.store().load()); check(d.machine().equivalent(fixed),"power cycle returns to fixed complete state");
-    // The host owns the registry across power cycles. Both switch settings
-    // execute the same authored program, with one call at power-on.
-    for (bool enabled:{false,true}) {
+    // The host owns the registry across power cycles: the authored program's
+    // RET at power-on is a segment, called once per power-on. (Milestone 14:
+    // dispatch can no longer be switched off; the NOPs after the return run
+    // on the test scaffolding.)
+    {
         Temporary folder;
         auto code=program(); (*code)[0]=0xc9;
-        FrameDriver routine_driver(code,SaveStore(folder.path,RomVersion::us_rev_a),enabled);
+        FrameDriver routine_driver(code,SaveStore(folder.path,RomVersion::us_rev_a));
         auto prepare=[&] {
             auto& m=routine_driver.machine(); m.cpu().sp.uint16_value=0xc100;
             m.memory().write(0xc100,0);m.memory().write(0xc101,2);
         };
-        routine_driver.routines().add({0,0},[](const Machine&){return 10;},[](RoutineContext& c){c.finish_return(0);});
-        prepare(); auto original=routine_driver.machine();
+        game::kit::add_segment(routine_driver.routines(),{0,0},game::kit::segment({0,0},{game::kit::returned_at(0)}),10,[](auto& z) { return z.final_return(0); });
+        // The original: the oracle's native machine (a Machine without a
+        // registry is no longer one since milestone 14).
+        prepare(); oracle::NativeMachine original(routine_driver.machine());
         routine_driver.run({}); original.run_frame({}); original.take_psg_writes(); original.take_samples();
         check(original.equivalent(routine_driver.machine()),"frame driver passes registry and preserves the original program");
         const auto& counts=routine_driver.routines().find({0,0})->counters;
-        check(counts.cpp_calls==enabled && counts.fallback_calls==!enabled,"frame driver respects routine switch");
-        check(!routine_driver.power_cycle() && routine_driver.routines().enabled==enabled,"routine option survives power cycle");
+        check(counts.cpp_calls==1 && counts.fallback_calls==0,"frame driver runs its registry");
+        check(!routine_driver.power_cycle(),"power cycle");
         prepare(); routine_driver.run({});
-        check(counts.cpp_calls==2*enabled && counts.fallback_calls==2*!enabled,"host registry counters survive power cycle");
+        check(counts.cpp_calls==2 && counts.fallback_calls==0,"host registry counters survive power cycle");
     }
 }
 // The host-observed instructions stay native: activating routines fails at
@@ -255,17 +265,37 @@ void guard() {
     for (const auto address:{0x8043,0x82ef})
         check(std::count(host_observed_instructions.begin(),host_observed_instructions.end(),RoutineEntry{12,static_cast<std::uint16_t>(address)})==1,"tempo audio instruction observed");
     const auto bound=[](const Machine&){return 10u;};
-    const auto body=[](RoutineContext& c){c.finish_return(0);};
-    RoutineRegistry clean; clean.add({0,0x1000},bound,body);
+    const auto body=[](RoutineContext& c){scaffold::native_return(c,0);};
+    auto returning=[](RoutineEntry entry) { return SegmentSpec{entry,{SegmentExit{RoutineExit::returned,entry.address}}}; };
+    RoutineRegistry clean; clean.add({0,0x1000},returning({0,0x1000}),bound,body);
     clean.add({1,0x6000},SegmentSpec{{1,0x6000},{SegmentExit{RoutineExit::core_final,0x6010}}},bound,body);
     guard_observed_instructions(clean);
+    // Every watched address as the observed single-instruction segment the
+    // game registers there, except `skip` (review R3 L1: the game's whole
+    // registry needs every watched address to begin an observed segment).
+    auto observed=[&](RoutineRegistry& r, std::optional<RoutineEntry> skip={}) {
+        for (const auto watched:host_observed_instructions) {
+            if (skip && *skip==watched) continue;
+            SegmentSpec spec{watched,{SegmentExit{RoutineExit::core_final,watched.address}}};
+            spec.single_instruction=true; spec.observe_entry=true;
+            r.add(watched,spec,bound,body);
+        }
+    };
+    RoutineRegistry whole; observed(whole); require_observed_entries(whole);
     for (const auto watched:host_observed_instructions) {
-        RoutineRegistry entry; entry.add(watched,bound,body);
+        RoutineRegistry entry; entry.add(watched,returning(watched),bound,body);
         bool refused=false;
         try { guard_observed_instructions(entry); } catch (const std::logic_error& e) {
             refused=std::string(e.what()).find("registered entry")!=std::string::npos;
         }
         check(refused,"an observed instruction registered as an entry is refused");
+        RoutineRegistry missing; observed(missing,watched);
+        guard_observed_instructions(missing);
+        refused=false;
+        try { require_observed_entries(missing); } catch (const std::logic_error& e) {
+            refused=std::string(e.what()).find("requires an observed segment")!=std::string::npos;
+        }
+        check(refused,"a watched address with no observed segment is refused for the whole game");
         for (const auto kind:{RoutineExit::core_final,RoutineExit::returned}) {
             RoutineRegistry exit; exit.add({1,0x7000},SegmentSpec{{1,0x7000},{SegmentExit{kind,watched.address}}},bound,body);
             refused=false;
@@ -292,8 +322,198 @@ void guard() {
         check_segments(game::dungeon::cell_segments);
         check_segments(game::dungeon::movement_segments);
         check_segments(game::dungeon::object_segments);
-        guard_observed_instructions(real);
+        require_observed_entries(real);
     }
+}
+// Milestone 14: with no Z80 in the program, the host's hook runs only at the
+// entries of segments flagged observe_entry (and, during the transition, at
+// the native steps that remain). Every watched address must begin such a
+// segment, or a C++ body would run through it without the host seeing it.
+void observed_segments() {
+    const std::set<RoutineEntry> awaiting{}; // none since Part 0b
+    // Both identified ROMs (review R3 L1).
+    for (const char* digest:{"07fcf297be4f4c9d92cd3f119a7ac48467e06838","fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd"})
+    for (const auto& options:{game::Options{},game::Options{0,400}}) {
+        RoutineRegistry real;
+        check(game::register_routines(real,digest,options),"identified registry");
+        std::set<RoutineEntry> missing;
+        std::string names;
+        for (const auto watched:host_observed_instructions) {
+            const auto* routine=real.find(watched);
+            if (routine && routine->spec.observe_entry) continue;
+            missing.insert(watched);
+            char name[16];std::snprintf(name,sizeof name," %02X:%04X",watched.bank,watched.address);names+=name;
+        }
+        if (missing!=awaiting)
+            throw std::runtime_error("host-watched addresses without an observed segment:"+names);
+    }
+}
+// Authored programs for the frame driver (no ROM): a body at 00:0100 that
+// increments A forty times, stores A at (HL) and returns to a JR $ at 00:0200.
+namespace authored {
+namespace k=psmodern::game::kit;
+constexpr std::uint16_t body=0x0100,body_store=0x0128,body_return=0x0129,caller=0x0200;
+std::shared_ptr<Memory::Rom> rom() {
+    auto image=program();
+    for (std::uint16_t at=body;at<body_store;++at) (*image)[at]=0x3c;                 // INC A
+    (*image)[body_store]=0x77;(*image)[body_return]=0xc9;                             // LD (HL),A; RET
+    (*image)[caller]=0x18;(*image)[caller+1]=0xfe;                                    // JR $
+    return image;
+}
+void register_body(RoutineRegistry& registry) {
+    k::add_segment(registry,{0,body},k::segment({0,body},{k::returned_at(body_return)}),1000,[](auto& z) {
+        for (std::uint16_t at=body;at<body_store;++at) z.increment(at,z.r.a);
+        z.store_register_to_hl(body_store,z.r.a);
+        return z.final_return(body_return);
+    });
+}
+// The machine at the body's entry, `before` cycles before the next frame end
+// (or with the frame interrupt due `irq_after` cycles into the body).
+void enter(Machine& m,std::uint16_t hl,bool interrupts) {
+    auto& cpu=m.cpu();
+    cpu.im=1;cpu.iff1=cpu.iff2=interrupts;cpu.pc.uint16_value=body;cpu.sp.uint16_value=0xc1f0;cpu.hl.uint16_value=hl;
+    cpu.af.uint16_value=0x0000;
+    m.memory().write(0xc1f0,caller&0xff);m.memory().write(0xc1f1,caller>>8);
+    (void)m.read_port(0xbf,m.cycles());m.advance(1); // acknowledge the pending frame interrupt
+}
+}
+// Milestone 14 (review of Part 0a, L3): the save holds the cartridge RAM as
+// it is at the frame end. A body that crosses the frame end and writes the
+// cartridge RAM after it belongs to the next frame's save, as when frames
+// ended exactly at the frame end; it was written up to a segment late.
+void frame_end_save() {
+    Temporary t;
+    FrameDriver d(authored::rom(),SaveStore(t.path,RomVersion::us_rev_a));
+    authored::register_body(d.routines());
+    auto& m=d.machine();
+    m.memory().write(0xfffc,8);
+    authored::enter(m,0x8000,false);
+    const auto target=(m.cycles()/Machine::frame_cycles+1)*Machine::frame_cycles;
+    m.advance(target-m.cycles()-40);  // ten increments before the frame end
+    std::uint64_t observed=0;bool dirty_at_end=true;
+    d.set_frame_probe([&](const Machine& x) { observed=x.cycles();dirty_at_end=x.memory().cartridge_ram_dirty(); });
+    const auto first=d.run({});
+    check(!first.save_error && observed>=target && m.cycles()>observed,"the frame ended inside the body");
+    check(m.memory().cartridge_ram()[0]==40 && m.cpu().pc.uint16_value==authored::caller,"the body stored A after the frame end");
+    check(!dirty_at_end && d.store().writes()==0,"a cartridge RAM write after the frame end is not this frame's save");
+    check(m.memory().cartridge_ram_dirty(),"the write after the frame end waits for the next frame");
+    const auto second=d.run({});
+    check(!second.save_error && d.store().writes()==1 && d.store().load()[0]==40,"the next frame end saves it");
+    check(!m.memory().cartridge_ram_dirty(),"the save cleared the flag");
+}
+// Milestone 14 (planning decision 6): an error of the engine stops the game.
+// Here a body whose in-body guard does not hold (the error the engine gives
+// for a state a body does not handle; code with no C++ body gives its own once
+// the core is gone, through the same path). Below the message box: the error
+// leaves run(), the session refuses to go on, the save keeps the cartridge RAM
+// of the last frame end, the message names the segment, the status is 1.
+void game_stop() {
+    namespace k=psmodern::game::kit;
+    const auto stopping=[](RoutineRegistry& registry) {
+        k::add_segment(registry,{0,authored::body},k::segment({0,authored::body},{k::returned_at(authored::body_return)}),
+            [](const Machine&) { return std::uint64_t{1000}; },[](auto& z) {
+                for (std::uint16_t at=authored::body;at<authored::body_store;++at) z.increment(at,z.r.a);
+                z.store_register_to_hl(authored::body_store,z.r.a);
+                z.guard(false,"the authored stop");
+                return z.final_return(authored::body_return);
+            });
+    };
+    auto expect_stop=[](FrameDriver& d) {
+        std::string what;
+        try { d.run({}); } catch (const GuardFailure& e) { what=e.what(); }
+        check(what=="Unhandled machine state in the segment at 00:0100 (unit 00:0100): the authored stop","the guard's error leaves run()");
+        check(d.stopped() && *d.stopped()==what,"the driver keeps the reason it stopped");
+        bool refused=false;
+        try { d.run({}); } catch (const std::logic_error&) { refused=true; }
+        check(refused,"no frame runs after a stop");
+        refused=false;
+        try { (void)d.power_cycle(); } catch (const std::logic_error&) { refused=true; }
+        check(refused,"no power cycle after a stop");
+        return what;
+    };
+    {
+        // The stop comes after this frame's end: the save is the cartridge
+        // RAM at the frame end (7), not the store the body made after it (40).
+        Temporary t;
+        FrameDriver d(authored::rom(),SaveStore(t.path,RomVersion::us_rev_a));
+        stopping(d.routines());
+        auto& m=d.machine();
+        m.memory().write(0xfffc,8);m.memory().write(0x8000,7);
+        authored::enter(m,0x8000,false);
+        const auto target=(m.cycles()/Machine::frame_cycles+1)*Machine::frame_cycles;
+        m.advance(target-m.cycles()-40);
+        bool observed=false;
+        d.set_frame_probe([&](const Machine&) { observed=true; });
+        const auto what=expect_stop(d);
+        check(observed && m.memory().cartridge_ram()[0]==40,"the body stored after the frame end, then stopped");
+        check(d.store().writes()==0,"nothing written before the session ends");
+        check(!d.flush() && d.store().writes()==1 && d.store().load()[0]==7,"the exit writes the frame end's cartridge RAM");
+        check(!d.flush() && d.store().writes()==1,"once");
+        const auto english=game_stopped_message(Language::english,what),portuguese=game_stopped_message(Language::portuguese,what);
+        check(english==std::string(ui_text(UiText::game_stopped,Language::english))+"\n\n"+what &&
+              english.starts_with("The game stopped: it reached a part of the cartridge that PSModern cannot run."),"the English message");
+        check(portuguese==std::string(ui_text(UiText::game_stopped,Language::portuguese))+"\n\n"+what &&
+              portuguese.starts_with("O jogo parou: "),"the Portuguese message, details in English");
+        check(session_status(false,true)==1 && session_status(true,true)==1,"a stopped session exits with status 1");
+        check(session_status(false,false)==0 && session_status(true,false)==1,"other sessions as before");
+    }
+    {
+        // A save at an earlier frame end (3) stays; the stopped frame's own
+        // cartridge RAM writes (5, then 40) never reach the file.
+        Temporary t;
+        FrameDriver d(authored::rom(),SaveStore(t.path,RomVersion::us_rev_a));
+        stopping(d.routines());
+        auto& m=d.machine();
+        m.memory().write(0xfffc,8);m.memory().write(0x8000,3);
+        auto& cpu=m.cpu();cpu.iff1=cpu.iff2=0;cpu.pc.uint16_value=authored::caller;
+        const auto first=d.run({});
+        check(!first.save_error && d.store().writes()==1 && d.store().load()[0]==3,"the frame end saved 3");
+        m.memory().write(0x8000,5);
+        authored::enter(m,0x8000,false);
+        bool observed=false;
+        d.set_frame_probe([&](const Machine&) { observed=true; });
+        (void)expect_stop(d);
+        check(!observed && m.memory().cartridge_ram()[0]==40,"the stop came before the frame end");
+        check(!d.flush() && d.store().writes()==1 && d.store().load()[0]==3,"the exit leaves the last frame end's save");
+    }
+}
+// Milestone 14 (review of Part 0a, L3): a hook that changes the game (here
+// the menu cancel at 00:2D93, which releases the pad) must never run inside a
+// nested interrupt delivery, where Machine does not see RAM or pad changes.
+// The frame driver refuses it; in the game these addresses are main-program
+// code, so this only guards against a future body or handler reaching them.
+void hooks_at_depth() {
+    Temporary t;
+    auto image=authored::rom();
+    (*image)[0x0038]=0xdb;(*image)[0x0039]=0xbf;                                      // IN A,(BF)
+    (*image)[0x003a]=0xc3;(*image)[0x003b]=0x93;(*image)[0x003c]=0x2d;                 // JP 2D93
+    (*image)[0x0055]=0x18;(*image)[0x0056]=0xfe;                                      // JR $ (the field wait)
+    (*image)[0x1be1]=0x18;(*image)[0x1be2]=0xfe;                                      // JR $ (the field menu)
+    FrameDriver d(image,SaveStore(t.path,RomVersion::us_rev_a));
+    auto& m=d.machine();
+    // The field wait at top level, returning to 00:0B14 in mode 9: the host
+    // may request its menu, which opens at the return.
+    auto& cpu=m.cpu();cpu.iff1=cpu.iff2=0;cpu.pc.uint16_value=0x0055;cpu.sp.uint16_value=0xc1e0;
+    m.memory().write(0xc1e0,0x14);m.memory().write(0xc1e1,0x0b);m.memory().write(0xc202,9);
+    d.run({});
+    check(d.request_menu(),"the authored field wait admits the menu request");
+    cpu.pc.uint16_value=0x0b14;cpu.sp.uint16_value=0xc1e2;
+    d.run({});
+    check(d.menu_active() && cpu.pc.uint16_value==0x1be1,"the menu opened at the wait's return");
+    d.close_menu();
+    // Now an interrupt inside the body runs a handler that reaches 00:2D93
+    // with the cancel bit set: the cancel hook would release the pad there.
+    authored::register_body(d.routines());
+    authored::enter(m,0xc100,true);
+    m.memory().write(0xc205,0x10);
+    const auto irq=m.next_irq();
+    check(irq.has_value() && *irq>m.cycles()+20,"frame interrupt ahead");
+    m.advance(*irq-m.cycles()-20);
+    bool refused=false;
+    try { d.run({}); } catch (const std::logic_error& e) {
+        refused=std::string(e.what()).find("menu cancel was reached inside a nested interrupt delivery")!=std::string::npos;
+    }
+    check(refused,"the menu cancel hook ran inside a nested delivery");
 }
 // <save>.automap beside the save: write order, pruning, backup and every
 // failure case, with real temporary files and no ROM.
@@ -565,7 +785,7 @@ void flags() {
         check(parsed.rom.native()==L"C:/Jogos/\u00e7\u00e3o/\u65e5\u672c/ps.sms","non-ASCII argument becomes the right wide path");
 #endif
     }
-    check(original.options==game::Options{} && original.routines_enabled && !original.record_path && original.rom=="game.sms","no flags means original");
+    check(original.options==game::Options{} && !original.record_path && original.rom=="game.sms","no flags means original");
     for (const auto* value:{"0","25","50","100","200"}) check(parse({"--encounter-rate",value}).options.encounter_percent==std::stoul(value),"encounter values");
     for (const auto* value:{"100","200","400"}) check(parse({"--experience-rate",value}).options.experience_percent==std::stoul(value),"experience values");
     const auto both=parse({"--experience-rate","400","--encounter-rate","50"});
@@ -583,23 +803,26 @@ void flags() {
     for (const auto* old:{"1","24","26","99","101","150","400","401"}) rejects({"--encounter-rate",old},"must be one of 0, 25, 50, 100 or 200 percent");
     for (const auto* old:{"0","25","50","99","101","300","1000","1001"}) rejects({"--experience-rate",old},"must be one of 100, 200 or 400 percent");
     rejects({"--bogus"},"Usage:");
-    // Non-default values are refused with --no-routines and --record, each flag on its own.
+    // Milestone 14: --no-routines (the game on the Z80 core) is gone; it is an
+    // unknown argument now, and the usage no longer offers it.
+    rejects({"--no-routines"},"Usage:");
+    rejects({"--record","out.psrec","--no-routines"},"Usage:");
+    check(app_usage().find("--no-routines")==std::string::npos,"the usage does not offer --no-routines");
+    // Non-default values are refused with --record, each flag on its own.
     for (const auto* flag:{"--encounter-rate","--experience-rate"}) {
         const char* value=std::string_view(flag)=="--encounter-rate" ? "50" : "400";
-        rejects({"--no-routines",flag,value},"cannot be combined with --no-routines");
-        rejects({flag,value,"--no-routines"},flag);
         rejects({"--record","out.psrec",flag,value},"cannot be combined with --record");
-        rejects({flag,value,"--record","out.psrec","--no-routines"},"cannot be combined with --no-routines");
+        rejects({flag,value,"--record","out.psrec"},"cannot be combined with --record");
         // Explicit 100 is original mode: accepted wherever no flag is, and identical to no flag.
-        const auto same=parse({"--no-routines","--record","out.psrec",flag,"100"});
-        check(same.options==game::Options{} && !same.routines_enabled && same.record_path==std::filesystem::path("out.psrec"),"explicit 100 with refused combinations");
+        const auto same=parse({"--record","out.psrec",flag,"100"});
+        check(same.options==game::Options{} && same.record_path==std::filesystem::path("out.psrec"),"explicit 100 with refused combinations");
     }
     check(parse({"--encounter-rate","100","--experience-rate","100"}).options==original.options,"explicit 100 equals no flags");
     // Options reach registration: the driver passes them on, so a value outside its range is refused there.
     Temporary folder;
-    refuses([&] { FrameDriver(program(),SaveStore(folder.path,RomVersion::us_rev_a),true,game::Options{100,0}); },"driver validates options");
+    refuses([&] { FrameDriver(program(),SaveStore(folder.path,RomVersion::us_rev_a),game::Options{100,0}); },"driver validates options");
     for (const auto& options:{game::Options{},game::Options{50,400}}) {
-        FrameDriver driver(program(),SaveStore(folder.path,RomVersion::us_rev_a),true,options);
+        FrameDriver driver(program(),SaveStore(folder.path,RomVersion::us_rev_a),options);
         check(driver.routines().empty(),"unidentified image keeps an empty registry");
     }
     // Same registry contents with explicit 100 as without flags (identified image).
@@ -614,7 +837,10 @@ void flags() {
 }
 }
 int main() {
-    try { colours(); scaling(); canvas_windows(); compositing(); inputs(); saves(); backups(); driver(); flags(); guard(); automap_files(); resampling(); pacing();
-        std::cout<<"App: 13 test groups passed (no SDL or ROM).\n"; return 0;
+    // The authored programs' code that no test renders runs on the oracle's core.
+    oracle::Scaffold scaffold;
+    try { colours(); scaling(); canvas_windows(); compositing(); inputs(); saves(); backups(); driver(); flags(); guard(); observed_segments();
+        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); resampling(); pacing();
+        std::cout<<"App: 16 test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

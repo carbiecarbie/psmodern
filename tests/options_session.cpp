@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "app/sdl_host.h"
 #include "app/frame_driver.h"
 #include "replay/recording.h"
@@ -40,8 +41,8 @@ app::FrameDriver* tested=nullptr;
 std::filesystem::path recording_path,image_dir;
 class SeededDriver : public app::FrameDriver {
 public:
-    SeededDriver(std::shared_ptr<const Memory::Rom> rom,app::SaveStore store,bool enabled,game::OptionOverrides overrides,bool original)
-        :app::FrameDriver(std::move(rom),std::move(store),enabled,overrides,original) {
+    SeededDriver(std::shared_ptr<const Memory::Rom> rom,app::SaveStore store,game::OptionOverrides overrides,bool original)
+        :app::FrameDriver(std::move(rom),std::move(store),overrides,original) {
         const auto rec=replay::read(recording_path);
         for(unsigned i=0;i<3400;++i)run(rec.input_at(i));
         tested=this;
@@ -128,7 +129,7 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
         case 0:return {};
         case 1:return mode_under_test==0 ? MenuInput{.right=true} : MenuInput{};
         case 2:return {};
-        case 3:return mode_under_test==2 ? MenuInput{.cancel=true} : MenuInput{.accept=true};
+        case 3:return MenuInput{.accept=true};
         default:return {};
     }
 }
@@ -301,7 +302,10 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 #undef toggle_fullscreen
 #undef SDL_UpdateTexture
 #undef upload_bands
-int main(int argc,char**argv){try{
+int main(int argc,char**argv){
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try{
     if(argc!=3)return 1;if(!*argv[1]||!std::filesystem::is_regular_file(argv[1]))return 77;
     recording_path=argv[2];const auto root=std::filesystem::temp_directory_path()/("psmodern-options-session-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);SDL_setenv("APPDATA",root.string().c_str(),1);SDL_setenv("SDL_VIDEODRIVER","dummy",1);SDL_setenv("SDL_AUDIODRIVER","dummy",1);
@@ -309,6 +313,9 @@ int main(int argc,char**argv){try{
     image_dir=std::filesystem::current_path()/(version==RomVersion::us_rev_a ? "options-us" : "options-br");std::filesystem::create_directories(image_dir);
     controls_folder=root/"PSModern";
     for(mode_under_test=0;mode_under_test<6;++mode_under_test){
+        // Mode 2 was the --no-routines session with read-only Options; milestone
+        // 14 removed both (app_tests checks that the flag is refused).
+        if(mode_under_test==2)continue;
         sampled=stage=modal_frames=speed_stage=0;release_speed=false;sent_quit=toggle_sent=was_active=restored_speed=saved_menu=saved_game=false;last_modal_cycle=0;tested=nullptr;
         controls_calls=controls_frames=0;awaiting_controls=controls_closed=false;
         power_cycles=fullscreen_toggles=shortcut_events=0;send_shortcuts=hold_tab=checked_failed_save=checked_new_binding=false;
@@ -332,10 +339,10 @@ int main(int argc,char**argv){try{
             if(index<0)throw std::runtime_error("Virtual controller attachment");
             virtual_pad=SDL_JoystickGetDeviceInstanceID(index);
         }
-        char rate[]="--encounter-rate",value[]="200",raw[]="--no-routines",record[]="--record";
+        char rate[]="--encounter-rate",value[]="200",record[]="--record";
         std::string recording=(root/"session.psrec").string();
-        char* normal[]{argv[0],argv[1],rate,value};char* recording_args[]{argv[0],argv[1],record,recording.data()};char* raw_args[]{argv[0],argv[1],raw};
-        const auto result=options_app_main(mode_under_test==2?3:4,mode_under_test==1?recording_args:mode_under_test==2?raw_args:normal);
+        char* normal[]{argv[0],argv[1],rate,value};char* recording_args[]{argv[0],argv[1],record,recording.data()};
+        const auto result=options_app_main(4,mode_under_test==1?recording_args:normal);
         if(result || (mode_under_test==1 ? was_active : !was_active || modal_frames==0 || !restored_speed))throw std::runtime_error("Scripted options app session failed");
         if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<14))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
         if(mode_under_test==5 && (!checked_options_failure || stage<18 || !saw_wide_after_apply))

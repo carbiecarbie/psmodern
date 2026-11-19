@@ -21,19 +21,19 @@ template<class Z> k::Exit read_envelope(Z& z) {
     z.pop(0x8830,z.r.h,z.r.l);
     z.load_a_from_pair(0x8831,z.bc());
     z.test_bit(0x8832,7,z.r.a);
-    return k::relative_if_exit(0x8834,z.zero());
+    return z.final_relative_if(0x8834,k::Condition::z);
 }
 template<class Z> k::Exit envelope_end_marker(Z& z) {
     z.compare_immediate(0x8836);
-    return k::relative_if_exit(0x8838,z.zero());
+    return z.final_relative_if(0x8838,k::Condition::z);
 }
 template<class Z> k::Exit envelope_stop_marker(Z& z) {
     z.compare_immediate(0x883A);
-    return k::relative_if_exit(0x883C,z.zero());
+    return z.final_relative_if(0x883C,k::Condition::z);
 }
 template<class Z> k::Exit envelope_restart_marker(Z& z) {
     z.compare_immediate(0x883E);
-    return k::relative_if_exit(0x8840,z.zero());
+    return z.final_relative_if(0x8840,k::Condition::z);
 }
 // Other high-bit values become a new envelope index, then the driver re-reads.
 template<class Z> k::Exit next_envelope_byte(Z& z) {
@@ -51,7 +51,7 @@ template<class Z> k::Exit finish_envelope(Z& z) {
     z.store_to_indexed(0x8849,ix,z.r.a);
     z.add_from_indexed(0x884C,ix);
     z.output(0x884F);
-    return k::returns(0x8851,k::return_cycles);
+    return z.final_return(0x8851);
 }
 // Marker 80 resets the index and re-reads the first byte.
 template<class Z> k::Exit restart_envelope(Z& z) {
@@ -64,17 +64,16 @@ template<class Z> k::Exit restart_envelope(Z& z) {
 template<class Z> k::Exit stop_envelope(Z& z) {
     z.store_immediate_indexed(0x8855,ix);
     z.pop(0x8859,z.r.h,z.r.l);
-    return k::returns(0x885A,k::return_cycles);
+    return z.final_return(0x885A);
 }
 // A level advances the index and is clamped to the chip's attenuation range.
 template<class Z> k::Exit envelope_level(Z& z) {
     z.increment_indexed(0x885B,ix);
     z.add_from_indexed(0x885E,ix);
     z.test_bit(0x8861,4,z.r.a);
-    if (z.zero()) return k::returns(0x8863,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x8863);
+    if (auto exit=z.final_return_if(0x8863,k::Condition::z)) return *exit;
     z.load_immediate(0x8864,z.r.a);
-    return k::returns(0x8866,k::return_cycles);
+    return z.final_return(0x8866);
 }
 // The pitch envelope uses its own per-voice index and returns an offset to
 // add to the current period. Its markers can restart or terminate the voice.
@@ -88,21 +87,21 @@ template<class Z> k::Exit read_pitch_envelope(Z& z) {
     z.pop(0x8445,z.r.h,z.r.l);
     z.load_a_from_pair(0x8446,z.bc());
     z.test_bit(0x8447,7,z.r.a);
-    return k::continues(0x8449,k::jump_cycles);
+    return z.final_jump_if(0x8449,k::Condition::z);
 }
 template<class Z> k::Exit pitch_skip_marker(Z& z) {
     z.compare_immediate(0x844C);
-    return k::relative_if_exit(0x844E,z.zero());
+    return z.final_relative_if(0x844E,k::Condition::z);
 }
 template<class Z> k::Exit pitch_restart_marker(Z& z) {
     z.compare_immediate(0x8450);
-    return k::relative_if_exit(0x8452,z.zero());
+    return z.final_relative_if(0x8452,k::Condition::z);
 }
 template<class Z> k::Exit stop_pitch_envelope(Z& z) {
     z.load_immediate(0x8454,z.r.a);
     z.store_to_indexed(0x8456,ix,z.r.a);
     z.pop(0x8459,z.r.h,z.r.l);
-    return k::returns(0x845A,k::return_cycles);
+    return z.final_return(0x845A);
 }
 template<class Z> k::Exit next_pitch_envelope(Z& z) {
     z.increment_pair(0x845B,z.r.b,z.r.c);
@@ -123,14 +122,18 @@ template<class Z> k::Exit pitch_envelope_value(Z& z) {
     z.load_immediate(0x8466,z.r.h);
     z.add_to_hl(0x8468,z.de());
     z.store_to_indexed(0x8469,ix,z.r.a);
-    return k::returns(0x846C,k::return_cycles);
+    return z.final_return(0x846C);
 }
+// A voice write needs IX inside the voice records in work RAM (other values
+// reach the mapper). The guard reads registers only: it holds at entry and
+// stays valid after a delivery, since handlers restore the registers.
 template<class Logic> void add_envelope(RoutineRegistry& registry,RoutineEntry entry,SegmentSpec spec,Logic logic,bool writes_voice=false) {
-    registry.add(entry,std::move(spec),[logic,writes_voice](const Machine& machine) {
-        const auto address=machine.cpu().ix_iy[0].uint16_value;
-        if (writes_voice && (address<0xc000 || address>0xdfe8)) return k::uncertain_maximum;
-        return k::cost(machine,logic,k::uncertain_maximum);
-    },[logic](RoutineContext& context) { k::run(context,logic); });
+    if (!writes_voice) { k::add_segment(registry,entry,std::move(spec),logic); return; }
+    k::add_segment(registry,entry,std::move(spec),
+        k::Guard{"IX points into the voice records in work RAM",[](const Machine& machine) {
+            const auto address=machine.cpu().ix_iy[0].uint16_value;
+            return address>=0xc000 && address<=0xdfe8;
+        }},logic);
 }
 }
 void register_sound_envelope(RoutineRegistry& registry) {

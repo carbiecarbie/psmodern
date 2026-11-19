@@ -15,8 +15,7 @@ void add(RoutineRegistry& registry, std::uint16_t pc, std::vector<SegmentExit> e
 
 template<class Z>
 k::Exit start_cone(Z& z) {
-    if (!z.carry()) return k::returns(0x6C4C,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x6C4C);
+    if (auto exit=z.final_return_if(0x6C4C,k::Condition::nc)) return *exit;
     auto& r=z.r;
     z.load_hl(0x6C4D);
     z.store_to_hl(0x6C50);
@@ -38,7 +37,7 @@ k::Exit start_cone(Z& z) {
     z.load_de(0x6C61);
     z.add_to_hl(0x6C64,z.de());
     z.load_immediate(0x6C65,r.b);
-    return k::continues(0x6C67,k::call_cycles);
+    return z.final_call(0x6C67);
 }
 
 // For a blocked center cell the cartridge paints the front, then both
@@ -49,7 +48,7 @@ k::Exit open_center(Z& z, std::uint16_t at) {
     z.load_de(at);
     z.add_to_hl(at+3,z.de());
     z.load_immediate(at+4,z.r.b);
-    return k::continues(at+6,k::call_cycles);
+    return z.final_call(at+6);
 }
 
 template<class Z>
@@ -59,7 +58,7 @@ k::Exit left_panel(Z& z, std::uint16_t at) {
     z.load_from_hl(at+2,z.r.c);
     z.increment_hl(at+3);
     z.push(at+4,z.r.b,z.r.c);
-    return k::continues(at+5,k::call_cycles);
+    return z.final_call(at+5);
 }
 
 void add_depth(RoutineRegistry& registry,std::uint16_t base) {
@@ -72,7 +71,7 @@ void add_depth(RoutineRegistry& registry,std::uint16_t base) {
     add(registry,blocked_left,{k::core_final_at(blocked_left+10,-2)},{.scratch_stack=4},
         [=](auto& z) {
             z.load_immediate(blocked_left,z.r.b);
-            if (!k::inline_reader(z,true,blocked_left+2)) return k::continues(blocked_left+10,k::call_cycles);
+            if (!k::inline_reader(z,true,blocked_left+2)) return z.final_call(blocked_left+10);
             return left_panel(z,blocked_left+5);
         });
     add(registry,open_left,{k::core_final_at(open_left+5,-2)},{.scratch_stack=4},
@@ -80,14 +79,37 @@ void add_depth(RoutineRegistry& registry,std::uint16_t base) {
     for (bool is_open:{false,true}) {
         const auto right=base+(is_open ? 0x2C : 0x12);
         const auto final=right+6;
-        const auto cycles=is_open && base!=depth.back() ? k::call_cycles : k::jump_cycles;
+        const bool calls=is_open && base!=depth.back();
         add(registry,right,{k::core_final_at(final,2)},{.scratch_stack=4,.inherited_stack=2},
             [=](auto& z) {
                 z.load_immediate(right,z.r.b);
                 if (k::inline_reader(z,true,right+2)) z.pop(right+5,z.r.b,z.r.c);
-                return k::continues(final,cycles);
+                return calls ? z.final_call(final) : z.final_jump(final);
             });
     }
+    // Joining stretches: the places the original resumes after a cell reader
+    // or a call returned to it, when the stretch before them was not run as
+    // one segment. The open-or-blocked decision after the centre cell:
+    auto single=[&](std::uint16_t pc,SegmentExit exit,k::Permissions permissions,auto logic) {
+        auto spec=k::segment(cone,{exit},permissions);
+        spec.single_instruction=true;
+        k::add_segment(registry,{1,pc},std::move(spec),2*Machine::frame_cycles,logic);
+    };
+    single(base,k::conditional_at(base),{},[=](auto& z) { return z.final_relative_if(base,k::Condition::z); });
+    // A blocked centre starts drawing: the descriptor of its front panel.
+    single(base+2,k::core_final_at(base+2),{.scratch_stack=2},[=](auto& z) { return z.final_call(base+2); });
+    // The left panel after its cell reader came back.
+    add(registry,blocked_left+5,{k::core_final_at(blocked_left+10,-2)},{.scratch_stack=4},
+        [=](auto& z) { return left_panel(z,blocked_left+5); });
+    // The right panel's saved size is restored, then its descriptor is drawn.
+    add(registry,base+0x17,{k::core_final_at(base+0x18,2)},{.inherited_stack=2},[=](auto& z) {
+        z.pop(base+0x17,z.r.b,z.r.c);
+        return z.final_jump(base+0x18);
+    });
+    add(registry,base+0x31,{k::core_final_at(base+0x32,2)},{.inherited_stack=2},[=](auto& z) {
+        z.pop(base+0x31,z.r.b,z.r.c);
+        return base!=depth.back() ? z.final_call(base+0x32) : z.final_jump(base+0x32);
+    });
 }
 
 // A panel descriptor supplies its destination, size and pointer to tiles.
@@ -113,8 +135,7 @@ k::Exit panel_descriptor(Z& z,std::uint16_t at) {
     z.push(cursor++,z.r.h,z.r.l);
     z.load_from_hl(cursor++,z.r.h);
     z.copy(cursor++,z.r.l,z.r.a);
-    const bool draw=at==0x6D21 ? !z.zero() : z.zero();
-    return k::continues(cursor,draw ? k::call_cycles : k::untaken_call_cycles);
+    return at==0x6D21 ? z.final_call_if(cursor,k::Condition::nz) : z.final_call_if(cursor,k::Condition::z);
 }
 }
 
@@ -122,20 +143,20 @@ void register_cone(RoutineRegistry& registry) {
     add(registry,0x6C46,{k::conditional_at(0x6C49)},{},[](auto& z) {
         z.copy(0x6C46,z.r.a,z.r.c);
         z.compare_immediate(0x6C47);
-        return k::jump_if_exit(0x6C49);
+        return z.final_jump_if(0x6C49,k::Condition::z);
     });
     add(registry,0x6C4C,{k::returned_at(0x6C4C),k::core_final_at(0x6C67)},
         {.slot2_mapper=true,.scratch_stack=2},[](auto& z) { return start_cone(z); });
     for (auto pc:{0x6C9F,0x6CD9}) {
         add(registry,pc,{k::core_final_at(pc+2)},{.scratch_stack=2},[pc](auto& z) {
             z.load_immediate(pc,z.r.b);
-            return k::continues(pc+2,k::call_cycles);
+            return z.final_call(pc+2);
         });
     }
     for (auto base:depth) add_depth(registry,base);
     add(registry,0x6D13,{k::core_final_at(0x6D14,-2)},{.scratch_stack=4},[](auto& z) {
         z.push(0x6D13,z.r.a,z.r.f);
-        return k::continues(0x6D14,k::call_cycles);
+        return z.final_call(0x6D14);
     });
     add(registry,0x6D17,{k::core_final_at(0x6D2E)},{.scratch_stack=2,.inherited_stack=2},[](auto& z) {
         z.pop(0x6D17,z.r.a,z.r.f);
@@ -157,7 +178,7 @@ void register_cone(RoutineRegistry& registry) {
         add(registry,pc,{k::returned_at(final,2)},{.inherited_stack=2},[=](auto& z) {
             z.pop(pc,z.r.h,z.r.l);
             for (unsigned i=1;i<=advance;++i) z.increment_hl(pc+i);
-            return k::returns(final,k::return_cycles);
+            return z.final_return(final);
         });
     }
 }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "game/joins.h"
 #include "game/routines.h"
 #include "game/frame_updates.h"
 #include "game/common.h"
@@ -37,56 +38,50 @@
 #include "game/battle_damage.h"
 #include "game/battle_status.h"
 #include "game/field_magic.h"
+#include "game/menu_kit.h"
 #include "rom/rom.h"
-#include <bit>
 #include <stdexcept>
 
 namespace psmodern::game {
 namespace {
-void poll_controller(RoutineContext& context) {
-    auto& cpu=context.cpu();
-
-    // Read the active-low controller port at the original T3 offset. All ROM
-    // operands still come from the player's image, in their original bus order.
-    context.fetch_opcode(0x0339);
-    const auto port=context.read(0x033a);
-    const auto current=static_cast<std::uint8_t>(~context.read_port(
-        (cpu.af.uint8_values.at_1<<8)|port,10));
-    context.advance(1);
-    context.fetch_opcode(0x033b);
-    const auto low=context.read(0x033c), high=context.read(0x033d);
-    const auto held_address=static_cast<std::uint16_t>(low|(high<<8));
-    context.advance(10);
-
-    context.fetch_opcode(0x033e); context.advance(4);
-    context.fetch_opcode(0x033f); context.advance(4);
-    context.fetch_opcode(0x0340);
-    const auto previous=context.read(held_address);
-    context.advance(7);
-    context.fetch_opcode(0x0341); context.write(held_address,current); context.advance(7);
-    context.fetch_opcode(0x0342); context.advance(6);
-
-    // A held button is recorded every poll; an edge is recorded only once.
-    const auto pressed=static_cast<std::uint8_t>(current & ~previous);
-    context.fetch_opcode(0x0343); context.advance(4);
-    context.fetch_opcode(0x0344);
-    context.write(static_cast<std::uint16_t>(held_address+1),pressed);
-    context.advance(7);
-    cpu.bc.uint8_values.at_1=current;
-    cpu.hl.uint16_value=static_cast<std::uint16_t>(held_address+1);
-    cpu.af.uint8_values.at_1=pressed;
-    cpu.af.uint8_values.at_0=static_cast<std::uint8_t>((pressed&0xa8)|0x10|
-        (pressed==0 ? 0x40 : 0)|((std::popcount(pressed)&1)==0 ? 0x04 : 0));
-    // The native return restores PC, SP, MEMPTR, Q and core bookkeeping. The
-    // fixed 70-cycle bound includes these final ten cycles and the tenth fetch.
-    context.finish_return(0x0345);
+namespace k=menu_kit;
+// 00:0339, the controller poll, as an exact segment of the menu kit (port
+// input): every instruction rendered, its final return included.
+template<class Z> k::Exit poll_controller(Z& z) {
+    auto& r=z.r;
+    // Read the active-low controller port at the original T-state of the
+    // read (in a,(n): the port's high byte is A) and invert it: a set bit is
+    // a button held now. The held buttons' address is the operand at 00:033B.
+    z.bus().fetch(0x0339);
+    const auto port=k::pair(r.a,z.bus().read(0x033A));
+    r.a=z.bus().in(port,10);
+    r.wz=static_cast<std::uint16_t>(port+1);
+    z.bus().advance(1);
+    z.load_hl(0x033B);
+    z.complement_a(0x033E);
+    z.copy(0x033F,r.b,r.a);
+    // The buttons that changed since the last poll (xor with the held byte
+    // stored then), before the new held byte replaces it.
+    z.bus().fetch(0x0340);
+    r.a^=z.bus().read(z.hl());
+    kit::logic_flags(r,false);
+    z.bus().advance(7);
+    z.store_register_to_hl(0x0341,r.b);
+    // A held button is recorded every poll; an edge (pressed now, not held
+    // before) only once, in the byte after it.
+    z.increment_hl(0x0342);
+    z.and_register(0x0343,r.b);
+    z.store_register_to_hl(0x0344,r.a);
+    return z.final_return(0x0345);
 }
 }
 bool register_routines(RoutineRegistry& registry, std::string_view digest, const Options& options) {
     validate(options);
     try { (void)identify_digest(digest); }
     catch (const std::runtime_error&) { return false; }
-    registry.add(controller_poll_entry,[](const Machine&) { return 70; },poll_controller);
+    // Fixed cost: 70 cycles on every path, the final return included.
+    k::add_segment(registry,controller_poll_entry,k::segment(controller_poll_entry,{k::returned_at(0x0345)}),
+                   [](const Machine&) -> std::uint64_t { return 70; },[](auto& z) { return poll_controller(z); });
     register_random(registry);
     register_dispatch(registry);
     register_arithmetic(registry);
@@ -165,6 +160,8 @@ bool register_routines(RoutineRegistry& registry, std::string_view digest, const
     register_interaction_state(registry);
     register_interaction_story(registry);
     register_interaction_handoffs(registry);
+    // Joining instructions no recording reaches (milestone 14, game/joins.h).
+    register_joins(registry);
     return true;
 }
 }

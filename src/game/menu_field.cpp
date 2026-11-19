@@ -14,7 +14,7 @@
 // the next window. The windows, the choosing and the text are other parts'
 // routines, so every call into them is
 // where a segment ends: the segment does the arithmetic, the table lookups and
-// the tests around those calls and hands the call itself to the Z80 core. The
+// the tests around those calls and ends the segment on the call itself; the segment at the callee takes over. The
 // instruction after a call is the next entry (the registration at the end of
 // the file lists each one with the call it follows). The pieces between calls
 // are short (the longest is the inventory removal, one memory copy of at most
@@ -23,7 +23,7 @@
 // So below, each routine of the original is written as one C++ function per
 // stretch between two calls, in the order the player meets them, and the
 // original's jumps are plain if/else and early returns. A function that ends
-// "return call_at(x)" stops at the call at x; the core runs it. The addresses
+// "return call_at(z,x)" stops at the call at x; the callee's own segment runs it. The addresses
 // passed to the kit are the original's, because the kit reads each
 // instruction's operands and cycle cost from the player's ROM; no ROM value is
 // written here.
@@ -63,6 +63,7 @@
 //            two fixed places in two locations hand out an item, two scene
 //            bytes start a scene, anything else says "nothing here".
 //   00:28DB  chests: ask, open, trap damage, money and item reward.
+#include "game/joins.h"
 #include "game/menu.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
@@ -77,14 +78,13 @@ using mk::Exit;
 constexpr unsigned button_one=4;   // `bit 4,c`: the pressed-button byte's first-button bit (the ROM's constant)
 
 // The ways a segment ends. All of them name the original's address of the
-// final instruction and charge its cycles; the core runs the instruction.
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit call_if_at(std::uint16_t at, bool taken) { return mk::continues(at,taken ? mk::call_cycles : mk::untaken_call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
+// final instruction and charge its cycles; the next segment runs the instruction.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
 // `ld hl,nn` (the text to show) at `at`, then the bare call of the dialogue
 // routine right after it.
-template<class Z> Exit say(Z& z, std::uint16_t at) { z.load_hl(at); return call_at(static_cast<std::uint16_t>(at+3)); }
+template<class Z> Exit say(Z& z, std::uint16_t at) { z.load_hl(at); return call_at(z,static_cast<std::uint16_t>(at+3)); }
 
 // ---- The field menu: 00:1BE1-1C79 --------------------------------------------------------------
 // 00:1BE1: opening. The result byte of the last command (C29D) and the "what
@@ -94,7 +94,7 @@ template<class Z> Exit field_menu_open(Z& z) {
     z.xor_a(0x1BE1);
     z.store_a_direct(0x1BE2);                                        // C29D
     z.store_a_direct(0x1BE5);                                        // C2D8
-    return call_at(0x1BE8);                                          // 00:36DD
+    return call_at(z,0x1BE8);                                          // 00:36DD
 }
 // 00:1C15-1C23: leaving with the result in A, which waits on the stack. Unless the
 // result is 5 (the palette effect needs the party's picture), the first object
@@ -111,7 +111,7 @@ template<class Z> Exit field_menu_leave(Z& z) {
         z.load_immediate(0x1C1E,r.a);
         z.store_a_direct(0x1C20);                                    // C900
     }
-    return call_at(0x1C23);                                          // 00:30B7, then 00:36FB
+    return call_at(z,0x1C23);                                          // 00:30B7, then 00:36FB
 }
 // 00:1BEE: the top of the loop. A nonzero C2D8 (an item or a spell asks the menu
 // to end) leaves at once with that value. Otherwise the cursor goes to the first
@@ -126,11 +126,10 @@ template<class Z> Exit field_menu_loop(Z& z) {
     z.store_hl_direct(0x1BF7);                                       // the cursor position
     z.load_immediate(0x1BFA,r.a);
     z.store_a_direct(0x1BFC);                                        // the number of choices
-    return call_at(0x1BFF);                                          // 00:2D51
+    return call_at(z,0x1BFF);                                          // 00:2D51
 }
 // 00:1C02: after the choice. Button 1 leaves with FFh; anything else jumps
-// through the command table (STATS, MAGIC, ITEM, SEARCH, SAVE), which the core
-// does.
+// through the command table (STATS, MAGIC, ITEM, SEARCH, SAVE), which the segment at the target does.
 template<class Z> Exit field_menu_chosen(Z& z) {
     auto& r=z.r;
     z.test_bit(0x1C02,button_one,r.c);
@@ -139,36 +138,34 @@ template<class Z> Exit field_menu_chosen(Z& z) {
         return field_menu_leave(z);
     }
     z.load_hl(0x1C07);
-    return call_at(0x1C0A);                                          // GetPtrAndJump on the command table
+    return call_at(z,0x1C0A);                                          // the command table's jump
 }
 // 00:1C29-1C5B: the windows are closed; what ends the menu decides what comes next.
 // FFh and 0-2 return to the game. 3 and 4 open a door (the value goes to C). 5 is
 // a palette effect, then a scene. 6 is a sound, a second palette effect and the
-// menu opens again. 7 is a scene (the `jp c` at 00:1C5B, which the core decides);
+// menu opens again. 7 is a scene (the `jp c` at 00:1C5B, which the next segment decides);
 // 8 and up move the party through a map transfer record (00:1C5E, below).
 template<class Z> Exit field_menu_result(Z& z) {
     auto& r=z.r;
     z.pop(0x1C29,r.a,r.f);
     z.compare_immediate(0x1C2A);                                     // FFh
-    if (z.zero()) return mk::returns(0x1C2C,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x1C2C);
+    if (auto exit=z.final_return_if(0x1C2C,mk::Condition::z)) return *exit;
     z.compare_immediate(0x1C2D);                                     // 0-2
-    if (z.carry()) return mk::returns(0x1C2F,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x1C2F);
+    if (auto exit=z.final_return_if(0x1C2F,mk::Condition::c)) return *exit;
     z.compare_immediate(0x1C30);                                     // 3 or 4: the door
     if (!z.relative_if(0x1C32,!z.carry())) {
         z.copy(0x1C34,r.c,r.a);
-        return jump_at(0x1C35);                                      // 01:681B
+        return jump_at(z,0x1C35);                                      // 01:681B
     }
     z.compare_immediate(0x1C38);                                     // 5: the palette effect
-    if (!z.relative_if(0x1C3A,!z.carry())) return call_at(0x1C3C);   // 01:7C85
+    if (!z.relative_if(0x1C3A,!z.carry())) return call_at(z,0x1C3C);   // 01:7C85
     z.compare_immediate(0x1C45);                                     // 6: a sound request, the second effect
     if (!z.relative_if(0x1C47,!z.carry())) {
         z.load_immediate(0x1C49,r.a);
-        return call_at(0x1C4B);                                      // 00:0C97 (sound)
+        return call_at(z,0x1C4B);                                      // 00:0C97 (sound)
     }
     z.compare_immediate(0x1C59);                                     // 7 jumps to the scene
-    return mk::jump_if_exit(0x1C5B);
+    return z.final_jump_if(0x1C5B,mk::Condition::c);
 }
 // 00:1C51: after the second palette effect of result 6: C2DC is set to FFh and
 // the whole menu opens again (a jump back to 00:1BE1).
@@ -199,17 +196,17 @@ template<class Z> Exit field_menu_transfer(Z& z) {
     z.copy(0x1C74,r.l,r.a);
     z.load_de(0x1C75);
     z.add_to_hl(0x1C78,z.de());                                      // into the table of records
-    return jump_at(0x1C79);                                          // MapApplyTransferRecord
+    return jump_at(z,0x1C79);                                          // applies the map transfer record
 }
 
 // ---- STATS: 00:1CA1-1CDC -----------------------------------------------------------------------
-// Closing is a jump to the member-choice close (00:36BB), which the core runs.
-template<class Z> Exit stats_close(Z&) { return jump_at(0x1CDC); }
+// Closing is a jump to the member-choice close (00:36BB), which its own segment runs.
+template<class Z> Exit stats_close(Z& z) { return jump_at(z,0x1CDC); }
 // 00:1CA4: after the member choice (00:3665). Button 1 closes.
 template<class Z> Exit stats_chosen(Z& z) {
     z.test_bit(0x1CA4,button_one,z.r.c);
     if (z.relative_if(0x1CA6,!z.zero())) return stats_close(z);
-    return call_at(0x1CA8);                                          // 00:188E: is the member alive?
+    return call_at(z,0x1CA8);                                          // 00:188E: is the member alive?
 }
 // 00:1CAB: a member who is not alive (the check answered zero and said so itself)
 // closes. Otherwise the member number is kept on the stack while the equipment
@@ -217,7 +214,7 @@ template<class Z> Exit stats_chosen(Z& z) {
 template<class Z> Exit stats_alive(Z& z) {
     if (z.relative_if(0x1CAB,z.zero())) return stats_close(z);
     z.push(0x1CAD,z.r.a,z.r.f);
-    return call_at(0x1CAE);                                          // 00:3707
+    return call_at(z,0x1CAE);                                          // 00:3707
 }
 // 00:1CB7: after the wait. The member's record is 16 bytes wide: the count of
 // battle spells it knows is one byte of it. A member who knows none goes straight
@@ -238,12 +235,12 @@ template<class Z> Exit stats_after_wait(Z& z) {
     z.copy(0x1CC1,r.l,r.a);
     z.load_from_hl(0x1CC2,r.a);                                      // battle spells known
     z.or_a(0x1CC3);
-    if (z.relative_if(0x1CC4,z.zero())) return call_at(0x1CD6);      // 00:38C1: close the status window
+    if (z.relative_if(0x1CC4,z.zero())) return call_at(z,0x1CD6);      // 00:38C1: close the status window
     z.copy(0x1CC6,r.b,r.a);
     z.copy(0x1CC7,r.a,r.c);
     z.compare_immediate(0x1CC8);                                     // the fourth member
     if (!z.relative_if(0x1CCA,!z.zero())) z.decrement(0x1CCC,r.a);
-    return call_at(0x1CCD);                                          // 00:3478
+    return call_at(z,0x1CCD);                                          // 00:3478
 }
 
 // ---- SAVE: 00:1CDF-1D4C ------------------------------------------------------------------------
@@ -257,7 +254,7 @@ template<class Z> Exit save_second_text(Z& z) { return say(z,0x1CE8); }
 // (00:39DD, then 00:3464). "Yes" keeps the game mode in C316 and shows a third
 // text.
 template<class Z> Exit save_answer(Z& z) {
-    if (z.relative_if(0x1CF1,!z.zero())) return call_at(0x1D3B);     // 00:39DD
+    if (z.relative_if(0x1CF1,!z.zero())) return call_at(z,0x1D3B);     // 00:39DD
     z.load_a_direct(0x1CF3);                                         // the game mode
     z.store_a_direct(0x1CF6);                                        // C316
     return say(z,0x1CF9);
@@ -265,7 +262,7 @@ template<class Z> Exit save_answer(Z& z) {
 // 00:1CFF: after the third text. The slot's base address in cartridge RAM is
 // 8000h plus the dialogue number (the slot the window chose) times 400h; DE
 // gets it and 00:073A reads the slot's used flag, answering "zero" for unused.
-// Then the native stretch 00:1D0E-1D32 clears the flag, copies the 1,024 bytes
+// Then the stretch 00:1D0E-1D32 clears the flag, copies the 1,024 bytes
 // at C300h into the slot and sets the flag again (the cartridge RAM is switched
 // in and out for each write, which the automap's backup watches).
 template<class Z> Exit save_slot_address(Z& z) {
@@ -278,7 +275,7 @@ template<class Z> Exit save_slot_address(Z& z) {
     z.add_to_hl(0x1D07,z.hl());                                      // times 400h
     z.set_bit(0x1D08,7,r.h);                                         // plus 8000h
     z.exchange_de_hl(0x1D0A);
-    return call_at(0x1D0B);                                          // 00:073A
+    return call_at(z,0x1D0B);                                          // 00:073A
 }
 // 00:1D33: after the copy; the zero flag is still the one the used-flag read left.
 // A slot that was in use shows a fourth text and closes the slot window and the
@@ -293,7 +290,7 @@ template<class Z> Exit leave_saved_game(Z& z) {
     z.store_to_hl(0x1D48);                                           // game mode 10h
     z.pop(0x1D4A,r.h,r.l);
     z.pop(0x1D4B,r.h,r.l);
-    return return_at(0x1D4C);
+    return return_at(z,0x1D4C);
 }
 
 template<class Z> Exit save_done(Z& z) {
@@ -302,16 +299,16 @@ template<class Z> Exit save_done(Z& z) {
 
 // ---- MAGIC: 00:1D4D-1DDB -----------------------------------------------------------------------
 // The ends. 00:1DBA closes the member choice window and redraws the party window
-// (the core does both); 00:1DB7 closes the spell list first. A message that
+// (their own segments do both); 00:1DB7 closes the spell list first. A message that
 // refuses the choice is shown (the call at 00:1DC8) and the dialogue and the
-// member window are closed after it by the core.
-template<class Z> Exit magic_leave(Z&) { return call_at(0x1DBA); }
-template<class Z> Exit magic_close_list(Z&) { return call_at(0x1DB7); }
+// member window are closed after it by the segment that follows.
+template<class Z> Exit magic_leave(Z& z) { return call_at(z,0x1DBA); }
+template<class Z> Exit magic_close_list(Z& z) { return call_at(z,0x1DB7); }
 // 00:1D50: after the member choice (00:3665). Button 1 leaves.
 template<class Z> Exit magic_chosen(Z& z) {
     z.test_bit(0x1D50,button_one,z.r.c);
     if (z.jump_if(0x1D52,!z.zero())) return magic_leave(z);
-    return call_at(0x1D55);                                          // 00:188E: is the member alive?
+    return call_at(z,0x1D55);                                          // 00:188E: is the member alive?
 }
 // 00:1D58: after the alive check. A dead member leaves. Member 2 (Odin) is told
 // he cannot cast (the text at 00:1DC5). For anyone else the member is
@@ -326,7 +323,7 @@ template<class Z> Exit magic_member(Z& z) {
     z.compare_immediate(0x1D5B);                                     // member 2
     if (z.jump_if(0x1D5D,z.zero())) {
         z.load_hl(0x1DC5);
-        return call_at(0x1DC8);                                      // the text; the core closes the windows
+        return call_at(z,0x1DC8);                                      // the text; the next segment closes the windows
     }
     z.copy(0x1D60,r.c,r.a);
     z.store_a_direct(0x1D61);                                        // C2C2, the current character
@@ -343,7 +340,7 @@ template<class Z> Exit magic_member(Z& z) {
     if (z.jump_if(0x1D72,z.zero())) {                                // none
         z.load_hl(0x1DC0);
         z.relative(0x1DC3);
-        return call_at(0x1DC8);
+        return call_at(z,0x1DC8);
     }
     z.copy(0x1D75,r.b,r.a);
     z.copy(0x1D76,r.a,r.c);
@@ -353,7 +350,7 @@ template<class Z> Exit magic_member(Z& z) {
     z.add_immediate(0x1D7D);
     z.push(0x1D7F,r.b,r.c);
     z.push(0x1D80,r.h,r.l);
-    return call_at(0x1D81);                                          // 00:3478
+    return call_at(z,0x1D81);                                          // 00:3478
 }
 // 00:1D84: the list is open. The cursor goes to its first row, and the number of
 // choices is the member's count of map spells (from the record pointer held on
@@ -366,7 +363,7 @@ template<class Z> Exit magic_list_open(Z& z) {
     z.load_from_hl(0x1D8B,r.a);
     z.decrement(0x1D8C,r.a);
     z.store_a_direct(0x1D8D);                                        // the number of choices
-    return call_at(0x1D90);
+    return call_at(z,0x1D90);
 }
 // 00:1D93: the spell is chosen. Button 1 closes the list. Otherwise the choice
 // (in A) and the member's page (the popped C) index the table of spells for the
@@ -392,20 +389,19 @@ template<class Z> Exit magic_spell_chosen(Z& z) {
     z.load_from_hl(0x1DA6,r.a);
     z.and_immediate(0x1DA7);                                         // the low five bits
     z.copy(0x1DA9,r.b,r.a);
-    return call_at(0x1DAA);                                          // 00:1B87
+    return call_at(z,0x1DAA);                                          // 00:1B87
 }
 // 00:1DAD: too few points shows a text (00:1DD1) and then closes the list;
-// otherwise the spell's own routine runs through the jump table (the core's
-// dispatcher at 00:00E6, then the registered spell-effect family).
+// otherwise the spell's own routine runs through the jump table (the dispatcher at 00:00E6, then the registered spell-effect family).
 template<class Z> Exit magic_cost_checked(Z& z) {
     auto& r=z.r;
     if (z.jump_if(0x1DAD,z.carry())) {
         z.load_hl(0x1DD1);
-        return call_at(0x1DD4);
+        return call_at(z,0x1DD4);
     }
     z.copy(0x1DB0,r.a,r.b);
     z.load_hl(0x1DB1);
-    return call_at(0x1DB4);
+    return call_at(z,0x1DB4);
 }
 // 00:1DDA: after the "not enough points" text is closed, the list is closed too
 // (a short jump to 00:1DB7).
@@ -421,8 +417,8 @@ template<class Z> Exit magic_after_refusal(Z& z) {
 template<class Z> Exit item_start(Z& z) {
     z.load_a_direct(0x2168);
     z.or_a(0x216B);
-    if (z.jump_if(0x216C,!z.zero())) return call_at(0x2175);
-    return call_at(0x216F);
+    if (z.jump_if(0x216C,!z.zero())) return call_at(z,0x2175);
+    return call_at(z,0x216F);
 }
 // 00:21C3: the members are tried from number 0 to 3 (B counts 4 down to 1, so
 // A = 4 - B) with the routine that tests whether a member is alive; it answers
@@ -432,7 +428,7 @@ template<class Z> Exit item_next_member(Z& z) {
     z.copy(0x21C3,r.a,r.b);
     z.subtract_immediate(0x21C4);
     z.negate(0x21C6);
-    return call_at(0x21C8);
+    return call_at(z,0x21C8);
 }
 template<class Z> Exit item_first_member(Z& z) {                     // 00:21C1
     z.load_immediate(0x21C1,z.r.b);
@@ -447,8 +443,8 @@ template<class Z> Exit item_first_member(Z& z) {                     // 00:21C1
 template<class Z> Exit item_chosen(Z& z) {
     auto& r=z.r;
     z.test_bit(0x2178,button_one,r.c);
-    if (z.jump_if(0x217A,!z.zero())) return call_at(0x21F5);         // 00:3656: close the list
-    z.load_a_direct(0x217D);                                         // CurrentItem
+    if (z.jump_if(0x217A,!z.zero())) return call_at(z,0x21F5);         // 00:3656: close the list
+    z.load_a_direct(0x217D);                                         // the selected item's index
     z.compare_immediate(0x2180);
     if (z.relative_if(0x2182,z.carry())) return item_first_member(z);
     z.compare_immediate(0x2184);
@@ -466,15 +462,15 @@ template<class Z> Exit item_chosen(Z& z) {
     z.compare_immediate(0x2198);                                     // 8: the hovercraft
     if (z.relative_if(0x219A,z.zero())) {
         z.push(0x21A3,r.b,r.c);
-        return call_at(0x21A4);                                      // 01:7732
+        return call_at(z,0x21A4);                                      // 01:7732
     }
     z.push(0x219C,r.b,r.c);
-    return call_at(0x219D);                                          // 01:7656
+    return call_at(z,0x219D);                                          // 01:7656
 }
 // 00:21A8: after the search for a spot, whose zero flag says it found one. With a
 // spot the party is put on foot (C30E cleared), the menu is told to end (C2D8 set
 // to FFh) and the "got out" text (00:21B5) is chosen; without one the "no room"
-// text (00:21A8) stays. The core shows it and closes the list.
+// text (00:21A8) stays. The next segments show it and close the list.
 template<class Z> Exit item_vehicle_result(Z& z) {
     auto& r=z.r;
     z.load_hl(0x21A8);
@@ -485,7 +481,7 @@ template<class Z> Exit item_vehicle_result(Z& z) {
         z.store_a_direct(0x21B2);                                    // C2D8
         z.load_hl(0x21B5);
     }
-    return call_at(0x21B8);
+    return call_at(z,0x21B8);
 }
 template<class Z> Exit item_ground_vehicle_done(Z& z) {              // 00:21A0, after 01:7656
     z.pop(0x21A0,z.r.b,z.r.c);
@@ -502,11 +498,11 @@ template<class Z> Exit item_hovercraft_done(Z& z) {                  // 00:21A7,
 template<class Z> Exit item_member_found(Z& z) {
     if (z.jump_if(0x21CB,!z.zero())) {
         z.store_a_direct(0x21D3);
-        return call_at(0x21D6);                                      // 00:3759
+        return call_at(z,0x21D6);                                      // 00:3759
     }
     if (z.decrement_jump(0x21CE)) return item_next_member(z);
     (void)z.jump(0x21D0);
-    return call_at(0x21F5);
+    return call_at(z,0x21F5);
 }
 // 00:21D9: the action window is open; the cursor goes to its first row, three
 // choices (use, equip, drop; the count is the last index), and the cursor loop
@@ -516,23 +512,23 @@ template<class Z> Exit item_action_window(Z& z) {
     z.store_hl_direct(0x21DC);                                       // the cursor position
     z.load_immediate(0x21DF,z.r.a);
     z.store_a_direct(0x21E1);                                        // the number of choices
-    return call_at(0x21E4);                                          // 00:2D51
+    return call_at(z,0x21E4);                                          // 00:2D51
 }
 // 00:21E7: button 1 closes the action window (00:376B) without acting;
 // otherwise the choice goes through the table (use 00:2201, equip 00:26C8, drop
-// 00:2752), run by the core, which comes back to close the window.
+// 00:2752), run by the segment at the target, which comes back to close the window.
 template<class Z> Exit item_action_chosen(Z& z) {
     z.test_bit(0x21E7,button_one,z.r.c);
-    if (z.jump_if(0x21E9,!z.zero())) return call_at(0x21F2);
+    if (z.jump_if(0x21E9,!z.zero())) return call_at(z,0x21F2);
     z.load_hl(0x21EC);
-    return call_at(0x21EF);
+    return call_at(z,0x21EF);
 }
 // 00:2201: USE. Only a jump through the table of the 64 item effects, indexed by
 // the item number; the effect families own the selected action.
 template<class Z> Exit item_use(Z& z) {
     z.load_a_direct(0x2201);
     z.load_hl(0x2204);
-    return jump_at(0x2207);
+    return jump_at(z,0x2207);
 }
 
 // ---- EQUIP: 00:26C8-2750 and DROP: 00:2752-2773 ------------------------------------------------
@@ -547,7 +543,7 @@ template<class Z> void item_property(Z& z, std::uint16_t at) {
     auto& r=z.r;
     z.load_hl(at);
     z.store_to_hl(at+3);
-    z.load_a_direct(at+5);                                           // CurrentItem
+    z.load_a_direct(at+5);                                           // the selected item's index
     z.load_hl(at+8);
     z.add_register(at+11,r.l);
     z.copy(at+12,r.l,r.a);
@@ -571,10 +567,10 @@ template<class Z> Exit equip_start(Z& z) {
         z.copy(0x26EB,r.d,r.a);
         z.push(0x26EC,r.d,r.e);
         z.push(0x26ED,r.h,r.l);
-        return call_at(0x26EE);                                      // 00:3665
+        return call_at(z,0x26EE);                                      // 00:3665
     }
     z.load_hl(0x26E2);
-    return call_at(0x26E5);
+    return call_at(z,0x26E5);
 }
 // 00:26F1: the member is chosen; button 1 ends the equip (00:2741). Otherwise
 // the alive check 00:188E is called.
@@ -583,8 +579,8 @@ template<class Z> Exit equip_member_chosen(Z& z) {
     z.pop(0x26F1,r.h,r.l);
     z.pop(0x26F2,r.d,r.e);
     z.test_bit(0x26F3,button_one,r.c);
-    if (z.jump_if(0x26F5,!z.zero())) return call_at(0x2741);         // the end of equip: UpdateCharStats
-    return call_at(0x26F8);
+    if (z.jump_if(0x26F5,!z.zero())) return call_at(z,0x2741);         // the end of equip: the stats update
+    return call_at(z,0x26F8);
 }
 // 00:26FB: a dead member ends it. The member (C2C2) is tested against the
 // allowed set by rotating the set right member + 1 times: the bit that falls
@@ -595,7 +591,7 @@ template<class Z> Exit equip_member_chosen(Z& z) {
 // place; the old item is held on the stack across the "equipped" text.
 template<class Z> Exit equip_member_alive(Z& z) {
     auto& r=z.r;
-    if (z.jump_if(0x26FB,z.zero())) return call_at(0x2741);
+    if (z.jump_if(0x26FB,z.zero())) return call_at(z,0x2741);
     z.store_a_direct(0x26FE);                                        // C2C2
     z.copy(0x2701,r.c,r.a);
     z.increment(0x2702,r.a);
@@ -622,31 +618,31 @@ template<class Z> Exit equip_member_alive(Z& z) {
     z.load_hl_direct(0x271E);                                        // C29B
     z.store_register_to_hl(0x2721,r.a);                              // into the slot of the new one
     z.push(0x2722,r.a,r.f);
-    z.load_a_direct(0x2723);                                         // CurrentItem
+    z.load_a_direct(0x2723);                                         // the selected item's index
     z.store_a_to_pair(0x2726,z.de());                                // equipped
     z.load_hl(0x2727);
-    return call_at(0x272A);
+    return call_at(z,0x272A);
 }
 // 00:272D: the equipment window (00:3707) of the current character.
 template<class Z> Exit equip_show(Z& z) {
     z.load_a_direct(0x272D);
-    return call_at(0x2730);
+    return call_at(z,0x2730);
 }
 // 00:273C: the equip is done and the dialogue closed. If the old item was
-// nothing (0), the slot it left in the list is removed (00:277C, the core).
+// nothing (0), the slot it left in the list is removed (00:277C, a segment of its own).
 template<class Z> Exit equip_old_item(Z& z) {
     z.pop(0x273C,z.r.a,z.r.f);
     z.or_a(0x273D);
-    return call_if_at(0x273E,z.zero());
+    return z.final_call_if(0x273E,mk::Condition::z);
 }
 // 00:2750: after the refusal text. Then the common end: the member's figures
 // are recomputed (00:2741) and the member choice closed.
 template<class Z> Exit equip_after_refusal(Z& z) {
     z.relative(0x2750);
-    return call_at(0x2741);
+    return call_at(z,0x2741);
 }
 // 00:2752: DROP. An item whose property bit 2 is set cannot be dropped (the
-// text at 00:2767); any other shows another (00:2770) and the core then
+// text at 00:2767); any other shows another (00:2770) and the next segment then
 // removes it (00:277C).
 template<class Z> Exit drop_item(Z& z) {
     item_property(z,0x2752);
@@ -683,7 +679,7 @@ template<class Z> Exit remove_item(Z& z) {
     z.copy(0x279A,r.l,r.a);
     z.store_to_hl(0x279B);                                           // zero into the new last slot
     z.pop(0x279D,r.b,r.c);
-    return return_at(0x279E);
+    return return_at(z,0x279E);
 }
 template<class Z> Exit remove_selected_item(Z& z) {                  // 00:277C
     z.load_hl_direct(0x277C);
@@ -692,7 +688,7 @@ template<class Z> Exit remove_selected_item(Z& z) {                  // 00:277C
 // Adding the current item (00:279F). A list with room (fewer than 24) takes it at
 // the end, raises the count and asks for the pick-up sound. A full list tells
 // so and asks whether to swap (a text, then yes/no, then a second yes/no); the
-// questions are the core's, and the answers pick up below.
+// questions belong to other segments, and the answers pick up below.
 // 00:27BC: the full list's first text.
 template<class Z> Exit add_item_full(Z& z) { return say(z,0x27BC); }
 template<class Z> Exit add_item(Z& z) {
@@ -703,20 +699,20 @@ template<class Z> Exit add_item(Z& z) {
     z.load_hl(0x27A6);
     z.add_register(0x27A9,r.l);
     z.copy(0x27AA,r.l,r.a);
-    z.load_a_direct(0x27AB);                                         // CurrentItem
+    z.load_a_direct(0x27AB);                                         // the selected item's index
     z.store_register_to_hl(0x27AE,r.a);                              // at the end of the list
     z.load_a_direct(0x27AF);
     z.increment(0x27B2,r.a);
     z.store_a_direct(0x27B3);                                        // the count plus one
     z.load_immediate(0x27B6,r.a);
     z.store_a_direct(0x27B8);                                        // the sound request
-    return return_at(0x27BB);
+    return return_at(z,0x27BB);
 }
 // 00:27D8: swapping. The item to add is held on the stack, a text asks which item
-// to give up, and the item list (00:34D5, closed by 00:3656) is shown by the
-// core.
+// to give up, and the item list (00:34D5, closed by 00:3656) is shown by its
+// own segment.
 template<class Z> Exit add_item_replace(Z& z) {
-    z.load_a_direct(0x27D8);                                         // CurrentItem
+    z.load_a_direct(0x27D8);                                         // the selected item's index
     z.push(0x27DB,z.r.a,z.r.f);
     return say(z,0x27DC);
 }
@@ -731,7 +727,7 @@ template<class Z> Exit add_item_first_answer(Z& z) {
 template<class Z> Exit add_item_second_answer(Z& z) {
     if (z.relative_if(0x27D0,!z.zero())) return add_item_replace(z);
     z.load_hl(0x27D2);
-    return jump_at(0x27D5);
+    return jump_at(z,0x27D5);
 }
 // 00:27E8: after the player chose which item to give up. Button 1 puts the
 // item to add back and starts again from the first text. Otherwise the chosen
@@ -742,7 +738,7 @@ template<class Z> Exit add_item_replace_chosen(Z& z) {
     z.test_bit(0x27E8,button_one,r.c);
     if (z.relative_if(0x27EA,!z.zero())) {
         z.pop(0x2827,r.a,r.f);
-        z.store_a_direct(0x2828);                                    // CurrentItem
+        z.store_a_direct(0x2828);                                    // the selected item's index
         (void)z.jump(0x282B);
         return add_item_full(z);
     }
@@ -755,7 +751,7 @@ template<class Z> Exit add_item_replace_chosen(Z& z) {
 // the choice starts again.
 template<class Z> Exit add_item_not_droppable(Z& z) {
     z.pop(0x2807,z.r.a,z.r.f);
-    z.store_a_direct(0x2808);                                        // CurrentItem
+    z.store_a_direct(0x2808);                                        // the selected item's index
     (void)z.jump(0x280B);
     return add_item_replace(z);
 }
@@ -765,13 +761,13 @@ template<class Z> Exit add_item_not_droppable(Z& z) {
 template<class Z> Exit add_item_swapped(Z& z) {
     auto& r=z.r;
     z.pop(0x2814,r.a,r.f);
-    z.store_a_direct(0x2815);                                        // CurrentItem
+    z.store_a_direct(0x2815);                                        // the selected item's index
     z.load_hl_direct(0x2818);                                        // C29B
     z.store_register_to_hl(0x281B,r.a);
     z.load_immediate(0x281C,r.a);
     z.store_a_direct(0x281E);                                        // the sound request
     z.load_hl(0x2821);
-    return jump_at(0x2824);
+    return jump_at(z,0x2824);
 }
 // 00:282E: does the party carry the item in A? The 24 slots are compared one by
 // one; it returns zero as soon as one matches (a taken `ret z`) and nonzero after
@@ -782,35 +778,34 @@ template<class Z> Exit find_item(Z& z) {
     z.load_immediate(0x2831,r.b);
     do {
         z.compare_from_hl(0x2833);
-        if (z.zero()) return mk::returns(0x2834,mk::taken_conditional_return_cycles);
-        z.return_not_taken(0x2834);
+        if (auto exit=z.final_return_if(0x2834,mk::Condition::z)) return *exit;
         z.increment_pair(0x2835,r.h,r.l);
     } while (z.decrement_jump(0x2836));
-    return return_at(0x2838);
+    return return_at(z,0x2838);
 }
 
 // ---- SEARCH: 00:2839-28D5 ----------------------------------------------------------------------
 // 00:28C5: nothing found. The scene byte (C2DB) decides: A2h and A3h are two scenes
-// (jumps that the core decides, at 00:28CA and 00:28CF); anything else shows the
+// (jumps that the next segment decides, at 00:28CA and 00:28CF); anything else shows the
 // text "nothing here" (00:28D2).
 template<class Z> Exit search_nothing(Z& z) {
     z.load_a_direct(0x28C5);
     z.compare_immediate(0x28C8);
-    return mk::jump_if_exit(0x28CA);
+    return z.final_jump_if(0x28CA,mk::Condition::z);
 }
 template<class Z> Exit search_second_scene(Z& z) {                   // 00:28CD
     z.compare_immediate(0x28CD);
-    return mk::jump_if_exit(0x28CF);
+    return z.final_jump_if(0x28CF,mk::Condition::z);
 }
 template<class Z> Exit search_nothing_text(Z& z) { return say(z,0x28D2); }
 // 00:28B1: an item was found (A): it becomes the current item and the party is
 // asked whether it already carries it (00:282E).
 template<class Z> Exit search_found(Z& z) {
     z.store_a_direct(0x28B1);
-    return call_at(0x28B4);
+    return call_at(z,0x28B4);
 }
 // 00:28B7: after that check. Already carried is "nothing found"; otherwise the
-// text of a find (00:28B9), and then the add routine (the core).
+// text of a find (00:28B9), and then the add routine (its own segment).
 template<class Z> Exit search_found_checked(Z& z) {
     if (z.relative_if(0x28B7,z.zero())) return search_nothing(z);
     return say(z,0x28B9);
@@ -830,7 +825,7 @@ template<class Z> Exit search_start(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x2839);                                         // C800
     z.compare_immediate(0x283C);
-    if (!z.relative_if(0x283E,!z.zero())) return call_at(0x2840);    // the chest: 00:30B7
+    if (!z.relative_if(0x283E,!z.zero())) return call_at(z,0x2840);    // the chest: 00:30B7
     z.load_hl_direct(0x284F);                                        // C305
     z.copy(0x2852,r.a,r.l);
     z.add_immediate(0x2853);
@@ -895,7 +890,7 @@ template<class Z> Exit search_start(Z& z) {
     if (z.relative_if(0x28AF,z.zero())) return search_nothing(z);
     return search_found(z);
 }
-template<class Z> Exit search_chest_text(Z& z) { return say(z,0x2843); }   // 00:2843, then the core runs the chest
+template<class Z> Exit search_chest_text(Z& z) { return say(z,0x2843); }   // 00:2843, then the chest segment runs
 
 // ---- CHESTS: 00:28DB-294D, the trap 00:2950-2960 and its member step 00:2966-2979 ----------------
 // 00:28DB: asks "open it?" (a text, then the yes/no window 00:37A3).
@@ -903,7 +898,7 @@ template<class Z> Exit chest_ask(Z& z) { return say(z,0x28DB); }
 // 00:28E4: the answer is kept while the yes/no window is closed (00:37C3).
 template<class Z> Exit chest_hold_answer(Z& z) {
     z.push(0x28E4,z.r.a,z.r.f);
-    return call_at(0x28E5);
+    return call_at(z,0x28E5);
 }
 // 00:28EB: after the dialogue is closed. Anything but "yes" returns. "Yes"
 // requests the chest-opening sound, marks the chest done by writing FFh through
@@ -913,8 +908,7 @@ template<class Z> Exit chest_open(Z& z) {
     auto& r=z.r;
     z.pop(0x28EB,r.a,r.f);
     z.or_a(0x28EC);
-    if (!z.zero()) return mk::returns(0x28ED,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x28ED);
+    if (auto exit=z.final_return_if(0x28ED,mk::Condition::nz)) return *exit;
     z.load_immediate(0x28EE,r.a);
     z.store_a_direct(0x28F0);                                        // the sound request
     z.load_hl_direct(0x28F3);                                        // C2E1
@@ -922,14 +916,14 @@ template<class Z> Exit chest_open(Z& z) {
     z.load_immediate(0x28F8,r.a);
     z.store_a_direct(0x28FA);                                        // C80A
     z.push(0x28FD,r.b,r.c);
-    return call_at(0x28FE);                                          // 00:18B9
+    return call_at(z,0x28FE);                                          // 00:18B9
 }
 // 00:2901: the trap runs unless the object left C80F at 3Dh (a safe chest).
 template<class Z> Exit chest_trap_test(Z& z) {
     z.pop(0x2901,z.r.b,z.r.c);
     z.load_a_direct(0x2902);                                         // C80F
     z.compare_immediate(0x2905);
-    return call_if_at(0x2907,!z.zero());                             // 00:2950
+    return z.final_call_if(0x2907,mk::Condition::nz);                             // 00:2950
 }
 // The end of a chest: the first sprite's Y byte is set to the end marker (the party
 // is drawn again by the map), and the dialogue is closed by a jump (00:3464).
@@ -937,16 +931,16 @@ template<class Z> Exit chest_trap_test(Z& z) {
 template<class Z> Exit chest_end_empty(Z& z) {                       // 00:291D
     z.load_immediate(0x291D,z.r.a);
     z.store_a_direct(0x291F);                                        // C900
-    return jump_at(0x2922);
+    return jump_at(z,0x2922);
 }
 template<class Z> Exit chest_end_reward(Z& z) {                      // 00:2948
     z.load_immediate(0x2948,z.r.a);
     z.store_a_direct(0x294A);                                        // C900
-    return jump_at(0x294D);
+    return jump_at(z,0x294D);
 }
 // 00:290A: the reward is the money (C2DD) and the item (C2DF) the object left. Both
 // zero shows the "empty" text (00:2917). Otherwise the money, also kept as the
-// dialogue number, goes to the party (00:297A, the core).
+// dialogue number, goes to the party (00:297A, its own segment).
 template<class Z> Exit chest_reward(Z& z) {
     z.load_hl_direct(0x290A);
     z.copy(0x290D,z.r.a,z.r.h);
@@ -958,17 +952,17 @@ template<class Z> Exit chest_reward(Z& z) {
     }
     z.load_hl_direct(0x2925);
     z.store_hl_direct(0x2928);                                       // the dialogue number
-    return call_at(0x292B);
+    return call_at(z,0x292B);
 }
 // 00:292E: the amount (still in HL) is announced unless it is zero.
 template<class Z> Exit chest_money_text(Z& z) {
     z.copy(0x292E,z.r.a,z.r.h);
     z.or_register(0x292F,z.r.l);
     z.load_hl(0x2930);
-    return call_if_at(0x2933,!z.zero());
+    return z.final_call_if(0x2933,mk::Condition::nz);
 }
 // 00:2936: the item (C2DF) becomes the current one; none skips to the end.
-// Otherwise it is announced (00:293F) and added (00:279F, the core).
+// Otherwise it is announced (00:293F) and added (00:279F, its own segment).
 template<class Z> Exit chest_item(Z& z) {
     z.load_a_direct(0x2936);
     z.store_a_direct(0x2939);
@@ -984,22 +978,22 @@ template<class Z> Exit chest_item(Z& z) {
 template<class Z> Exit trap_member(Z& z) {                           // 00:2959
     z.copy(0x2959,z.r.a,z.r.b);
     z.decrement(0x295A,z.r.a);
-    return call_at(0x295B);
+    return call_at(z,0x295B);
 }
 template<class Z> Exit trap_start(Z& z) {
     z.load_a_direct(0x2950);                                         // C80F
     z.compare_immediate(0x2953);
-    if (z.relative_if(0x2955,!z.zero())) return call_at(0x2961);     // one member, by chance
+    if (z.relative_if(0x2955,!z.zero())) return call_at(z,0x2961);     // one member, by chance
     z.load_immediate(0x2957,z.r.b);
     return trap_member(z);
 }
 template<class Z> Exit trap_next_member(Z& z) {                      // 00:295E
     if (z.decrement_jump(0x295E)) return trap_member(z);
-    return return_at(0x2960);
+    return return_at(z,0x2960);
 }
 template<class Z> Exit trap_random_member(Z& z) {                    // 00:2964
     z.and_immediate(0x2964);
-    return call_at(0x2966);
+    return call_at(z,0x2966);
 }
 // 00:2969: after the alive test. A dead member is not hurt (a taken `ret z`).
 // Otherwise the member's current hit points (the byte after the status byte) are
@@ -1007,14 +1001,13 @@ template<class Z> Exit trap_random_member(Z& z) {                    // 00:2964
 // third rounded down.
 template<class Z> Exit trap_hurt(Z& z) {
     auto& r=z.r;
-    if (z.zero()) return mk::returns(0x2969,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x2969);
+    if (auto exit=z.final_return_if(0x2969,mk::Condition::z)) return *exit;
     z.increment_pair(0x296A,r.h,r.l);
     z.push(0x296B,r.h,r.l);
     z.load_from_hl(0x296C,r.h);
     z.load_immediate(0x296D,r.l);
     z.load_immediate(0x296F,r.e);
-    return call_at(0x2971);
+    return call_at(z,0x2971);
 }
 // 00:2974: that third is taken off the member's hit points, so the trap never
 // kills (a third of the points is always less than all of them).
@@ -1025,7 +1018,7 @@ template<class Z> Exit trap_apply(Z& z) {
     z.load_from_hl(0x2976,r.a);
     z.subtract_register(0x2977,r.d);
     z.store_register_to_hl(0x2978,r.a);
-    return return_at(0x2979);
+    return return_at(z,0x2979);
 }
 
 // ---- Registration ---------------------------------------------------------------------------------
@@ -1148,5 +1141,104 @@ void register_all(RoutineRegistry& registry) {
 
 void register_menu_field(RoutineRegistry& registry) {
     register_all(registry);
+}
+
+// ---- The joining segments between the segments above (milestone 14) -----------------------------
+// The field menu: the status, magic, item, equipment, drop, search and chest steps.
+// Each is one call or jump that follows the final of a segment above (or the first instruction of a
+// unit): the next window routine or dialogue step, which has a segment of its own. Registered with
+// the menu continuations (register_menu_remainder).
+void register_menu_field_joins(RoutineRegistry& registry) {
+    auto call=[&](std::uint16_t at,RoutineEntry unit) {
+        auto spec=mk::segment(unit,{mk::core_final_at(at)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,{0,at},std::move(spec),[](const Machine&) { return mk::call_cycles; },
+                        [at](auto& z) -> Exit { return z.final_call(at); });
+    };
+    auto jump=[&](std::uint16_t at,RoutineEntry unit) {
+        auto spec=mk::segment(unit,{mk::core_final_at(at)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,{0,at},std::move(spec),[](const Machine&) { return mk::jump_cycles; },
+                        [at](auto& z) -> Exit { return z.final_jump(at); });
+    };
+    call(0x1BEB,menu::field_menu_unit);   // then: party window
+    call(0x1C0D,menu::field_menu_unit);   // then: field menu window redraw
+    jump(0x1C10,menu::field_menu_unit);   // then: the routine at 00:1BEE
+    call(0x1C26,menu::field_menu_unit);   // then: field menu window close
+    call(0x1CA1,menu::stats_unit);   // then: member choice
+    call(0x1CB1,menu::stats_unit);   // then: status window
+    call(0x1CB4,menu::stats_unit);   // then: the wait for button 1 or 2
+    call(0x1CD0,menu::stats_unit);   // then: the wait for button 1 or 2
+    call(0x1CD3,menu::stats_unit);   // then: magic list close
+    call(0x1CD6,menu::stats_unit);   // then: status window close
+    call(0x1CD9,menu::stats_unit);   // then: equipment window close
+    jump(0x1CDC,menu::stats_unit);   // then: member choice close
+    call(0x1CE5,menu::save_unit);   // then: save slots open
+    call(0x1CEE,menu::save_unit);   // then: the yes-or-no question
+    call(0x1D3B,menu::save_unit);   // then: save slots close
+    jump(0x1D3E,menu::save_unit);   // then: dialogue close
+    call(0x1D4D,menu::magic_unit);   // then: member choice
+    call(0x1DB7,menu::magic_unit);   // then: magic list close
+    call(0x1DBA,menu::magic_unit);   // then: member choice close
+    jump(0x1DBD,menu::magic_unit);   // then: party window redraw
+    call(0x1DCB,menu::magic_unit);   // then: dialogue close
+    jump(0x1DCE,menu::magic_unit);   // then: member choice close
+    call(0x1DD7,menu::magic_unit);   // then: dialogue close
+    call(0x21BB,menu::item_unit);   // then: dialogue close
+    jump(0x21BE,menu::item_unit);   // then: item exit
+    call(0x21F2,menu::item_unit);   // then: item actions close
+    call(0x21F5,menu::item_exit_unit);   // then: item list close
+    jump(0x21F8,menu::item_unit);   // then: party window redraw
+    jump(0x26E8,menu::equip_unit);   // then: dialogue close
+    call(0x2733,menu::equip_unit);   // then: the wait for button 1 or 2
+    call(0x2736,menu::equip_unit);   // then: equipment window close
+    call(0x2739,menu::equip_unit);   // then: dialogue close
+    call(0x2741,menu::equip_unit);   // then: the routine at 00:17BA
+    jump(0x2744,menu::equip_unit);   // then: member choice close
+    call(0x274D,menu::equip_unit);   // then: dialogue close
+    jump(0x276D,menu::drop_unit);   // then: dialogue close
+    call(0x2776,menu::drop_unit);   // then: remove selected item
+    jump(0x2779,menu::drop_unit);   // then: dialogue close
+    call(0x27C2,menu::add_item_unit);   // then: the yes-or-no question
+    call(0x27CD,menu::add_item_unit);   // then: the yes-or-no question
+    call(0x27E2,menu::add_item_unit);   // then: item choice
+    call(0x27E5,menu::add_item_unit);   // then: item list close
+    call(0x2849,menu::search_unit);   // then: chest
+    jump(0x284C,menu::search_unit);   // then: party window
+    jump(0x28D8,menu::search_unit);   // then: dialogue close
+    call(0x28E1,menu::chest_unit);   // then: yes no window
+    call(0x28E8,menu::chest_unit);   // then: dialogue close
+    call(0x2945,menu::chest_unit);   // then: add item
+}
+
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_menu_field_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x1C3F},{0,0x1BE1},{kit::core_final_at(0x1C3F)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x1C3F); });
+    kit::add_joining(registry,{0,0x1C42},{0,0x1BE1},{kit::core_final_at(0x1C42)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x1C42); });
+    kit::add_joining(registry,{0,0x1C4E},{0,0x1BE1},{kit::core_final_at(0x1C4E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x1C4E); });
+    kit::add_joining(registry,{0,0x1E24},{0,0x1E24},{kit::core_final_at(0x1E24)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x1E24); });
+    kit::add_joining(registry,{0,0x2172},{0,0x2168},{kit::core_final_at(0x2172)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2172); });
+    kit::add_joining(registry,{0,0x28BF},{0,0x2839},{kit::core_final_at(0x28BF)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x28BF); });
+    kit::add_joining(registry,{0,0x28C2},{0,0x2839},{kit::core_final_at(0x28C2)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x28C2); });
+    kit::add_joining(registry,{0,0x2966},{0,0x2950},{kit::core_final_at(0x2966)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2966); });
+    kit::add_joining(registry,{1,0x4414},{0,0x1BE1},{kit::core_final_at(0x4414)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x4414); });
+    // A field magic goes on here: it requests a sound effect, marks the
+    // selected record, sets a busy flag, keeps BC and calls 00:18B9.
+    kit::add_segment(registry,{0,0x28EE},kit::segment({0,0x28EE},{kit::core_final_at(0x28FE,-2)},{.scratch_stack=4}),100,[](auto& z) {
+        z.load_immediate(0x28EE,z.r.a);
+        z.store_a_direct(0x28F0);
+        z.load_hl_direct(0x28F3);
+        z.store_to_hl(0x28F6);
+        z.load_immediate(0x28F8,z.r.a);
+        z.store_a_direct(0x28FA);
+        z.push(0x28FD,z.r.b,z.r.c);
+        return z.final_call(0x28FE);
+    });
 }
 }

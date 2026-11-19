@@ -6,6 +6,10 @@
 #include "game/routines.h"
 #include "replay/census.h"
 #include "replay/verification.h"
+#include "oracle/lockstep.h"
+#include <cstdlib>
+#include <optional>
+#include <string_view>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -114,12 +118,22 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     RoutineRegistry routines;
     // A recognized ROM gets game routines; authored fixtures (any other digest) get none.
     const bool recognized=game::register_routines(routines,recording.rom_sha1);
-    replay::CallVerifier verifier(std::filesystem::path(recording_path).filename().string(),true);
-    routines.verifier=&verifier;
-    Machine original(rom,cart);
-    RoutineRegistry disabled;
-    game::register_routines(disabled,recording.rom_sha1);
-    disabled.enabled=false;
+    // An authored fixture (no segment registered) runs on the oracle's core.
+    std::optional<oracle::Scaffold> scaffold;
+    if(!recognized) scaffold.emplace(oracle::Scaffold::originals);
+    // The oracle runs the whole recording beside the engine (milestone 14):
+    // compared at every instruction boundary (strict, the default since Part
+    // 0b, review B2), or only at top-level segment boundaries with
+    // PSMODERN_LOCKSTEP_STRICT=0, and as whole machines at every frame
+    // observer. With PSMODERN_COVERAGE_DIR the instruction addresses reached
+    // are written there (the run-time half of the rendered-address census).
+    const char* strict_variable=std::getenv("PSMODERN_LOCKSTEP_STRICT");
+    const bool strict=!(strict_variable && std::string_view(strict_variable)=="0");
+    const char* coverage_dir=std::getenv("PSMODERN_COVERAGE_DIR");
+    if (coverage_dir && *coverage_dir) oracle::coverage().enabled=true;
+    const auto checks_before=oracle::opcode_checks();
+    const auto label=std::filesystem::path(recording_path).filename().string();
+    oracle::Lockstep lockstep(machine,label,strict ? oracle::Mode::instructions : oracle::Mode::segments);
     FrameInput input{};
     std::size_t change = 0;
     constexpr std::array names{"picture", "ram", "vram", "cram", "cart-ram", "cpu", "psg"};
@@ -127,33 +141,58 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     const bool check_defeat=std::filesystem::path(recording_path).stem()=="party-defeat";
     bool defeated=false,returned_to_title=false;
     replay::FrameWrites frame_writes;
-    replay::FrameWrites original_writes;
+    std::uint64_t max_overshoot=0;
     for (std::uint64_t frame = 1; frame <= recording.frames; ++frame) {
         if (change < recording.changes.size() && recording.changes[change].frame == frame - 1)
             input = recording.changes[change++].input;
-        machine.run_frame(input,routines);
-        auto psg=frame_writes.take(frame,machine.take_psg_writes());
-        machine.take_samples();
-        original.run_frame(input,disabled);
-        auto native_psg=original_writes.take(frame,original.take_psg_writes());
-        original.take_samples();
-        if (check_defeat) {
-            const auto mode=original.peek(game::dungeon::game_mode);
-            if (mode==game::dungeon::dungeon_mode && original.peek(0xC2E6)==0x49 && original.peek(0xC29D) &&
-                !original.peek(0xC401) && !original.peek(0xC411) && !original.peek(0xC421)) defeated=true;
-            if (defeated && mode==3) returned_to_title=true;
-            if (mode==18 || mode==19) throw std::runtime_error("Party-defeat recording entered the credits.");
-        }
-        // One set of digests serves both comparisons: routines on/off and the reference.
-        const auto actual=replay::manifest(machine,psg);
-        replay::compare_manifests(std::filesystem::path(recording_path).filename().string(),frame,
-            replay::manifest(original,native_psg),actual);
+        // The seven components are taken at the frame observer: the first
+        // instruction boundary at or after the frame end, at any depth.
+        std::optional<replay::Manifest> actual;
+        const auto overshoot=lockstep.run_frame(machine,input,&routines,[&](const Machine& m,oracle::FrameSample& sample) {
+            actual=replay::manifest(m,frame_writes.take(frame,sample.writes));
+            if (check_defeat) {
+                const auto mode=m.peek(game::dungeon::game_mode);
+                if (mode==game::dungeon::dungeon_mode && m.peek(0xC2E6)==0x49 && m.peek(0xC29D) &&
+                    !m.peek(0xC401) && !m.peek(0xC411) && !m.peek(0xC421)) defeated=true;
+                if (defeated && mode==3) returned_to_title=true;
+                if (mode==18 || mode==19) throw std::runtime_error("Party-defeat recording entered the credits.");
+            }
+        });
+        if (!actual) throw std::logic_error("The frame observer did not run.");
+        // Overshoot invariant (review R6): every top-level step, nested
+        // handlers included, ends before the next frame target.
+        if (overshoot>=Machine::frame_cycles) throw std::runtime_error("A top-level step passed the next frame target.");
+        max_overshoot=std::max(max_overshoot,overshoot);
         const auto& expected=reference[frame-1];
-
-        for (std::size_t i = 0; i < actual.size(); ++i) {
-            if (actual[i] == expected[i]) continue;
+        for (std::size_t i = 0; i < actual->size(); ++i) {
+            if ((*actual)[i] == expected[i]) continue;
             if (failures[i]++ == 0)
                 std::cerr << names[i] << ": first difference at frame " << frame << '\n';
+        }
+    }
+    const auto& counts=routines.census();
+    std::cout<<"Lockstep "<<(strict ? "(every instruction boundary)" : "(every top-level segment boundary)")
+             <<": "<<lockstep.comparisons()<<" comparisons, "<<lockstep.body_comparisons()<<" inside bodies, "
+             <<lockstep.frame_comparisons()<<" whole-machine frames\n"
+             <<"Interrupts delivered inside bodies: "<<counts.body_irq<<" IRQ, "<<counts.body_nmi<<" NMI; at top level "
+             <<counts.top_irq<<" IRQ, "<<counts.top_nmi<<" NMI; in nested handlers "<<counts.nested_irq<<" IRQ, "
+             <<counts.nested_nmi<<" NMI\n"
+             <<"Maximum top-level step "<<counts.max_step<<" cycles, maximum overshoot "<<max_overshoot<<" cycles\n"
+             <<"Opcode checks of rendered instructions: "<<oracle::opcode_checks()-checks_before<<'\n';
+    if (coverage_dir && *coverage_dir) {
+        const auto& c=oracle::coverage();
+        const std::filesystem::path recording_file(recording_path);
+        const auto out_path=std::filesystem::path(coverage_dir)/
+            (recording_file.parent_path().filename().string()+"-"+recording_file.stem().string()+".coverage.tsv");
+        std::filesystem::create_directories(out_path.parent_path());
+        std::ofstream out(out_path,std::ios::binary);
+        out<<"location\tboundary\n";
+        for (std::size_t i=0;i<c.native.size();++i) {
+            if (!c.native[i] && !c.rendered[i]) continue;
+            const auto bank=static_cast<unsigned>(i/0x4000);
+            const auto base=bank==0 ? 0u : bank==1 ? 0x4000u : 0x8000u;
+            out<<std::hex<<std::uppercase<<std::setfill('0')<<std::setw(2)<<bank<<':'<<std::setw(4)<<(base|(i%0x4000))
+               <<std::dec<<std::setfill(' ')<<'\t'<<(c.rendered[i] ? (c.native[i] ? "both" : "in_body") : "top")<<'\n';
         }
     }
     for (std::size_t i = 0; i < names.size(); ++i)
@@ -181,6 +220,10 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
         std::ofstream census(path,std::ios::binary);
         replay::write_census(census,routines);
         census.close();if(!census)throw std::runtime_error("Cannot write checkpoint census.");
+        auto transition_path=path; transition_path.replace_extension(".transition.tsv");
+        std::ofstream transition(transition_path,std::ios::binary);
+        replay::write_transition_census(transition,routines);
+        transition.close();if(!transition)throw std::runtime_error("Cannot write checkpoint transition census.");
     }
     return matched ? 0 : 1;
 }

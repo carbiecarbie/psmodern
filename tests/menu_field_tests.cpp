@@ -138,7 +138,7 @@ void catalog() {
             check(spec.exits[i].same_declaration(expected.exits[i]),"an exit of a registered entry is declared as planned");
         check(spec.scratch_stack==expected.scratch && spec.inherited_stack==expected.inherited && spec.slot2_mapper==expected.mapper,
               "the permissions of a registered entry");
-        check(!spec.single_instruction && !spec.force_admit,"no field segment is single-instruction or forced");
+        check(!spec.single_instruction,"no field segment is single-instruction");
     }
 }
 
@@ -179,6 +179,11 @@ public:
         : harness(rom), rom_(rom), stats_(stats), seed_(seed), base_(base) { scan(); }
     probe::Harness harness;
     std::uint64_t fallbacks_checked=0;
+    // Interrupt sweeps shake only the work RAM the menu's own variables live in (C300-C5FF): the frame handler
+    // delivered inside a body then keeps its game state and cannot run astray.
+    bool calm=false;
+    static constexpr unsigned calm_lo=0xC300, calm_hi=0xC600;
+    std::uint64_t sweeps_skipped=0;
 
     // The state of one probe, deterministic in `seed`. `directed` runs last (it may set up a specific path).
     Machine build(RoutineEntry entry, probe::Setup setup, std::uint64_t seed, bool shaken, const Directed& directed={}) {
@@ -251,7 +256,10 @@ public:
     const std::vector<std::uint16_t>& inputs() const { return inputs_; }
     const std::vector<std::uint16_t>& bases() const { return bases_; }
     void shake(Machine& m, std::mt19937_64& rng) {
-        for (const auto a:inputs_) if (rng()%100<55) poke(m,a,pick(rng));
+        for (const auto a:inputs_) {
+            const bool poked=rng()%100<55; const auto value=pick(rng);
+            if (poked && (!calm || (a>=calm_lo && a<calm_hi))) poke(m,a,value);
+        }
         for (const auto base:bases_) for (unsigned k=0;k<64;++k) if (rng()%100<40) poke(m,static_cast<std::uint16_t>(base+k),pick(rng));
         poke_word(m,ram_item_slot,static_cast<std::uint16_t>(ram_inventory+rng()%24));
         poke_word(m,ram_done_flag,static_cast<std::uint16_t>(ram_inventory+rng()%24));
@@ -340,6 +348,108 @@ void variations(Lab& lab, RoutineEntry entry, std::uint64_t seed) {
         if (remaining<cycles) { harness.run_fallback(m,entry,RoutineFallback::frame); ++lab.fallbacks_checked; }
         else lab.probe_state(m,entry);
     }
+}
+
+// The shaken states whose delivered handler never returns (it waits on a condition the game's variables never
+// satisfy: no state of the game). Review R3 H1: the failing run itself (the same state, the same interrupt kind
+// at the same offset) is replayed on the original alone (the oracle's native machine; milestone 14: the program
+// has no core), with its sound output drained. It is stuck only when the interrupt is accepted, the handler never
+// returns to the interrupted PC and SP and its stack frame is never unwound for 400000 instructions (many frames),
+// and, for a stop of the engine at unrendered code, the original reaches that same bank:address inside the handler.
+bool original_stuck_in_handler(Lab& lab, RoutineEntry entry, std::uint64_t seed, probe::Harness::SweepRun run,
+                               std::optional<Memory::Mapping> stop_bank={}, std::uint16_t stop=0) {
+    auto m=lab.build(entry,{},seed,true);
+    if (run.kind==0) {
+        m.cpu().iff1=m.cpu().iff2=1;
+        const auto irq=m.next_irq();
+        if (!irq || *irq<=m.cycles()+run.offset) return false;
+        m.advance(*irq-m.cycles()-run.offset);
+    } else m.schedule_nmi(m.cycles()+run.offset);
+    oracle::NativeMachine original(m);
+    auto drain=[&](unsigned steps) { if (steps%50==0) { original.take_samples(); original.take_psg_writes(); } };
+    std::optional<std::pair<std::uint16_t,std::uint16_t>> interrupted; // PC and SP before the response
+    for (unsigned steps=0;steps<200000 && !interrupted;++steps) {
+        const auto pc=original.cpu().pc.uint16_value, sp=original.cpu().sp.uint16_value;
+        const bool resume=original.cpu().resume;
+        original.step(); drain(steps);
+        const auto& cpu=original.cpu();
+        const auto top=static_cast<std::uint16_t>(original.peek(cpu.sp.uint16_value)|(original.peek(static_cast<std::uint16_t>(cpu.sp.uint16_value+1))<<8));
+        // A response pushes the interrupted PC itself (an RST or CALL pushes the next one).
+        if (!resume && (cpu.pc.uint16_value==0x0038 || cpu.pc.uint16_value==0x0066) &&
+            cpu.sp.uint16_value==static_cast<std::uint16_t>(sp-2) && top==pc) interrupted.emplace(pc,sp);
+    }
+    if (!interrupted) return false;
+    const auto frame=static_cast<std::uint16_t>(interrupted->second-2);
+    bool reached=false;
+    constexpr unsigned steps_after=400000;
+    for (unsigned steps=0;steps<steps_after;++steps) {
+        original.step(); drain(steps);
+        const auto& cpu=original.cpu();
+        if (cpu.resume) continue;
+        if (cpu.pc.uint16_value==interrupted->first && cpu.sp.uint16_value==interrupted->second) return false;
+        if (cpu.sp.uint16_value>frame) return false;
+        if (stop_bank && cpu.pc.uint16_value==stop && original.memory().mapping(stop)==*stop_bank) reached=true;
+    }
+    return !stop_bank || reached;
+}
+// Shaken states the sweeps may skip in all, measured when R3 H1 was fixed (2026-11-17): 8 on the US ROM (none on the Brazilian one), all from
+// the shaken seed 3003, whose handler, delivered inside the body, never returns and passes through 01:5F02 (inside
+// the 01:5EFD segment, reached by no recording). A larger count fails the test, so a new skip is looked at rather
+// than hidden.
+constexpr unsigned max_skipped_sweeps=8;
+
+// ---- Interrupt sweeps (milestone 14) --------------------------------------------------------------
+// An IRQ and an NMI at every cycle of every segment (every n-th of the longest, about 300 runs per kind), each run
+// compared with the oracle at every instruction boundary, from two of the probes' shaken states.
+void sweeps(Lab& lab) {
+    lab.calm=true;
+    for (const auto entry:lab.entries()) {
+        // Two states of different path length among 24 shaken ones, the longest first (a state that takes only
+        // the segment's last instruction has no boundary to deliver an interrupt at). A shaken state whose frame
+        // handler, delivered inside the body, runs on past the PSG sample queue (random game variables send it
+        // astray: no state of the game) is replaced by the next candidate.
+        std::map<std::uint64_t,std::uint64_t> by_length;
+        for (std::uint64_t seed=3000;seed<3024;++seed) {
+            const auto pilot=lab.build(entry,{},seed,true);
+            by_length.emplace(lab.harness.routine(entry).bound(pilot),seed);
+        }
+        unsigned done=0, skipped=0;
+        for (auto it=by_length.rbegin();it!=by_length.rend() && done<2;++it) {
+            const auto length=it->first, seed=it->second;
+            const unsigned stride=static_cast<unsigned>(std::max<std::uint64_t>(1,length/300));
+            try { probe::sweep(lab.harness,entry,{},[&](Machine& m) { m=lab.build(entry,{},seed,true); },stride); }
+            catch (const std::overflow_error& error) {
+                // Only the PSG queue overflow of a frame handler sent astray by the shaken state is skipped.
+                const std::string what=error.what();
+                // The original core alone must be stuck in the handler from the same state too.
+                if (what.find("PSG")==std::string::npos || !original_stuck_in_handler(lab,entry,seed,lab.harness.last_sweep_run())) throw;
+                ++skipped; ++lab.sweeps_skipped; std::cout<<"  skipped seed "<<seed<<" bound "<<length<<" cycles: "<<what<<'\n'; continue;
+            }
+            catch (const UnhandledState& error) {
+                // The same shaken states can send the delivered handler, through a return to a garbage address,
+                // into code no recording reaches and no rendered exit names (milestone 14: the engine stops there
+                // instead of running it on a core); skipped only when the original is stuck in the handler too.
+                // The engine's stop (bank:address in the message) must be reached by the original's stuck handler.
+                const std::string what=error.what();
+                const auto at=what.find(" at ");
+                if (at==std::string::npos || at+11>what.size() || what[at+6]!=':') throw;
+                const auto bank=static_cast<unsigned>(std::stoul(what.substr(at+4,2),nullptr,16));
+                const auto address=static_cast<std::uint16_t>(std::stoul(what.substr(at+7,4),nullptr,16));
+                if (!original_stuck_in_handler(lab,entry,seed,lab.harness.last_sweep_run(),Memory::Mapping{Memory::Kind::rom,bank},address)) throw;
+                ++skipped; ++lab.sweeps_skipped; std::cout<<"  skipped seed "<<seed<<" bound "<<length<<" cycles: "<<error.what()<<'\n'; continue;
+            }
+            catch (const std::exception& error) {
+                // The second state may take a path of a single instruction (a taken conditional return): nothing to sweep.
+                if (done>0 && std::string(error.what()).find("nothing was delivered")!=std::string::npos) continue;
+                throw std::runtime_error("sweep of entry "+std::to_string(entry.address)+" seed "+std::to_string(seed)+" length "+std::to_string(length)+": "+error.what());
+            }
+            ++done;
+        }
+        if (skipped) std::cout<<"sweep of entry "<<entry.address<<": "<<skipped<<" shaken state(s) skipped (stuck handler)\n";
+        check(done>0,"no state of entry "+std::to_string(entry.address)+" could be swept");
+    }
+    std::cout<<"sweeps: "<<lab.sweeps_skipped<<" states skipped (PSG queue overflow or a stop in a garbage path) in all\n";
+    check(lab.sweeps_skipped<=max_skipped_sweeps,"more shaken states were skipped than the documented "+std::to_string(max_skipped_sweeps));
 }
 
 // ---- Entry ------------------------------------------------------------------------------------------
@@ -457,12 +567,15 @@ void probes(const menu_probe::Inputs& inputs, bool& skipped) {
     for (const auto entry:lab.entries()) variations(lab,entry,1000+entry.address);
     search_places(lab);
     vehicle_items(lab);
+    sweeps(lab);
     real_frames(inputs,stats,skipped);
     report(stats,lab);
 }
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         catalog();
         if (argc==1) return 0;

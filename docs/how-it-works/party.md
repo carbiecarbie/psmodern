@@ -5,6 +5,13 @@ long. They start at `$C400`, `$C410`, `$C420` and `$C430`. The routines at
 `00:170D` and `00:17BA` visit them in that order. A record has space even
 before its character joins the party.
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 **ROM static.** The code described here is identical at the same addresses
 in the US Rev-A and Brazilian cartridges. This follows the code comparison
 in [design, section 5.5](../design.md#55-languages). The experience runs described below

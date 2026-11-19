@@ -20,9 +20,9 @@
 //   - placement of a dispatch at a chosen distance before the frame boundary,
 //     to start a chunk at every offset of its window (split-scan style);
 //   - registered_entries(): the catalog rule every part test keeps;
-//   - the host hold: two FrameDrivers, routines on and off, play a recording
-//     to a frame, hold the native field menu as Options does, close it, and
-//     compare the machines every frame.
+//   - the host hold: a FrameDriver plays a recording to a frame, holds the
+//     native field menu as Options does, closes it, and is compared with the
+//     oracle (the original on the pinned core) every frame.
 #pragma once
 #include "app/frame_driver.h"
 #include "game/menu.h"
@@ -165,42 +165,63 @@ inline std::vector<RoutineEntry> registered_entries(menu::Part part, void (*regi
         check(listed || (inside && own_unit),"menu part "+name+" registers an entry outside its plan, ranges or units");
         check(std::find(menu::native_instructions.begin(),menu::native_instructions.end(),entry)==menu::native_instructions.end(),
               "menu part "+name+" registers an entry at an instruction that stays native");
-        check(!routine.spec.force_admit,"menu segments are never force-admitted");
         entries.push_back(entry);
     }
     return entries;
 }
 
 // ---- The host hold ----------------------------------------------------------------------------
-// Two FrameDrivers on the same ROM, routines on and off, each with its own
-// save folder under `work`, play `recording` (it must start from an empty
-// cartridge) to frame `from`, then ask for the native field menu (as the
-// Options screen does) until both admit it, hold it `hold` frames, close it
-// and run until both have returned, plus `after` frames. The machines must be
-// equivalent after every frame and the menu state must agree. The report
-// gives the frames held and closing, the game mode at the request (9 map or
-// town, 0Bh dungeon) and the C++ calls of menu segments (entries inside the
-// six parts' ranges, routines-on driver) from the request to the return.
-struct HoldReport { std::uint64_t held=0, closing=0, menu_cpp=0; std::uint8_t mode=0; };
+// A FrameDriver (the program's) on the ROM, with its own save folder under
+// `work`, plays `recording` (it must start from an empty cartridge) to frame
+// `from`, then asks for the native field menu (as the Options screen does)
+// until it is admitted, holds it `hold` frames, closes it and runs until it
+// has returned, plus `after` frames. Milestone 14: there is no routines-off
+// driver any more (the program has no core); every frame is compared with the
+// oracle instead. At the start of a frame the oracle takes the engine's state
+// (a top-level boundary) and runs the original, fed the input the driver
+// feeds the machine, to the engine's frame observer, where the whole machines
+// must be equal. The frames in which the host itself changes the machine (the
+// request being admitted, the close) are host behaviour, not the original's,
+// and are not compared; the app session tests cover them. The report gives
+// the frames held and closing, the frames compared, the game mode at the
+// request (9 map or town, 0Bh dungeon) and the C++ calls of menu segments
+// (entries inside the six parts' ranges) from the request to the return.
+struct HoldReport { std::uint64_t held=0, closing=0, menu_cpp=0, compared=0; std::uint8_t mode=0; };
 inline HoldReport hold_compare(const probe::Rom& rom, const replay::Recording& recording, std::uint64_t from,
                                unsigned hold, unsigned after, const std::filesystem::path& work, const std::string& name) {
     check(sha1(StartImage{})==recording.cart_ram_sha1,name+": the hold needs a recording that starts from an empty cartridge");
     std::filesystem::remove_all(work);
-    std::filesystem::create_directories(work/"on"); std::filesystem::create_directories(work/"off");
-    app::FrameDriver on(rom.image,app::SaveStore(work/"on",rom.version),true);
-    app::FrameDriver off(rom.image,app::SaveStore(work/"off",rom.version),false);
+    std::filesystem::create_directories(work/"on");
+    app::FrameDriver on(rom.image,app::SaveStore(work/"on",rom.version));
     std::uint64_t frame=0;
-    auto compare=[&](const std::string& when) {
-        if (on.machine().equivalent(off.machine()) && on.menu_active()==off.menu_active()) return;
-        std::string fields;
-        for (const auto& difference:off.machine().differences(on.machine())) fields+=" "+difference.field;
-        check(false,name+": routines on and off differ "+when+" at frame "+std::to_string(frame)+":"+fields+
-              (on.menu_active()!=off.menu_active() ? " (menu state)" : ""));
-    };
+    HoldReport report;
+    bool requested=false;
     auto run=[&](const FrameInput& input, const std::string& when) {
-        const auto a=on.run(input); const auto b=off.run(input);
-        check(!a.save_error && !b.save_error,name+": a save failed");
-        ++frame; compare(when);
+        const bool active=on.menu_active(), closing=on.menu_closing(), request=requested;
+        requested=false;
+        // The input the driver feeds the machine (FrameDriver::run): none while
+        // its menu is open.
+        oracle::NativeMachine original(on.machine());
+        original.set_input(active ? FrameInput{} : input);
+        std::string mismatch;
+        bool observed=false;
+        on.set_frame_probe([&](const Machine& m) {
+            observed=true;
+            while (original.cycles()<m.cycles()) original.step();
+            original.settle();
+            if (original.cycles()!=m.cycles() || original.cpu().resume) { mismatch=" (the oracle is not at an instruction boundary)"; return; }
+            if (oracle::equal(m,original,oracle::Scope::whole)) return;
+            for (const auto& difference:oracle::differences(m,original,oracle::Scope::whole)) mismatch+=" "+difference;
+        });
+        const auto a=on.run(input);
+        on.set_frame_probe({});
+        check(!a.save_error,name+": a save failed");
+        ++frame;
+        check(observed,name+": the frame observer did not run");
+        const bool host=request || closing || active!=on.menu_active();
+        if (host) return;
+        check(mismatch.empty(),name+": the game and the original differ "+when+" at frame "+std::to_string(frame)+":"+mismatch);
+        ++report.compared;
     };
     for (;frame<from && frame<recording.frames;) run(recording.input_at(frame),"while playing");
     auto menu_calls=[&] {
@@ -211,12 +232,10 @@ inline HoldReport hold_compare(const probe::Rom& rom, const replay::Recording& r
                     if (entry.bank==range.bank && entry.address>=range.first && entry.address<=range.last) calls+=routine.counters.cpp_calls;
         return calls;
     };
-    HoldReport report;
     bool admitted=false;
     for (unsigned i=0;i<600 && !admitted;++i) {
-        const bool a=on.request_menu(), b=off.request_menu();
-        check(a==b,name+": the menu request was admitted with routines "+(a ? "on" : "off")+" only");
-        admitted=a;
+        admitted=on.request_menu();
+        requested=admitted;
         if (!admitted) run({},"before the hold");
     }
     check(admitted,name+": the field menu was never admitted");
@@ -225,11 +244,12 @@ inline HoldReport hold_compare(const probe::Rom& rom, const replay::Recording& r
     run({},"opening the menu");
     check(on.menu_active(),name+": the native menu did not open");
     for (unsigned i=0;i<hold;++i) { run({},"during the hold"); ++report.held; check(on.menu_active(),name+": the menu closed by itself"); }
-    on.close_menu(); off.close_menu();
+    on.close_menu();
     for (unsigned i=0;i<200 && on.menu_active();++i) { run({},"while closing"); ++report.closing; }
     check(!on.menu_active(),name+": the menu did not return");
     report.menu_cpp=menu_calls()-calls_before;
-    check(report.menu_cpp>0,name+": the hold ran no C++ menu calls with routines on (it would pass with the routines silently off)");
+    check(report.menu_cpp>0,name+": the hold ran no C++ menu calls");
+    check(report.compared>=report.held,name+": too few frames were compared with the original");
     for (unsigned i=0;i<after;++i) run({},"after the hold");
     return report;
 }

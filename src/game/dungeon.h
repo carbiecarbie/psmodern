@@ -93,7 +93,7 @@ inline constexpr RoutineEntry forward_step_unit{1,0x6758};
 inline constexpr RoutineEntry back_step_unit{1,0x6792};
 inline constexpr RoutineEntry turn_left_unit{1,0x67B7};
 inline constexpr RoutineEntry turn_right_unit{1,0x67E2};
-inline constexpr std::array<Segment,26> movement_segments{{
+inline constexpr std::array<Segment,36> movement_segments{{
     {handler_unit,handler_unit},{{1,0x6619},handler_unit},{{1,0x6715},handler_unit},{{1,0x6734},handler_unit},
     {{1,0x6750},handler_unit},{{1,0x6788},handler_unit},{{1,0x678D},handler_unit},{{1,0x67B2},handler_unit},
     {{1,0x67DD},handler_unit},
@@ -101,12 +101,16 @@ inline constexpr std::array<Segment,26> movement_segments{{
     {{1,0x6670},pitfall_unit},{{1,0x6674},pitfall_unit},{{1,0x6684},pitfall_unit},{{1,0x6699},pitfall_unit},
     {{1,0x66B7},pitfall_unit},{{1,0x66CC},pitfall_unit},{{1,0x66DC},pitfall_unit},
     {forward_step_unit,forward_step_unit},{{1,0x675D},forward_step_unit},{{1,0x6775},forward_step_unit},
-    {back_step_unit,back_step_unit},{turn_left_unit,turn_left_unit},{turn_right_unit,turn_right_unit}}};
+    {back_step_unit,back_step_unit},{turn_left_unit,turn_left_unit},{turn_right_unit,turn_right_unit},
+    // Joining stretches (milestone 14): the places the original resumes after a call or a cell reader returned.
+    {{1,0x662A},pitfall_unit},{{1,0x665F},pitfall_unit},{{1,0x66B6},pitfall_unit},{{1,0x66F4},handler_unit},
+    {{1,0x6726},handler_unit},{{1,0x6731},handler_unit},{{1,0x674D},handler_unit},{{1,0x67FB},turn_right_unit},
+    {{1,0x6816},handler_unit},{{1,0x681A},handler_unit}}};
 
 inline constexpr RoutineEntry door_unit{1,0x681B};
 inline constexpr RoutineEntry exit_lookup_unit{1,0x68BC};
 inline constexpr RoutineEntry object_check_unit{1,0x6963};
-inline constexpr std::array<Segment,25> object_segments{{
+inline constexpr std::array<Segment,26> object_segments{{
     {door_unit,door_unit},{{1,0x6835},door_unit},{{1,0x683A},door_unit},
     {exit_lookup_unit,exit_lookup_unit},{{1,0x68E2},exit_lookup_unit},{{1,0x68F7},exit_lookup_unit},
     {{1,0x6900},exit_lookup_unit},{{1,0x690E},exit_lookup_unit},{{1,0x6914},exit_lookup_unit},
@@ -115,5 +119,5 @@ inline constexpr std::array<Segment,25> object_segments{{
     {object_check_unit,object_check_unit},{{1,0x6989},object_check_unit},{{1,0x69D1},object_check_unit},
     {{1,0x69D5},object_check_unit},{{1,0x69D9},object_check_unit},{{1,0x69F1},object_check_unit},
     {{1,0x6A07},object_check_unit},{{1,0x6A12},object_check_unit},{{1,0x6A29},object_check_unit},
-    {{1,0x6A2F},object_check_unit},{{1,0x6A3F},object_check_unit}}};
+    {{1,0x6A2F},object_check_unit},{{1,0x6A3C},object_check_unit},{{1,0x6A3F},object_check_unit}}};
 }

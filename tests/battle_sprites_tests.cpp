@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/battle_sprites.h"
 #include "probe.h"
+#include "c4_sweep.h"
 #include <iostream>
 
 using namespace psmodern;
@@ -41,7 +42,7 @@ void animation(probe::Harness& h,bool projectile) {
             h.run_cpp(m,{1,m.cpu().pc.uint16_value});
         }
         while (original.cycles()<m.cycles()) original.step();
-        probe::check(m.equivalent(original),"battle sprite update diverged");
+        probe::check(oracle::equal(m,original,oracle::Scope::whole),"battle sprite update diverged");
         const auto left=static_cast<std::uint8_t>(timer-1);
         const auto next=static_cast<std::uint8_t>(frame+1);
         const bool tick=(left&0x80)!=0,finished=tick && next>=8;
@@ -66,7 +67,7 @@ void records(probe::Harness& h,bool projectile) {
         }
         while (original.cycles()<m.cycles()) original.step();
         const unsigned record=(projectile ? 0x5EA2 : 0x5BF1)+6*index;
-        probe::check(m.equivalent(original) && m.peek(0xC004)==m.peek(record) &&
+        probe::check(oracle::equal(m,original,oracle::Scope::whole) && m.peek(0xC004)==m.peek(record) &&
             m.peek(slot+24)==m.peek(record+1) && m.peek(slot+1)==m.peek(record+2) &&
             m.peek(slot+15)==m.peek(record+3) && m.peek(slot+2)==0x41 && m.peek(slot+4)==0x37,
             "battle sprite record or graphics mapping differs");
@@ -107,7 +108,7 @@ void moving_object(probe::Harness& h) {
                 m.step(h.registry());
             }
             while (native.cycles()<m.cycles()) native.step();
-            probe::check(m.equivalent(native),"moving object diverged during its trajectory");
+            probe::check(oracle::equal(m,native,oracle::Scope::whole),"moving object diverged during its trajectory");
         };
         finish();
         unsigned ticks=0;
@@ -126,11 +127,21 @@ void moving_object(probe::Harness& h) {
 
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc!=3) return 1;
         auto rom=probe::load(argv[1],argv[2]);
         if (!rom) return 77;
         probe::Harness h(*rom);
+        {
+            probe::Harness sweeping(*rom);
+std::vector<std::uint16_t> all;
+            auto add=[&](const auto& list) { all.insert(all.end(),list.begin(),list.end()); };
+            add(sprites::attack_entries); add(sprites::projectile_entries); add(sprites::sequence_entries);
+            add(sprites::chest_entries); add(sprites::moving_entries);
+            c4::sweep_file(sweeping,"battle_sprites",all);
+        }
         state(h,sprites::attack_entries);
         state(h,sprites::projectile_entries);
         state(h,sprites::sequence_entries);

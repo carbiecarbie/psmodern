@@ -11,8 +11,7 @@ constexpr Translation catalog[]{
     {"",""},{"OPTIONS","OPCOES"},{"ENCOUNTERS","ENCONTROS"},{"EXPERIENCE / MESETA","EXPERIENCIA / MESETA"},
     {"AUTOMAP","AUTOMAPA"},{"WIDESCREEN","WIDESCREEN"},{"CONTROLS","CONTROLES"},{"LANGUAGE","IDIOMA"},
     {"ON","SIM"},{"OFF","NAO"},
-    {"SAVE FAILED - RETRY","FALHA AO SALVAR - REPITA"},{"RECORDING - READ ONLY","GRAVANDO - SO LEITURA"},
-    {"Z80 MODE - READ ONLY","MODO Z80 - SO LEITURA"},{"SAVED - WAITING","SALVO - AGUARDANDO"},
+    {"SAVE FAILED - RETRY","FALHA AO SALVAR - REPITA"},{"SAVED - WAITING","SALVO - AGUARDANDO"},
     {"SAVES ON EXIT","SALVA AO SAIR"},
     {"MORE ABOVE","MAIS ACIMA"},{"MORE BELOW","MAIS ABAIXO"},
     {"PLAY","JOGAR"},
@@ -76,7 +75,11 @@ constexpr Translation catalog[]{
      "MUDA AS TECLAS E OS BOTOES\nDO CONTROLE. O BOTAO 1 ABRE\nA TELA DE CONTROLES."},
     {"LANGUAGE OF THE GAME TEXT\nAND OF THESE SCREENS.\nAUTO FOLLOWS YOUR ROM.",
      "IDIOMA DOS TEXTOS DO JOGO\nE DESTAS TELAS.\nAUTO SEGUE A SUA ROM."},
-    {"ENGLISH NEEDS THE US ROM.","ENGLISH PRECISA DA ROM US."},{"PORTUGUES NEEDS THE BR ROM.","PORTUGUES PRECISA DA ROM BR."}
+    {"ENGLISH NEEDS THE US ROM.","ENGLISH PRECISA DA ROM US."},{"PORTUGUES NEEDS THE BR ROM.","PORTUGUES PRECISA DA ROM BR."},
+    // Milestone 14: the engine met cartridge code with no C++ body or a state
+    // a body does not handle; the details follow on their own line.
+    {"The game stopped: it reached a part of the cartridge that PSModern cannot run.\nYour saved game was kept as it was just before the stop. Please report this, with the details below:",
+     "O jogo parou: chegou a uma parte do cartucho que o PSModern nao consegue executar.\nSeu jogo salvo foi mantido como estava logo antes da parada. Por favor, informe isto com os detalhes abaixo:"}
 };
 static_assert(std::size(catalog)==std::size_t(UiText::count));
 }
@@ -84,6 +87,9 @@ std::string_view ui_text(UiText id,Language language) {
     const auto index=std::size_t(id);
     if(index>=std::size(catalog))throw std::invalid_argument("Unknown UI text identifier.");
     return language==Language::portuguese ? catalog[index].pt : catalog[index].en;
+}
+std::string game_stopped_message(Language language,std::string_view details) {
+    return std::string(ui_text(UiText::game_stopped,language))+"\n\n"+std::string(details);
 }
 std::string_view language_label(LanguagePreference preference,Language language) {
     switch(preference) {

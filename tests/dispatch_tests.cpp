@@ -4,6 +4,8 @@
 
 using namespace psmodern;
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc!=3) return 1;
         auto rom=probe::load(argv[1],argv[2]);
@@ -26,6 +28,12 @@ int main(int argc,char** argv) {
                 harness.run_cpp(machine,entry);
             }
         }
+        // Interrupt sweeps (milestone 14): an IRQ and an NMI at every cycle of
+        // each dispatcher, compared with the oracle at every boundary.
+        for (const auto entry:game::dispatch_entries)
+            probe::sweep(harness,entry,{.seed=3},[](Machine& m) {
+                m.cpu().af.uint8_values.at_1=5; m.cpu().hl.uint16_value=0xc71f; m.cpu().de.uint16_value=0xc71f;
+            });
         return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

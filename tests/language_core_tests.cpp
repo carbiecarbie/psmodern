@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "game/routines.h"
 #include <algorithm>
@@ -9,7 +10,10 @@
 using namespace psmodern;
 static void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 template<class F> static void refuses(F run){try{run();}catch(const std::invalid_argument&){return;}throw std::runtime_error("Expected invalid image refusal");}
-int main(){try{
+int main(){
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try{
     static_assert(noexcept(std::declval<Machine&>().replace_rom(std::declval<const Machine::RomReplacement&>())));
     auto source=std::make_shared<Memory::Rom>(512*1024,0);
     auto target=std::make_shared<Memory::Rom>(*source);(*target)[0x123]=0x6d;
@@ -42,8 +46,7 @@ int main(){try{
             const auto* other=br.find(entry);check(other!=nullptr,"Equal language entries");
             const auto& a=routine.spec;const auto& b=other->spec;
             check(a.unit==b.unit && a.slot2_mapper==b.slot2_mapper && a.scratch_stack==b.scratch_stack &&
-                  a.single_instruction==b.single_instruction && a.force_admit==b.force_admit &&
-                  a.absolute_wram_store==b.absolute_wram_store && a.inherited_stack==b.inherited_stack &&
+                  a.single_instruction==b.single_instruction && a.inherited_stack==b.inherited_stack &&
                   a.exits.size()==b.exits.size() && std::equal(a.exits.begin(),a.exits.end(),b.exits.begin(),
                     [](const auto& x,const auto& y){return x.same_declaration(y);}),"Equal complete segment contracts in both languages");
             check(routine.body.target_type()==other->body.target_type() && routine.bound.target_type()==other->bound.target_type(),

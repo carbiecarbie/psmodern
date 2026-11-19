@@ -16,7 +16,7 @@ std::filesystem::path utf8_path(std::string_view text) {
 }
 }
 std::string app_usage() {
-    return "Usage: psmodern.exe | psmodern.exe --version | psmodern.exe <rom-path> [--record <new-file>] [--no-routines] "+game::OptionFlags::usage()+
+    return "Usage: psmodern.exe | psmodern.exe --version | psmodern.exe <rom-path> [--record <new-file>] "+game::OptionFlags::usage()+
         "\nRun without arguments for the start screen. Provide an uncompressed US Rev-A or Brazilian .sms file. Omitted rate flags use saved settings; new saved games default to the original game.";
 }
 LoadedRom load_rom(const std::filesystem::path& path) {
@@ -40,11 +40,11 @@ AppArguments parse_app_arguments(int argc,const char* const* argv) {
     for (int i=2;i<argc;++i) {
         const std::string_view arg=argv[i];
         if (flags.take(argc,argv,i)) continue;
-        if (arg=="--no-routines" && result.routines_enabled) result.routines_enabled=false;
-        else if (arg=="--record" && !result.record_path && i+1<argc) result.record_path=utf8_path(argv[++i]);
+        // Milestone 14: --no-routines (the game on the Z80 core) is gone; the
+        // program has no Z80 to run it on.
+        if (arg=="--record" && !result.record_path && i+1<argc) result.record_path=utf8_path(argv[++i]);
         else throw std::runtime_error(usage);
     }
-    if (!result.routines_enabled) flags.refuse_with("--no-routines","the options are carried out by the rewritten routines");
     if (result.record_path) flags.refuse_with("--record","recordings always play the original game");
     result.options=flags.options;
     result.overrides=flags.overrides();
@@ -66,15 +66,26 @@ void guard_observed_instructions(const RoutineRegistry& registry) {
                     throw std::logic_error("Host-observed instruction "+name(watched)+" is a declared exit of "+name(entry)+".");
     }
 }
-FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,bool routines_enabled,game::OptionOverrides overrides,bool original_only)
+void require_observed_entries(const RoutineRegistry& registry) {
+    guard_observed_instructions(registry);
+    for(const auto watched:host_observed_instructions) {
+        const auto* r=registry.find(watched);
+        if(!r || !r->spec.observe_entry) {
+            static constexpr char hex[]="0123456789ABCDEF";
+            std::string text{hex[(watched.bank>>4)&15],hex[watched.bank&15],':'};
+            for(int shift=12;shift>=0;shift-=4)text+=hex[(watched.address>>shift)&15];
+            throw std::logic_error("Host-observed instruction "+text+" requires an observed segment beginning there.");
+        }
+    }
+}
+FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,game::OptionOverrides overrides,bool original_only)
     :rom_(std::move(rom)),store_(std::move(store)),machine_(std::make_unique<Machine>(rom_,store_.load())),original_only_(original_only) {
-    routines_.enabled=routines_enabled;
     chosen_=overrides.apply(store_.load_preferences(machine_->memory().cartridge_ram()));
     game::validate(chosen_);
     if(options_restricted())chosen_={};
     activate(chosen_);
     // The automap: tables from the player's identified ROM; never in recording
-    // mode or with --no-routines, which neither track nor read the file.
+    // mode (or a test driver without routines), which neither tracks nor reads the file.
     bool identified=false;
     try { identify_digest(sha1(*rom_));identified=true; } catch(const std::exception&) {}
     if(identified && !options_restricted()) {
@@ -85,9 +96,12 @@ FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,
     }
 }
 void FrameDriver::activate(const game::Options& options) {
-    RoutineRegistry next;next.enabled=routines_.enabled;next.verifier=routines_.verifier;
-    game::register_routines(next,sha1(*rom_),options);
-    guard_observed_instructions(next);
+    RoutineRegistry next;
+    // An identified ROM registers the game: then every watched address must
+    // begin its own observed segment (review R3 L1); an unidentified image
+    // registers nothing.
+    if(game::register_routines(next,sha1(*rom_),options)) require_observed_entries(next);
+    else guard_observed_instructions(next);
     routines_=std::move(next);effective_=options;
 }
 namespace {
@@ -97,8 +111,8 @@ bool same_catalogue(const RoutineRegistry& a,const RoutineRegistry& b) {
         const auto* other=b.find(entry);if(!other)return false;
         const auto& x=routine.spec;const auto& y=other->spec;
         if(x.unit!=y.unit || x.slot2_mapper!=y.slot2_mapper || x.scratch_stack!=y.scratch_stack ||
-           x.single_instruction!=y.single_instruction || x.force_admit!=y.force_admit ||
-           x.absolute_wram_store!=y.absolute_wram_store || x.inherited_stack!=y.inherited_stack || x.observe_entry!=y.observe_entry ||
+           x.single_instruction!=y.single_instruction ||
+           x.inherited_stack!=y.inherited_stack || x.observe_entry!=y.observe_entry ||
            x.exits.size()!=y.exits.size() || !std::equal(x.exits.begin(),x.exits.end(),y.exits.begin(),
                [](const auto& first,const auto& second){return first.same_declaration(second);}))return false;
     }
@@ -183,19 +197,19 @@ void FrameDriver::track(std::uint16_t pc) {
     }
 }
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options) {
-    if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
+    if(options_restricted())return "Settings cannot change while recording.";
     if(auto error=store_.choose(options,machine_->memory().cartridge_ram()))return error;
     chosen_=options;return {};
 }
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap,bool widescreen) {
-    if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
+    if(options_restricted())return "Settings cannot change while recording.";
     store_.request_widescreen(widescreen);
     auto error=choose_options(options,automap);
     if(error)store_.request_widescreen(store_.widescreen_preference());
     return error;
 }
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap) {
-    if(options_restricted())return "Settings cannot change while recording or with --no-routines.";
+    if(options_restricted())return "Settings cannot change while recording.";
     if(auto error=store_.choose(options,automap,machine_->memory().cartridge_ram()))return error;
     chosen_=options;automap_=automap;return {};
 }
@@ -217,15 +231,25 @@ void FrameDriver::speed(unsigned value) {
     if(tempo_audio_)tempo_audio_->speed(speed_);
 }
 void FrameDriver::set_widescreen(bool on) {
-    if(on && !options_restricted()) { if(!wide_)wide_=std::make_unique<WideView>(rom_); }
+    if(on && !options_restricted()) { if(!wide_) { wide_=std::make_unique<WideView>(rom_);wide_rom_=rom_.get(); } }
     else wide_.reset();
 }
 FrameOutput FrameDriver::run(const FrameInput& input) {
+    if(stopped_)throw std::logic_error("The game stopped; the session cannot continue.");
     std::optional<std::string> audio_error;
-    const auto* const rom_before=rom_.get();
     auto audio_failure=[&](const std::exception& error) {
         tempo_audio_.reset();audio_failed_=true;
         audio_error=std::string("Normal-tempo audio unavailable; accelerated audio is muted until power cycle: ")+error.what();
+    };
+    // Milestone 14: a hook can run inside a nested interrupt delivery (the
+    // sound update at 0C:8043 runs in every interrupt, some of them inside a
+    // segment). There it must be passive: Machine refuses a changed register,
+    // PC, stack, ROM or registry; this refuses the rest (pads, RAM and the
+    // host's menu state). The hooks that change the game watch main-program
+    // addresses, which never run at depth.
+    auto top_level=[&](const char* what) {
+        if(machine_->depth())
+            throw std::logic_error(std::string("The host's ")+what+" was reached inside a nested interrupt delivery.");
     };
     Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
         if(tracker_ && mapping==Memory::Mapping{Memory::Kind::rom,0})track(pc);
@@ -261,10 +285,12 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         if (exploration_wait_ && pc==*exploration_wait_ && mapping==Memory::Mapping{Memory::Kind::rom,0}) exploration_wait_.reset();
         if (menu_active_ && menu_closing_ && pc==0x2d93 && mapping==Memory::Mapping{Memory::Kind::rom,0} &&
             (machine_->peek(0xc205)&0x10)) {
+            top_level("menu cancel");
             menu_cancel_seen_=true;
             machine_->set_pad(0,{});
         }
         if (menu_active_ && pc==menu_return_ && sp==menu_caller_.sp.uint16_value && mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+            top_level("menu return");
             cpu.af=menu_caller_.af;cpu.bc=menu_caller_.bc;cpu.de=menu_caller_.de;cpu.hl=menu_caller_.hl;
             cpu.af_=menu_caller_.af_;cpu.bc_=menu_caller_.bc_;cpu.de_=menu_caller_.de_;cpu.hl_=menu_caller_.hl_;
             cpu.ix_iy[0]=menu_caller_.ix_iy[0];cpu.ix_iy[1]=menu_caller_.ix_iy[1];cpu.memptr=menu_caller_.memptr;cpu.q=menu_caller_.q;
@@ -284,6 +310,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
             }
         }
         if (menu_request_ && pc==*menu_request_ && mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+            top_level("menu request");
             menu_request_.reset();
             const auto lo=static_cast<std::uint16_t>(sp-2),hi=static_cast<std::uint16_t>(sp-1);
             bool stack_room=sp>=0xc080 && sp<=0xfffb;
@@ -316,13 +343,16 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
                 return 0x1be1;
             }
         }
-        if(options_pending() && pc==0x00af && mapping==Memory::Mapping{Memory::Kind::rom,0})activate(chosen_);
+        if(options_pending() && pc==0x00af && mapping==Memory::Mapping{Memory::Kind::rom,0}) { top_level("options activation");activate(chosen_); }
         return {};
     };
     auto supplied=input;
     if(menu_active_ || menu_request_) { supplied={}; if(menu_closing_ && !menu_cancel_seen_)supplied.pads[0].one=true; }
     Machine::WriteObserver sound_writes=[&](std::uint16_t address,std::uint8_t value) {
         if((address&0x1fff)!=4 || machine_->memory().mapping(address).kind!=Memory::Kind::ram)return;
+        // The writer's bank: inside a body the register file's PC is the
+        // boundary PC (the instruction being rendered), written at every
+        // instruction boundary of an exact body.
         const auto writer=machine_->memory().mapping(machine_->cpu().pc.uint16_value);
         // The driver's own fades and acknowledgements belong to its own clock.
         // Only external writes create a request to relay, even if the byte did
@@ -330,23 +360,74 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         if(writer==Memory::Mapping{Memory::Kind::rom,12})sound_request_.reset();
         else sound_request_=value;
     };
-    machine_->run_frame(supplied,routines_,hook,sound_writes);
-    menu_request_.reset(); // An unsuccessful request never opens later.
-    if(wide_) {
-        if(rom_.get()!=rom_before)wide_->replace_rom(rom_);
-        wide_->capture(*machine_);
-    }
-    auto writes=machine_->take_psg_writes();
-    auto samples=machine_->take_samples();
+    // Milestone 14: run_frame may return after the step that crosses the
+    // frame end (a C++ segment, with any interrupt handled inside it). Every
+    // hand-off of the frame is taken at the frame observer, the first
+    // instruction boundary at or after the frame end, where the original's
+    // frame ends (and where run_frame returned before milestone 14): what
+    // the player hears and sees, the end of a menu request and the save.
+    std::vector<PsgWrite> writes;
+    PsgSamples samples{};
     std::optional<PsgSamples> playback;
-    if(tempo_audio_)try {playback=tempo_audio_->finish(machine_->cycles());}
-        catch(const std::exception& error) {audio_failure(error);}
+    std::optional<Memory> saved;
+    const Machine::FrameObserver at_frame=[&] {
+        if(wide_) {
+            // A language swap earlier in this frame: the view reads the new
+            // image from this capture on (its reset drops the old anchor). A
+            // swap after the frame end is the next frame's, as it was.
+            if(rom_.get()!=wide_rom_) { wide_->replace_rom(rom_);wide_rom_=rom_.get(); }
+            wide_->capture(*machine_);
+        }
+        writes=machine_->take_psg_writes();
+        samples=machine_->take_samples();
+        if(tempo_audio_)try {playback=tempo_audio_->finish(machine_->cycles());}
+            catch(const std::exception& error) {audio_failure(error);}
+        // An unsuccessful request never opens later: a wait reached after the
+        // frame end belongs to the next frame.
+        menu_request_.reset();
+        // The save file holds the cartridge RAM as it is at the frame end; a
+        // write after it is the next frame's. The dirty flag is the host's
+        // bookkeeping (like the sound queues taken above), not game state.
+        if(machine_->memory().cartridge_ram_dirty() || store_.flush_pending()) {
+            saved=machine_->memory();machine_->memory().clear_cartridge_ram_dirty();
+        }
+        if(frame_probe_)frame_probe_(*machine_);
+    };
+    try { machine_->run_frame(supplied,routines_,hook,sound_writes,at_frame); }
+    catch(const std::exception& error) {
+        // Planning decision 6: an error of the engine stops the game. The
+        // save keeps the cartridge RAM of the last frame end (this frame's,
+        // if its frame observer was reached, else the last one not yet
+        // written); what the stopped frame wrote after it is not saved.
+        stopped_=error.what();
+        if(saved)unwritten_=std::move(saved);
+        throw;
+    }
     if(!playback && speed_>1)playback=PsgSamples{};
-    return {std::move(writes),std::move(samples),store_.flush(machine_->memory()),std::move(playback),std::move(audio_error)};
+    std::optional<std::string> save_error;
+    if(saved) {
+        save_error=store_.flush(*saved);
+        // A frame-end image the store could not write yet (a failed write
+        // waiting for its retry) is kept for a stop before the next one.
+        if(saved->cartridge_ram_dirty() || store_.flush_pending())unwritten_=std::move(saved);
+        else unwritten_.reset();
+    }
+    return {std::move(writes),std::move(samples),std::move(save_error),std::move(playback),std::move(audio_error)};
+}
+// The two exits save different points on purpose (review R3 L3). A normal
+// exit (or a power cycle) saves the machine as it is: the last frame end plus
+// what the segment crossing that frame end wrote after it, writes the original
+// makes at the start of the next frame, never undone, so the save is a later
+// consistent point of the same run. A stop saves the image of the last frame
+// end instead, since the stopped frame did not complete.
+std::optional<std::string> FrameDriver::flush() {
+    if(!stopped_)return store_.flush(machine_->memory(),true);
+    return unwritten_ ? store_.flush(*unwritten_,true) : std::nullopt;
 }
 std::optional<std::string> FrameDriver::power_cycle() {
+    if(stopped_)throw std::logic_error("The game stopped; the session cannot continue.");
     if(menu_active_ || menu_request_)return "Power cycle is unavailable while a host menu is open.";
-    auto error=flush();
+    auto error=flush();unwritten_.reset();
     machine_=std::make_unique<Machine>(rom_,machine_->memory().cartridge_ram());
     exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
     tempo_audio_.reset();audio_failed_=false;sound_request_.reset();speed_=1;

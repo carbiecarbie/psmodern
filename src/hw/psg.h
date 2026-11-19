@@ -49,6 +49,7 @@ public:
     bool operator==(const Psg&) const = default;
 private:
     friend class Machine;
+    friend class Console;
     void apply(std::uint8_t byte);
     void tick();
     std::array<std::uint16_t,3> periods_ = initial_state::psg_periods;

@@ -10,6 +10,8 @@
 // without them. PSMODERN_TERRAIN_COVERAGE=<file> writes the code addresses
 // the original ran in every probe (for the unreached-paths check).
 #include "map_probe.h"
+#include <vector>
+#include <functional>
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -32,7 +34,7 @@ struct ExitSpec { RoutineExit kind; std::uint16_t address; int stack; };
 ExitSpec F(std::uint16_t address, int stack=0) { return {RoutineExit::core_final,address,stack}; }
 ExitSpec R(std::uint16_t address, int stack=0) { return {RoutineExit::returned,address,stack}; }
 struct Expect {
-    std::uint16_t entry; std::vector<ExitSpec> exits; bool slot2; unsigned scratch, inherited;
+    std::uint16_t entry; std::vector<ExitSpec> exits; bool slot2; unsigned scratch, inherited; bool single=false;
 };
 const std::vector<Expect>& expectations() {
     static const std::vector<Expect> table{
@@ -46,6 +48,7 @@ const std::vector<Expect>& expectations() {
         {0x7552,{F(0x7557)},false,0,6},
         {0x755A,{R(0x756B,6)},false,2,6},
         {0x756C,{F(0x75C9,-2),R(0x7601)},true,2,0},
+        {0x75E4,{F(0x75E4)},false,0,0,true},      // joining stretch (milestone 14): the register restored after the ice stretch
         {0x75E5,{R(0x7601)},true,0,0},
         {0x7602,{R(0x7607),R(0x760D),F(0x7610)},false,0,0},
         {0x7613,{F(0x7615)},false,0,0},
@@ -89,14 +92,20 @@ void registration() {
                   exit.stack==expect.exits[i].stack && !exit.conditional && exit.after==0,"a terrain exit differs from the plan");
         }
         check(spec.slot2_mapper==expect.slot2 && spec.scratch_stack==expect.scratch && spec.inherited_stack==expect.inherited &&
-              !spec.single_instruction && !spec.force_admit,"a terrain segment declares other permissions");
+              spec.single_instruction==expect.single,"a terrain segment declares other permissions");
     }
-    // None of the native DI stretch or the options boundary is an entry.
-    for (const auto& [entry,routine]:registry.entries()) {
-        (void)routine;
-        for (const auto& range:map::native_stretches)
-            check(!(entry.bank==range.bank && entry.address>=range.first && entry.address<=range.last),
-                  "a terrain segment starts inside a native stretch");
+    // Milestone 14: no stretch stays native. The ice breaking's DI (01:75CC) and
+    // EI (01:75E3) are one-instruction segments, and the instruction after the EI
+    // (01:75E4, the planned joining segment above) starts the rest. The old loop
+    // (no entry inside a native stretch) would be vacuous on the empty list;
+    // map_base_tests runs both instructions with zero native steps.
+    static_assert(map::native_stretches.empty(),"no map stretch stays native");
+    RoutineRegistry all;
+    game::register_map_display(all);
+    for (const std::uint16_t pc:{0x75CC,0x75E3}) {
+        const auto* found=all.find(map::at1(pc));
+        check(found && found->spec.single_instruction && found->spec.exits.size()==1 &&
+              found->spec.exits[0].kind==RoutineExit::core_final,"an ice stretch instruction is not a registered one-instruction segment");
     }
 }
 
@@ -246,7 +255,11 @@ struct Rig {
             per_entry[e]+=static_cast<unsigned>(routine.counters.cpp_calls-old.cpp_calls);
         }
         std::string fields;
-        for (const auto& difference:original.differences(machine)) fields+=" "+difference.field;
+        // Milestone 14: the oracle's documented whole-machine equality (the core's per-step
+        // bookkeeping is left out), plus the PSG writes and the cartridge RAM dirty flag.
+        for (const auto& difference:oracle::differences(machine,original,oracle::Scope::whole)) fields+=" "+difference;
+        if (machine.take_psg_writes()!=original.take_psg_writes()) fields+=" psg_writes";
+        if (machine.memory().cartridge_ram_dirty()!=original.memory().cartridge_ram_dirty()) fields+=" cartridge_ram_dirty";
         check(fields.empty(),"a terrain flow differs from the original:"+fields);
         check(machine.cycles()==original.cycles(),"a terrain flow took other cycles than the original");
         ++flows;
@@ -529,12 +542,53 @@ void probes(const map_probe::Inputs& inputs) {
 }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body of this part
+// (sampled: about 40 runs per kind), each run compared with the oracle at every
+// instruction boundary, handler included. One-instruction segments have no
+// boundary inside and are left out. The state is the map's work RAM with
+// recognisable bytes, pointers into RAM and the video data port in C.
+void sweep_state(RoutineEntry entry, Machine& m) {
+    (void)entry;
+    auto& cpu=m.cpu();
+    for (unsigned a=0xC200;a<0xC700;++a) m.memory().write(static_cast<std::uint16_t>(a),static_cast<std::uint8_t>((a*167u+(a>>8)*13u)>>1));
+    cpu.hl.uint16_value=0xC900; cpu.de.uint16_value=0xD000; cpu.bc.uint16_value=0x04BE;
+    cpu.ix_iy[0].uint16_value=0xC800; cpu.ix_iy[1].uint16_value=0xC800;
+}
+void sweeps(const probe::Rom& rom) {
+    probe::Harness h(rom);
+    std::vector<RoutineEntry> entries;
+    for (const auto& s:map::terrain_segments) entries.push_back(s.entry);
+    for (const std::uint16_t pc:{0x75CD,0x75D0,0x75D2,0x75D4,0x75DA}) entries.push_back({1,pc});   // the ice breaking's name-table update
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction) continue;
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            const auto adjust=[&](Machine& m) { sweep_state(entry,m); };
+            auto base=h.prepare(entry,setup);
+            adjust(base);
+            const auto length=h.run_cpp(base,entry).cycles;
+            probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    check(failures.empty(),"map sweeps failed:"+failures);
+    std::cout<<"map terrain: "<<swept<<" segments swept\n";
+}
+
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        sweeps(inputs->rom);
         probes(*inputs);
         if (!scenario_probes(*inputs)) return 77;
         return 0;

@@ -18,10 +18,11 @@ quer ter a mesma imagem, o mesmo som, a mesma jogabilidade e o mesmo ritmo do
 original. Tudo o que o cartucho não tinha, como ajustar encontros e
 experiência ou acelerar o jogo, é opcional, e as opções começam desligadas.
 
-Desde o primeiro dia o programa original roda num Z80 virtual. As rotinas
-dele são reescritas em C++ uma de cada vez, e cada uma é conferida com o
-original, chamada por chamada e quadro por quadro, até não sobrar código Z80.
-No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
+O projeto começou rodando o programa original num Z80 virtual e reescrevendo
+as rotinas dele em C++ uma de cada vez, cada uma conferida com o original.
+Isso está pronto: o programa agora roda só C++ e não contém Z80. O original
+sobrevive nos testes, que o rodam ao lado do C++ e comparam os dois
+instrução por instrução. No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 (em inglês).
 
 | Tela inicial (0.6.0) | Opções | Tela larga |
@@ -31,11 +32,12 @@ No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 ## O que já funciona
 
 Dá para jogar o jogo inteiro em inglês (versão americana) ou em português
-(versão brasileira da Tec Toy). No código atual, as batalhas, os itens, as
-masmorras, os menus, o som e as cenas até o final rodam em C++. O Z80
-virtual ainda executa algumas instruções originais onde o tempo exato depende
-delas; removê-lo é o próximo milestone. A versão publicada para Windows,
-0.6.0, cobre o milestone 11.
+(versão brasileira da Tec Toy). No código atual, tudo roda em C++: as batalhas, os
+itens, as masmorras, os menus, o som e as cenas até o final, sem Z80 no
+programa (milestone 14). Se o jogo chegar a uma
+parte do cartucho que o PSModern não sabe executar, ele para com uma mensagem
+e mantém o seu save como estava. A versão publicada para Windows, 0.6.0,
+cobre o milestone 11.
 
 O que você tem hoje:
 
@@ -179,8 +181,8 @@ muda de tamanho enquanto você joga. Ligar ou desligar a opção redimensiona um
 janela normal para o novo formato na escala atual (menor, se não couber na
 tela); uma janela maximizada ou em tela cheia mantém o tamanho. Em tela cheia a
 1366x768 a imagem é desenhada em 3x em vez de 4x. Desligada por padrão; o jogo
-roda igual nos dois casos. Gravando, ou com `--no-routines`, a linha é só de
-leitura e fica desligada. [Como funciona](docs/how-it-works/world-map.md)
+roda igual nos dois casos. Gravando, a linha não pode ser mudada e fica
+desligada. [Como funciona](docs/how-it-works/world-map.md)
 explica o que ela lê.
 
 ## Saves
@@ -221,9 +223,9 @@ psmodern.exe --version
 O `--encounter-rate` aceita 0, 25, 50, 100 ou 200 e o `--experience-rate` aceita
 100, 200 ou 400. Uma opção que você não passar usa o valor salvo, e um 100
 explícito ignora o valor salvo. Abrir e depois sair da janela de opções salva
-os valores exibidos, incluindo os da linha de comando. Os modos de
-desenvolvimento `--record` e `--no-routines` usam sempre as regras originais e
-recusam qualquer outro valor; os detalhes estão em [desenvolvimento][development].
+os valores exibidos, incluindo os da linha de comando. O modo de
+desenvolvimento `--record` usa sempre as regras originais e
+recusa qualquer outro valor; os detalhes estão em [desenvolvimento][development].
 
 ## Sobre o projeto
 

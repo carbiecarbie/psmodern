@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "game/routines.h"
 #include "game/text.h"
@@ -83,8 +84,17 @@ struct Pair {
         check(!changed.menu_active() && !control.menu_active(),"native Options return did not complete");
     }
 };
+// What oracle::equal leaves out (the host's queues): the PSG writes and
+// samples not taken yet and the cartridge RAM's dirty flag.
+bool same_host_queues(const Console& a,const Console& b) {
+    Console x(a),y(b);
+    return x.take_psg_writes()==y.take_psg_writes() && x.take_samples()==y.take_samples() &&
+           a.memory().cartridge_ram_dirty()==b.memory().cartridge_ram_dirty();
+}
 void future_menu(FrameDriver& driver,const SessionRoms& session) {
-    Machine target(driver.machine()),source(driver.machine());
+    // The original on the target and on the source ROM: the oracle's native
+    // machine (a Machine without a registry is no longer one, milestone 14).
+    oracle::NativeMachine target(driver.machine()),source(driver.machine());
     source.replace_rom(Machine::prepare_rom_replacement(session.image(session.active)));
     bool saw_native_wait=false,saw_picture_change=false,saw_language_picture=false;
     const auto initial=target.picture();
@@ -96,10 +106,20 @@ void future_menu(FrameDriver& driver,const SessionRoms& session) {
         target.run_frame(input);source.run_frame(input);
         const auto expected_writes=target.take_psg_writes();const auto expected_samples=target.take_samples();
         source.take_psg_writes();source.take_samples();
-        const auto output=driver.run(input);
+        // The driver saves at the frame end (milestone 14) and clears the flag there.
         target.memory().clear_cartridge_ram_dirty();source.memory().clear_cartridge_ram_dirty();
+        const auto output=driver.run(input);
+        // Milestone 14: the driver's frame may end after the segment that
+        // crosses the frame end; the native machines catch up to that
+        // boundary (the driver took the frame's sound at the frame end).
+        while(target.cycles()<driver.machine().cycles())target.step();
+        while(source.cycles()<driver.machine().cycles())source.step();
         check(!output.save_error && !output.audio_error,"future menu output failure");
-        check(driver.machine().equivalent(target) && output.writes==expected_writes && output.samples==expected_samples,
+        // The documented equality (milestone 14): the core's per-step scratch
+        // is not machine state, and the driver's machine runs fewer core steps;
+        // the host queues it leaves out are compared on their own.
+        check(oracle::equal(driver.machine(),target,oracle::Scope::whole) && same_host_queues(driver.machine(),target) &&
+              output.writes==expected_writes && output.samples==expected_samples,
               "future target-language menu differs from native target ROM");
         const auto pc=target.cpu().pc.uint16_value,sp=target.cpu().sp.uint16_value;
         if(pc>=0x55 && pc<=0x5b) {
@@ -119,9 +139,9 @@ void future_menu(FrameDriver& driver,const SessionRoms& session) {
     const auto* indexed=driver.routines().find(game::text_indexed_entry);
     check(indexed,"indexed text routine is absent");const auto indexed_calls=indexed->counters.cpp_calls;
     for(unsigned index=0;index<256 && !distinct_message;++index) {
-        Machine actual(driver.machine()),native(driver.machine()),old_source(driver.machine());
+        Machine actual(driver.machine());oracle::NativeMachine native(driver.machine()),old_source(driver.machine());
         old_source.replace_rom(Machine::prepare_rom_replacement(session.image(session.active)));
-        for(auto* machine:{&actual,&native,&old_source}) {
+        for(Console* machine:{static_cast<Console*>(&actual),static_cast<Console*>(&native),static_cast<Console*>(&old_source)}) {
             machine->memory().write(0xfffe,1);machine->cpu().pc.uint16_value=game::text_indexed_entry.address;
             machine->cpu().hl.uint16_value=static_cast<std::uint16_t>(index*2);machine->cpu().iff1=machine->cpu().iff2=0;
         }
@@ -130,7 +150,8 @@ void future_menu(FrameDriver& driver,const SessionRoms& session) {
             unsigned steps=0;while(machine->cpu().pc.uint16_value!=game::text_stream_unit.address && steps++<50)machine->step();
             check(machine->cpu().pc.uint16_value==game::text_stream_unit.address,"native indexed lookup did not reach text stream");
         }
-        check(actual.equivalent(native),"new indexed message did not use the active target ROM natively");
+        check(oracle::equal(actual,native,oracle::Scope::whole) && same_host_queues(actual,native),
+              "new indexed message did not use the active target ROM natively");
         const auto target_pointer=actual.cpu().hl.uint16_value,source_pointer=old_source.cpu().hl.uint16_value;
         distinct_message=target_pointer!=source_pointer;
         for(unsigned i=0;i<32;++i)distinct_message|=actual.peek(static_cast<std::uint16_t>(target_pointer+i))!=old_source.peek(static_cast<std::uint16_t>(source_pointer+i));
@@ -145,21 +166,19 @@ void unavailable_and_restricted(const SessionRoms& session,const Machine& field,
     check(opened,"missing-companion fixture did not reach Options");missing.run({});
     refuses([&]{missing.prepare_language(preference(other));},"unavailable language accepted");missing.commit_language();
     check(!missing.language_pending(),"failed availability validation left a prepared choice");
-    for(bool recording:{false,true}) {
-        FrameDriver restricted(session.image(session.active),SaveStore::shared(root/(recording ? "recording" : "raw")),recording,{},recording);
+    {
+        // Recording mode, the only restricted session since milestone 14
+        // removed the raw-Z80 one (--no-routines).
+        FrameDriver restricted(session.image(session.active),SaveStore::shared(root/"recording"),{},true);
         // Both targets are present: refusal must be the session restriction,
-        // rather than missing data. Raw-Z80 Options is actually opened first.
+        // rather than missing data.
         restricted.configure_languages(session);restricted.machine()=field;
-        bool active=false;
-        for(unsigned n=0;n<120 && !active;++n) {
-            restricted.run({});const bool requested=restricted.request_menu();
-            if(recording)check(!requested,"recording admitted Options");
-            else if(requested) {restricted.run({});active=restricted.menu_active();}
+        for(unsigned n=0;n<120;++n) {
+            restricted.run({});check(!restricted.request_menu(),"recording admitted Options");
         }
-        check(recording || active,"raw-Z80 read-only Options did not open");
         refuses([&]{restricted.prepare_language(preference(other));},"restricted session accepted language");
         restricted.commit_language();check(!restricted.language_pending(),"restricted session queued language");
-        check(!std::filesystem::exists(root/(recording ? "recording" : "raw")/language_file_name),"restricted session wrote global preference");
+        check(!std::filesystem::exists(root/"recording"/language_file_name),"restricted session wrote global preference");
     }
 }
 void scenario(const SessionRoms& session,const replay::Recording& recording,unsigned at,bool dungeon,const std::string& scene) {
@@ -222,7 +241,10 @@ void scenario(const SessionRoms& session,const replay::Recording& recording,unsi
     std::cout<<(session.source_version==RomVersion::us_rev_a ? "US " : "BR ")<<scene<<": bidirectional queued switching, exact state/audio, independent saves, future native target text and power cycle passed.\n";
 }
 }
-int main(int argc,char** argv) {try {
+int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try {
     if(argc!=6)return 1;
     for(unsigned i=1;i<=2;++i)if(!*argv[i] || !std::filesystem::is_regular_file(argv[i]))return 77;
     const auto us=load_rom(argv[1]),br=load_rom(argv[2]);

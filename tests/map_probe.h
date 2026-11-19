@@ -37,6 +37,7 @@
 #include "replay/checkpoint.h"
 #include "replay/recording.h"
 #include "replay/verification.h"
+#include "oracle/lockstep.h"
 #include "rom/sha1.h"
 #include <cstdlib>
 #include <filesystem>
@@ -133,31 +134,26 @@ inline bool admitted(const Machine& m, const SegmentSpec& spec) {
 // every frame on the seven manifest components.
 class Scenario {
 public:
+    // The game runs on the engine with the oracle beside it in lockstep
+    // (milestone 14): compared at every top-level segment boundary and as
+    // whole machines at every frame observer.
     Scenario(const probe::Rom& rom, const StartImage& image, std::string name, const game::Options& options = {})
-        : name_(std::move(name)), on_(rom.image,image), off_(rom.image,image), verifier_(name_) {
+        : name_(std::move(name)), on_(rom.image,image), lockstep_(on_,name_) {
         check(game::register_routines(routines_,rom.sha1,options),"identified ROM registry");
-        check(game::register_routines(disabled_,rom.sha1,options),"identified ROM registry");
-        routines_.verifier=&verifier_;
-        disabled_.enabled=false;
     }
     Scenario(const Scenario&)=delete;
     Scenario& operator=(const Scenario&)=delete;
-    // Branch from an already compared frame. Keep each side's actual state,
-    // pending audio writes and call counters, and bind a fresh verifier.
+    // Branch from an already compared frame. Keep both sides' actual state
+    // and the call counters.
     Scenario(const Scenario& base,std::string name)
-        : name_(std::move(name)), on_(base.on_), off_(base.off_), routines_(base.routines_),
-          disabled_(base.disabled_), verifier_(name_), on_writes_(base.on_writes_),
-          off_writes_(base.off_writes_), frame_(base.frame_) {
-        routines_.verifier=&verifier_;
+        : name_(std::move(name)), on_(base.on_), lockstep_(base.lockstep_), routines_(base.routines_),
+          frame_(base.frame_) {
+        lockstep_.set_label(name_);
     }
 
     void frame(const FrameInput& input) {
         ++frame_;
-        on_.run_frame(input,routines_);
-        const auto psg=on_writes_.take(frame_,on_.take_psg_writes()); on_.take_samples();
-        off_.run_frame(input,disabled_);
-        const auto native=off_writes_.take(frame_,off_.take_psg_writes()); off_.take_samples();
-        replay::compare_manifests(name_,frame_,replay::manifest(off_,native),replay::manifest(on_,psg));
+        lockstep_.run_frame(on_,input,&routines_);
     }
     void frames(const FrameInput& input, unsigned count) { for (unsigned i=0;i<count;++i) frame(input); }
     // Plays the recording's inputs from its frame `from` until `stop` holds
@@ -170,9 +166,9 @@ public:
         }
         return false;
     }
-    // Edits work RAM in both copies between frames.
+    // Edits work RAM in both machines between frames.
     void poke(std::uint16_t address, std::uint8_t value) {
-        on_.memory().write(address,value); off_.memory().write(address,value);
+        on_.memory().write(address,value); lockstep_.oracle().memory().write(address,value);
     }
     void poke_word(std::uint16_t address, std::uint16_t value) {
         poke(address,static_cast<std::uint8_t>(value)); poke(static_cast<std::uint16_t>(address+1),static_cast<std::uint8_t>(value>>8));
@@ -198,10 +194,9 @@ public:
     }
 private:
     std::string name_;
-    Machine on_, off_;
-    RoutineRegistry routines_, disabled_;
-    replay::CallVerifier verifier_;
-    replay::FrameWrites on_writes_, off_writes_;
+    Machine on_;
+    oracle::Lockstep lockstep_;
+    RoutineRegistry routines_;
     std::uint64_t frame_=0;
 };
 // The mode byte says the party walks on the map or in a town.

@@ -10,6 +10,8 @@
 
 using namespace psmodern;
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         probe::check(argc==4,"expected ROM, region and recording");
         auto rom=probe::load(argv[1],argv[2]); if (!rom) return 77;
@@ -19,7 +21,6 @@ int main(int argc,char** argv) {
         probe::check(sha1(cart)==recording.cart_ram_sha1,"recording must start with empty cartridge RAM");
         Machine original(rom->image,cart), replacement(rom->image,cart);
         RoutineRegistry registry; game::register_routines(registry,rom->sha1);
-        replay::CallVerifier verifier("text recording"); registry.verifier=&verifier;
         replay::FrameWrites original_writes, replacement_writes;
         std::array<unsigned,256> dialogue{}, alternate{};
         for (std::uint64_t frame=0;frame<recording.frames;++frame) {
@@ -31,10 +32,17 @@ int main(int argc,char** argv) {
                 return std::nullopt;
             };
             auto input=recording.input_at(frame);
-            original.run_frame(input,nullptr,hook); replacement.run_frame(input,registry);
+            original.run_frame(input,nullptr,hook);
             auto a=original_writes.take(frame+1,original.take_psg_writes()); original.take_samples();
-            auto b=replacement_writes.take(frame+1,replacement.take_psg_writes()); replacement.take_samples();
-            replay::compare_manifests("text recording",frame+1,replay::manifest(original,a),replay::manifest(replacement,b));
+            // Milestone 14: the replacement's frame is taken at its frame
+            // observer, where the original's run_frame ended.
+            bool compared=false;
+            replacement.run_frame(input,registry,{},{},[&] {
+                auto b=replacement_writes.take(frame+1,replacement.take_psg_writes()); replacement.take_samples();
+                replay::compare_manifests("text recording",frame+1,replay::manifest(original,a),replay::manifest(replacement,b));
+                compared=true;
+            });
+            probe::check(compared,"the frame observer did not run");
         }
         for (unsigned n=0x5b;n<=0x65;++n)
             std::cout<<std::hex<<n<<std::dec<<" dialogue="<<dialogue[n]<<" alternate="<<alternate[n]<<'\n';

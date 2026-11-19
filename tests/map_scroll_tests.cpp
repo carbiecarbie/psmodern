@@ -21,6 +21,8 @@
 //      vehicle, routines on beside routines off, compared every frame.
 #include "game/map_kit.h"
 #include "map_probe.h"
+#include <vector>
+#include <functional>
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -45,6 +47,7 @@ struct Want {
     std::uint16_t entry, unit;
     std::vector<SegmentExit> exits;
     mk::Permissions permissions={};
+    bool single=false;          // a one-instruction joining segment (milestone 14)
 };
 // The milestone 11 segment design for this part, with the part's tuning (reported): the decoder's
 // chunks end at every loop head (after 0, not 512), 01:733A holds four bytes,
@@ -68,6 +71,8 @@ std::vector<Want> wanted() {
         {0x72FE,0x72A6,{L(0x72FD,0),R(0x7339,4)},{.inherited_stack=4}},
         {0x733A,0x733A,{R(0x733F),L(0x7396,0,-4)},{.slot2_mapper=true,.scratch_stack=4}},
         {0x7397,0x733A,{L(0x7396,0),R(0x73CF,4)},{.scratch_stack=2,.inherited_stack=4}},
+        // Joining stretches (milestone 14): the jumps after the window refill and the full screen's first call.
+        {0x71E3,0x7143,{F(0x71E3)},{},true},{0x722A,0x7143,{F(0x722A)},{},true},{0x744B,0x744B,{F(0x744B)},{.scratch_stack=2},true},
         {0x744E,0x744B,{L(0x7487,512,-8)},{.slot2_mapper=true,.scratch_stack=10}},
         {0x7488,0x744B,{L(0x7487,512),F(0x74E1,8)},{.scratch_stack=2,.inherited_stack=8}},
     };
@@ -75,7 +80,7 @@ std::vector<Want> wanted() {
 void registration() {
     const auto entries=map_probe::registered_entries(part,game::register_map_scroll);
     const auto want=wanted();
-    check(entries.size()==want.size(),"the scroll part registers its 21 entries");
+    check(entries.size()==want.size(),"the scroll part registers its 24 entries");
     for (const auto& planned:map::scroll_segments)
         check(std::count(entries.begin(),entries.end(),planned.entry)==1,"every planned scroll segment is registered");
     RoutineRegistry registry;
@@ -88,8 +93,7 @@ void registration() {
         check(routine!=nullptr,"the planned entry is registered");
         const auto& spec=routine->spec;
         check(spec.unit==unit && spec.slot2_mapper==w.permissions.slot2_mapper && spec.scratch_stack==w.permissions.scratch_stack &&
-              spec.inherited_stack==w.permissions.inherited_stack && !spec.single_instruction && !spec.force_admit &&
-              !spec.absolute_wram_store,"the entry has the unit and permissions of the scroll table");
+              spec.inherited_stack==w.permissions.inherited_stack && spec.single_instruction==w.single,"the entry has the unit and permissions of the scroll table");
         check(spec.exits.size()==w.exits.size(),"the entry declares the exits of the scroll table");
         for (const auto& exit:w.exits)
             check(std::count_if(spec.exits.begin(),spec.exits.end(),[&](const auto& e) { return e.same_declaration(exit); })==1,
@@ -105,14 +109,16 @@ constexpr std::uint16_t pad_held=0xC204, sound_request=0xC004, strip_pending=0xC
 constexpr std::uint16_t screen_table=0xC260, screen_bank=0xC262, sheet_bank=0xC263;
 
 // The harness's verifier, wrapped to learn which exit each verified call took.
-struct Spy final : RoutineVerifier {
-    replay::CallVerifier inner{"probe"};
+// The exit each call of the harness took (milestone 14: from the registry).
+struct Spy {
     std::optional<SegmentExit> last;
-    std::map<RoutineEntry,std::map<std::uint16_t,std::uint64_t>> taken;   // entry -> exit -> calls
-    void run(Machine& machine, RoutineEntry entry, const SegmentSpec& spec, bool forced, std::uint64_t bound,
-             std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override {
-        inner.run(machine,entry,spec,forced,bound,call,[&] { last=body(); return last; });
-        if (last) ++taken[entry][last->address];
+    // entry -> exit -> calls, from the finals the registry counts per exit (run on the core, or rendered by the body)
+    static std::map<RoutineEntry,std::map<std::uint16_t,std::uint64_t>> taken(const RoutineRegistry& registry) {
+        std::map<RoutineEntry,std::map<std::uint16_t,std::uint64_t>> result;
+        for (const auto& [entry,routine]:registry.entries())
+            for (std::size_t i=0;i<routine.spec.exits.size();++i)
+                if (routine.rendered[i]) result[entry][routine.spec.exits[i].address]+=routine.rendered[i];
+        return result;
     }
 };
 
@@ -123,7 +129,7 @@ struct Rig {
     std::mt19937_64 random{0x5C2011};
     std::uint64_t seed=1, count=0, refusals=0, fallbacks=0;
 
-    explicit Rig(const probe::Rom& r) : harness(r), rom(r) { harness.registry().verifier=&spy; }
+    explicit Rig(const probe::Rom& r) : harness(r), rom(r) { harness.exit_sink=&spy.last; }
     std::uint8_t byte() { return static_cast<std::uint8_t>(random()); }
     unsigned below(unsigned n) { return static_cast<unsigned>(random()%n); }
     template<class T, std::size_t N> T pick(const T (&values)[N]) { return values[below(N)]; }
@@ -197,6 +203,9 @@ void camera(Rig& rig, Machine& m) {
 // -- 1. Power-on state probes ------------------------------------------------------------
 void step_probes(Rig& rig) {
     for (unsigned i=0;i<400;++i) rig.run(map::step_unit,{},"7143");
+    // Joining stretches (milestone 14): the jumps after the window refill and the full screen's first call.
+    for (const std::uint16_t joining:{0x71E3,0x722A,0x744B})
+        for (unsigned i=0;i<100;++i) rig.run(at(joining),{},hex(joining));
     for (unsigned i=0;i<400;++i) rig.run(at(0x7149),[&](Machine& m) {    // HL, DE, BC held, then the return address
         const auto sp=m.cpu().sp.uint16_value;
         for (unsigned k=0;k<6;++k) m.memory().write(static_cast<std::uint16_t>(sp+k),rig.byte());
@@ -366,8 +375,9 @@ void machine_probes(Rig& rig) {
 // Every declared exit of every entry was taken by some probe.
 void exits_covered(const Rig& rig) {
     for (const auto& w:wanted()) {
-        const auto found=rig.spy.taken.find(at(w.entry));
-        check(found!=rig.spy.taken.end(),"no probe ran entry "+hex(w.entry));
+        const auto taken=Spy::taken(rig.harness.registry());
+        const auto found=taken.find(at(w.entry));
+        check(found!=taken.end(),"no probe ran entry "+hex(w.entry));
         // The step's parts share one exit set; each part reaches the exits after it in the code.
         static const std::map<std::uint16_t,std::set<std::uint16_t>> step_reach{
             {0x714D,{0x718D,0x71B2,0x71F4,0x7209,0x723C}},{0x7190,{0x71B2,0x71F4,0x7209,0x723C,0x71E0}},
@@ -394,22 +404,28 @@ ChainCount chain(Rig& rig, const Machine& base, RoutineEntry entry, std::uint16_
     Machine native=machine;
     auto before=[&] { std::uint64_t c=0, f=0; for (const auto& [e,r]:rig.harness.registry().entries()) { c+=r.counters.cpp_calls; f+=r.counters.fallback_calls; } return std::pair{c,f}; };
     const auto [c0,f0]=before();
+    // Every PSG write of each side, drained as it runs (review R3 M4).
+    std::vector<PsgWrite> native_writes, engine_writes;
     auto run=[&](Machine& m, RoutineRegistry* registry, const char* side) {
+        auto& writes=registry ? engine_writes : native_writes;
+        auto drain=[&] { for (const auto& w:m.take_psg_writes()) writes.push_back(w); (void)m.take_samples(); };
         for (unsigned steps=0;m.cpu().pc.uint16_value!=stop;++steps) {
             check(steps<2'000'000,std::string("a ")+side+" chain did not reach its stop: "+what+" (PC "+hex(m.cpu().pc.uint16_value)+
                   ", SP "+hex(m.cpu().sp.uint16_value)+")");
-            if (steps%256==0) { (void)m.take_psg_writes(); (void)m.take_samples(); }
+            if (steps%256==0) drain();
             try { if (registry) m.step(*registry); else m.step(); }
             catch (const std::exception& error) { throw std::runtime_error(std::string(error.what())+" ["+what+"]"); }
         }
+        drain();
     };
     run(native,nullptr,"native");
     run(machine,&rig.harness.registry(),"routines-on");
     std::string fields;
-    // The sample queues were drained at different steps (a C++ segment is one step).
-    (void)machine.take_psg_writes(); (void)machine.take_samples(); (void)native.take_psg_writes(); (void)native.take_samples();
-    for (const auto& difference:native.differences(machine))
-        if (difference.field.rfind("psg.samples",0)!=0) fields+=" "+difference.field;
+    if (native_writes!=engine_writes) fields+=" PSG writes differ";
+    // The documented equality (milestone 14; it also leaves out the sample
+    // queues): the core's per-step scratch is not machine state.
+    for (const auto& difference:oracle::differences(machine,native,oracle::Scope::whole)) fields+=" "+difference;
+    for (const auto& difference:oracle::queue_differences(machine,native)) fields+=" "+difference;
     check(fields.empty(),"the chain differs from the native call ("+what+"):"+fields);
     const auto [c1,f1]=before();
     return {c1-c0,f1-f0};
@@ -531,12 +547,52 @@ void probes(const map_probe::Inputs& inputs, bool& skipped) {
 }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body of this part
+// (sampled: about 40 runs per kind), each run compared with the oracle at every
+// instruction boundary, handler included. One-instruction segments have no
+// boundary inside and are left out. The state is the map's work RAM with
+// recognisable bytes, pointers into RAM and the video data port in C.
+void sweep_state(RoutineEntry entry, Machine& m) {
+    (void)entry;
+    auto& cpu=m.cpu();
+    for (unsigned a=0xC200;a<0xC700;++a) m.memory().write(static_cast<std::uint16_t>(a),static_cast<std::uint8_t>((a*167u+(a>>8)*13u)>>1));
+    cpu.hl.uint16_value=0xC900; cpu.de.uint16_value=0xD000; cpu.bc.uint16_value=0x04BE;
+    cpu.ix_iy[0].uint16_value=0xC800; cpu.ix_iy[1].uint16_value=0xC800;
+}
+void sweeps(const probe::Rom& rom) {
+    probe::Harness h(rom);
+    std::vector<RoutineEntry> entries;
+    for (const auto& s:map::scroll_segments) entries.push_back(s.entry);
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction) continue;
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            const auto adjust=[&](Machine& m) { sweep_state(entry,m); };
+            auto base=h.prepare(entry,setup);
+            adjust(base);
+            const auto length=h.run_cpp(base,entry).cycles;
+            probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    check(failures.empty(),"map sweeps failed:"+failures);
+    std::cout<<"map scroll: "<<swept<<" segments swept\n";
+}
+
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        sweeps(inputs->rom);
         bool skipped=false;
         probes(*inputs,skipped);
         return skipped ? 77 : 0;

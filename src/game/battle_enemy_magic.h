@@ -35,6 +35,8 @@ inline constexpr std::array segments{
     Segment{{0, 0x153A}, {0, 0x1386}}, Segment{{0, 0x1544}, {0, 0x1386}},
     Segment{{0, 0x154C}, {0, 0x1386}}, Segment{{0, 0x1555}, {0, 0x1386}},
     Segment{{0, 0x155C}, {0, 0x1386}}, Segment{{0, 0x1561}, {0, 0x1386}},
-    Segment{{0, 0x1569}, {0, 0x1386}}, Segment{{0, 0x156E}, {0, 0x1386}}};
+    Segment{{0, 0x1569}, {0, 0x1386}}, Segment{{0, 0x156E}, {0, 0x1386}},
+    Segment{{0, 0x13A6}, {0, 0x1386}}, Segment{{0, 0x13AE}, {0, 0x1386}},
+    Segment{{0, 0x13C9}, {0, 0x1386}}};
 } // namespace battle_enemy_magic
 } // namespace psmodern::game

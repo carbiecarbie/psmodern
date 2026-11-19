@@ -7,7 +7,7 @@ namespace {
 namespace k=menu_kit;
 template<class Z> k::Exit show_interaction_message(Z& z,std::uint16_t at) {
     z.load_hl(at);
-    return k::continues(static_cast<std::uint16_t>(at+3),k::jump_cycles);
+    return z.final_jump(static_cast<std::uint16_t>(at+3));
 }
 }
 void register_interaction_messages(RoutineRegistry& registry) {

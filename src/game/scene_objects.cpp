@@ -15,7 +15,7 @@
 //
 // The routines of this file:
 //   01:5C63  the chest's set-up: the slot is cleared (the shared slot clear,
-//            a call the core runs), the state set, a fixed position, the
+//            a call), the state set, a fixed position, the
 //            first frame and the countdown stored, and a random byte drawn.
 //            The outcome frame is chosen against the threshold byte C2E0:
 //            zero, or below the random byte (unless it is F0h or more),
@@ -52,24 +52,21 @@ namespace k=map_kit;
 using k::Exit;
 constexpr auto obj=k::Index::iy;                                      // the object record
 
-// The ways a segment ends. Each names the original's final instruction and
-// charges its cycles; the core runs that instruction.
-Exit call_at(std::uint16_t at) { return k::continues(at,k::call_cycles); }
-Exit return_at(std::uint16_t at) { return k::returns(at,k::return_cycles); }
-Exit return_taken_at(std::uint16_t at) { return k::returns(at,k::taken_conditional_return_cycles); }
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
 
 // A call at the very start of a handler (the slot clear, or the call of the
-// per-frame body) is a one-instruction entry the core runs.
+// per-frame body) is a one-instruction entry.
 void register_handler_call(RoutineRegistry& r, RoutineEntry unit, std::uint16_t pc) {
     auto spec=k::segment(unit,{k::core_final_at(pc)},{.scratch_stack=2});
     spec.single_instruction=true;
-    r.add({1,pc},std::move(spec),[](const Machine&){return k::call_cycles;},
-          [pc](RoutineContext& c){c.finish_core(pc);});
+    k::add_segment(r,{1,pc},std::move(spec),[pc](auto& z) -> Exit { return z.final_call(pc); });
 }
 // After the per-frame body returns: `ld a,FFh` at pc, then the return.
 template<class Z> Exit handler_answer(Z& z, std::uint16_t pc) {
     z.load_immediate(pc,z.r.a);
-    return return_at(static_cast<std::uint16_t>(pc+2));
+    return return_at(z,static_cast<std::uint16_t>(pc+2));
 }
 
 // ---- The chest's set-up: 01:5C63 -----------------------------------------------------------------
@@ -79,7 +76,7 @@ template<class Z> Exit handler_answer(Z& z, std::uint16_t pc) {
 template<class Z> Exit chest_setup(Z& z) {
     z.increment_indexed(0x5C66,obj);                                  // +0, the state
     for (auto pc:{0x5C69,0x5C6D,0x5C71,0x5C75}) z.store_immediate_indexed(pc,obj);   // +2, +4, +1, +14
-    return call_at(0x5C79);
+    return call_at(z,0x5C79);
 }
 // 01:5C7C: the random byte in B and the plain outcome in C. A nonzero
 // threshold that is F0h or more, or not below the random byte, selects one
@@ -106,7 +103,7 @@ template<class Z> Exit chest_outcome(Z& z) {
     }
     z.store_to_indexed(0x5C93,obj,z.r.c);                             // +15
     z.load_immediate(0x5C96,z.r.a);                                   // the handler's answer, FFh
-    return return_at(0x5C98);
+    return return_at(z,0x5C98);
 }
 
 // ---- The chest each frame: 01:5C99 ----------------------------------------------------------------
@@ -114,53 +111,49 @@ template<class Z> Exit chest_outcome(Z& z) {
 // opening (the jump goes to the reveal test); otherwise the opening.
 template<class Z> Exit chest_phase(Z& z) {
     z.test_bit_indexed(0x5C9F,obj,0);
-    if (z.zero()) return return_taken_at(0x5CA3);
-    z.return_not_taken(0x5CA3);
+    if (auto exit=z.final_return_if(0x5CA3,k::Condition::z)) return *exit;
     z.test_bit_indexed(0x5CA4,obj,1);
-    return k::relative_if_exit(0x5CA8,!z.zero());
+    return z.final_relative_if(0x5CA8,k::Condition::nz);
 }
 // 01:5CAA: the opening. Every eighth frame the frame steps; on reaching the
 // opened chest the countdown is set for a pause and bit 1 marks the opening
 // done.
 template<class Z> Exit chest_opening(Z& z) {
     z.decrement_indexed(0x5CAA,obj);                                  // +14, the countdown
-    if (!z.sign()) return return_taken_at(0x5CAD);
-    z.return_not_taken(0x5CAD);
+    if (auto exit=z.final_return_if(0x5CAD,k::Condition::p)) return *exit;
     z.store_immediate_indexed(0x5CAE,obj);                            // reload it
     z.load_from_indexed(0x5CB2,obj,z.r.a);                            // +1, the frame
     z.increment(0x5CB5,z.r.a);
     z.store_to_indexed(0x5CB6,obj,z.r.a);
     z.compare_immediate(0x5CB9);                                      // the opened chest yet?
-    if (!z.zero()) return return_taken_at(0x5CBB);
-    z.return_not_taken(0x5CBB);
+    if (auto exit=z.final_return_if(0x5CBB,k::Condition::nz)) return *exit;
     z.store_immediate_indexed(0x5CBC,obj);                            // the pause
     z.set_bit_indexed(0x5CC0,obj,1);
-    return return_at(0x5CC4);
+    return return_at(z,0x5CC4);
 }
 // 01:5CC5: bit 2 set: past the reveal (the jump goes to the outcome's
 // animation).
 template<class Z> Exit chest_reveal_test(Z& z) {
     z.test_bit_indexed(0x5CC5,obj,2);
-    return k::relative_if_exit(0x5CC9,!z.zero());
+    return z.final_relative_if(0x5CC9,k::Condition::nz);
 }
 // 01:5CCB: the reveal, after the pause. The outcome frame is shown, bit 2
 // set, and the outcome compared with the plain chest (the jump goes to the
 // sound request).
 template<class Z> Exit chest_reveal(Z& z) {
     z.decrement_indexed(0x5CCB,obj);
-    if (!z.sign()) return return_taken_at(0x5CCE);
-    z.return_not_taken(0x5CCE);
+    if (auto exit=z.final_return_if(0x5CCE,k::Condition::p)) return *exit;
     z.store_immediate_indexed(0x5CCF,obj);                            // the countdown
     z.load_from_indexed(0x5CD3,obj,z.r.a);                            // +15, the outcome
     z.store_to_indexed(0x5CD6,obj,z.r.a);                             // shown as the frame
     z.set_bit_indexed(0x5CD9,obj,2);
     z.compare_immediate(0x5CDD);
-    return k::relative_if_exit(0x5CDF,!z.zero());
+    return z.final_relative_if(0x5CDF,k::Condition::nz);
 }
 // 01:5CE1: a plain chest frees its slot.
 template<class Z> Exit chest_empty(Z& z) {
     z.store_immediate_indexed(0x5CE1,obj);                            // +0 = 0
-    return return_at(0x5CE5);
+    return return_at(z,0x5CE5);
 }
 // 01:5CE6: the other outcomes request a sound, one number for the first
 // outcome and the next number for the second.
@@ -169,18 +162,17 @@ template<class Z> Exit chest_reveal_sound(Z& z) {
     z.load_immediate(0x5CE8,z.r.a);
     if (!z.relative_if(0x5CEA,z.zero())) z.increment(0x5CEC,z.r.a);
     z.store_a_direct(0x5CED);                                         // the sound request byte
-    return return_at(0x5CF0);
+    return return_at(z,0x5CF0);
 }
 // 01:5CF1: the outcome's animation, a step every fourth frame; the jump
 // goes to the second outcome's version.
 template<class Z> Exit chest_animation_step(Z& z) {
     z.decrement_indexed(0x5CF1,obj);
-    if (!z.sign()) return return_taken_at(0x5CF4);
-    z.return_not_taken(0x5CF4);
+    if (auto exit=z.final_return_if(0x5CF4,k::Condition::p)) return *exit;
     z.store_immediate_indexed(0x5CF5,obj);
     z.load_from_indexed(0x5CF9,obj,z.r.a);                            // +15, the outcome
     z.compare_immediate(0x5CFC);
-    return k::relative_if_exit(0x5CFE,!z.zero());
+    return z.final_relative_if(0x5CFE,k::Condition::nz);
 }
 // The end of either outcome's animation: back to the opened-chest frame and
 // the slot freed. `at` is the first of its three instructions, because the
@@ -188,7 +180,7 @@ template<class Z> Exit chest_animation_step(Z& z) {
 template<class Z> Exit finish_chest(Z& z, std::uint16_t at) {
     z.store_immediate_indexed(at,obj);                                // +1, the opened chest
     z.store_immediate_indexed(static_cast<std::uint16_t>(at+4),obj);  // +0 = 0
-    return return_at(static_cast<std::uint16_t>(at+8));
+    return return_at(z,static_cast<std::uint16_t>(at+8));
 }
 // 01:5D00: the first outcome. The frame steps; one particular frame calls
 // the screen flash (a conditional call), the flags waiting on the stack.
@@ -198,14 +190,13 @@ template<class Z> Exit chest_first_outcome_step(Z& z) {
     z.store_to_indexed(0x5D04,obj,z.r.a);
     z.push(0x5D07,z.r.a,z.r.f);
     z.compare_immediate(0x5D08);
-    return k::continues(0x5D0A,z.zero() ? k::call_cycles : k::untaken_call_cycles);
+    return z.final_call_if(0x5D0A,k::Condition::z);
 }
 // 01:5D0D: after the flash call; the animation ends at its last frame.
 template<class Z> Exit chest_first_outcome_end(Z& z) {
     z.pop(0x5D0D,z.r.a,z.r.f);
     z.compare_immediate(0x5D0E);
-    if (z.carry()) return return_taken_at(0x5D10);
-    z.return_not_taken(0x5D10);
+    if (auto exit=z.final_return_if(0x5D10,k::Condition::c)) return *exit;
     return finish_chest(z,0x5D11);
 }
 // 01:5D1A: the second outcome. The frame steps up to its last one, which
@@ -215,9 +206,8 @@ template<class Z> Exit chest_second_outcome_step(Z& z) {
     z.increment(0x5D1D,z.r.a);
     z.store_to_indexed(0x5D1E,obj,z.r.a);
     z.compare_immediate(0x5D21);
-    if (z.carry()) return return_taken_at(0x5D23);
-    z.return_not_taken(0x5D23);
-    return call_at(0x5D24);
+    if (auto exit=z.final_return_if(0x5D23,k::Condition::c)) return *exit;
+    return call_at(z,0x5D24);
 }
 // 01:5D27: after the flash, the end.
 template<class Z> Exit chest_second_outcome_end(Z& z) { return finish_chest(z,0x5D27); }
@@ -243,15 +233,14 @@ template<class Z> Exit moving_setup(Z& z) {
     z.load_immediate(0x5D53,z.r.a);
     z.store_a_direct(0x5D55);                                         // the sound request byte
     z.load_immediate(0x5D58,z.r.a);                                   // the handler's answer, FFh
-    return return_at(0x5D5A);
+    return return_at(z,0x5D5A);
 }
 // 01:5D61: a step every eighth frame. The frame is the base plus the step
 // counter modulo 4 (the counter goes up); the jump goes to the movement in
 // that location.
 template<class Z> Exit moving_step(Z& z) {
     z.decrement_indexed(0x5D61,obj);                                  // +14, the countdown
-    if (!z.sign()) return return_taken_at(0x5D64);
-    z.return_not_taken(0x5D64);
+    if (auto exit=z.final_return_if(0x5D64,k::Condition::p)) return *exit;
     z.store_immediate_indexed(0x5D65,obj);
     z.load_from_indexed(0x5D69,obj,z.r.a);                            // +13, the step counter
     z.increment_indexed(0x5D6C,obj);
@@ -260,7 +249,7 @@ template<class Z> Exit moving_step(Z& z) {
     z.store_to_indexed(0x5D74,obj,z.r.a);
     z.load_a_direct(0x5D77);                                          // C309, the location
     z.compare_immediate(0x5D7A);
-    return k::relative_if_exit(0x5D7C,z.zero());
+    return z.final_relative_if(0x5D7C,k::Condition::z);
 }
 // 01:5D7E: elsewhere, up and left; at a fixed column the slot is freed.
 template<class Z> Exit moving_up_left(Z& z) {
@@ -268,10 +257,9 @@ template<class Z> Exit moving_up_left(Z& z) {
     z.decrement_indexed(0x5D81,obj);                                  // Y
     z.load_from_indexed(0x5D84,obj,z.r.a);
     z.compare_immediate(0x5D87);
-    if (!z.zero()) return return_taken_at(0x5D89);
-    z.return_not_taken(0x5D89);
+    if (auto exit=z.final_return_if(0x5D89,k::Condition::nz)) return *exit;
     z.store_immediate_indexed(0x5D8A,obj);                            // +0 = 0
-    return return_at(0x5D8E);
+    return return_at(z,0x5D8E);
 }
 // 01:5D8F: in that location, down; at a fixed row the slot is freed (the
 // jump back to 01:5D8A, rendered here); every eighth row one pixel left.
@@ -281,13 +269,12 @@ template<class Z> Exit moving_down(Z& z) {
     z.compare_immediate(0x5D95);
     if (z.relative_if(0x5D97,z.zero())) {
         z.store_immediate_indexed(0x5D8A,obj);                        // +0 = 0
-        return return_at(0x5D8E);
+        return return_at(z,0x5D8E);
     }
     z.and_immediate(0x5D99);
-    if (!z.zero()) return return_taken_at(0x5D9B);
-    z.return_not_taken(0x5D9B);
+    if (auto exit=z.final_return_if(0x5D9B,k::Condition::nz)) return *exit;
     z.decrement_indexed(0x5D9C,obj);                                  // X
-    return return_at(0x5D9F);
+    return return_at(z,0x5D9F);
 }
 }
 

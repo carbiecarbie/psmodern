@@ -2,10 +2,24 @@
 #include "game/dungeon_tables.h"
 #include "game/dungeon_view.h"
 #include "probe.h"
+#include <algorithm>
+#include <functional>
 #include <iostream>
+#include <set>
+#include <span>
+#include <string>
 
 using namespace psmodern;
 namespace {
+// Whole-machine equality with the original run natively (milestone 14): the
+// documented oracle equality, which leaves out the core's per-step
+// bookkeeping, plus the two host-side items it does not cover: the PSG writes
+// waiting to be taken and the cartridge RAM dirty flag.
+bool same_state(Machine& actual,Machine& native) {
+    const bool writes=actual.take_psg_writes()==native.take_psg_writes();
+    return oracle::equal(actual,native,oracle::Scope::whole) && writes &&
+           actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty();
+}
 void pitfall_copy(probe::Harness& h) {
     for (auto pc:game::pitfall_video_copies) for (bool iff:{true,false}) {
         auto m=h.prepare({1,pc},{.iff1=iff,.iff2=iff,.seed=pc});
@@ -24,7 +38,7 @@ void pitfall_copy(probe::Harness& h) {
         h.run_cpp(m,{1,static_cast<std::uint16_t>(pc+4)});
         m.step(h.registry());
         while (original.cycles()<m.cycles()) original.step();
-        probe::check(m.equivalent(original) && m.cpu().iff1,"pitfall interrupt window or video bytes differ");
+        probe::check(same_state(m,original) && m.cpu().iff1,"pitfall interrupt window or video bytes differ");
     }
 }
 void check_dungeon_escape(probe::Harness& h,const game::DungeonTables& tables) {
@@ -50,7 +64,7 @@ void check_dungeon_escape(probe::Harness& h,const game::DungeonTables& tables) {
             h.run_cpp(m,{1,0x6863});
         }
         while (native.cycles()<m.cycles()) native.step();
-        probe::check(m.equivalent(native) && m.cpu().af.uint8_values.at_1==(accepted ? 255 : 0),
+        probe::check(same_state(m,native) && m.cpu().af.uint8_values.at_1==(accepted ? 255 : 0),
                      "spell eligibility differs for dungeon object record");
     };
     for (const auto& rec:tables.objects()) spell_cell(rec.floor,rec.cell,8,false);
@@ -102,7 +116,7 @@ void check_stream(probe::Harness& h, bool patterns, unsigned count) {
         h.run_cpp(m,{1,m.cpu().pc.uint16_value});
     }
     while (original.cycles()<m.cycles()) original.step();
-    probe::check(m.equivalent(original),"dungeon stream diverged on return");
+    probe::check(same_state(m,original),"dungeon stream diverged on return");
     for (unsigned i=0;i<expected.size();++i) {
         const auto address=0xD000+2*(i%(2*count))+i/(2*count);
         const auto actual=patterns ? m.vdp().vram()[i] : m.peek(address);
@@ -127,7 +141,7 @@ void check_stream_boundaries(probe::Harness& h) {
         m=h.prepare(entry,{});
         m.cpu().de.uint16_value=0xFFFF;
         m.cpu().bc.uint16_value=0;
-        h.run_fallback(m,entry,RoutineFallback::frame);
+        h.run_fallback(m,entry,RoutineFallback::guard);      // an entry guard since milestone 14 (was an uncertain bound)
     }
 }
 void check_views(probe::Harness& h) {
@@ -149,7 +163,7 @@ void check_views(probe::Harness& h) {
             m.step(h.registry());
         }
         while (original.cycles()<m.cycles()) original.step();
-        probe::check(m.equivalent(original),"whole dungeon view differs");
+        probe::check(same_state(m,original),"whole dungeon view differs");
     }
     // The secondary cone layer forces A to zero only for the saved kind zero.
     for (unsigned value:{0u,1u,7u,255u}) {
@@ -183,22 +197,21 @@ void check_frame_setup(probe::Harness& h) {
     for (unsigned high:{0x00u,0x80u,0x81u,0x8Au,0xFFu}) {
         auto m=h.prepare({1,0x6B1D},{});
         m.cpu().de.uint8_values.at_1=high;
-        h.run_fallback(m,{1,0x6B1D},RoutineFallback::frame);
+        h.run_fallback(m,{1,0x6B1D},RoutineFallback::guard);      // an entry guard since milestone 14 (was an uncertain bound)
     }
-    // This address is the first instruction after EI. Compare the entire
-    // transition through CALL, including the stack and observer's address.
+    // This address is the first instruction after EI (milestone 14: a segment of
+    // its own, rendered like the rest). Compare the entire transition through
+    // CALL, including the stack, and require that it ran in C++.
     auto m=h.prepare({1,0x6B1D},{});
     m.cpu().de.uint8_values.at_1=0x40;
     auto original=m;
     h.run_cpp(m,{1,0x6B1D});
     while (original.cycles()<m.cycles()) original.step();
-    bool saw_call=false;
-    m.step(h.registry(),[&](auto pc,auto)->std::optional<std::uint16_t> {
-        saw_call=pc==0x6B24; return {};
-    });
+    const auto calls_before=h.routine({1,0x6B24}).counters.cpp_calls;
+    m.step(h.registry());
     original.step();
-    probe::check(saw_call && m.cpu().pc.uint16_value==0x6B8E && m.equivalent(original),
-                 "dungeon upload lost its instruction following EI");
+    probe::check(h.routine({1,0x6B24}).counters.cpp_calls==calls_before+1 && m.cpu().pc.uint16_value==0x6B8E &&
+                 same_state(m,original),"dungeon upload lost its instruction following EI");
 }
 void check_animation(probe::Harness& h) {
     namespace v=game::dungeon_view;
@@ -259,7 +272,7 @@ void check_dungeon_load(probe::Harness& h) {
         auto original=m;
         m.step(h.registry());
         do {original.step();} while (original.cycles()<m.cycles());
-        probe::check(m.equivalent(original),"sprite seed differs across interrupt or frame boundary");
+        probe::check(same_state(m,original),"sprite seed differs across interrupt or frame boundary");
     }
     auto m=h.prepare(v::refresh,{});
     for (unsigned i=0;i<=256;++i) m.memory().write(0xC800+i,0xA7);
@@ -268,10 +281,15 @@ void check_dungeon_load(probe::Harness& h) {
     while (m.cpu().pc.uint16_value==0x0FFE) h.run_cpp(m,{0,0x0FFE});
     h.run_cpp(m,{0,0x1000});
     while (original.cycles()<m.cycles()) original.step();
-    probe::check(m.equivalent(original) && m.peek(0xC900)==0xD0,"sprite terminator or clear differs");
+    probe::check(same_state(m,original) && m.peek(0xC900)==0xD0,"sprite terminator or clear differs");
     for (unsigned i=0;i<256;++i) probe::check(m.peek(0xC800+i)==0,"sprite shadow was not cleared");
     m=h.prepare(v::refresh,{.work_ram_disabled=true});
-    h.run_fallback(m,v::refresh,RoutineFallback::unmapped_stack);
+    // Milestone 14: the seed segment has an entry guard (the seed address is work RAM) that
+    // meets this state first, so its reason is guard; the unmapped-stack reason is kept by the
+    // sprite clear call at 00:1000, which has no guard and pushes to the scratch stack.
+    h.run_fallback(m,v::refresh,RoutineFallback::guard);
+    m=h.prepare({0,0x1000},{.work_ram_disabled=true});
+    h.run_fallback(m,{0,0x1000},RoutineFallback::unmapped_stack);
 }
 void check_overlays(probe::Harness& h) {
     for (auto pc:game::dungeon_view::overlay_entries) {
@@ -309,7 +327,7 @@ void check_overlays(probe::Harness& h) {
         h.run_cpp(m,{1,m.cpu().pc.uint16_value});
     }
     while (original.cycles()<m.cycles()) original.step();
-    probe::check(m.equivalent(original),"fake wall row state diverged");
+    probe::check(same_state(m,original),"fake wall row state diverged");
     for (unsigned src=0;src<256;++src) {
         const auto color=static_cast<std::uint8_t>(src+128);
         const auto dest=0xD100+0x300*(src/128)+2*(src%128);
@@ -317,13 +335,74 @@ void check_overlays(probe::Harness& h) {
                      "fake wall changed the wrong tilemap byte");
     }
 }
+// The interrupt sweep of every converted segment of the dungeon view files
+// (milestone 14, recipe step 5): an IRQ and an NMI at every cycle of the body
+// (sampled so that a long body costs about 40 runs per kind), each run
+// compared with the oracle at every instruction boundary, handler included.
+// The hot spot is the frame draw 01:6B35-01:6BC7: the stream readers, the
+// cone and the overlay helpers it calls. One-instruction segments have no
+// boundary inside and are left out (the checkpoints take interrupts at their
+// edges under lockstep).
+void sweep_segment(probe::Harness& h,RoutineEntry entry,const std::function<void(Machine&)>& adjust) {
+    probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+    auto base=h.prepare(entry,setup);
+    adjust(base);
+    const auto length=h.run_cpp(base,entry).cycles;
+    probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+}
+void sweeps(probe::Harness& h) {
+    namespace v=game::dungeon_view;
+    // Pointers into work RAM, a short counter, the video data port, and a run
+    // of data for the streams and tables the segments read through HL.
+    const auto working=[](Machine& m) {
+        auto& cpu=m.cpu();
+        cpu.hl.uint16_value=0xC600; cpu.de.uint16_value=0xD220; cpu.bc.uint16_value=0x02BE;
+        static constexpr std::uint8_t data[]{0x83,0x11,0x22,0x33,0x02,0x44,0x55,0x01,0x66,0x80,0x07,0x08,0x09,0x0A,0};
+        for (unsigned i=0;i<64;++i) m.memory().write(static_cast<std::uint16_t>(0xC600+i),data[i%std::size(data)]);
+    };
+    const auto vram_write=[&](Machine& m) { working(m); m.cpu().de.uint16_value=0x4020; };   // a VRAM write address
+    std::vector<RoutineEntry> entries;
+    for (const auto& e:game::dungeon_layout_entries) entries.push_back(e);
+    for (auto list:{std::span<const std::uint16_t>(v::spell_cell_entries),std::span<const std::uint16_t>(v::escape_choices),
+                    std::span<const std::uint16_t>(v::retreat_entries),std::span<const std::uint16_t>(v::overlay_entries),
+                    std::span<const std::uint16_t>(v::frame_entries),std::span<const std::uint16_t>(v::animation_entries),
+                    std::span<const std::uint16_t>(v::other_entries)})
+        for (auto pc:list) entries.push_back({1,pc});
+    for (auto base:v::depth) {
+        for (auto offset:v::depth_offsets) entries.push_back({1,static_cast<std::uint16_t>(base+offset)});
+        for (auto offset:v::depth_joining_offsets) entries.push_back({1,static_cast<std::uint16_t>(base+offset)});
+    }
+    for (const auto& e:game::dungeon_tile_entries) entries.push_back(e);
+    for (const auto& e:game::dungeon_pattern_entries) entries.push_back(e);
+    entries.push_back(v::floor_music);
+    for (auto pc:v::load_entries) entries.push_back({0,pc});
+    for (auto pc:{0x0FF3,0x1000,0x1008}) entries.push_back({0,static_cast<std::uint16_t>(pc)});
+    // Returns and a one-instruction jump have no boundary inside their body.
+    static const std::set<RoutineEntry> no_boundary{{1,0x6B39},{1,0x6E37},{1,0x6E74},{1,0x6AE5}};
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction || no_boundary.contains(entry)) continue;
+        try {
+            sweep_segment(h,entry,entry==RoutineEntry{1,0x6B1D} ? std::function<void(Machine&)>(vram_write) : std::function<void(Machine&)>(working));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    probe::check(failures.empty(),"dungeon view sweeps failed:"+failures);
+    std::cout<<"dungeon view files: "<<swept<<" segments swept\n";
+}
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc!=3) return 1;
         auto rom=probe::load(argv[1],argv[2]);
         if (!rom) return 77;
         probe::Harness h(*rom);
+        sweeps(h);
         pitfall_copy(h);
         check_stream_boundaries(h);
         check_views(h);
@@ -347,7 +426,7 @@ int main(int argc,char** argv) {
                 for (unsigned i=0;i<image.size();++i)
                     probe::check(m.peek(game::dungeon::layout+i)==image[i],"dungeon contents differ");
                 while (baseline.cycles()<m.cycles()) baseline.step();
-                probe::check(m.equivalent(baseline),"whole layout load diverged");
+                probe::check(same_state(m,baseline),"whole layout load diverged");
             }
         }
         return 0;

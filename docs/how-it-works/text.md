@@ -6,6 +6,13 @@ others control what happens next. The program reads the selected cartridge
 while it runs, so the English and Brazilian text and their choices of control
 values remain in the player's own ROM (`00:31FA`, `00:333E`, `00:337D`).
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 ## From a message to the screen
 
 **ROM static.** A caller can supply a message directly or select one through

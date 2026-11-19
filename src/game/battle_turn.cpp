@@ -6,9 +6,7 @@
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 
 // Battle music: encounter 48h requests sound 92h, encounter 49h keeps the
 // music already playing, and every other encounter requests 89h. Then the
@@ -38,17 +36,17 @@ template <class Z> Exit initialize_battle(Z &z) {
     } while (z.decrement_jump(0x102B));
     z.xor_a(0x102D);
     z.store_a_direct(0x102E);
-    return continues(0x1031, k::call_cycles);
+    return z.final_call(0x1031);
 }
 template <class Z> Exit active_candidate(Z &z) {
     z.copy(0x1036, z.r.a, z.r.b);
     z.decrement(0x1037, z.r.a);
-    return continues(0x1038, k::call_cycles);
+    return z.final_call(0x1038);
 }
 template <class Z> Exit living_candidate(Z &z) {
     z.copy(0x1045, z.r.a, z.r.b);
     z.decrement(0x1046, z.r.a);
-    return continues(0x1047, k::call_cycles);
+    return z.final_call(0x1047);
 }
 template <class Z> Exit find_active_party(Z &z) {
     z.load_immediate(0x1034, z.r.b);
@@ -61,7 +59,7 @@ template <class Z> Exit accept_active_party(Z &z) {
     }
     if (z.decrement_jump(0x103E))
         return active_candidate(z);
-    return continues(0x1040, k::jump_cycles);
+    return z.final_jump(0x1040);
 }
 // Seed one zero and copy it over the fifteen following bytes. Reading each
 // newly written byte preserves the original overlapping-clear behavior.
@@ -76,7 +74,7 @@ template <class Z> Exit begin_command_round(Z &z) {
     z.xor_a(0x1067);
     z.store_a_direct(0x1068);
     z.store_a_direct(0x106B);
-    return continues(0x106E, k::call_cycles);
+    return z.final_call(0x106E);
 }
 template <class Z> Exit accept_living_party(Z &z) {
     z.increment_hl(0x104A);
@@ -86,13 +84,13 @@ template <class Z> Exit accept_living_party(Z &z) {
         return begin_command_round(z);
     if (z.decrement_jump(0x1050))
         return living_candidate(z);
-    return continues(0x1052, k::jump_cycles);
+    return z.final_jump(0x1052);
 }
 template <class Z> Exit skip_actor_command(Z &z) {
     z.load_a_direct(0x1080);
     z.increment(0x1083, z.r.a);
     z.store_a_direct(0x1084);
-    return continues(0x1087, k::jump_cycles);
+    return z.final_jump(0x1087);
 }
 template <class Z> Exit check_actor_status(Z &z) {
     z.load_de(0x108A);
@@ -101,7 +99,7 @@ template <class Z> Exit check_actor_status(Z &z) {
     z.or_a(0x108F);
     if (z.relative_if(0x1090, !z.zero()))
         return skip_actor_command(z);
-    return continues(0x1092, k::call_cycles);
+    return z.final_call(0x1092);
 }
 template <class Z> Exit check_actor_eligibility(Z &z) {
     if (z.jump_if(0x1077, z.zero()))
@@ -118,27 +116,27 @@ template <class Z> Exit open_command_cursor(Z &z) {
     z.store_hl_direct(0x109E);
     z.load_immediate(0x10A1, z.r.a);
     z.store_a_direct(0x10A3);
-    return continues(0x10A6, k::call_cycles);
+    return z.final_call(0x10A6);
 }
 template <class Z> Exit accept_command_cursor(Z &z) {
     z.test_bit(0x10A9, 4, z.r.c);
     if (z.jump_if(0x10AB, !z.zero()))
-        return continues(0x1121, k::call_cycles);
+        return z.final_call(0x1121);
     z.load_hl(0x10AE);
-    return continues(0x10B1, k::call_cycles);
+    return z.final_call(0x10B1);
 }
 template <class Z> Exit finish_command_phase(Z &z) {
     z.load_a_direct(0x10B7);
     z.compare_immediate(0x10BA);
     if (z.jump_if(0x10BC, z.carry()))
-        return continues(0x1074, k::call_cycles);
+        return z.final_call(0x1074);
     z.compare_immediate(0x10BF);
-    return continues(0x10C1, k::jump_cycles);
+    return z.final_jump_if(0x10C1,k::Condition::nc);
 }
 template <class Z> Exit begin_command_execution(Z &z) {
     z.xor_a(0x10C4);
     z.store_a_direct(0x10C5);
-    return continues(0x10C8, k::call_cycles);
+    return z.final_call(0x10C8);
 }
 // Preserve the order-table position and remaining actors across either
 // executor. Actor IDs below four are party members; the other eight are foes.
@@ -148,8 +146,8 @@ template <class Z> Exit dispatch_actor(Z &z) {
     z.load_from_hl(0x10D8, z.r.a);
     z.compare_immediate(0x10D9);
     if (z.jump_if(0x10DB, !z.carry()))
-        return continues(0x10E4, k::call_cycles);
-    return continues(0x10DE, k::call_cycles);
+        return z.final_call(0x10E4);
+    return z.final_call(0x10DE);
 }
 template <class Z> Exit begin_actor_phase(Z &z) {
     z.load_hl(0x10D1);
@@ -162,12 +160,12 @@ template <class Z> Exit finish_actor(Z &z) {
     z.increment_hl(0x1113);
     z.load_a_direct(0x1114);
     z.compare_immediate(0x1117);
-    return continues(0x1119, k::jump_cycles);
+    return z.final_jump_if(0x1119,k::Condition::z);
 }
 template <class Z> Exit next_actor(Z &z) {
     if (z.decrement_jump(0x111C))
         return dispatch_actor(z);
-    return continues(0x111E, k::jump_cycles);
+    return z.final_jump(0x111E);
 }
 template <class Z> Exit check_surviving_party(Z &z) {
     z.load_hl(0x10FC);
@@ -182,7 +180,7 @@ template <class Z> Exit check_surviving_party(Z &z) {
     } while (z.decrement_jump(0x110A));
     z.pop(0x110C, z.r.h, z.r.l);
     z.pop(0x110D, z.r.b, z.r.c);
-    return continues(0x110E, k::jump_cycles);
+    return z.final_jump(0x110E);
 }
 template <class Z> Exit check_battle_outcome(Z &z) {
     z.load_hl(0x10E7);
@@ -197,7 +195,7 @@ template <class Z> Exit check_battle_outcome(Z &z) {
     } while (z.decrement_jump(0x10F5));
     z.pop(0x10F7, z.r.h, z.r.l);
     z.pop(0x10F8, z.r.b, z.r.c);
-    return continues(0x10F9, k::jump_cycles);
+    return z.final_jump(0x10F9);
 }
 // Backtracking is bounded by the actor index. Actor zero always returns to
 // selection; earlier inactive, zero-HP and blocked members are skipped.
@@ -208,8 +206,8 @@ template <class Z> Exit previous_actor(Z &z) {
         z.decrement(0x112A, z.r.a);
     z.store_a_direct(0x112B);
     if (z.jump_if(0x112E, z.zero()))
-        return continues(0x1074, k::call_cycles);
-    return continues(0x1131, k::call_cycles);
+        return z.final_call(0x1074);
+    return z.final_call(0x1131);
 }
 template <class Z> Exit accept_previous_actor(Z &z) {
     if (z.jump_if(0x1134, z.zero()))
@@ -225,12 +223,12 @@ template <class Z> Exit accept_previous_actor(Z &z) {
     z.or_a(0x1142);
     if (z.relative_if(0x1143, !z.zero()))
         return previous_actor(z);
-    return continues(0x1145, k::jump_cycles);
+    return z.final_jump(0x1145);
 }
 template <class Z> Exit begin_shuffle(Z &z) {
     z.load_hl(0x18F2);
     z.load_immediate(0x18F5, z.r.b);
-    return continues(0x18F7, k::call_cycles);
+    return z.final_call(0x18F7);
 }
 // Twelve successive swaps use rejection sampling over the same twelve slots.
 // This is deliberately the cartridge algorithm, not a library permutation.
@@ -238,7 +236,7 @@ template <class Z> Exit swap_next_actor(Z &z) {
     z.and_immediate(0x18FA);
     z.compare_immediate(0x18FC);
     if (z.relative_if(0x18FE, !z.carry()))
-        return continues(0x18F7, k::call_cycles);
+        return z.final_call(0x18F7);
     z.add_immediate(0x1900);
     z.copy(0x1902, z.r.e, z.r.a);
     z.load_immediate(0x1903, z.r.a);
@@ -252,8 +250,8 @@ template <class Z> Exit swap_next_actor(Z &z) {
     z.exchange_de_hl(0x190D);
     z.increment_hl(0x190E);
     if (z.decrement_jump(0x190F))
-        return continues(0x18F7, k::call_cycles);
-    return returns(0x1911, k::return_cycles);
+        return z.final_call(0x18F7);
+    return z.final_return(0x1911);
 }
 } // namespace
 void register_battle_turn(RoutineRegistry &registry) {
@@ -266,6 +264,34 @@ void register_battle_turn(RoutineRegistry &registry) {
         k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)},
                        segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions), logic);
     };
+    // Instructions that ran between the pieces below: each is a segment of its
+    // own. Calls need room for the return address.
+    auto single = [&](unsigned entry, unsigned unit, std::initializer_list<SegmentExit> exits,
+                      k::Permissions permissions, auto logic) {
+        auto spec = segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions);
+        spec.single_instruction = true;
+        k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)}, std::move(spec), logic);
+    };
+    auto call = [&](unsigned entry, unsigned unit) {
+        single(entry, unit, {core_final_at(entry)}, {.scratch_stack = 2},
+               [entry](auto &z) { return z.final_call(entry); });
+    };
+    // The search for a living party member restarts from the full party.
+    add(0x1043, 0x100F, {core_final_at(0x1047)}, {}, [](auto &z) {
+        z.load_immediate(0x1043, z.r.b);
+        return living_candidate(z);
+    });
+    // Calls and jumps between the command round's pieces (the party checks,
+    // the command window, the actor loop and the shuffle).
+    call(0x1071, 0x1055);
+    call(0x1074, 0x1055);
+    call(0x1095, 0x1055);
+    call(0x1098, 0x1055);
+    call(0x10B4, 0x1055);
+    call(0x10CB, 0x1055);
+    call(0x10CE, 0x1055);
+    single(0x10E1, 0x10D1, {core_final_at(0x10E1)}, {}, [](auto &z) { return z.final_jump(0x10E1); });
+    call(0x128C, 0x128C);
     add(0x100F, 0x100F, {core_final_at(0x1031)}, {}, [](auto &z) { return initialize_battle(z); });
     add(0x1034, 0x100F, {core_final_at(0x1038)}, {}, [](auto &z) { return find_active_party(z); });
     add(0x103B, 0x100F, {core_final_at(0x1047), core_final_at(0x1038), core_final_at(0x1040)}, {},

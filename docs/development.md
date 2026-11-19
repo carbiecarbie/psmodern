@@ -44,7 +44,8 @@ path or a missing file skips the affected tests; CI supplies the three Rak
 TAPs and skips the other external suites. See
 [dependencies](dependencies.md#z80-conformance-programs) for provenance and
 licenses. These tests use the integrated CPU wrapper with a test bus, not
-the game ROM or the upstream standalone harness.
+the game ROM or the upstream standalone harness. The core they run, like the
+rest of the oracle, is built only for tests and developer tools.
 
 Keep ROMs, emulator captures, traces, saves and other working material outside
 the repository. Never commit ROM-derived
@@ -165,7 +166,7 @@ unavailable while a host menu is open.
 
 Cartridge RAM, save lock, companion files and automap use one shared store,
 regardless of language or available ROMs. Native save and companion formats
-are unchanged. Recording and `--no-routines` use the startup ROM and never
+are unchanged. Recording uses the startup ROM and never
 write the global language preference; they use the same shared store.
 
 Host labels, window titles and player-facing dialog summaries are available
@@ -242,9 +243,9 @@ options. Importing a raw image without matching metadata defaults original.
 
 The automap (milestone 7) records which dungeon cells the party has seen and
 shows a map of the current floor on request. Tracking runs for an identified
-ROM with routines on and outside recording mode, even while the Automap option
-is off; the option only gates the screen. Recording mode and `--no-routines`
-neither track, show a map nor read or write its file.
+ROM outside recording mode, even while the Automap option
+is off; the option only gates the screen. Recording mode
+neither tracks, show a map nor read or write its file.
 
 **Tracking points.** `FrameDriver` owns the dungeon tables (read from the
 player's ROM at start, `src/game/dungeon_tables.cpp`) and an
@@ -264,14 +265,14 @@ through. The view shows each seen cell's true kind, an unopened chest as soon
 as its cell is seen (Maintainer decision, 2026-11-11), an opened chest from
 the game's flag byte, and the exit marker only on exit cells that lead to the
 world map. The milestone 7 plan, decisions 5 and 6, gives the rules. A
-watched instruction must stay native: activating the routines throws
-`std::logic_error` when any of the 13 host-observed instructions
-(`host_observed_instructions` in `src/app/frame_driver.h`: the Options
-boundary, the frame-wait watch, the field waits, the menu cancel, the
-tempo-audio points and these four) is a registered entry or a declared exit
-address of any segment. A watched address rendered inside a segment body is
-caught instead by the passivity tests below, which compare the map's events
-with routines on and off.
+watched instruction must be the entry of a segment flagged `observe_entry`:
+activating the game throws `std::logic_error` when any of the 13 host-observed
+instructions (`host_observed_instructions` in `src/app/frame_driver.h`: the
+Options boundary, the frame-wait watch, the field waits, the menu cancel, the
+tempo-audio points and these four) has no such segment, so the host sees it
+before the segment runs. Under lockstep a body may not render a watched
+address inline. The passivity tests below compare the map's events with the
+original running beside the game.
 
 **The `.automap` file.** `<save name>.automap` beside the `.sav`, under the
 same lock, is text: the header `psmodern-automap 1`, then for each saved game
@@ -320,7 +321,7 @@ switch sits beside the routine options, never inside them: it never reaches
 
 **Keys.** The Map binding (M on the keyboard, X on a controller by default) opens the map at the dungeon
 walking wait with the option on (`request_menu(HostMenu::map)`); elsewhere,
-with the option off, while recording or with `--no-routines`, the press is
+with the option off or while recording, the press is
 ignored and never reaches the game. The game is held exactly as for Options:
 the host runs and cancels the game's own field menu, which clears the two
 bytes the field menu always clears, as that original action does, so opening
@@ -350,7 +351,7 @@ dungeon departure forgets the fake-wall sample, and the mode test at
 (`first-dungeon` and `deep-dungeon` of each version, US `boss` and the three
 US dungeon recordings), in which four drivers play the recording on four
 threads: recording mode, the option off, the option on but never opened, and
-routines off with a tracker; their machines must be equal after every frame
+the original (the test-side oracle machine) with a tracker; their machines must be equal after every frame
 and at the end, and the three trackers must log the same events (samples with
 their values and cycles, stage, Continue, reset, leave) and hold the same
 exploration after every frame; and `rom_us_automap_chain_1` to `_3`, which
@@ -374,7 +375,7 @@ it reads and why. In the code:
   reaches `register_routines`.
 - `FrameDriver::set_widescreen`, `widescreen_option` and the three-argument
   `choose_options` apply it at once, as for automap. It is read-only (off) in
-  recording mode and with `--no-routines` (`options_restricted`).
+  recording mode.
   The host keeps the wide picture of the moment a host menu opens
   (`wide_menu_background`), so a held menu keeps its bands.
 - `apply_canvas`, `upload_bands`, `centre_rect` and `canvas_window` (see
@@ -386,8 +387,7 @@ states, `render_wrapped` against the decoder (`wrapped_against_decoder`), the re
 to 0.4.0's, wide canvas, pillarbox, `apply_canvas`) are fast and need no ROM.
 `rom_<version>_wide_view_reader` reads the 11 areas of the real ROM;
 `rom_<version>_wide_view_probes` covers the option switched on mid-stay and
-during a transfer fade, power cycle, ROM swap, recording mode and
-`--no-routines`; `rom_<version>_wide_view_ship` and `_ship_routes` (the
+during a transfer fade, power cycle, ROM swap and recording mode; `rom_<version>_wide_view_ship` and `_ship_routes` (the
 spaceship flight, modes 4 and 5, over the 8 study routes: the source and the
 camera of every frame against the name table); and
 `rom_<version>_wide_view_<recording>` runs each
@@ -465,8 +465,9 @@ the shortcut. The effective speed becomes 1x while unfocused or inside Options,
 then restores the chosen speed. A released key or shoulder must be observed
 before a new activation after focus loss or controller replacement. The host
 runs every emulated frame and drains its sound samples. First acceleration
-starts a separate execution of the ROM's sound driver at its next update
-boundary. Music and effects keep normal tempo and pitch, including after
+starts a separate run of the sound driver's C++ segments on a private engine
+(a second `Machine` with only the sound segments, no processor core) at its
+next update boundary. Music and effects keep normal tempo and pitch, including after
 returning to 1x; power cycle discards that separate timeline. The audio queue
 and resampler stay continuous across speed changes. Sessions that never
 accelerate, and recordings, use the original audio path. See the
@@ -487,7 +488,7 @@ modes, because controls never touch the game. On the LANGUAGE row Left/Right
 steps through AUTO, ENGLISH and PORTUGUES, skipping a preference without its
 ROM, and each step is saved and committed at once as the Language screen's
 Save is (`MenuAction::language`); a failed write restores the previous choice.
-Recording and raw-Z80 sessions cannot change language.
+Recording sessions cannot change language.
 A failed save keeps the draft open; either exit binding retries the save.
 
 Since milestone 12 the screen is three windows on the 32x24 tile grid
@@ -499,7 +500,7 @@ the list's right border (11 wide, the current choice yellow, the others grey,
 a language without its ROM dark grey; moved up whole lines when it would
 reach below the list); and the explanation window at column 1, row 15 (30 by
 9) with three lines about the selected row and a state line: SAVES ON EXIT,
-RECORDING or Z80 MODE - READ ONLY, SAVED - WAITING (routine options only) or
+SAVED - WAITING (routine options only) or
 SAVE FAILED - RETRY. The 100% original and the recommended 25% and 400% are
 named in the explanations instead of being marked on the values. The scene
 shows at the right and between the windows.
@@ -703,7 +704,7 @@ image, with the first inventory item changed to a flute. It continues the
 saved game, encounters an enemy, selects the flute for Alis and attacks with
 the other two party members. The reference folder supplies the edited start
 image next to its manifest. The checkpoint compares the seven components at
-every frame and verifies every admitted rewrite; its census test additionally
+every frame and runs under lockstep; its census test additionally
 requires the shared-voice stop at `0C:8215` to run in C++ without fallback.
 The edited image, its provenance and the reference capture stay outside the
 repository.
@@ -711,7 +712,7 @@ repository.
 ## Replay runner
 
 ```text
-psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep-calls] [--compare-recording]
+psmodern_replay <rom> <recording> --dump <selection> --out <new-folder> [--cart-ram <file>] [--no-routines] [--lockstep] [--lockstep-strict] [--compare-recording] [--census <file>]
                       [--encounter-rate <0|25|50|100|200>] [--experience-rate <100|200|400>]
 ```
 
@@ -724,8 +725,30 @@ The two rate flags (see [Options](#options)) run the recording with an optional
 feature on: the game then differs from the recording, so the runner writes
 manifests and the census without comparing to anything.
 
-Manifest frame K is the boundary after call K-1, at the first complete CPU
-instruction boundary at or after K*59736 cycles. The picture is the completed
+The runner is a developer tool and may link the test-side oracle library (the
+pinned Z80 core running the original with no rewritten code). Its modes:
+
+- With no verification flag it runs the game exactly as the program does:
+  C++ segments only, no Z80 anywhere. An address no segment covers stops the
+  run with the same message the program shows.
+- `--lockstep` runs the original beside the game and compares them at every
+  segment boundary at the top level and the whole machines at every frame.
+  `--lockstep-strict` compares at every instruction boundary, inside pieces
+  and inside interrupt handlers too. `--lockstep-calls` is the old name of
+  `--lockstep` and is still accepted. See [The oracle and lockstep](#the-oracle-and-lockstep).
+- `--compare-recording` runs the original from the same recording and
+  compares the seven manifest components with the game's at every frame.
+- `--census <file>` writes the engine census (see the end of the registered
+  routines section: calls per exit, refusals, interrupt deliveries inside
+  pieces, the longest step and overshoot).
+- `--no-routines` runs the original on the oracle instead of the game: no
+  rewritten routine, no census. The program `psmodern.exe` no longer has this
+  flag (milestone 14). It cannot be combined with `--lockstep`,
+  `--lockstep-strict`, `--compare-recording`, `--census` or a rate flag.
+
+Manifest frame K is sampled at the first instruction boundary at or after
+K*59736 cycles, at any depth (inside a piece or inside a handler too): the
+frame observer, the state the reference emulator is sampled in. The picture is the completed
 256x192 image from the preceding video interval. `manifest.txt` starts with
 `frame picture ram vram cram cart-ram cpu psg`, followed by a decimal frame
 and seven SHA-1s on every line. Selected dumps are `frame-000001.picture.bin`,
@@ -744,10 +767,10 @@ hex byte. Both PSG write and sample queues are drained after every call.
 
 ## Registered routines
 
-Routines are enabled by default. `psmodern.exe <rom-path> --no-routines`
-and `psmodern_replay ... --no-routines` disable every replacement. The app
-option can be combined with `--record`; the runner option can be combined
-with `--cart-ram`. The routines are shared by the US Rev-A and Brazilian
+Since milestone 14 the program runs C++ only: every instruction it executes is
+rendered by the body of a registered segment. There is no switch that turns
+the replacements off and no Z80 in `psmodern.exe`; the original survives only
+in the test-side oracle (below). The routines are shared by the US Rev-A and Brazilian
 images: controller polling (`00:0339`, a fixed 70-cycle bound; see the
 [controller chapter](how-it-works/controls.md)), the random-number routine
 (`00:05B1`), the map encounter check (`01:5F63`), the monster-group choice
@@ -763,8 +786,8 @@ back (`01:6792`), the turns (`01:67B7`, `01:67E2`), opening a door
 (`01:681B`), the exit lookup (`01:68BC`), the object check (`01:6963`) and the
 two cell readers (`01:6BCA`, `01:6BE9`), in `src/game/dungeon_cells.cpp`,
 `dungeon_movement.cpp` and `dungeon_objects.cpp` with their shared helpers in
-`dungeon_kit.h`; they use the held-word, conditional and loop exits below, and
-the [dungeons chapter](how-it-works/dungeons.md) explains them. Their state
+`dungeon_kit.h`; they use the held-word, conditional and loop exits (see
+Segments), and the [dungeons chapter](how-it-works/dungeons.md) explains them. Their state
 probes are `rom_<version>_dungeon_cells`, `_dungeon_tables`,
 `_dungeon_movement` and `_dungeon_objects`. Registration is gated by
 the verified ROM SHA-1: authored runner fixtures keep an empty registry. The
@@ -773,8 +796,7 @@ game layer lives in `src/game/`.
 Milestone 11 adds walking on the world map and in towns as 153 segments in
 six groups, one source file and one test file each, registered by
 `register_map_<part>` (declared in `src/game/map.h`, which also lists the
-planned segments of each part, the code each part may register in and the
-four stretches with interrupts off that stay native):
+planned segments of each part and the code each part may register in):
 `map_video.cpp` (the frame interrupt's picture work: `00:0235`, `00:029F`,
 `01:588B`, `01:61F5`, `01:62BC`, `01:73D0`, `01:7C18`), `map_scroll.cpp`
 (`01:7143`, `01:723D`, `01:72A6`, `01:733A`, `01:744B`), `map_objects.cpp`
@@ -784,16 +806,17 @@ placement), `map_entrances.cpp` (`01:77AC`-`01:7A0F`) and `map_modes.cpp`
 (`00:0B08`, `00:0B6A`, `00:0C97`, `00:0CA6`, `00:0CB3`, `00:0306`, the road `00:0E8B` and
 `00:0ED7`). `src/game/map_kit.h` extends the dungeon kit with port output, the
 index registers and a few more instructions, proved against the core by the
-ROM-free `map_kit_unit`. The frame wait at `00:0B14` stays native: the host
-opens Options and Language there, so no segment contains, starts at or exits
-to it, and `rom_<version>_map_observed` compares the instructions the host
-watches, with routines on and off, on `later-town` and `first-battle`. The
+ROM-free `map_kit_unit`. The frame wait at `00:0B14` is a segment flagged
+`observe_entry`: the host opens Options and Language there and sees it before
+the segment runs, and `rom_<version>_map_observed` compares the instructions
+the host watches with the original running beside the game, on `later-town`
+and `first-battle`. The
 [world map chapter](how-it-works/world-map.md) explains each group.
 
 Milestone 12 adds the game's menus and windows as 323 segments in six groups,
 one source file and one test file each, registered by `register_menu_<part>`
 (declared in `src/game/menu.h`, which lists the planned segments of each part,
-the code each part may register in and the instructions that stay native):
+the code each part may register in):
 `menu_engine.cpp` (29 segments: drawing and saving a window, `00:3A57`,
 `00:3A83`, `00:3AA6`, the printers with interrupts off for numbers, money,
 names and shop lines, and the dialogue scroll), `menu_windows.cpp` (125: every
@@ -807,30 +830,27 @@ yes or no, the waits, the cursor blink `00:2E62` and the frame handlers
 `src/game/menu_kit.h` extends the map kit with the video port read (INI), CPL,
 RES/SET, SUB with an index register and the rendering of a bare call together
 with its callee, proved against the core by the ROM-free `menu_kit_unit`.
-What stays on the Z80, on purpose: every DI and EI of the printers and the
-window engine with the instruction after each EI and the pushes and pops next
-to them (a window is drawn with interrupts off, as the text output is since
-milestone 9), the cartridge-RAM switches and the 1,024-byte save copy
-(`00:1D0E`-`00:1D32`), the cancel point `00:2D93`, the whole end of a row of a
-window drawn at once (`00:3A97`-`00:3A9E`, six instructions) and the two loads
-before the dialogue scroll's last window call (`00:3451`, `00:3454`): the
-frame boundary falls on those on most scrolls, so a segment there would
-mostly fall back (ROM run). The frame waits,
-the jump-table dispatchers and the routines that other milestones own stay
-native, as do bare calls between units. The host opens Options, Language and
+Before milestone 14 some instructions stayed on the Z80 on purpose: every DI
+and EI of the printers and the window engine, the cartridge-RAM switches, the
+1,024-byte save copy (`00:1D0E`-`00:1D32`), the cancel point `00:2D93`, the end
+of a row of a window drawn at once (`00:3A97`-`00:3A9E`) and the two loads
+before the dialogue scroll's last window call (`00:3451`, `00:3454`). They are
+rendered C++ now like every other instruction, and the frame waits, the
+jump-table dispatchers and the bare calls between units are segments too.
+The host opens Options, Language and
 the automap by holding the field menu at `00:1BE1`; that hold, `00:0B14` and
-`00:0F48` are untouched, and `rom_<version>_menu_observed` compares the
-instructions the host watches, with routines on and off, on four recordings and
-at both waits. The [menus chapter](how-it-works/menus.md) explains each group.
+`00:0F48` are observed entries, and `rom_<version>_menu_observed` compares the
+instructions the host watches with the original running beside the game, on
+four recordings and at both waits. The [menus chapter](how-it-works/menus.md) explains each group.
 
 **Menu tests.** `menu_<part>_unit` (label `fast`, no ROM) checks each part's
 registered entries, exits and permissions against its table, and
 `menu_base_unit` the planned lists together (every planned entry registered by
 exactly one part, none at a native or host-watched address). The ROM probes are
 `rom_<version>_menu_<part>` for the six parts (labels `rom` and `menu`, never
-`fast`): state probes from a power-on machine on both ROMs, every call checked
-by the per-call verifier, and scenario probes from real frames of the
-recordings and from reference start images, with routines on and off compared
+`fast`): state probes from a power-on machine on both ROMs, every call run under
+strict lockstep against the original, and scenario probes from real frames of
+the recordings and from reference start images, compared with the original
 every frame. `ctest -L menu` runs all of them. `psmodern_menu_<part>_tests`
 takes `<rom> <us|br> <recordings> <reference> <work>`; `tests/menu_probe.h` holds
 the shared helpers (window sizes read from the ROM, frame-boundary offsets, the
@@ -844,18 +864,11 @@ code, none in a native stretch or at a host-watched address). The ROM probes
 are `rom_<version>_map_<part>` for the six parts (`terrain` and `modes` take about
 90 and 250 seconds alone, so they carry `rom` without `fast`): state probes from a power-on
 machine and, where the reference folder is configured, scenario probes from
-start images, every call checked by the per-call verifier with a routines-off
-copy compared every frame. They reach the code the recordings do not. What the per-call comparison
-establishes is the state afterwards (the video chip's memory and registers, the
-sound chip's writes with their cycles, all other memory, the registers) and the
-total cycles of the call, not a log of each video-port access. The order and
-cycle of the port writes inside each video segment are established by reading
-the code against the original plus the kit's own timing tests
-(`map_kit_unit`); a reordering inside the vertical
-blank with the same total cycles would not be detected, and no test claims to.
-Probes of slot-2 mapper segments with the stack in slot-2 ROM, which the
-per-call verifier cannot stop on, are compared with the original natively at
-equal cycles and counted (the count is printed).
+start images, every call run under strict lockstep with the original beside
+it. They reach the code the recordings do not. Lockstep compares every
+instruction boundary (registers, cycles, memory writes and each port access
+with its cycle, value and direction), so a reordering of video-port writes
+inside the vertical blank is detected.
 Their start images are the pinned reference images of the recordings. To
 probe from an image made elsewhere, set `PSMODERN_MAP_START_IMAGES` to a
 folder holding `<name>.bin` copies of cartridge RAM; without the variable or
@@ -869,44 +882,37 @@ aids and no test needs them.
 
 Every replay writes `routine-census.tsv` beside its manifest, one line per
 registered entry. The columns are `entry`, `unit` (the routine the entry
-belongs to), `cpp`, `fallback`, `forced`, `forced_failed`, then the nine
-fallback reasons (including a write to a mapper register), then the same reasons prefixed with `forced_`. An empty
-registry writes just the header. Counts contain no ROM bytes. A dungeon segment
-refused because its stack does not give back a pushed return address (stack
-bytes in ROM, reached only by the state probes) is filed under the `frame`
-reason, since its bound is set above one frame; such refusals never occur in a
-recording.
+belongs to), `cpp` (calls run), `fallback` (calls refused; any refusal stops
+the game, so it is 0 on every recording), `forced` and `forced_failed` (both
+always 0 since milestone 14, kept for the file format), then the refusal
+reasons (`irq`, `nmi`, `frame`, `ei_delay`, `interrupt_delay`, `halted`,
+`unmapped_stack`, `mapper_write`, `guard`), then the same reasons prefixed with
+`forced_`. An empty registry writes just the header. Counts contain no ROM
+bytes. A segment refused because its stack does not give back a pushed return
+address (stack bytes in ROM, reached only by state probes) is filed under the
+`frame` reason, since its bound is set above one frame; such refusals never
+occur in a recording.
 
-- The native copy stops at a boundary at a declared core-final address only
-  when SP is the entry SP plus that exit's offset and, for a loop exit, at
-  least `after` cycles have passed. The context refuses an earlier arrival
-  in C++; a body that stops a record late reaches the same address with other
-  cycles and registers, and the whole-machine comparison names them. Held words stay in memory, so the
-  words pushed by one segment are compared at every later exit of the chain.
-- The stop at a return to the word read at the entry SP (SP = entry + 2)
-  applies as before, except in a segment with `inherited_stack` above 0 that
-  declares no returned exit at offset 0: there that word is held data, and a
-  pop leaving PC equal to it must not end the copy. For each returned exit at
-  offset s above 0, the copy also stops when the instruction at that address,
-  started at a boundary with SP = entry + s, leaves SP = entry + s + 2 and PC
-  equal to the word that was at that SP. An untaken conditional return there
-  continues.
-- The exit the copy stopped at is the declared exit, offset included, and it
-  must equal the body's exit in every field; a different address, kind or
-  offset is reported as `exit mismatch` (offsets are printed as `stack -2`).
-  A native path that returns at an undeclared offset never stops and fails as
-  `understated bound` or at the frame boundary. A conditional exit needs no
-  new rule: the copy stops at the declared address and steps once, and a body
-  that left the wrong flags or B ends at another PC, which the comparison
-  names together with the flags or B.
+With `--census <file>` (and in each checkpoint, as `<name>.transition.tsv`) the
+runner also writes the engine census, a table of `section key detail count`
+rows: calls per segment and whether the segment is exact, the final
+instructions rendered per exit, the interrupts accepted inside each body, bodies
+abandoned by a Reset, refusals by reason, and a summary with the frames, the
+interrupts accepted at the top level and inside bodies, the longest top-level
+step and the longest overshoot past a frame end, and the counts of Z80 steps
+(core finals, native steps, native responses, test scaffolding), which must be
+0 on every recording. The probe harnesses write the same census when
+`PSMODERN_CENSUS_DIR` is set.
 
-The 27 checkpoint tests (20 US and seven Brazilian recordings) check
-every admitted C++ call, compare
-routines on/off frame by frame, and compare the resulting frames with the
-pinned milestone 1 reference. In each checkpoint an entry with at least 20
-calls needs at least 90% C++ calls; entries with fewer calls are reported, not
-gated. `forced` and `forced_failed` must be 0 there, since the checkpoints run
-in original mode. The controller must be called in every checkpoint and keeps
+The 27 checkpoint tests (20 US and seven Brazilian recordings) run the
+recording under strict lockstep (every instruction boundary;
+`PSMODERN_LOCKSTEP_STRICT=0` selects segment mode) with the original beside
+the game, compare the manifest at the frame observer with the pinned
+reference on all seven components at every frame, and require the engine
+census to show no Z80 step and no refused call. Each checkpoint can also leave
+a census of the instruction addresses reached (`PSMODERN_COVERAGE_DIR`). Every
+entry that is called must run in C++; the controller must be called in every
+checkpoint. The controller must be called in every checkpoint and keeps
 the 90% share whatever its call count. The tests write counts to
 `build-rel/routine-census/{us,br}/`. Once all checkpoints pass, regenerate
 [the coverage chapter](coverage.md) with this command.
@@ -915,14 +921,10 @@ the 90% share whatever its call count. The tests write counts to
 python tools/generate_coverage.py build-rel/routine-census --out docs/coverage.md
 ```
 
-The generator groups segments under their unit and applies the same 90% rule
-to every entry with at least 20 calls, over all 27 censuses together and in
-each census. An entry with at least one call needs at least one C++ call,
-unless it is on the explicit allow-list in the generator, which carries a
-written reason per entry and is empty now. An allow-listed entry that has C++
-calls, or that no recording calls, is stale and an error. The generator also
-refuses forced calls: the censuses run in original mode. Entries no
-recording reaches are listed as covered by state probes only.
+The generator groups segments under their unit and requires that no call was
+refused and none forced, in each census and in all 27 together. An entry with
+at least one call needs at least one C++ call. Entries no recording reaches are
+listed as covered by state probes only.
 
 **Controls tests.** `bindings_unit` (ROM- and SDL-free) covers the names,
 the defaults, the swap and refusal rules, the `controls.txt` round trip with
@@ -950,14 +952,13 @@ Every checkpoint recording also has an `_options` test
 options <reference-folder> [full|identity-only] [marker-file]`). Each test runs
 the replay runner without flags and with `--encounter-rate 100
 --experience-rate 100` and requires identical manifests, sound log, census and
-frame dump, and no forced call in the original-mode census. It then runs three
+frame dump, and no forced or refused call in the original-mode census. It then runs three
 enhanced passes (`--encounter-rate 50 --experience-rate 400`,
 `--encounter-rate 0 --experience-rate 200` and `--experience-rate 400`). The
 first two play differently from the recording by design, so only the census is
-read: the run completes without a runtime guard, every option segment whose
-option is on that the run reaches has no fallback, no failed forced call and
-`forced` equal to its call count, and the segment of an option left at 100 is
-never forced. The third leaves encounters alone, so the play stays the
+read: the run completes without a stop, every option segment whose option is on
+that the run reaches ran every call in C++ with no refusal, and the segment of
+an option left at 100 does not adjust anything. The third leaves encounters alone, so the play stays the
 original's until the first award, and the experience segments must be reached
 wherever the original reached them. The recording is not compared in these
 passes. In the rate-0 pass the random-fight marker segments (`01:5FD8`,
@@ -981,278 +982,170 @@ dungeon segments exhaustively. At milestone 11 the complete suite took
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
 entries by mapped ROM bank and CPU address; cartridge RAM, work RAM and
-unmapped entry accesses never dispatch. The registry, enable flag and counters are
-outside the machine snapshot and `Machine::equivalent`.
+unmapped addresses never dispatch. The registry and counters are outside the
+machine snapshot and `Machine::equivalent`. A registry replacement while a
+dispatch is running keeps the old entries alive until the dispatch ends.
 
-Each entry supplies a bound function of the const entry machine and a body
-taking `RoutineContext`. The bound includes the original returning
-instruction. Dispatch skips a registered entry only when the core actually
-accepts an interrupt at that boundary; this starts no call and changes no
-routine counter. With INT asserted and IFF1 clear, C++ can run. During the
-one-instruction EI delay, the entry reaches the window check and falls back
-with the `ei_delay` reason. A later return from an interrupt handler can
-then dispatch the call normally.
+**What happens at a boundary.** At each instruction boundary at the top level
+the machine, in order, takes the pad and Pause samples by cycle, decides
+whether an interrupt is accepted, calls the host hook at an observed entry,
+and looks the program counter up in the registry. A segment that begins there
+runs its body. If no segment begins there, nothing runs in its place: see
+Unrendered code below.
 
-The acceptance predicate follows the pinned
-`third_party/redcode-z80/sources/Z80.c`: lines 2380-2383 gate creation of the
-INT request on IFF1 and clear it when the line is deasserted; lines 2443-2492
-handle resumed work; lines 2505-2507 enter request processing; lines
-2560-2582 give the NMI-rejection marker precedence over NMI acceptance;
-lines 2605-2618 apply the prior-instruction delay conditions for INT.
-The request used here is the preceding instruction's E-1 sample, including
-the existing handling of an NMI first visible at entry.
-
-Otherwise dispatch checks the half-open interval `[entry, entry+bound)`.
-An enabled maskable interrupt source, any NMI request (including one first
-visible at entry), or a frame boundary in that interval forces the original
-path. The maskable check requires IFF1; the window is deliberately checked
-even beyond the body's actual end. The VDP query uses arithmetic on the
-counter and source registers, with an invalidated cache, instead of copying
-and simulating the VDP. It is conservative relative to `Vdp::next_irq`.
-
-The context advances devices through `Machine::advance`. Port offsets are
-relative to the call's entry, and must be the original instruction's T3
-offset. Advancing to an offset spends those cycles; advance the remaining
-cycles afterward. Bus reads/writes must follow the original order relative
-to ports: `read`/`write` update the CPU open bus, and `fetch_opcode` also
-accounts for one fetch and R. `account_fetches` can account for a known
-fetch count separately from bus accesses; it preserves R bit 7. Authors
-must reproduce all architectural register and flag effects.
-
-End with `finish_return(address)` at the path's own returning instruction.
-The core executes that instruction, including any ignored index prefixes,
-and must restore the caller's stack and PC. Conditional returns must take
-their returning path. The step ends there. Missing returns, cost overruns
-(including the core return), writes to mapper addresses or memory-control
-ports, and VDP register 0, 1 or 10 commands are runtime errors in normal
-play too. VDP guards decode the actual latch, including a half-command at
-entry. Other VDP commands and I/O control remain available. A segment
-may end with another kind of final instruction; see Segments below.
-
-Per-entry counters record C++ calls, fallback calls and reasons: disabled,
-IRQ, NMI, frame, `ei_delay`, `interrupt_delay` (the core's NMI-rejection
-marker), `halted` and `unmapped_stack`. An unmapped stack byte
-has no stable entry return address, so that call stays native. A halted core
-at a complete boundary also stays native, with its reason counted. Resumed
-prefix/HALT work is inside an already-started instruction and cannot start
-a new registered call, even when PC still points at its prefix. It bypasses
-dispatch without counting the same call again. Several window reasons may
-apply to one fallback;
-interrupt acceptance itself does not start a routine call. Existing hooks
-retain their native-path redirection behavior and are not called for a
-successful replacement.
-
-The runner has two independent verification options, both off by default:
-
-- `--lockstep-calls` copies the machine at each admitted C++ call. A const
-  `Machine::peek` reads the stack return address without bus callbacks or
-  open-bus updates. The copy runs with routines off until the first complete
-  instruction boundary with entry SP plus two and that PC. No further
-  instruction starts at or beyond the declared bound; a native instruction
-  that ends past it, or a call still unfinished at it, reports
-  `understated bound`. An accepted interrupt or a frame boundary inside the
-  window reports `window-check failure`. A boundary exactly at the final
-  return cycle is outside the window. The real C++ call then runs once and
-  its complete machine state is compared. The first failure exits nonzero.
-- `--compare-recording` runs a second machine from the same recording and
-  initial cartridge RAM with routines off. It compares the seven manifest
-  components (`picture`, `ram`, `vram`, `cram`, `cart-ram`, `cpu`, `psg`) at
-  every frame, stopping at the first differing frame and component. It
-  requires routines enabled and can be combined with `--lockstep-calls`.
-
-Both options preserve the real machine, timing, manifest and output files.
-With call verification off, there are no verification copies or extra
-per-instruction checks; the verifier pointer is checked only at C++ calls.
-For example:
-
-```sh
-psmodern_replay game.sms input.psrec --dump 1 --out replay-output --lockstep-calls --compare-recording
-```
-
-`Machine::differences(other)` returns the field name, original/replacement
-values and ROM-sensitivity flag for every difference; `equivalent` is
-exactly an empty difference list. Array and queue elements have indexed
-field names. CPU equivalence uses the same field comparisons. The derived
-VDP IRQ cache, host bindings/instrumentation and diagnostic `last_access`
-probe retain their existing exclusions.
-
-A call report begins with `Divergence: recording <name>, frame <number>,
-cycle <entry-cycle>, routine <bank:address>, call <number>`. Frames are
-one-based; cycles are absolute. The call number is the per-entry sum of
-C++ and fallback calls, including the failing call. Each following line
-names a differing field and gives `original=<value>, replacement=<value>`.
-Fields that can carry ROM bytes instead say `different (values redacted)`;
-their values are not serialized even into the difference list. These
-include open bus, core opcode/data bytes, registers holding read results
-(including I and R/R7), byte control/scroll latches, memory/picture/pipeline
-bytes and sound data. Flags are reported
-separately from the accumulator. Reports contain no ROM data or decoded
-instructions. A recording report is `Recording divergence: recording
-<name>, frame <number>, component <name>` and prints no component contents.
-
-Two narrowly defined scratch exclusions apply to CPU equivalence. After
-an unprefixed instruction with no suspended operation, `data[1..3]` are
-stale: the pinned `third_party/redcode-z80/sources/Z80.c:2962` replaces the
-first byte before dispatch, lines 2073, 2080 and 2489 replace the second
-before prefix dispatch, line 2113 replaces the fourth before using it, and
-line 1142 replaces the third before its interrupt-delay use at lines 2614–2616.
-All four bytes remain compared at prefixes and resumptions; the first is
-always compared. `xy` is a temporary loaded before use at lines 2094, 2488
-and 2834; lines 2144–2148 merely save and restore an otherwise unused old
-value around another index load. It is excluded. `scratch_overwrite` in
-`tests/routine_tests.cpp` perturbs these fields, executes each prefix
-family, checks overwrites and verifies subsequent equivalence. MEMPTR, Q,
-R/R7, bookkeeping and every other previously compared field remain checked.
-
-`lockstep_*` tests cover clean calls and recordings, dispatch, window failures,
-field comparison and deliberate faults in cycles, R, fetch count, flags,
-MEMPTR, Q, RAM, VDP/PSG timing, the control latch, open bus and the bound.
-These tests use authored programs and need no game ROM.
-
-`lockstep_segments` also verifies held-word chains, conditional final jumps
-(every condition, taken and untaken, also ending at a frame boundary), split
-table scans (clean, one record late, one early, and crossing a frame boundary
-against a run without routines) and the return rules for inherited words.
-
-`routine_unit` covers synthetic replacements, E-1 window edges, guards,
-mapping, counters, scratch overwrites and the held-word, conditional and
-loop exits with their refusals; `routine_irq_query` compares the
-cheap query against the exact query across counter, register, pending-flag
-and scanline states. Neither test needs a ROM.
+**Interrupts are accepted in C++** (`Machine::accept`). The rules follow the
+pinned Z80 core and are checked against it by lockstep: the interrupt lines
+are sampled at the last cycle of each instruction; no maskable interrupt is
+accepted at the boundary after EI, or after RETN when interrupts were off
+before it; the Pause interrupt is accepted only if it was sampled; the
+interrupt response pushes the program counter, sets the interrupt flip-flops,
+the program counter, MEMPTR and Q, and costs 13 cycles (maskable) or 11
+(Pause); an interrupt accepted right after `LD A,R` clears the parity flag, as
+on the NMOS Z80. Only interrupt mode 1 exists in the game; any other mode, or
+HALT, stops the run.
 
 ### Segments
 
-A routine can be registered as several segments instead of one. Each segment
-has its own entry (a mapped bank and address, as above) and its own bound and
-body, and belongs to a unit: the routine it is part of. A routine registered
-the old way, as one body ending in a return, is a segment whose unit is its own
-entry.
+A routine is registered as one or more segments. Each segment has its own
+entry (a mapped bank and address), a body taking `RoutineContext`, a bound
+function and a `SegmentSpec`, and belongs to a unit: the routine it is part of.
+A routine registered as one body ending in a return is a segment whose unit is
+its own entry.
 
-A segment ends with its last instruction executed by the core, through
-`finish_return` or `finish_core`. The declared exits say which instruction that
-may be:
+**Every instruction is rendered.** A body is the original's instructions in
+order: each one fetches its opcode at its own address (`fetch_opcode`), does its
+memory and port accesses and spends its cycles. The last instruction of the
+segment, which the Z80 used to execute, is rendered like the others by the
+kit's final renderers (`final_jump`, `final_call`, `final_return`,
+`final_decrement_jump`, `final_block_copy`, the interrupt switches and so on);
+a conditional one takes its condition as a code (`Condition::nz`, ...) and the
+kit reads the flags. `RoutineContext::finish(exit, next_pc)` ends the call and
+the machine continues at `next_pc`, which may be the entry of another segment.
+The exit declarations in the `SegmentSpec` stay: they document each segment,
+feed the census and are checked against the exit the body takes.
 
-- a return, executed by the core as before;
-- a call, a conditional call or a jump into original code, or the text
-  renderer's unprefixed `RST 08`. The restart requires ordinary admission
-  and a declared scratch stack covering its two pushed bytes in addition to
-  any held words; both addresses must be mapped and off the mapper registers.
-  Other restart vectors remain refused. The
-  core takes or skips it, and the callee then runs wherever it lives, in the
-  original or in another registered segment;
-- a plain instruction with no port access, no memory write and no control
-  transfer, which is not a halt, an interrupt enable or an interrupt disable. The segment ends there and
-  the next instruction starts a new dispatch;
-- the original `LD (nn),HL`, only in a single-instruction segment with
-  `absolute_wram_store` declaring that exact destination. Both bytes must be
-  canonical work RAM and currently mapped as RAM. No other final store is
-  permitted.
+**The kits.** `src/game/dungeon_kit.h` holds the instruction renderers (loads,
+arithmetic, rotates, stack, port input and output, the final renderers) over a
+`Registers` value that carries the flags, the alternate registers, MEMPTR and
+Q. `map_kit.h` and `menu_kit.h` extend it. Each renderer follows the pinned
+core's cycles, flags, MEMPTR and Q (the flag-writing instructions set Q to F,
+the others clear it; CCF and SCF read the previous Q), and declares the opcode
+pattern it renders: in a test build a check compares that pattern with the byte
+at the instruction's address in the engine's image and in both game images
+(the check is installed only by the oracle's lockstep; the program never reads
+an opcode to decide anything). Hand-written bodies follow the same rules.
 
-The stack and the program counter are checked after that step against the
-declared exit, and the cost bound includes the step. C++ never fakes a step of
-the core, so cycles, the refresh register, interrupt sampling and the frame
-boundary come out exactly as on the Z80.
+**Exact segments.** A segment is exact when it is registered with `add_exact`
+(the kits' `add_segment` does) or consists of a single instruction. An exact
+body registers a register sync with the context, so the machine can write its
+registers into the register file and read them back. At every instruction
+boundary inside the body the machine calls the observers and then decides
+whether an interrupt is due. If one is, it writes the registers back, accepts
+the interrupt at that instruction, runs the handler's segments by nested
+dispatch until the handler returns to that instruction with the stack as it
+was, reloads the registers and decides again (a second interrupt there is
+legal). If the handler reaches the reset code (`00:0000` or `00:0084`, whose
+next instruction loads the stack pointer), the interrupted bodies are never
+resumed: a `RoutineAbandoned` unwinding, caught only by the top-level step,
+drops them. No body is left that takes no interrupt inside it (the census counts
+such "atomic" bodies and shows 0).
 
-Bare calls and returns between segments stay on the Z80: they need no
-rewriting, they are not registered, and the unit still counts as rewritten.
+**Bounds and entry refusals.** Each segment has a bound function giving the
+cycles its body will spend from the entry state, computed by running the same
+body on an estimating bus. Dispatch refuses the call, and the game stops, when
+the state is one the body does not render exactly: `frame` (the estimated bound
+does not fit in one frame, or the estimate took an uncertain path of a state
+guard such as a port or a bank not as expected), `unmapped_stack`, `mapper_write`
+(a copy that would write a mapper register), `halted`, and `guard` (the
+segment's explicit entry guard does not hold). For an exact segment the former
+windows `irq`, `nmi`, `ei_delay` and `interrupt_delay` never apply: the body takes
+those events itself. An in-body guard (`z.guard`) that fails stops the run with a
+message naming the segment. The three permissions per segment stay, off by
+default: `slot2_mapper` (a write to `$FFFF`), `scratch_stack` (up to 16 bytes
+below the stack pointer the body may use for its own pushes) and
+`inherited_stack` (up to 8 bytes above the entry stack pointer that belong to
+the unit). A body that remaps the memory holding its own code (a write to a
+mapper register or the memory control port) and then fetches from the changed
+region stops the run: a rendered body cannot follow the new mapping.
 
-Three permissions exist, declared per segment and off by default.
-`slot2_mapper` allows a write to `$FFFF` (the slot-2 bank register). Writes to
-the other mapper addresses stay runtime errors. `scratch_stack` names a number
-of bytes below the stack pointer that the body may use for its own pushes. They
-go through the bus like any write, so a stack in ROM or cartridge RAM behaves as
-on the original; dispatch falls back when those bytes are unmapped or fall on
-the mapper registers. `absolute_wram_store` permits only the final store above,
-to a declared pair wholly within `$C000-$DFFF`; mirrors, mapper registers,
-cartridge RAM and other destinations are refused. The core performs the actual
-write. If RAM is disabled, the enhanced forced body is rejected before its
-step, its register adjustments are undone, and the unchanged original
-instruction runs natively.
+**Held words, conditional exits and loop exits** are properties of a declared
+exit (`SegmentExit::stack`, `conditional`, `after`): the stack offset of words
+the segment pushed or popped across its final instruction, a final that is a
+conditional jump, and a loop exit taken only after a number of cycles. An exit
+is identified by its kind and address; `add` refuses two exits with the same
+kind and address.
 
-A single-instruction segment is exactly one core step with register adjustments
-before and after it. It may be `force_admit`: its window reasons (interrupt,
-NMI, frame boundary, `ei_delay`, unmapped stack) never cause a fallback, because
-the core runs the instruction itself and the segment adds no delay. Such calls
-are counted as `forced` (and also as C++ calls), with the reasons they ran
-through in the `forced_` columns. A halted core still causes forced fallback.
-The NMI-rejection marker does too, except for the declared absolute work-RAM
-store: the core clears that marker and executes the validated store itself.
-These hard fallbacks count `forced_failed`, and so does a
-forced body the context rejects before its step: bus, port or time use, an
-undeclared exit, a missing finish, a changed entry stack or an interrupt that
-would be accepted. Such a call falls back to the original with its register
-changes undone and counts no window reason, so a fallback with no reason is
-valid when `forced_failed` accounts for it. Every single-instruction segment,
-forced or not, refuses bus, port and time operations; only register adjustments
-and the final step are allowed. Forced admission exists for options that adjust a register around one
-instruction; original mode never uses it, so the checkpoint census requires
-both counts to be 0.
+**Joining segments.** The code that joins one piece to the next (the return
+point of a call, a branch target, the target of a code table) is registered as
+small segments of its own, in the file that owns the neighbouring code
+(`kit::add_joining`). Those no recording reaches are catalogued in
+`src/game/joins.h` and tested by `rom_<version>_joins` (every exit taken under
+lockstep, sweeps for the multi-instruction ones). A static walk of every
+declared exit target, call return and fall-through, and of the code tables read
+by the three table dispatchers, found no address without a segment.
 
-The verifier recognises a `returned` exit by the return address it read from the
-stack at entry. A routine that overwrites its own return address is therefore
-reported as an understated bound, because the original never reaches that
-address.
+**Block copies and port output** run in slices that end at the next interrupt
+or frame end by construction (an LDIR slice is up to 16 transfers, 21 cycles
+each and 16 for the last; an OTIR slice likewise), each slice a segment exit
+(`copy_repeat`, `output_repeat`) from which the next one resumes with the
+original pointers, count and write timing.
 
-A segment that stores through an index register (the experience segments at
-`00:1774` and `00:179D`) raises a run-time error instead of falling back if the
-address is one of the mapping registers `$FFFC-$FFFF`. The game always points
-that register at a character record, so this cannot happen in play.
+### Unrendered code
 
-A scratch stack is at most 16 bytes, and a core-final exit at the entry address
-is accepted only for a single-instruction segment. Plain instructions that
-change the stack pointer (pops, loads of SP, increments and decrements of SP)
-are refused as final instructions.
+Reaching an address where no segment begins, a segment refused at its entry, an
+in-body guard that fails, or an interrupt state the engine does not handle
+(a mode other than 1, HALT, a prefix interrupted halfway) raises
+`UnhandledState` with a message naming the bank and address (or "RAM" or
+"unmapped") and the reason. In `psmodern.exe` the frame driver keeps the
+message, shows it in a message box and on stderr, flushes the cartridge RAM of
+the last frame end (not the half-run frame) and exits with status 1. The same
+state in the runner ends the replay with the message. The recordings and the
+static walk reach no such state; probes from non-game states do (for example
+the bytes before a dispatcher, or data in a bank), and those are deliberate
+stops.
 
-#### Held stack words, conditional exits and loop exits
+### The oracle and lockstep
 
-Three exit properties let a segment end inside a routine that keeps words on
-the stack, branches, or loops. Each defaults to the value that selects the
-behaviour above, and no segment registered before milestone 7 uses one. An
-exit is identified by its kind and address; `stack`, `conditional` and
-`after` are properties of that one declaration (`SegmentExit::operator==`
-compares kind and address, `same_declaration` every field). `add` refuses two
-exits with the same kind and address.
+The pinned Z80 core ([dependencies](dependencies.md#z80-core)), a machine that
+runs the original with no rewritten code (`oracle::NativeMachine`), the
+conformance tests and the lockstep live in the library `psmodern_oracle`, which
+only tests and developer tools link. `psmodern.exe` links no part of it; the
+test `program_link_closure` (`tests/link_tests.py`) checks the link closure of
+the program and its libraries and, in a non-stripped executable, that no
+`z80_` symbol is present. In tests, `oracle::Scaffold` lets a test supply the
+steps of authored programs or of a registry-less "original" machine through
+the core; any use by a run with a registry is refused and counted
+(`scaffold_steps`, which must stay 0).
 
-- **Held words** (`SegmentExit::stack`, `SegmentSpec::inherited_stack`). An
-  exit's `stack` is SP before the final instruction minus the entry SP, in
-  even bytes. Negative: words the segment pushed and holds across the core's
-  final step (typically a CALL into original code); it may not go below the
-  declared `scratch_stack`. Positive: words the segment popped that an earlier
-  segment of the unit pushed; it may not exceed `inherited_stack`, the bytes
-  above the entry SP that belong to the unit (even, at most 8). A returned exit
-  cannot hold a pushed word, and a single-instruction or forced segment can
-  declare neither. `finish_core` and `finish_return` require SP equal to the
-  entry SP plus the exit's offset before the step, and check the step's
-  result relative to that SP (a return raises it by 2, a taken call lowers it
-  by 2, anything else leaves it). The body reads and writes these words
-  through the context's bus, so a stack in ROM or cartridge RAM behaves as in
-  the original. Dispatch falls back with `unmapped_stack` when any byte from
-  SP to SP + `inherited_stack` + 1 is unmapped or in `$FFFC-$FFFF`.
-- **Conditional exits** (`SegmentExit::conditional`, core-final only). At such
-  an exit the final instruction must be `JP cc,nn`, `JR cc,e` or `DJNZ`, and
-  nothing else; without the flag those opcodes stay refused, as do `JR e`,
-  `JP (HL)`, `JP (IX)` and `JP (IY)` everywhere. The core decides the outcome
-  from the flags and B that the body left; the step must end at the target or
-  at the next instruction with SP unchanged.
-- **Loop exits** (`SegmentExit::after`, core-final only, at most 16,384). The
-  exit is taken at the first arrival at its address with at least `after`
-  cycles elapsed since the entry. `finish_core` refuses an earlier arrival.
-  With 0 it is the first arrival, as before.
+`oracle::Lockstep` runs an oracle machine beside the engine. At each engine
+boundary (every top-level segment boundary, or every instruction boundary in
+strict mode, inside bodies and handlers too) the oracle is stepped to the same
+cycle and must be at an instruction boundary there. Both are compared through
+one equality, `oracle::equal`: program counter, every register including the
+alternates, I, R, interrupt flip-flops and mode, MEMPTR, Q, the arbitration
+state, open bus, the opcode fetch count, the interrupt samples, every memory
+write and every port access since the previous boundary (cycle, port, value,
+direction). At every frame observer the whole machines are compared, with the
+host queues (the cartridge RAM dirty flag and the sound writes waiting). A
+divergence reports the recording, frame, cycle, segment and instruction
+address, and the field with `original=` and `replacement=` values; fields that
+can carry ROM bytes say `different (values redacted)`, and reports contain no
+ROM data or decoded instructions. `Machine::differences` and `equivalent` keep
+their meaning for whole-machine comparisons.
 
-What the per-call verifier compares, and why a divergence cannot hide:
-
-- Each machine records its port accesses during the call. The verifier
-  compares every access in order, including its cycle, decoded port,
-  direction and value. A mismatch reports its position in the sequence.
-  The trace is scoped to the verifier and is released after the call.
-- An indirect handler-table exit can end at a plain jump through HL. The
-  verifier follows the original jump and checks its destination and stack.
-- A registered forward block copy processes up to sixteen bytes. Each
-  repeated transfer takes 21 cycles and the final byte takes 16. Admission
-  checks the entire slice against the next interrupt and frame. A slice
-  that would write to a mapper register takes the original path. The
-  verifier executes the matching number of original transfers, including
-  the final one that the replacement also executes on the core.
+Tests that need an interrupt at every instruction use `probe::sweep` and
+`sweep_interrupts` (an interrupt or a Pause interrupt at chosen cycles of a
+segment, then a strict lockstep run). By default a sweep samples one position
+per instruction interval plus the test's own stride; the CMake option
+`PSMODERN_FULL_SWEEP_TESTS` (off by default) registers a second copy of every
+test with sweeps as `<test>_full_sweep` (label `full_sweep`, environment
+`PSMODERN_FULL_SWEEPS=1`) that tries every cycle, at a large time cost (one
+test goes from 38 to 594 seconds). Run them with `ctest -L full_sweep`. The
+ROM-free mechanism tests are `routine_unit` (registration rules, refusals,
+body rules, declarations), `lockstep_*` (the comparison and deliberate faults
+in cycles, R, flags, MEMPTR, Q, memory, the video and sound timing and the
+control latch), `kit_final_*` (each final renderer against the oracle with
+interrupts at every position) and `routine_irq_query`.
 
 ### Options
 
@@ -1270,15 +1163,13 @@ one parser (`src/game/option_flags.h`) and take their allowed values from
 
 A value must be a whole number of digits with no sign or space; a value
 that is not on the list, a missing value or a flag given twice is an error with
-a message listing the allowed values. A flag at any value other than 100 is refused with
-`--no-routines` (the options are carried out by the rewritten routines) and,
-in the app, with `--record` (recordings always play the original); in the
-runner it is also refused with `--lockstep-calls` and `--compare-recording`,
-because the game differs from the original by design and cannot be compared.
-An explicit 100 is accepted in restricted modes too. App recording and
-`--no-routines` force original execution, retaining configured preferences
-even when SRAM changes. Recording ignores the Options binding; raw-Z80
-sessions can open Options read-only during exploration. CLI overrides remain
+a message listing the allowed values. A flag at any value other than 100 is refused in the app with
+`--record` (recordings always play the original); in the runner it is refused
+with `--no-routines`, `--lockstep`, `--lockstep-strict` and
+`--compare-recording`, because the game differs from the original by design
+and cannot be compared. An explicit 100 is accepted in those modes too. App
+recording forces original execution, retaining configured preferences even
+when SRAM changes, and ignores the Options binding. CLI overrides remain
 session-only until the player opens and leaves Options, which saves the
 displayed values and supersedes launch flags.
 
@@ -1300,8 +1191,8 @@ registry remain unchanged until the native main dispatcher `00:00AF`, after
 the complete mode handler, so a battle's displays, character awards and money
 share one rate. Activation uses the instruction hook forwarded through
 `run_frame` without redirecting execution; no hook runs inside a registered
-routine or accepted interrupt. Registry replacement preserves enabled/verifier policy and occurs
-only at the unregistered dispatcher. Reset reaches that dispatcher; F5 creates
+routine or accepted interrupt. Registry replacement happens only at depth 0, at the main dispatcher `00:00AF`
+(old entries stay alive until nested deliveries end). Reset reaches that dispatcher; F5 creates
 a new machine with the latest chosen values. Quit/restart loads the durable
 choice. No runtime SRAM restore is added. Opening alone changes nothing;
 leaving Options saves the displayed rates and automap setting (maintainer
@@ -1317,19 +1208,13 @@ psmodern_replay <rom> <recording> --dump 1 --out <new-folder> [--cart-ram <file>
 The census then has five option segments: `00:0F5B` and `01:5FB0` (the
 two threshold comparisons) and `00:170D` and `00:1773` (the reward load and the
 per-character addition), plus `01:60BC` (the battle-money production store).
-The experience rate controls the last three. In normal gameplay a segment
-whose option is on is admitted at every moment, since it is one original
-instruction run by the core with a register adjusted around it and adds no
-time. Those calls count in `forced` (a subset
-of `cpp`) and in the `forced_` reason columns when an interrupt, a frame
-boundary or another window reason fell inside. A healthy enhanced census has
-`forced` equal to the call count and `fallback` and `forced_failed` 0 on these
-five in normal mapped game states; the other segments behave as in original
-mode. A forced call the mechanism cannot admit counts in `forced_failed`
-and falls back to the
-original instructions. In original mode the same five segments follow the
-ordinary window rule and `forced` is 0, which the checkpoint tests and the
-coverage generator require.
+The experience rate controls the last three. With an option on, a segment is the original
+instruction rendered by C++ with a register adjusted around it; it adds no
+time and takes interrupts and frame ends at the same boundaries as the
+original. A healthy enhanced census has no refused call on these five; the
+other segments behave as in original mode. With the options at 100 the same
+segments render the instruction unchanged, and the `forced` columns stay 0
+(forced admission no longer exists).
 
 ## Reference driver
 
@@ -1577,13 +1462,19 @@ The scheduler uses dots, 342 per line. CPU cycle 0 is VDP dot 1 and each CPU
 T-state advances three half-dots, so every 228-cycle line has the same phase:
 at line cycle `c` the VDP is at dot `floor(1 + 1.5c)`, and an event at dot `d`
 becomes visible at line cycle `ceil((2*d - 2)/3)`. For an instruction
-occupying CPU cycles `[S,E)`, the machine supplies the core with the INT
-level sampled at `E-1`, after any port access in that instruction. An event
-first visible at `E` is sampled by the following instruction. The core's
-prefix, EI, RETI/RETN and NMI acceptance rules also determine whether an
-interrupt is accepted and the boundary hook is called.
+occupying CPU cycles `[S,E)`, the machine samples the INT level at `E-1`,
+after any port access in that instruction. An event first visible at `E` is
+sampled by the following instruction. The prefix, EI, RETI/RETN and NMI
+acceptance rules (the pinned core's, reproduced in `Machine::accept` and
+checked against the core by lockstep) determine whether an interrupt is
+accepted. An interrupt is accepted at the exact instruction boundary, between
+segments or inside a segment's body; `run_frame` returns at the first
+top-level boundary at or after the frame end, which can be up to one segment
+late (5,918 cycles at most in the 27 recordings), and every per-frame
+observation (picture, sound writes and samples, the widescreen copy, the save)
+is taken by the frame observer at the exact boundary where the frame ends.
 `Machine::advance(n)` uses the same `E-1` point for INT and NMI when `n>0`;
-a replacement accounts for its own PC/R effects separately. `advance(0)` is a
+a segment body accounts for its own PC/R effects separately. `advance(0)` is a
 no-op: it neither advances devices nor resamples INT or NMI.
 
 **Hardware documentation.** The [Zilog Z80 CPU User Manual, UM008011-0816,
@@ -2001,7 +1892,10 @@ the script, and `-AllowDirty` adds `-dirty` to the name. The zip,
 `PSModern-<version>-windows-x64.zip`, holds the stripped `psmodern.exe`, the
 runtime DLLs, `LICENSE.txt`, the player's `README.txt`
 (`tools/release/README.txt`), `THIRD-PARTY.txt` and `licenses\`; it never
-holds ROMs, saves or debug files. See [dependencies](dependencies.md#release-package).
+holds ROMs, saves or debug files. Since milestone 14 `psmodern.exe` contains
+no vendored library: the Z80 core and the Zeta headers are built only into the
+test-side oracle, so the package carries no notice for them (see
+[dependencies](dependencies.md#release-package)). See [dependencies](dependencies.md#release-package).
 Stripping is not byte-deterministic, so record the zip's SHA-256 instead of
 expecting a rebuild to match. `THIRD-PARTY.txt` names the full commit the
 zip was built from; the script ends by printing it, and the tag `v<version>`

@@ -21,7 +21,7 @@
 //     metatile sheet into the name-table mirror ($D000); 01:744B does the
 //     whole 12 x 16 screen after a map load.
 // Every original instruction is rendered at its ROM address; bare calls to
-// other units, and the tail jumps of 01:714D, stay native exits.
+// other units, and the tail jumps of 01:714D, are exits to other segments.
 #include "game/map.h"
 #include "game/map_kit.h"
 #include "game/routines.h"
@@ -31,14 +31,9 @@
 namespace psmodern::game {
 namespace {
 namespace mk=map_kit;
-using mk::Exit; using mk::returns; using mk::continues;
+using mk::Exit;
 using mk::returned_at; using mk::core_final_at; using mk::conditional_at; using mk::loop_at;
 
-constexpr unsigned taken_return=mk::taken_conditional_return_cycles;
-// A `call cc` declared as an exit ends the segment taken or not.
-template<class Z> Exit call_if_exit(const Z&, std::uint16_t at, bool taken) {
-    return continues(at,taken ? mk::call_cycles : mk::untaken_call_cycles);
-}
 
 // ---- 01:7143: the step ---------------------------------------------------------------
 template<class Z> Exit step_save(Z& z) {                    // 01:7143: hold BC, DE, HL over the call
@@ -46,14 +41,14 @@ template<class Z> Exit step_save(Z& z) {                    // 01:7143: hold BC,
     z.push(0x7143,r.b,r.c);
     z.push(0x7144,r.d,r.e);
     z.push(0x7145,r.h,r.l);
-    return continues(0x7146,mk::call_cycles);
+    return z.final_call(0x7146);
 }
 template<class Z> Exit step_restore(Z& z) {                 // 01:7149: and give them back
     auto& r=z.r;
     z.pop(0x7149,r.h,r.l);
     z.pop(0x714A,r.d,r.e);
     z.pop(0x714B,r.b,r.c);
-    return returns(0x714C,mk::return_cycles);
+    return z.final_return(0x714C);
 }
 // No direction is held (or every held one is blocked): the step ends.
 template<class Z> Exit step_stop(Z& z) {                    // 01:722D-723C
@@ -64,7 +59,7 @@ template<class Z> Exit step_stop(Z& z) {                    // 01:722D-723C
     z.store_a_direct(0x7233);
     z.store_a_direct(0x7236);                               // no pending strip
     z.store_a_direct(0x7239);                               // and no step under way
-    return returns(0x723C,mk::return_cycles);
+    return z.final_return(0x723C);
 }
 // Right (bit 3): the terrain check for a new step, or 01:722D.
 template<class Z> Exit step_right(Z& z) {                   // 01:7201-7209
@@ -73,7 +68,7 @@ template<class Z> Exit step_right(Z& z) {                   // 01:7201-7209
     if (z.relative_if(0x7203,z.zero())) return step_stop(z);
     z.load_immediate(0x7205,r.a);
     z.test_bit(0x7207,7,r.c);
-    return call_if_exit(z,0x7209,!z.zero());
+    return z.final_call_if(0x7209,mk::Condition::nz);
 }
 // Left (bit 2), with the camera's X in HL and the step in DE.
 template<class Z> Exit step_left(Z& z) {                    // 01:71E6-71F4
@@ -85,7 +80,7 @@ template<class Z> Exit step_left(Z& z) {                    // 01:71E6-71F4
     if (z.relative_if(0x71EE,z.zero())) return step_right(z);
     z.load_immediate(0x71F0,r.a);
     z.test_bit(0x71F2,7,r.c);
-    return call_if_exit(z,0x71F4,!z.zero());
+    return z.final_call_if(0x71F4,mk::Condition::nz);
 }
 // Down (bit 1).
 template<class Z> Exit step_down(Z& z) {                    // 01:71AA-71B2
@@ -94,7 +89,7 @@ template<class Z> Exit step_down(Z& z) {                    // 01:71AA-71B2
     if (z.relative_if(0x71AC,z.zero())) return step_left(z);
     z.load_immediate(0x71AE,r.a);
     z.test_bit(0x71B0,7,r.c);
-    return call_if_exit(z,0x71B2,!z.zero());
+    return z.final_call_if(0x71B2,mk::Condition::nz);
 }
 // The camera's Y moved: store it with the strip request; a new screen row
 // refills the window (the call is the exit; 01:71E3 jumps to the row strip).
@@ -110,7 +105,7 @@ template<class Z> Exit step_vertical_done(Z& z) {           // 01:71CC-71E0
     z.copy(0x71DB,r.h,r.a);
     z.store_hl_direct(0x71DC);
     z.compare_register(0x71DF,r.b);
-    return call_if_exit(z,0x71E0,!z.zero());
+    return z.final_call_if(0x71E0,mk::Condition::nz);
 }
 // The camera's X moved: store it and the horizontal scroll shadow (minus the
 // camera's low byte); the final JP NZ refills the window on a new screen
@@ -128,7 +123,7 @@ template<class Z> Exit step_horizontal_done(Z& z) {         // 01:7211-7227
     z.copy(0x7222,r.h,r.a);
     z.store_hl_direct(0x7223);
     z.compare_register(0x7226,r.b);
-    return mk::jump_if_exit(0x7227);
+    return z.final_jump_if(0x7227,mk::Condition::nz);
 }
 template<class Z> Exit step_frame(Z& z) {                   // 01:714D-718D
     auto& r=z.r;
@@ -163,7 +158,7 @@ template<class Z> Exit step_frame(Z& z) {                   // 01:714D-718D
     if (z.relative_if(0x7187,z.zero())) return step_down(z);
     z.load_immediate(0x7189,r.a);
     z.test_bit(0x718B,7,r.c);
-    return call_if_exit(z,0x718D,!z.zero());
+    return z.final_call_if(0x718D,mk::Condition::nz);
 }
 template<class Z> Exit step_after_up(Z& z) {                // 01:7190-71A7: move up unless blocked
     auto& r=z.r;
@@ -225,20 +220,20 @@ template<class Z> Exit step_after_right(Z& z) {             // 01:720C-720F
 // The run-length decoder from its loop head 01:728C: a chunk ends at every
 // arrival at the loop head, so a chunk is one run (the design had chunks of
 // 512 cycles; with several runs a chunk, a frame boundary made every run of
-// the chunk fall back natively, below the census gate). A byte 0 ends the screen;
+// the chunk be refused, below the census gate). A byte 0 ends the screen;
 // 1-7Fh is a run of the next byte repeated; 80h-FFh a literal run of its low
 // 7 bits.
 constexpr std::uint16_t decoder_after=0;
-template<class Z> Exit decode_loop(Z&) {                    // 01:728C: always the first arrival's exit
+template<class Z> Exit decode_loop(Z& z) {                  // 01:728C: always the first arrival's exit
     static_assert(decoder_after==0);
-    return continues(0x728C,7);
+    z.load_from_hl(0x728C,z.r.a);
+    return mk::fall_through(0x728C,0x728D);
 }
 template<class Z> Exit decode_tail(Z& z) {                  // 01:728D-72A3
     auto& r=z.r;
     for (;;) {
         z.or_a(0x728D);
-        if (z.zero()) return returns(0x728E,taken_return);  // the end of the screen
-        z.return_not_taken(0x728E);
+        if (auto exit=z.final_return_if(0x728E,mk::Condition::z)) return *exit;   // the end of the screen
         if (z.jump_if(0x728F,z.sign())) {                   // a literal run
             z.and_immediate(0x729D);
             z.copy(0x729F,r.c,r.a);
@@ -256,8 +251,9 @@ template<class Z> Exit decode_tail(Z& z) {                  // 01:728D-72A3
             z.increment_hl(0x7299);
             (void)z.jump(0x729A);
         }
-        if (z.loop_exit(decoder_after)) return continues(0x728C,7);
+        const bool chunk_end=z.loop_exit(decoder_after);
         z.load_from_hl(0x728C,r.a);
+        if (chunk_end) return mk::fall_through(0x728C,0x728D);
     }
 }
 template<class Z> Exit decode_screen(Z& z) {                // 01:728A
@@ -298,7 +294,7 @@ template<class Z> Exit window_start(Z& z) {                 // 01:723D-7261
     z.load_from_hl(0x725C,r.h);
     z.copy(0x725D,r.l,r.a);
     z.load_de(0x725E);
-    return continues(0x7261,mk::call_cycles);
+    return z.final_call(0x7261);
 }
 template<class Z> Exit window_second(Z& z) {                // 01:7264-726E: the screen to the right
     auto& r=z.r;
@@ -306,7 +302,7 @@ template<class Z> Exit window_second(Z& z) {                // 01:7264-726E: the
     z.push(0x7265,r.h,r.l);
     screen_pointer(z,0x7266);
     z.load_de(0x726B);
-    return continues(0x726E,mk::call_cycles);
+    return z.final_call(0x726E);
 }
 template<class Z> Exit window_third(Z& z) {                 // 01:7271-727E: the screen below
     auto& r=z.r;
@@ -319,7 +315,7 @@ template<class Z> Exit window_third(Z& z) {                 // 01:7271-727E: the
     z.load_from_hl(0x7279,r.h);
     z.copy(0x727A,r.l,r.a);
     z.load_de(0x727B);
-    return continues(0x727E,mk::call_cycles);
+    return z.final_call(0x727E);
 }
 template<class Z> Exit window_fourth(Z& z) {                // 01:7281-7287, then the decoder
     auto& r=z.r;
@@ -377,10 +373,11 @@ template<class Z> Exit column_iteration(Z& z) {              // 01:72FE-7339
     z.add_immediate(0x7333);
     z.copy(0x7335,r.d,r.a);
     z.pop(0x7336,r.b,r.c);
-    if (!z.decrement_jump(0x7337)) return returns(0x7339,mk::return_cycles);
+    if (!z.decrement_jump(0x7337)) return z.final_return(0x7339);
     z.push(0x72FB,r.b,r.c);
     z.push(0x72FC,r.h,r.l);
-    return continues(0x72FD,7);                             // L 72FD after 0: one metatile a chunk
+    z.load_from_hl(0x72FD,r.l);
+    return mk::fall_through(0x72FD,0x72FE);                 // one metatile a chunk
 }
 // The column's set-up is split in three pieces of 120-170 cycles (the frame
 // boundary falls inside it often while a vehicle moves; see the census).
@@ -388,8 +385,7 @@ template<class Z> Exit column_start(Z& z) {                  // 01:72A6-72C3
     auto& r=z.r;
     z.load_a_direct(0x72A6);
     z.and_immediate(0x72A9);                                // a pending column (4 left, 8 right)?
-    if (z.zero()) return returns(0x72AB,taken_return);
-    z.return_not_taken(0x72AB);
+    if (auto exit=z.final_return_if(0x72AB,mk::Condition::z)) return *exit;
     z.copy(0x72AC,r.b,r.a);
     z.load_a_direct(0x72AD);
     z.store_a_direct(0x72B0);                               // the bank of the metatile sheet
@@ -401,7 +397,8 @@ template<class Z> Exit column_start(Z& z) {                  // 01:72A6-72C3
         z.and_immediate(0x72BD);
         if (!z.relative_if(0x72BF,!z.zero())) z.load_immediate(0x72C1,r.c);   // one tile further
     }
-    return continues(0x72C3,13);                            // ld a,(nn): the vertical shadow
+    z.load_a_direct(0x72C3);                                // the vertical shadow
+    return mk::fall_through(0x72C3,0x72C6);
 }
 template<class Z> Exit column_mirror(Z& z) {                 // 01:72C6-72DC
     auto& r=z.r;
@@ -422,7 +419,8 @@ template<class Z> Exit column_mirror(Z& z) {                 // 01:72C6-72DC
     z.copy(0x72D8,r.a,r.h);
     z.add_immediate(0x72D9);
     z.copy(0x72DB,r.d,r.a);
-    return continues(0x72DC,7);                             // ld h,n: the window's first slot
+    z.load_immediate(0x72DC,r.h);                           // the window's first slot
+    return mk::fall_through(0x72DC,0x72DE);
 }
 template<class Z> Exit column_window(Z& z) {                 // 01:72DE-72FD
     auto& r=z.r;
@@ -445,7 +443,8 @@ template<class Z> Exit column_window(Z& z) {                 // 01:72DE-72FD
     z.load_immediate(0x72F9,r.b);
     z.push(0x72FB,r.b,r.c);
     z.push(0x72FC,r.h,r.l);
-    return continues(0x72FD,7);
+    z.load_from_hl(0x72FD,r.l);
+    return mk::fall_through(0x72FD,0x72FE);
 }
 
 // The row strip and the whole screen share their inner loop: 16 metatiles
@@ -482,17 +481,17 @@ template<class Z> Exit row_iteration(Z& z) {                 // 01:7397-73CF
     auto& r=z.r;
     across_iteration(z,0x7397);
     z.pop(0x73CC,r.b,r.c);
-    if (!z.decrement_jump(0x73CD)) return returns(0x73CF,mk::return_cycles);
+    if (!z.decrement_jump(0x73CD)) return z.final_return(0x73CF);
     z.push(0x7394,r.b,r.c);
     z.push(0x7395,r.h,r.l);
-    return continues(0x7396,7);                             // L 7396 after 0: one metatile a chunk
+    z.load_from_hl(0x7396,r.l);
+    return mk::fall_through(0x7396,0x7397);                 // one metatile a chunk
 }
 template<class Z> Exit row_start(Z& z) {                     // 01:733A-7396
     auto& r=z.r;
     z.load_a_direct(0x733A);
     z.and_immediate(0x733D);                                // a pending row (1 up, 2 down)?
-    if (z.zero()) return returns(0x733F,taken_return);
-    z.return_not_taken(0x733F);
+    if (auto exit=z.final_return_if(0x733F,mk::Condition::z)) return *exit;
     z.copy(0x7340,r.b,r.a);
     z.and_immediate(0x7341);
     z.load_a_direct(0x7343);
@@ -547,7 +546,8 @@ template<class Z> Exit row_start(Z& z) {                     // 01:733A-7396
     z.load_immediate(0x7392,r.b);
     z.push(0x7394,r.b,r.c);
     z.push(0x7395,r.h,r.l);
-    return continues(0x7396,7);
+    z.load_from_hl(0x7396,r.l);
+    return mk::fall_through(0x7396,0x7397);
 }
 
 // The whole screen: 12 rows of 16 metatiles; a chunk ends at the inner loop
@@ -586,7 +586,7 @@ template<class Z> std::optional<Exit> screen_metatile(Z& z) {   // 01:7488-74E1
     z.pop(0x74DC,r.b,r.c);
     if (!z.decrement_jump(0x74DD)) {
         z.load_immediate(0x74DF,r.a);
-        return continues(0x74E1,mk::jump_cycles);           // jp to the frame wait
+        return z.final_jump(0x74E1);                        // to the frame wait
     }
     z.push(0x7481,r.b,r.c);
     z.push(0x7482,r.h,r.l);
@@ -597,8 +597,9 @@ template<class Z> std::optional<Exit> screen_metatile(Z& z) {   // 01:7488-74E1
 }
 template<class Z> Exit screen_loop(Z& z) {                   // from 01:7487
     for (;;) {
-        if (z.loop_exit(screen_after)) return continues(0x7487,7);
+        const bool chunk_end=z.loop_exit(screen_after);
         z.load_from_hl(0x7487,z.r.l);
+        if (chunk_end) return mk::fall_through(0x7487,0x7488);
         if (const auto exit=screen_metatile(z)) return *exit;
     }
 }
@@ -642,7 +643,7 @@ template<class Z> Exit screen_start(Z& z) {                  // 01:744E-7487
     z.push(0x7486,r.h,r.l);
     return screen_loop(z);
 }
-template<class Z> Exit screen_resume(Z& z) {                 // 01:7488: after the core's ld l,(hl)
+template<class Z> Exit screen_resume(Z& z) {                 // 01:7488: after the segment before it rendered ld l,(hl)
     if (const auto exit=screen_metatile(z)) return *exit;
     return screen_loop(z);
 }
@@ -657,8 +658,8 @@ void register_map_scroll(RoutineRegistry& registry) {
     };
     // The step: the wrapper holds BC, DE and HL over 01:714D. Each part of
     // 01:714D ends at a terrain check (taken or not), at the window refill of
-    // a vertical move (taken or not, 01:71E3 then jumps natively to the row
-    // strip), at the final JP NZ of a horizontal move (01:722A jumps natively
+    // a vertical move (taken or not, 01:71E3 then jumps to the row
+    // strip), at the final JP NZ of a horizontal move (01:722A jumps
     // to the column strip) or at the return of a stop.
     const auto step=m::step_unit;
     add(step,step,{core_final_at(0x7146,-6)},{.scratch_stack=6},[](auto& z) -> Exit { return step_save(z); });
@@ -670,6 +671,13 @@ void register_map_scroll(RoutineRegistry& registry) {
     add(at(0x71B5),step,step_exits,{},[](auto& z) -> Exit { return step_after_down(z); });
     add(at(0x71F7),step,step_exits,{},[](auto& z) -> Exit { return step_after_left(z); });
     add(at(0x720C),step,step_exits,{},[](auto& z) -> Exit { return step_after_right(z); });
+    // Joining stretches: after a refill of the window (or when none was due),
+    // the jumps to the row strip (01:71E3) and to the column strip (01:722A).
+    for (const std::uint16_t pc:{0x71E3,0x722A}) {
+        auto spec=mk::segment(step,{core_final_at(pc)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,at(pc),std::move(spec),[pc](auto& z) -> Exit { return z.final_jump(pc); });
+    }
 
     // The window of metatiles: four screens, the first three through a call
     // of the decoder with the table pointer held, the fourth by falling into it.
@@ -701,6 +709,12 @@ void register_map_scroll(RoutineRegistry& registry) {
     add(at(0x7397),row,{loop_at(0x7396,0),returned_at(0x73CF,4)},{.scratch_stack=2,.inherited_stack=4},
         [](auto& z) -> Exit { return row_iteration(z); });
     const auto screen=m::full_screen_unit;
+    // The full screen's first instruction, the call that decodes the window (a joining segment).
+    {
+        auto spec=mk::segment(screen,{core_final_at(0x744B)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,at(0x744B),std::move(spec),[](auto& z) -> Exit { return z.final_call(0x744B); });
+    }
     add(at(0x744E),screen,{loop_at(0x7487,screen_after,-8)},{.slot2_mapper=true,.scratch_stack=10},
         [](auto& z) -> Exit { return screen_start(z); });
     add(at(0x7488),screen,{loop_at(0x7487,screen_after),core_final_at(0x74E1,8)},{.scratch_stack=2,.inherited_stack=8},

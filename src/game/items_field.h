@@ -26,6 +26,8 @@ inline constexpr std::array segments{
     Segment{{0, 0x23EC}, {0, 0x23EC}}, Segment{{0, 0x23F2}, {0, 0x23EC}},
     Segment{{0, 0x2401}, {0, 0x23EC}}, Segment{{0, 0x2409}, {0, 0x23EC}},
     Segment{{0, 0x240D}, {0, 0x23EC}}, Segment{{0, 0x2419}, {0, 0x2416}},
-    Segment{{0, 0x241F}, {0, 0x2416}}, Segment{{0, 0x2426}, {0, 0x2416}}};
+    Segment{{0, 0x241F}, {0, 0x2416}}, Segment{{0, 0x2426}, {0, 0x2416}},
+    Segment{{0, 0x22E2}, {0, 0x22AF}}, Segment{{0, 0x2317}, {0, 0x22E5}},
+    Segment{{0, 0x23D3}, {0, 0x239D}}, Segment{{0, 0x23D6}, {0, 0x239D}}};
 } // namespace items_field
 } // namespace psmodern::game

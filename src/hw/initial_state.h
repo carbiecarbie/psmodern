@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include <Z80.h>
+#include "hw/cpu.h"
 #include <array>
 #include <cstdint>
 
@@ -34,13 +34,13 @@ inline std::array<std::uint8_t,8192> work_ram() {
     return ram;
 }
 inline void cpu(Z80& state) {
-    z80_power(&state, 0);
+    state=Z80{};
     state.af.uint16_value=0xab42; state.bc.uint16_value=0x0002;
     state.de.uint16_value=0xa51b; state.hl.uint16_value=0;
     state.af_.uint16_value=0; state.bc_.uint16_value=0x0200;
     state.de_.uint16_value=0xc700; state.hl_.uint16_value=0xc75f;
     state.ix_iy[0].uint16_value=state.ix_iy[1].uint16_value=0;
     state.pc.uint16_value=0; state.sp.uint16_value=0xdff0;
-    state.i=0; state.r=0x1d; state.r7=0; state.im=1; state.iff1=state.iff2=0;
+    state.i=0; state.r=0x1d; state.im=1; state.iff1=state.iff2=0;
 }
 }

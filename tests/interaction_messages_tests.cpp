@@ -16,8 +16,31 @@
 #include "game/interaction_sales.h"
 #include "game/interaction_trade.h"
 #include <iostream>
+#include <random>
+#include <string_view>
 using namespace psmodern;
+namespace {
+// Work RAM filled from a seed with a third of the bytes zero, so that the tests
+// of a byte (`or a`, `cp n`) take both of their branches across the seeds. The
+// sweeps randomize only the party and story bytes (C400-C5FF): the interrupt
+// handler that a sweep delivers reads the rest and must find it sane.
+void random_ram(Machine& machine,unsigned seed,unsigned first=0xC000,unsigned last=0xDF00) {
+    std::mt19937_64 random(seed*7919u+13u);
+    for(unsigned address=first;address<last;++address) {
+        const auto value=random();
+        machine.memory().write(static_cast<std::uint16_t>(address),(value%3==0) ? 0 : static_cast<std::uint8_t>(value>>8));
+    }
+}
+bool is_interaction_file(std::string_view origin) { return origin.find("interaction_")!=std::string_view::npos; }
+// The state of the probes of the few entries that need one: the table entry
+// the 48E6 story step reads through HL.
+void entry_state(Machine& machine,RoutineEntry entry) {
+    if(entry.address==0x48e6) machine.cpu().hl.uint16_value=0xc501;
+}
+}
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
  try {
     if (argc!=3) return 77;
     auto rom=probe::load(argv[1],argv[2]); if (!rom) return 77;
@@ -205,6 +228,46 @@ int main(int argc,char** argv) {
             }
         }
     }
+    // Every interaction segment (joining stretches included) again with work RAM
+    // and the flags randomized, so that the branches that read memory or flags
+    // run both ways.
+    std::vector<RoutineEntry> interaction_entries;
+    for(const auto& [entry,routine]:h.registry().entries()) if(is_interaction_file(routine.origin)) interaction_entries.push_back(entry);
+    for(const auto entry:interaction_entries) for(unsigned seed=0;seed<96;++seed) {
+        probe::Setup setup; setup.seed=seed*5+1;
+        auto machine=h.prepare(entry,setup);
+        random_ram(machine,seed);
+        entry_state(machine,entry);
+        h.run_cpp(machine,entry);
+    }
+    // The interrupt sweep (recipe step 5): an IRQ and an NMI at every cycle of
+    // every segment with an instruction boundary inside its body, each run under
+    // strict lockstep with the oracle.
+    unsigned swept=0;
+    for(const auto entry:interaction_entries) {
+        const auto& routine=h.routine(entry);
+        if(routine.spec.single_instruction) continue;
+        probe::Setup setup; setup.seed=entry.address%29+1;
+        try {
+            probe::sweep(h,entry,setup,[&](Machine& machine) { random_ram(machine,entry.address%31,0xC400,0xC600); entry_state(machine,entry); });
+        } catch(const std::exception& e) {
+            throw std::runtime_error("sweep of 01:"+std::to_string(entry.address)+" (decimal): "+e.what());
+        }
+        ++swept;
+    }
+    // Every exit of every interaction segment was taken by some probe (no
+    // recording reaches most of them).
+    unsigned untaken=0;
+    for(const auto& [entry,routine]:h.registry().entries()) {
+        if(!is_interaction_file(routine.origin)) continue;
+        for(std::size_t i=0;i<routine.spec.exits.size() && i<routine.rendered.size();++i)
+            if(!routine.rendered[i]) {
+                std::cout<<"exit not taken: "<<entry.bank<<":"<<std::hex<<entry.address<<" exit "<<routine.spec.exits[i].address<<std::dec<<"\n";
+                ++untaken;
+            }
+    }
+    probe::check(untaken==0,"every exit of every interaction segment is taken by a probe");
+    std::cout<<swept<<" interaction segments swept.\n";
     std::cout<<"Interaction dialogue entries verified.\n";
     return 0;
  } catch(const std::exception& e) { std::cerr<<e.what()<<"\n"; return 1; }

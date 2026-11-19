@@ -3,6 +3,8 @@
 #include "game/battle_outcomes.h"
 #include "game/dungeon_tables.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
+#include <algorithm>
 #include <bit>
 #include <iostream>
 using namespace psmodern;
@@ -91,25 +93,23 @@ void check_slices(probe::Harness &h, RoutineEntry entry) {
             probe::check(next && *next > irq.cycles() + cost + 1,
                          "expected an upcoming frame interrupt");
             irq.advance(*next - irq.cycles() - offset);
-            unsigned admitted = 0, elapsed = 0;
-            while (admitted < count && admitted < 16) {
-                const unsigned next = elapsed + (admitted + 1 == count ? 16 : 21);
-                if (next > offset)
-                    break;
-                elapsed = next;
-                ++admitted;
-            }
-            if (!admitted) {
-                h.run_fallback(frame, entry, RoutineFallback::frame);
-                h.run_fallback(nmi, entry, RoutineFallback::nmi);
-                h.run_fallback(irq, entry, RoutineFallback::irq);
-            } else {
-                for (auto *machine : {&frame, &nmi, &irq}) {
-                    auto result = h.run_cpp(*machine, entry);
-                    probe::check(result.cycles == elapsed &&
-                                     machine->cpu().bc.uint16_value == count - admitted,
-                                 "copy must stop after the last transfer that fits");
-                }
+            // Milestone 14: the copy is an exact segment. Its slice is the next
+            // sixteen transfers (or the rest) whatever the window: a frame end,
+            // an NMI or an interrupt falling inside it is taken between two
+            // transfers, as natively (the lockstep compares every boundary).
+            const unsigned copied = count < 16 ? count : 16;
+            for (auto *machine : {&frame, &nmi, &irq}) {
+                const auto before = h.routine(entry).counters;
+                h.run_cpp(*machine, entry);
+                const auto &after = h.routine(entry).counters;
+                probe::check(machine->cpu().bc.uint16_value == count - copied,
+                             "copy must make its whole slice");
+                // An event sampled at the end of a transfer before the last
+                // one (cycle 21*i-1 of transfer i) is delivered inside the body.
+                const bool inside = machine != &frame && offset < 21 * (copied - 1);
+                probe::check(after.irq_deliveries + after.nmi_deliveries ==
+                                 before.irq_deliveries + before.nmi_deliveries + (inside ? 1 : 0),
+                             "an event inside the slice must be delivered inside it, and only then");
             }
         }
     }
@@ -304,6 +304,8 @@ int scenarios(probe::Harness &harness, const map_probe::Inputs &inputs) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -312,6 +314,15 @@ int main(int argc, char **argv) {
         if (!inputs)
             return 77;
         probe::Harness harness(inputs->rom);
+        {
+            probe::Harness sweeping(inputs->rom);
+            // The four block-copy slices belong to the block transfer wrapper (Part C1).
+            std::vector<game::battle_outcomes::Segment> own;
+            for (const auto& segment:game::battle_outcomes::segments)
+                if (std::find(game::battle_outcomes::copy_entries.begin(),game::battle_outcomes::copy_entries.end(),segment.entry)==
+                    game::battle_outcomes::copy_entries.end()) own.push_back(segment);
+            c4::sweep_file(sweeping,"battle_outcomes",own);
+        }
         const auto count =
             state_probes(harness) + ending_branches(harness) + escape_restoration_gates(harness);
         seed_windows(harness);

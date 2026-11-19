@@ -11,11 +11,13 @@ template<class Z> k::Exit check_story_flag(Z& z,InteractionState item) {
         z.load_hl(at);
         z.load_from_hl(static_cast<std::uint16_t>(at+3),z.r.a);
         z.or_a(static_cast<std::uint16_t>(at+4));
-        return k::relative_if_exit(static_cast<std::uint16_t>(at+5),!z.zero());
+        return z.final_relative_if(static_cast<std::uint16_t>(at+5),item.branch_when_set ? k::Condition::z : k::Condition::nz);
     }
     z.load_a_direct(at);
     z.or_a(static_cast<std::uint16_t>(at+3));
-    return k::continues(static_cast<std::uint16_t>(at+4),item.absolute ? k::jump_cycles : ((z.zero()==item.branch_when_set) ? 12u : 7u));
+    const auto cc=item.branch_when_set ? k::Condition::z : k::Condition::nz;
+    const auto exit=static_cast<std::uint16_t>(at+4);
+    return item.absolute ? z.final_jump_if(exit,cc) : z.final_relative_if(exit,cc);
 }
 template<class Z> k::Exit check_story_counter(Z& z,InteractionState item) {
     const auto at=item.entry.address;
@@ -23,11 +25,13 @@ template<class Z> k::Exit check_story_counter(Z& z,InteractionState item) {
         z.load_hl(at);
         z.load_from_hl(static_cast<std::uint16_t>(at+3),z.r.a);
         z.compare_immediate(static_cast<std::uint16_t>(at+4));
-        return k::jump_if_exit(static_cast<std::uint16_t>(at+6));
+        return z.final_jump_if(static_cast<std::uint16_t>(at+6),item.branch_when_set ? k::Condition::c : k::Condition::nc);
     }
     z.load_a_direct(at);
     z.compare_immediate(static_cast<std::uint16_t>(at+3));
-    return k::continues(static_cast<std::uint16_t>(at+5),item.absolute ? k::jump_cycles : (((z.r.f&k::carry_flag)!=0)==item.branch_when_set ? 12u : 7u));
+    const auto cc=item.branch_when_set ? k::Condition::c : k::Condition::nc;
+    const auto exit=static_cast<std::uint16_t>(at+5);
+    return item.absolute ? z.final_jump_if(exit,cc) : z.final_relative_if(exit,cc);
 }
 }
 void register_interaction_state(RoutineRegistry& registry) {

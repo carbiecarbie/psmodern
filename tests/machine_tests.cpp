@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "machine/machine.h"
+#include "oracle/native_machine.h"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
 using namespace psmodern;
+// The authored programs run on the oracle's native machine: since milestone 14 it is
+// the only machine that steps the pinned core with no registered routine (the engine
+// does so only during the transition). Tests of host hooks stay on the engine.
+using Native = oracle::NativeMachine;
 namespace {
 void check(bool v, const char* message) { if (!v) throw std::runtime_error(message); }
 std::shared_ptr<const Memory::Rom> program(std::initializer_list<std::uint8_t> code) {
@@ -13,7 +18,7 @@ std::shared_ptr<const Memory::Rom> program(std::initializer_list<std::uint8_t> c
     return rom;
 }
 void startup_state() {
-    Machine m(program({0})); const auto& c=m.cpu();
+    Native m(program({0})); const auto& c=m.cpu();
     check(c.pc.uint16_value==0 && c.sp.uint16_value==0xdff0 && c.af.uint16_value==0xab42 &&
           c.bc.uint16_value==2 && c.de.uint16_value==0xa51b && c.hl.uint16_value==0,"initial CPU primary registers");
     check(c.af_.uint16_value==0 && c.bc_.uint16_value==0x0200 && c.de_.uint16_value==0xc700 &&
@@ -27,7 +32,7 @@ void startup_state() {
           m.memory().read(0xc001)==0 && m.vdp().cram()==initial_state::cram,"initial memory and palette");
 }
 void timing() {
-    Machine m(program({0x3e,0x42,0xd3,0x7f,0xdb,0xbe,0xdd,0xd3,0x7f}));
+    Native m(program({0x3e,0x42,0xd3,0x7f,0xdb,0xbe,0xdd,0xd3,0x7f}));
     check(m.step()==7,"LD duration");
     check(m.step()==11,"OUT duration");
     // Port accesses happen at T3 of the I/O M-cycle: M-cycle start plus three.
@@ -35,10 +40,10 @@ void timing() {
     check(m.psg().writes()==std::vector<PsgWrite>{{17,0x42}},"PSG receives the T3 timestamp");
     check(m.step()==11,"IN duration");
     check(m.last_access()==PortAccess{28,0xbe,0,false},"IN at T3");
-    check(m.step()==4 && m.cpu().resume==Z80_RESUME_XY,"prefix resume");
+    check(m.step()==4 && m.cpu().resume==Z80::resume_xy,"prefix resume");
     check(m.step()==11 && m.cpu().resume==0,"prefixed OUT");
     check(m.last_access()==PortAccess{43,0x7f,0,true},"prefixed OUT at T3");
-    Machine block(program({0xed,0x41,0xed,0xa3,0xed,0xa2}));
+    Native block(program({0xed,0x41,0xed,0xa3,0xed,0xa2}));
     block.cpu().bc.uint16_value=0x017f; block.cpu().hl.uint16_value=0xc100;
     block.memory().write(0xc100,0x5a);
     check(block.step()==12 && block.last_access()==PortAccess{11,0x7f,1,true},"OUT (C) at T3");
@@ -46,7 +51,7 @@ void timing() {
     check(block.step()==16 && block.last_access()==PortAccess{40,0x7f,0,false},"INI at T3");
 }
 void ports() {
-    Machine m(program({0}));
+    Native m(program({0}));
     m.set_pad(0,{true,false,true,false,true,true});
     m.set_pad(1,{false,true,false,true,false,true}); m.set_reset(true);
     check(m.read_port(0xdc,0)==0x4a,"pad A and B");
@@ -74,7 +79,7 @@ void ports() {
         m.write_port(0x3f,0,0); check((m.read_port(0xdd,0)&0xc8)==0,"I/O control outputs low before mirror");
         m.write_port(p,0xf0,0); check((m.read_port(0xdd,0)&0xc8)==0xc8,"I/O control mirrors");
     }
-    Machine open(program({0xdb,0x3e}));
+    Native open(program({0xdb,0x3e}));
     open.step(); check((open.cpu().af.uint16_value>>8)==0x3e,"SMS1 I/O open bus follows memory access");
 }
 void vdp_control() {
@@ -200,7 +205,7 @@ void vdp_timing() {
     }
 }
 void irq_boundaries() {
-    auto prepare=[](Machine& m) {
+    auto prepare=[](auto& m) {
         m.read_port(0xbf,0); m.write_port(0xbf,0,0); m.write_port(0xbf,0x80,0);
         m.cpu().iff1=m.cpu().iff2=1; m.cpu().sp.uint16_value=0xdff0;
     };
@@ -210,25 +215,25 @@ void irq_boundaries() {
     before.step(hook); check(hooks==1,"hook before pending IRQ");
     check(before.cycles()==*when+1,"next-IRQ query predicts the sampled assertion");
     before.step(hook); check(hooks==1 && before.cpu().pc.uint16_value==0x38,"IRQ at E-1 suppresses hook");
-    Machine at(program({0})); prepare(at); at.advance(*when-4);
+    Native at(program({0})); prepare(at); at.advance(*when-4);
     at.step(); check(at.cycles()==*when,"IRQ at E boundary");
     at.step(); check(at.cpu().pc.uint16_value==2,"IRQ at E waits for next sample");
     at.step(); check(at.cpu().pc.uint16_value==0x38,"IRQ accepted after E sample");
-    Machine clear(program({0xdb,0xbf,0})); prepare(clear); clear.advance(*when-8);
+    Native clear(program({0xdb,0xbf,0})); prepare(clear); clear.advance(*when-8);
     clear.step(); check(!clear.vdp().irq(),"status read clears new IRQ");
     clear.step(); check(clear.cpu().pc.uint16_value==3,"status read suppresses acceptance");
-    Machine loop(program({0})), advanced(program({0}));
+    Native loop(program({0})), advanced(program({0}));
     for (int i=0;i<30000;++i) loop.step();
     advanced.advance(120000);
     check(loop.vdp()==advanced.vdp(),"NOP loop and advance VDP state");
     check(loop.psg()==advanced.psg(),"NOP loop and advance PSG state and samples");
-    Machine no_cpu(program({0})); no_cpu.read_port(0xbf,0);const auto before_zero=no_cpu;no_cpu.advance(0);
+    Native no_cpu(program({0})); no_cpu.read_port(0xbf,0);const auto before_zero=no_cpu;no_cpu.advance(0);
     check(no_cpu.equivalent(before_zero),"advance(0) preserves the complete machine state");
     no_cpu.advance(43986); check(no_cpu.vdp().irq() && !no_cpu.cpu().int_line,"advance excludes INT first visible at E");
     no_cpu.advance(1); check(no_cpu.cpu().int_line,"advance samples INT at E-1");
 }
 void input_frames() {
-    Machine m(program({0})); m.set_pad(0,{true});
+    Native m(program({0})); m.set_pad(0,{true});
     check(!(m.read_port(0xdc,0)&1),"frame zero input");
     m.advance(1000); m.set_pad(0,{}); m.set_reset(true); m.set_pause(true);
     check(m.next_nmi()==Machine::frame_cycles+Machine::pause_sample_offset,
@@ -240,9 +245,9 @@ void input_frames() {
           "pad and reset latch at frame start");
     check(m.next_nmi()==Machine::frame_cycles+Machine::pause_sample_offset,
           "Pause latches at the boundary and schedules its hardware sample");
-    Machine f(program({0})); auto overshoot=f.run_frame({});
+    Native f(program({0})); auto overshoot=f.run_frame({});
     check(overshoot<4 && f.cycles()==Machine::frame_cycles+overshoot,"frame run and overshoot");
-    Machine framed(program({0}));
+    Native framed(program({0}));
     FrameInput pressed; pressed.pads[0].one=true; pressed.reset=true;
     check(framed.read_port(0xdc,0)&0x10,"frame zero starts released");
     framed.run_frame(pressed);
@@ -253,10 +258,10 @@ void input_frames() {
     check((framed.read_port(0xdc,framed.cycles())&0x10) &&
           (framed.read_port(0xdd,framed.cycles())&0x10),
           "following frame input replaces previous state");
-    Machine prefix(program({0xdd,0})); prefix.advance(Machine::frame_cycles-2);
+    Native prefix(program({0xdd,0})); prefix.advance(Machine::frame_cycles-2);
     check(prefix.run_frame({})==6 && prefix.cpu().resume==0 && prefix.cpu().pc.uint16_value==2,
           "frame run completes an instruction spanning its boundary");
-    Machine h(program({0}));
+    Native h(program({0}));
     h.write_port(0x3f,0,0); h.advance(210);
     check(h.read_port(0x7f,h.cycles())==0,"H latch retains old value");
     h.write_port(0x3f,0x20,h.cycles());
@@ -266,14 +271,14 @@ void input_frames() {
     check(h.read_port(0x7f,h.cycles())==0xf6,"next TH rising edge updates H counter");
     // The latch reads three dots after the TH write: cycle 34 is dot 52 and
     // cycle 35 is dot 53, so a delay of two or four dots would fail one check.
-    Machine edge(program({0}));
+    Native edge(program({0}));
     edge.write_port(0x3f,0,0); edge.write_port(0x3f,0x20,34);
     check(edge.read_port(0x7f,34)==0x1b,"TH at dot 52 latches dot 55");
     edge.write_port(0x3f,0,35); edge.write_port(0x3f,0x20,35);
     check(edge.read_port(0x7f,35)==0x1c,"TH at dot 53 latches dot 56");
     // LD A,0; OUT (3F),A; LD A,20; OUT (3F),A; IN A,(7F): the second OUT's
     // T3 is cycle 35 (dot 53), so the latch holds dot 56.
-    Machine out(program({0x3e,0x00,0xd3,0x3f,0x3e,0x20,0xd3,0x3f,0xdb,0x7f}));
+    Native out(program({0x3e,0x00,0xd3,0x3f,0x3e,0x20,0xd3,0x3f,0xdb,0x7f}));
     out.step(); out.step(); out.step(); out.step();
     check(out.last_access()==PortAccess{35,0x3f,0x20,true},"TH OUT at T3");
     out.step(); check((out.cpu().af.uint16_value>>8)==0x1c,"H latch three dots after a T3 OUT");
@@ -295,20 +300,19 @@ void cpu() {
     auto fetches=m.opcode_fetches();
     check(m.step(hook)==4 && m.cpu().pc.uint16_value==0x21 && m.cpu().r==0x81 && m.cycles()==before+4,"redirect");
     check(m.opcode_fetches()==fetches+1,"redirect does not fetch twice");
-    Machine indexed(program({0xdd,0xcb,0x00,0x46})); indexed.cpu().ix_iy[0].uint16_value=0xc000;
+    Native indexed(program({0xdd,0xcb,0x00,0x46})); indexed.cpu().ix_iy[0].uint16_value=0xc000;
     check(indexed.step()==4 && indexed.step()==16 && indexed.cpu().r==0x1f,"indexed CB counts only M1 fetches");
-    Machine halt(program({0x76}));
-    check(halt.step()==4 && halt.cpu().resume==Z80_RESUME_HALT,"HALT");
+    Native halt(program({0x76}));
+    check(halt.step()==4 && halt.cpu().resume==Z80::resume_halt,"HALT");
     check(halt.step()==4 && halt.cpu().r==0x1f,"HALT increments R");
     halt.cpu().sp.uint16_value=0xdff0; halt.set_pause(true);
     halt.advance(Machine::frame_cycles-halt.cycles()+Machine::pause_sample_offset+1);
     check(halt.step()==11 && halt.cpu().pc.uint16_value==0x66 && halt.cpu().r==0x20,"NMI exits HALT");
-    z80_power(&halt.cpu(),1); check(halt.cpu().r==0,"reset R");
-    Machine halt_irq(program({0x76}));
+    Native halt_irq(program({0x76}));
     halt_irq.read_port(0xbf,0);
     halt_irq.advance(1); // Sample the cleared line before enabling interrupts.
     halt_irq.cpu().iff1=halt_irq.cpu().iff2=1;
-    check(halt_irq.step()==4 && halt_irq.cpu().resume==Z80_RESUME_HALT,"IRQ HALT setup");
+    check(halt_irq.step()==4 && halt_irq.cpu().resume==Z80::resume_halt,"IRQ HALT setup");
     halt_irq.advance(43987-halt_irq.cycles());
     check(halt_irq.step()==13 && halt_irq.cpu().pc.uint16_value==0x38,
           "IRQ exits HALT without an extra idle M1");
@@ -332,11 +336,11 @@ void interrupts() {
     check(q.step(pending)==13 && rejected_hook==0 && q.cpu().pc.uint16_value==0x38,"no hook for interrupted fetch");
     check(q.step(redirect)==4 && calls==2 && q.cpu().pc.uint16_value==0x43,"redirect after pending interrupt");
     Machine pref(program({0xdd,0x21,0,0,0})); pref.cpu().im=1; pref.cpu().iff1=0; pref.cpu().sp.uint16_value=0xdff0;
-    check(pref.step()==4 && pref.cpu().resume==Z80_RESUME_XY,"prefix before interrupt");
+    check(pref.step()==4 && pref.cpu().resume==Z80::resume_xy,"prefix before interrupt");
     pref.cpu().iff1=1; rejected_hook=0;
     check(pref.step(pending)==10 && rejected_hook==0,"interrupt deferred until prefix completes");
     check(pref.step(pending)==13 && rejected_hook==0 && pref.cpu().pc.uint16_value==0x38,"IRQ after prefix");
-    Machine n(program({0})); n.cpu().sp.uint16_value=0xdff0;
+    Native n(program({0})); n.cpu().sp.uint16_value=0xdff0;
     n.set_pause(true);
     check(n.next_nmi()==Machine::pause_sample_offset,"query includes pending frame-zero Pause");
     n.advance(0);
@@ -356,15 +360,15 @@ void interrupts() {
     auto ret_hook=[&](std::uint16_t,Memory::Mapping)->std::optional<std::uint16_t>{ ++ret_hooks; return {}; };
     ret.step(ret_hook); check(ret_hooks==1 && ret.cpu().pc.uint16_value==3,"RETN delay permits hook");
     ret.step(ret_hook); check(ret_hooks==1 && ret.cpu().pc.uint16_value==0x38,"RETN delay ends before IRQ");
-    Machine future(program({0})); future.schedule_nmi(5); future.advance(5);
+    Native future(program({0})); future.schedule_nmi(5); future.advance(5);
     check(future.next_nmi()==5 && future.cycles()==5,"advance delivers NMI");
-    Machine nmi_before(program({0}));
+    Native nmi_before(program({0}));
     nmi_before.schedule_nmi(3);
     check(nmi_before.step()==4 && nmi_before.cpu().pc.uint16_value==1,
           "NMI at E-1 finishes current instruction");
     check(nmi_before.step()==11 && nmi_before.cpu().pc.uint16_value==0x66,
           "NMI at E-1 enters at next boundary");
-    Machine nmi_at(program({0}));
+    Native nmi_at(program({0}));
     nmi_at.schedule_nmi(4);
     check(nmi_at.step()==4 && nmi_at.cpu().pc.uint16_value==1,
           "NMI at E finishes current instruction");
@@ -378,7 +382,7 @@ void interrupts() {
     constexpr std::uint64_t ce_pause_edge=260*228+210;
     check(Machine::pause_sample_offset+1==ce_pause_edge,"Pause phase conversion");
     for (int delta : {-1,0,1}) for (bool irq_pending : {false,true}) {
-        Machine phase(program({0,0,0})); phase.set_pause(true);
+        Native phase(program({0,0,0})); phase.set_pause(true);
         phase.cpu().sp.uint16_value=0xdff0;
         if (irq_pending) {
             phase.read_port(0xbf,0);
@@ -399,19 +403,19 @@ void interrupts() {
         check(phase.cpu().sp.uint16_value==0xdfee && phase.memory().read(0xdfee)==expected_pc &&
               phase.memory().read(0xdfef)==0,"interrupt preserves the correct boundary PC");
     }
-    Machine pause_before(program({0})); pause_before.set_pause(true);
+    Native pause_before(program({0})); pause_before.set_pause(true);
     pause_before.advance(Machine::pause_sample_offset-3);
     check(pause_before.step()==4 && pause_before.step()==11,
           "Pause at E-1 enters after current instruction");
-    Machine pause_at(program({0})); pause_at.set_pause(true);
+    Native pause_at(program({0})); pause_at.set_pause(true);
     pause_at.advance(Machine::pause_sample_offset-4);
     check(pause_at.step()==4 && pause_at.step()==4 && pause_at.step()==11,
           "Pause at E enters after the next instruction");
 }
 void copy_run() {
-    Machine a(program({0xdd,0x21,0x34,0x12,0x3e,0x66,0xd3,0x7f,0x00}));
-    check(a.step()==4 && a.cpu().resume==Z80_RESUME_XY,"copy resume point");
-    Machine b=a; Machine c(program({0})); c=a;
+    Native a(program({0xdd,0x21,0x34,0x12,0x3e,0x66,0xd3,0x7f,0x00}));
+    check(a.step()==4 && a.cpu().resume==Z80::resume_xy,"copy resume point");
+    Native b=a; Native c(program({0})); c=a;
     for (int i=0;i<4;++i) { check(a.step()==b.step(),"copy timing"); c.step(); }
     check(a.equivalent(b) && a.equivalent(c),"complete copy state");
     check(!a.psg().writes().empty(),"copy-run includes a PSG write");
@@ -426,13 +430,13 @@ void advance_sampling() {
     // Same NOP interval, with INT/NMI appearing at E-1, E or E+1.
     // A replacement need only account for its own PC/R effects separately.
     for (bool nmi:{false,true}) for (unsigned offset=3;offset<=5;++offset) {
-        Machine instruction(program({0,0,0}));
+        Native instruction(program({0,0,0}));
         instruction.read_port(0xbf,0); instruction.cpu().im=1;
         instruction.cpu().iff1=instruction.cpu().iff2=1;
         const auto start=nmi?1:43986-offset;
         instruction.advance(start);
         if (nmi) instruction.schedule_nmi(start+offset);
-        Machine replacement=instruction;
+        Native replacement=instruction;
         check(instruction.step()==4,"sampling fixture executes NOP");
         replacement.advance(4);
         replacement.cpu().pc=instruction.cpu().pc; replacement.cpu().r=instruction.cpu().r;
@@ -445,16 +449,16 @@ void advance_sampling() {
     }
 }
 void advance_zero() {
-    Machine normal(program({0,0,0}));
+    Native normal(program({0,0,0}));
     normal.read_port(0xbf,0);normal.cpu().im=1;normal.cpu().iff1=normal.cpu().iff2=1;
     normal.advance(43982);
     check(normal.step()==4 && normal.cycles()==43986,"NOP ends on IRQ rising edge");
-    Machine zero=normal;zero.advance(0);
+    Native zero=normal;zero.advance(0);
     check(normal.step()==4 && zero.step()==4 && zero.cycles()==normal.cycles() &&
           zero.cpu().pc.uint16_value==normal.cpu().pc.uint16_value,
           "advance(0) cannot resample IRQ at the instruction end");
     check(normal.step()==13 && zero.step()==13 && normal.equivalent(zero),"IRQ is accepted at the same following boundary");
-    Machine nmi(program({0}));nmi.set_pause(true);nmi.schedule_nmi(0);
+    Native nmi(program({0}));nmi.set_pause(true);nmi.schedule_nmi(0);
     const auto unchanged=nmi;nmi.advance(0);
     check(nmi.equivalent(unchanged),"advance(0) cannot deliver NMI or latch input");
 }
@@ -517,5 +521,8 @@ void write_observers() {
     throwing.run_frame({});check(exceptions==1,"observer detached after exception");
 }
 }
-int main() { try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); frame_hooks(); write_observers(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
+int main() {
+    // The authored programs' code that no test renders runs on the oracle's core.
+    oracle::Scaffold scaffold;
+    try { startup_state(); timing(); ports(); vdp_control(); vdp_timing(); irq_boundaries(); input_frames(); cpu(); interrupts(); copy_run(); hook_mappings(); frame_hooks(); write_observers(); advance_sampling(); advance_zero(); std::cout << "Machine tests passed.\n"; return 0; }
 catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

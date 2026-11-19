@@ -19,6 +19,11 @@ inline constexpr std::array segments{
     Segment{{0, 0x10D6}, {0, 0x10D1}}, Segment{{0, 0x10E7}, {0, 0x10D1}},
     Segment{{0, 0x10FC}, {0, 0x10D1}}, Segment{{0, 0x1111}, {0, 0x10D1}},
     Segment{{0, 0x1124}, {0, 0x1124}}, Segment{{0, 0x1134}, {0, 0x1124}},
-    Segment{{0, 0x18F2}, {0, 0x18F2}}, Segment{{0, 0x18FA}, {0, 0x18F2}}};
+    Segment{{0, 0x18F2}, {0, 0x18F2}}, Segment{{0, 0x18FA}, {0, 0x18F2}},
+    Segment{{0, 0x1043}, {0, 0x100F}}, Segment{{0, 0x1071}, {0, 0x1055}},
+    Segment{{0, 0x1074}, {0, 0x1055}}, Segment{{0, 0x1095}, {0, 0x1055}},
+    Segment{{0, 0x1098}, {0, 0x1055}}, Segment{{0, 0x10B4}, {0, 0x1055}},
+    Segment{{0, 0x10CB}, {0, 0x1055}}, Segment{{0, 0x10CE}, {0, 0x1055}},
+    Segment{{0, 0x10E1}, {0, 0x10D1}}, Segment{{0, 0x128C}, {0, 0x128C}}};
 } // namespace battle_turn
 } // namespace psmodern::game

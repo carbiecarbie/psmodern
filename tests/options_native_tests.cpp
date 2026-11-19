@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "replay/recording.h"
 #include "rom/rom.h"
@@ -91,7 +92,10 @@ static void scenario(std::shared_ptr<const Memory::Rom> rom,RomVersion version,c
     }
     std::cout<<(dungeon?"dungeon":"map")<<": "<<writes<<" PSG writes during 240 frames; restored and reopened.\n";
 }
-int main(int argc,char**argv){try{
+int main(int argc,char**argv){
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try{
     if(argc!=5)return 1;if(!*argv[1]||!std::filesystem::is_regular_file(argv[1]))return 77;
     std::ifstream f(argv[1],std::ios::binary);auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>());
     const auto version=identify_rom(argv[1]);const bool br=std::string(argv[4])=="br";

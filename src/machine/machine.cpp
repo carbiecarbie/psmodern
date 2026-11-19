@@ -3,182 +3,103 @@
 #include <algorithm>
 #include <stdexcept>
 #include <limits>
+#include <string>
 #include <tuple>
 
 namespace psmodern {
-Machine::RomReplacement Machine::prepare_rom_replacement(std::shared_ptr<const Memory::Rom> image) {
-    if(!image || image->size()!=512*1024)throw std::invalid_argument("Expected a 512 KiB replacement ROM image");
-    return RomReplacement(std::move(image));
+Machine::Machine(const Machine& o) : Console(o) {
+    if (o.depth_) throw std::logic_error("A machine cannot be copied inside a nested interrupt delivery");
 }
-Machine::Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram)
-    : memory_(std::move(rom), ram), cpu_(*this) {
-    sampled_int_=vdp_.irq();
-    z80_int(&cpu_.raw(),sampled_int_);
-}
-Machine::Machine(const Machine& o)
-    : memory_(o.memory_), cpu_(o.cpu_), vdp_(o.vdp_), psg_(o.psg_), cycle_(o.cycle_), opcode_fetches_(o.opcode_fetches_),
-      scheduled_nmi_(o.scheduled_nmi_), pads_(o.pads_), pending_pads_(o.pending_pads_), io_control_(o.io_control_),
-      open_bus_(o.open_bus_), reset_(o.reset_), pause_(o.pause_), pending_reset_(o.pending_reset_), pending_pause_(o.pending_pause_),
-      input_latched_(o.input_latched_), sampled_int_(o.sampled_int_), sampled_nmi_(o.sampled_nmi_),
-      pause_nmi_level_(o.pause_nmi_level_)
-      , last_access_(o.last_access_)
-      { bind(); }
 Machine& Machine::operator=(const Machine& o) {
-    if (this != &o) {
-        memory_=o.memory_; cpu_=o.cpu_; vdp_=o.vdp_; psg_=o.psg_; cycle_=o.cycle_; opcode_fetches_=o.opcode_fetches_;
-        scheduled_nmi_=o.scheduled_nmi_; pads_=o.pads_; pending_pads_=o.pending_pads_; io_control_=o.io_control_;
-        open_bus_=o.open_bus_; reset_=o.reset_; pause_=o.pause_; pending_reset_=o.pending_reset_; pending_pause_=o.pending_pause_;
-        input_latched_=o.input_latched_; sampled_int_=o.sampled_int_; sampled_nmi_=o.sampled_nmi_;
-        pause_nmi_level_=o.pause_nmi_level_;
-        last_access_=o.last_access_;
-        bind();
-    }
+    if (o.depth_ || depth_) throw std::logic_error("A machine cannot be assigned inside a nested interrupt delivery");
+    Console::operator=(o);
     return *this;
 }
-void Machine::bind() { cpu_.bind(*this); }
-Machine::PortTrace::PortTrace(Machine& machine)
-    : machine_(machine), previous_(machine.port_trace_) {
-    machine_.port_trace_=&accesses_;
-}
-Machine::PortTrace::~PortTrace() {
-    machine_.port_trace_=previous_;
-}
-void Machine::record_access(PortAccess access) {
-    last_access_=access;
-    if (port_trace_) port_trace_->push_back(access);
-}
-bool Machine::equivalent(const Machine& o) const {
-    auto state=[](const Machine& m) {
-        return std::tie(m.cycle_,m.opcode_fetches_,m.scheduled_nmi_,m.pads_,m.pending_pads_,
-                        m.io_control_,m.open_bus_,m.reset_,m.pause_,m.pending_reset_,m.pending_pause_,
-                        m.input_latched_,m.sampled_int_,m.sampled_nmi_,m.pause_nmi_level_);
-    };
-    return state(*this)==state(o) && cpu_.equivalent(o.cpu_) && memory_==o.memory_ &&
-           vdp_==o.vdp_ && psg_==o.psg_;
-}
-std::uint8_t Machine::peek(std::uint16_t address) const {
-    return memory_.mapping(address).kind==Memory::Kind::unmapped ? open_bus_ : memory_.read(address);
-}
-
-void Machine::latch_input() {
-    pads_=pending_pads_; reset_=pending_reset_;
-    pause_=pending_pause_; input_latched_=true;
-}
-void Machine::sync(std::uint64_t target) {
-    if (target<vdp_.cycle()) throw std::invalid_argument("Machine cannot run backwards");
-    psg_.check_sync(target);
-    if (!input_latched_) latch_input();
-    auto now=vdp_.cycle();
-    while (now<target) {
-        auto frame=(now/frame_cycles+1)*frame_cycles;
-        auto pause_sample=(now/frame_cycles)*frame_cycles+pause_sample_offset;
-        if (pause_sample<=now) pause_sample+=frame_cycles;
-        auto next=std::min({target,frame,pause_sample});
-        vdp_.sync(next);
-        if (next==frame) latch_input();
-        if (next==pause_sample) {
-            if (pause_ && !pause_nmi_level_) z80_nmi(&cpu_.raw());
-            pause_nmi_level_=pause_;
-        }
-        now=next;
-    }
-    vdp_.sync(target);
-    psg_.sync(target);
-    if (scheduled_nmi_ && *scheduled_nmi_<=target) { z80_nmi(&cpu_.raw()); scheduled_nmi_.reset(); }
-}
-void Machine::advance(std::uint64_t cycles) {
-    if (!cycles) return;
-    psg_.check_sync(cycle_+cycles); // Preflight the whole interval before either sync.
-    // Replacement intervals [S,E) sample at E-1, just like Machine::step.
-    sync(cycle_+cycles-1); sampled_int_=vdp_.irq();
-    sampled_nmi_=(cpu_.raw().request & Z80_REQUEST_NMI)!=0;
-    z80_int(&cpu_.raw(),sampled_int_);
-    cycle_+=cycles; sync(cycle_);
-}
-std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines, const Hook& hook, const WriteObserver& writes) {
-    struct RestoreObserver {
-        const WriteObserver*& slot;const WriteObserver* previous;
-        ~RestoreObserver() {slot=previous;}
-    } restore{write_observer_,write_observer_};
+std::uint64_t Machine::run_frame(const FrameInput& next_input, RoutineRegistry* routines, const Hook& hook,
+                                 const WriteObserver& writes, const FrameObserver& frame) {
+    if (depth_) throw std::logic_error("A frame cannot run inside a nested interrupt delivery");
+    struct Restore {
+        Machine& m; const WriteObserver* writes; const FrameObserver* frame;
+        ~Restore() { m.write_observer_=writes; m.frame_observer_=frame; m.frame_observed_=true; }
+    } restore{*this,write_observer_,frame_observer_};
     write_observer_=writes ? &writes : nullptr;
     pending_pads_=next_input.pads; pending_reset_=next_input.reset; pending_pause_=next_input.pause;
-    auto target=(cycle_/frame_cycles+1)*frame_cycles;
-    while (cycle_<target || cpu_.raw().resume==Z80_RESUME_XY) step(hook,routines);
-    return cycle_-target;
-}
-void Machine::schedule_nmi(std::uint64_t cycle) {
-    if (cycle<cycle_) throw std::invalid_argument("NMI is in the past");
-    scheduled_nmi_=cycle;
-}
-std::optional<std::uint64_t> Machine::next_nmi() const {
-    if (cpu_.raw().request & Z80_REQUEST_NMI) return cycle_;
-    auto next=scheduled_nmi_;
-    auto frame_start=(cycle_/frame_cycles)*frame_cycles;
-    auto sample=frame_start+pause_sample_offset;
-    bool level=pause_nmi_level_;
-    if (sample>cycle_) {
-        bool input=input_latched_ ? pause_ : pending_pause_;
-        if (input && !level && (!next || sample<*next)) next=sample;
-        level=input;
+    const auto target=(cycle_/frame_cycles+1)*frame_cycles;
+    frame_target_=target; frame_observed_=false; frame_observer_=frame ? &frame : nullptr;
+    // (A prefix resumption exists only under the test scaffolding.)
+    while (cycle_<target || cpu_.resume==Z80::resume_xy) step(hook,routines);
+    // The first top-level boundary at or after the target, unless the
+    // observer already fired at a boundary inside the last step.
+    if (!cpu_.resume) observe_boundary(cpu_.pc.uint16_value,false,false);
+    if (!frame_observed_) { frame_observed_=true; if (frame_observer_) (*frame_observer_)(); }
+    const auto overshoot=cycle_-target;
+    // The overshoot invariant (planning 3.5, review R6): every top-level step
+    // ends before the next frame target.
+    if (overshoot>=frame_cycles) throw std::logic_error("A top-level step ran past the next frame target");
+    if (routines) {
+        auto& census=routines->census_;
+        ++census.frames;
+        if (overshoot>census.max_overshoot) {
+            census.max_overshoot=overshoot;
+            const auto pc=cpu_.pc.uint16_value;
+            census.max_overshoot_entry={memory_.mapping(pc).bank,pc};
+        }
     }
-    sample=frame_start+frame_cycles+pause_sample_offset;
-    if (pending_pause_ && !level && (!next || sample<*next)) next=sample;
-    return next;
+    return overshoot;
+}
+namespace {
+std::string hex(unsigned value, int width) {
+    static constexpr char digits[]="0123456789ABCDEF";
+    std::string out;
+    for (int shift=4*(width-1);shift>=0;shift-=4) out+=digits[(value>>shift)&15];
+    return out;
+}
+}
+void Machine::unhandled(std::uint16_t pc, const std::string& what) const {
+    const auto mapping=memory_.mapping(pc);
+    const auto where=mapping.kind==Memory::Kind::rom ? hex(mapping.bank,2)+":"+hex(pc,4) :
+        std::string(mapping.kind==Memory::Kind::unmapped ? "unmapped " : "RAM ")+hex(pc,4);
+    throw UnhandledState("The rewritten game does not handle this state at "+where+": "+what);
 }
 bool Machine::run_routine(RoutineRegistry& routines) {
-    const auto pc=cpu_.raw().pc.uint16_value;
+    const auto pc=cpu_.pc.uint16_value;
     const auto mapping=memory_.mapping(pc);
     if (mapping.kind!=Memory::Kind::rom) return false;
     auto* routine=routines.find({mapping.bank,pc});
     if (!routine) return false;
     auto& counters=routine->counters;
-    if (!routines.enabled) {
-        ++counters.fallback_calls; ++counters.reasons[static_cast<unsigned>(RoutineFallback::disabled)];
-        return false;
-    }
+    const auto& spec=routine->spec;
+    // A state the segment does not render stops the run with a message
+    // naming the segment and the reason (counted first, for the tests).
+    auto refuse=[&](RoutineFallback why, const std::string& what) {
+        ++counters.fallback_calls; ++counters.reasons[static_cast<unsigned>(why)];
+        unhandled(pc,"segment of unit "+hex(spec.unit.bank,2)+":"+hex(spec.unit.address,4)+" refused ("+
+                  std::string(routine_fallback_names[static_cast<unsigned>(why)])+"): "+what);
+    };
+    // An explicit entry guard: the states the body renders.
+    if (routine->guard && !routine->guard->holds(*this)) refuse(RoutineFallback::guard,std::string(routine->guard->name));
     const auto bound=routine->bound(*this);
     if (!bound || bound>std::numeric_limits<std::uint64_t>::max()-cycle_)
         throw std::runtime_error("Invalid registered routine cycle bound");
     const auto end=cycle_+bound;
-    const auto& spec=routine->spec;
-    constexpr auto reason_count=static_cast<unsigned>(RoutineFallback::count);
-    std::array<bool,reason_count> applies{};
-    auto reason=[&](RoutineFallback why, bool applied) { applies[static_cast<unsigned>(why)]=applied; };
-    if (!spec.exits.empty() && spec.exits.front().sprite_outputs) {
-        const auto count=spec.exits.front().sprite_outputs;
-        if (bound!=count*16u && (cpu_.raw().bc.uint16_value&255)==0xbe)
-            throw std::runtime_error("Invalid sprite output cycle bound");
-        for (unsigned i=0;i<count;++i) {
-            const auto opcode=static_cast<std::uint16_t>(pc+2*i);
-            if (memory_.mapping(opcode)!=mapping || memory_.mapping(opcode+1)!=mapping ||
-                peek(opcode)!=0xed || peek(opcode+1)!=0xa3)
-                throw std::runtime_error("Sprite output slice must contain only OUTI in bank 1 ROM");
-        }
-
-    }
-    if (!spec.exits.empty() && spec.exits.front().kind==RoutineExit::output_repeat) {
-        if (memory_.mapping(pc+1).kind!=Memory::Kind::rom || peek(pc)!=0xED || peek(pc+1)!=0xB3)
-            throw std::runtime_error("Video register output must start at a ROM OTIR");
-        if (bound!=video_register_output_cycles())
-            throw std::runtime_error("Invalid video register output bound");
-    }
+    const bool exact=routine->exact;
     if (!spec.exits.empty() && spec.exits.front().kind==RoutineExit::copy_repeat) {
-        const auto second=static_cast<std::uint16_t>(pc+1);
-        if (memory_.mapping(second).kind!=Memory::Kind::rom || peek(pc)!=0xed || peek(second)!=0xb0)
-            throw std::runtime_error("Registered block copy must start at a ROM LDIR");
         const auto count=(bound+20)/21;
-        if (!count || count>copy_iterations(cpu_.raw().bc.uint16_value) ||
-            copy_duration(cpu_.raw().bc.uint16_value,count)!=bound)
+        if (!count || count>copy_iterations(cpu_.bc.uint16_value) ||
+            copy_duration(cpu_.bc.uint16_value,count)!=bound)
             throw std::runtime_error("Invalid forward block copy bound");
-        if (spec.exits.front().native_frame_tail &&
-            (memory_.mapping(second)!=mapping || bound!=block_copy_frame_cycles()))
-            throw std::runtime_error("Scene copy frame exit has the wrong mapping or bound");
-        const auto last=static_cast<unsigned>(cpu_.raw().de.uint16_value)+count-1;
-        reason(RoutineFallback::mapper_write,last>=0xfffc);
+        // A copy reaching the mapper registers can remap the slot holding its
+        // own LDIR, which the original fetches again for every transfer: the
+        // rendered slice does not follow that.
+        const auto last=static_cast<unsigned>(cpu_.de.uint16_value)+count-1;
+        if (last>=0xfffc) refuse(RoutineFallback::mapper_write,"a block copy reaches the mapper registers");
     }
-    reason(RoutineFallback::halted,cpu_.raw().halt_line!=0);
-    reason(RoutineFallback::interrupt_delay,(cpu_.raw().request & Z80_REQUEST_REJECT_NMI)!=0);
-    const auto sp=cpu_.raw().sp.uint16_value;
+    if (cpu_.halt_line) refuse(RoutineFallback::halted,"the processor is halted");
+    // The NMI-reject marker left by an NMI acceptance: an exact body clears
+    // it at its entry (below), as the core does at this boundary.
+    const bool reject=(cpu_.request & Z80::request_reject_nmi)!=0;
+    if (reject && !exact) refuse(RoutineFallback::interrupt_delay,"the NMI-reject marker is set at a body without register sync");
+    const auto sp=cpu_.sp.uint16_value;
     // A scratch stack below SP also needs mapped bytes outside the mapper registers.
     auto stack_byte=[&](unsigned offset) {
         const auto address=static_cast<std::uint16_t>(sp+offset);
@@ -186,72 +107,46 @@ bool Machine::run_routine(RoutineRegistry& routines) {
     };
     bool stack=stack_byte(0) || stack_byte(1);
     for (unsigned i=1;i<=spec.scratch_stack;++i) stack=stack || stack_byte(0x10000-i);
-    // Inherited words above SP are popped by the body or the core: every byte
-    // from SP to SP+inherited+1 must be mapped and off the mapper registers.
+    // Inherited words above SP are popped by the body: every byte from SP to
+    // SP+inherited+1 must be mapped and off the mapper registers.
     if (spec.inherited_stack) for (unsigned i=0;i<spec.inherited_stack+2;++i) {
         const auto address=static_cast<std::uint16_t>(sp+i);
         stack=stack || memory_.mapping(address).kind==Memory::Kind::unmapped || address>=0xfffc;
     }
-    reason(RoutineFallback::unmapped_stack,stack);
-    reason(RoutineFallback::ei_delay,cpu_.raw().data.uint8_array[0]==0xfb);
-    const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;
-    const auto nmi=next_nmi();
-    reason(RoutineFallback::irq,irq && *irq<end);
-    reason(RoutineFallback::nmi,nmi && *nmi<end);
-    const auto frame_left=frame_cycles-cycle_%frame_cycles;
-    const bool final_copy=!spec.exits.empty() && spec.exits.front().kind==RoutineExit::copy_repeat &&
-        spec.exits.front().native_frame_tail;
-    const auto copy_count=(bound+20)/21;
-    const bool copy_tail=final_copy && copy_count>=2 && 21*(copy_count-1)<frame_left;
-    const bool final_load=!spec.exits.empty() && spec.exits.front().kind==RoutineExit::core_final &&
-        spec.exits.front().native_frame_tail;
-    if (final_load && (bound!=20 || peek(pc)!=0x21 || peek(pc+3)!=0x01 ||
-        memory_.mapping(pc+5)!=mapping))
-        throw std::runtime_error("Dialogue row frame exit must load HL and BC from ROM");
-    // Native execution finishes the instruction which straddles the frame.
-    // The dialogue setup may do the same when its C++ load has finished
-    // strictly before that boundary. IRQ and NMI use the full bound above.
+    if (stack) refuse(RoutineFallback::unmapped_stack,"the stack is unmapped or on the mapper registers");
     const bool wrong_sprite_port=!spec.exits.empty() && spec.exits.front().sprite_outputs &&
-        (cpu_.raw().bc.uint16_value&255)!=0xbe;
-    reason(RoutineFallback::frame,wrong_sprite_port || (final_load ? frame_left<=10 : frame_left<bound && !copy_tail));
-    // A forced single instruction runs on the core with no added delay, so
-    // window reasons do not apply. HALT must run on the core without the
-    // adjustment. The validated RAM store can also run at an NMI-reject
-    // boundary: the core clears the rejection and executes that instruction.
-    const bool hard=applies[static_cast<unsigned>(RoutineFallback::halted)] ||
-        (applies[static_cast<unsigned>(RoutineFallback::interrupt_delay)] && !spec.absolute_wram_store);
-    const bool forced=spec.force_admit && !hard;
-    if (spec.force_admit && hard) ++counters.forced_failed;
-    if (!forced && std::find(applies.begin(),applies.end(),true)!=applies.end()) {
-        for (unsigned i=0;i<reason_count;++i) counters.reasons[i]+=applies[i];
-        ++counters.fallback_calls; return false;
+        (cpu_.bc.uint16_value&255)!=0xbe;
+    if (exact) {
+        // An exact body takes interrupts and frame ends at its own boundaries.
+        // A bound beyond one frame is the estimate's uncertain path: a state
+        // the body's guards refuse.
+        if (wrong_sprite_port || bound>frame_cycles)
+            refuse(RoutineFallback::frame,"the estimated path is uncertain (a state the segment's guards refuse)");
+    } else {
+        // A body without register sync cannot take an event inside it: the
+        // whole call must fit before the next interrupt and frame end.
+        if (cpu_.data.uint8_array[0]==0xfb) refuse(RoutineFallback::ei_delay,"the call follows EI");
+        const auto irq=cpu_.iff1 ? vdp_.next_irq_conservative() : std::nullopt;
+        const auto nmi=next_nmi();
+        if (irq && *irq<end) refuse(RoutineFallback::irq,"an interrupt falls inside a body without register sync");
+        if (nmi && *nmi<end) refuse(RoutineFallback::nmi,"an NMI falls inside a body without register sync");
+        const auto frame_left=frame_cycles-cycle_%frame_cycles;
+        if (wrong_sprite_port || frame_left<bound) refuse(RoutineFallback::frame,"a frame end falls inside a body without register sync");
     }
-    if (forced) { for (unsigned i=0;i<reason_count;++i) counters.forced_reasons[i]+=applies[i]; ++counters.forced_calls; }
     ++counters.cpp_calls;
-    bool fell_back=false;
-    auto body=[&]()->std::optional<SegmentExit> {
-        std::optional<Z80> saved;
-        if (forced) saved=cpu_.raw();
-        RoutineContext context(*this,bound,spec,forced);
-        try { routine->body(context); }
-        catch (const std::exception&) { if (!forced || context.stepped_) throw; }
-        if (forced && !context.stepped_) {
-            // Before its core step a forced body can only have changed registers.
-            cpu_.raw()=*saved; fell_back=true; return std::nullopt;
-        }
-        context.check_bound();
-        if (!context.finished_) throw std::runtime_error("Registered routine omitted its original return");
-        return context.exit_;
-    };
-    if (routines.verifier) routines.verifier->run(*this,{mapping.bank,pc},spec,forced,bound,
-        counters.cpp_calls+counters.fallback_calls,body);
-    else body();
-    if (fell_back) {
-        for (unsigned i=0;i<reason_count;++i) counters.forced_reasons[i]-=applies[i];
-        --counters.cpp_calls; --counters.forced_calls;
-        ++counters.fallback_calls; ++counters.forced_failed;
-        return false;
+    if (reject) {
+        // The marker discards every request at this boundary and the entry
+        // instruction runs (Z80.c 2560-2561); an NMI edge not sampled at the
+        // previous instruction's end is not seen yet and survives.
+        const bool late_nmi=(cpu_.request & Z80::request_nmi) && !sampled_nmi_;
+        cpu_.request=late_nmi ? Z80::request_nmi : 0;
     }
+    RoutineContext context(*this,*routine,bound,exact);
+    try { routine->body(context); }
+    catch (const RoutineAbandoned&) { ++counters.abandoned; throw; }
+    context.check_bound();
+    if (!context.finished_) throw std::runtime_error("Registered routine omitted its original return");
+    routine->last_exit=context.exit_;
     return true;
 }
 std::uint64_t Machine::routine_window() const {
@@ -259,16 +154,16 @@ std::uint64_t Machine::routine_window() const {
     auto limit=[&](std::optional<std::uint64_t> event) {
         if (event) window=std::min(window,*event>cycle_ ? *event-cycle_ : 0);
     };
-    if (cpu_.raw().iff1) limit(vdp_.next_irq_conservative());
+    if (cpu_.iff1) limit(vdp_.next_irq_conservative());
     limit(next_nmi());
     return window;
 }
 unsigned Machine::video_register_output_cycles() const {
-    const auto bc=cpu_.raw().bc.uint16_value;
+    const auto bc=cpu_.bc.uint16_value;
     if ((bc&255)!=0xBF) return 2*frame_cycles;
     const unsigned remaining=bc>>8;
     if (remaining==1) return 16;
-    const auto source=cpu_.raw().hl.uint16_value;
+    const auto source=cpu_.hl.uint16_value;
     if (memory_.mapping(source).kind==Memory::Kind::unmapped) return 21;
     const auto reg=vdp_.control_write_register(peek(source));
     if (reg && (*reg==0 || *reg==1 || *reg==10)) return 21;
@@ -276,7 +171,7 @@ unsigned Machine::video_register_output_cycles() const {
     return pair<=routine_window() ? pair : 21;
 }
 unsigned Machine::block_copy_cycles() const {
-    const auto remaining=cpu_.raw().bc.uint16_value;
+    const auto remaining=cpu_.bc.uint16_value;
     unsigned count=copy_iterations(remaining);
     const auto maximum=copy_duration(remaining,count);
     const auto window=routine_window();
@@ -292,157 +187,318 @@ unsigned Machine::block_copy_cycles() const {
 // still executed by the core. Interrupt windows cover its complete duration.
 unsigned Machine::block_copy_frame_cycles() const {
     const auto ordinary=block_copy_cycles();
-    const auto remaining=cpu_.raw().bc.uint16_value;
+    const auto remaining=cpu_.bc.uint16_value;
     const auto frame_left=frame_cycles-cycle_%frame_cycles;
     if (ordinary>=frame_left || frame_left<=21) return ordinary;
     const unsigned before_final=static_cast<unsigned>((frame_left-1)/21);
     const unsigned count=std::min(copy_iterations(remaining),before_final+1);
     if (count<2 || count<=static_cast<unsigned>((ordinary+20)/21)) return ordinary;
     const auto candidate=copy_duration(remaining,count);
-    const auto irq=cpu_.raw().iff1 ? vdp_.next_irq_conservative() : std::nullopt;
+    const auto irq=cpu_.iff1 ? vdp_.next_irq_conservative() : std::nullopt;
     const auto nmi=next_nmi();
     if ((irq && *irq<cycle_+candidate) || (nmi && *nmi<cycle_+candidate)) return ordinary;
     return candidate;
 }
 
-bool Machine::interrupt_accepted_at_boundary() const {
-    if (cpu_.raw().resume && cpu_.raw().resume!=Z80_RESUME_HALT) return false;
-    const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
-    auto request=cpu_.raw().request & ~(unsampled_nmi ? Z80_REQUEST_NMI : 0);
-    // z80_int at Z80.c:2380-2383 clears a deasserted line, and only
-    // creates a request for an asserted line when IFF1 is set.
-    if (!sampled_int_) request &= ~Z80_REQUEST_INT;
-    else if (cpu_.raw().iff1) request |= Z80_REQUEST_INT;
-    // Mirrors the pinned Z80.c RETN bookkeeping (lines 1141-1146) and
-    // request/RETN acceptance checks (2505-2507,2560-2618). Resumed index
-    // work precedes that loop; halted work can reenter it (2443-2492).
-    const bool reject_nmi=(request & Z80_REQUEST_REJECT_NMI)!=0;
-    const bool nmi=!reject_nmi && (request & Z80_REQUEST_NMI);
-    const bool reti_delay=cpu_.raw().data.uint8_array[0]==0xed &&
-        (cpu_.raw().data.uint8_array[1]&0xc7)==0x45 && !(cpu_.raw().data.uint8_array[2]&1);
-    const bool irq=!reject_nmi && !nmi && (request & Z80_REQUEST_INT) &&
-        cpu_.raw().data.uint8_array[0]!=0xfb && !reti_delay;
-    return nmi || irq;
-}
 namespace {
-// A late NMI edge must not be visible to the hook or core until after this
+// A late NMI edge must not be visible to the hook until after this
 // instruction. Restore it even if a host callback throws.
 struct HideLateNmi {
     Z80& cpu;
     bool late;
-    HideLateNmi(Z80& cpu,bool late,bool hide=true) : cpu(cpu),late(late) {
-        if (late && hide) cpu.request &= ~Z80_REQUEST_NMI;
+    HideLateNmi(Z80& cpu,bool late) : cpu(cpu),late(late) {
+        if (late) cpu.request &= static_cast<std::uint8_t>(~Z80::request_nmi);
     }
-    ~HideLateNmi() { if (late) cpu.request |= Z80_REQUEST_NMI; }
+    ~HideLateNmi() { if (late) cpu.request |= Z80::request_nmi; }
+};
+// What a host hook may not change while a body is suspended below it.
+struct HookState {
+    std::uint16_t pc, sp, af, bc, de, hl, af_, bc_, de_, hl_, ix, iy, memptr;
+    std::uint8_t i, r, iff1, iff2, im, request, resume, halt_line;
+    std::uint64_t cycle, generation;
+    bool sampled_int, sampled_nmi;
+    const void* rom;
+    bool operator==(const HookState&) const = default;
 };
 }
+void Machine::observe_boundary(std::uint16_t pc, bool in_body, bool rendered) {
+    if (cycle_==observed_cycle_) return;
+    observed_cycle_=cycle_;
+    if (boundary_observer_) (*boundary_observer_)({pc,depth_,in_body,rendered});
+    if (frame_observer_ && !frame_observed_ && cycle_>=frame_target_) { frame_observed_=true; (*frame_observer_)(); }
+}
+bool Machine::accepts_in_cpp(Acceptance kind) const {
+    // IM 1 is the only mode the game uses; HALT is never executed. Both
+    // remaining cases stop the run (UnhandledState).
+    const auto& cpu=cpu_;
+    return !cpu.halt_line && !cpu.resume && (kind==Acceptance::nmi || cpu.im==1);
+}
+// The pinned core's response (Z80.c 2560-2582 for NMI; 2603-2650 and IM 1 at
+// 2899-2904 for INT), in C++: no opcode read, R incremented, PC pushed high
+// byte first, MEMPTR = PC = vector, Q and the previous-opcode byte cleared.
+std::uint64_t Machine::accept(Acceptance kind, bool late_nmi) {
+    auto& cpu=cpu_;
+    std::uint64_t cycles;
+    std::uint16_t vector;
+    if (kind==Acceptance::nmi) {
+        // Every request becomes the NMI-reject marker: a second NMI edge
+        // before the next instruction is discarded (Z80.c 2563-2565).
+        cpu.request=Z80::request_reject_nmi; cpu.iff1=0;
+        vector=0x66; cycles=11;
+    } else {
+        // INT acceptance clears every request bit in the core; an NMI edge
+        // not yet sampled survives it (rule 3).
+        cpu.request=late_nmi ? Z80::request_nmi : 0; cpu.iff1=cpu.iff2=0;
+        // NMOS: an INT accepted right after LD A,I or LD A,R resets PF
+        // (Z80.c 2636-2641); IM 1 then clears Q.
+        if (cpu.data.uint8_array[0]==0xed && (cpu.data.uint8_array[1]&0xf7)==0x57)
+            cpu.af.uint8_values.at_0=static_cast<std::uint8_t>(cpu.af.uint8_values.at_0&~0x04);
+        vector=0x38; cycles=13;
+    }
+    cpu.r=static_cast<std::uint8_t>((cpu.r&0x80)|((cpu.r+1)&0x7f));
+    cpu.data.uint8_array[0]=0; cpu.q=0;
+    const auto pc=cpu.pc.uint16_value;
+    cpu.sp.uint16_value=static_cast<std::uint16_t>(cpu.sp.uint16_value-2);
+    write(static_cast<std::uint16_t>(cpu.sp.uint16_value+1),static_cast<std::uint8_t>(pc>>8));
+    write(cpu.sp.uint16_value,static_cast<std::uint8_t>(pc));
+    cpu.memptr.uint16_value=cpu.pc.uint16_value=vector;
+    // The response samples the lines at its own E-1, like an instruction.
+    finish_interval(cycles);
+    return cycles;
+}
+void Machine::deliver(Acceptance kind, bool late_nmi, std::uint16_t at) {
+    auto& cpu=cpu_;
+    const auto saved_sp=cpu.sp.uint16_value;
+    struct Depth {
+        unsigned& depth;
+        explicit Depth(unsigned& d) : depth(d) { ++depth; }
+        ~Depth() { --depth; }
+    } depth(depth_);
+    accept(kind,late_nmi);
+    static const Hook no_hook;
+    const Hook& hook=active_hook_ ? *active_hook_ : no_hook;
+    auto* routines=active_routines_;
+    while (cpu.pc.uint16_value!=at || cpu.sp.uint16_value!=saved_sp || cpu.resume) {
+        // Reset jumps from the handler to 00:0084, whose next instruction
+        // loads SP: the suspended bodies are never resumed (review R5).
+        const auto pc=cpu.pc.uint16_value;
+        if (!cpu.resume && (pc==0x0084 || pc==0x0000) && memory_.mapping(pc)==Memory::Mapping{Memory::Kind::rom,0})
+            throw RoutineAbandoned{};
+        step(hook,routines);
+    }
+}
+void Machine::body_boundary(RoutineContext& context, std::uint16_t at, bool synced) {
+    auto& cpu=cpu_;
+    if (!context.exact_) {
+        // Admission keeps every event out of the window of a body that is
+        // not exact, so neither an interrupt nor a frame end can fall here.
+        if (frame_observer_ && !frame_observed_ && cycle_>=frame_target_)
+            throw std::logic_error("A frame ended inside a registered body that is not exact");
+        return;
+    }
+    if (!synced && !context.sync_)
+        throw std::logic_error("An exact registered body has no register sync");
+    // A body at depth that renders the reset code inline (00:0000 or 00:0084
+    // in bank 0) abandons the suspended bodies, as deliver() does between
+    // nested steps (review R5; review of Part 0a). The register file is left
+    // complete first, with the PC at the reset code, as there (review R1 L-1).
+    if (depth_ && (at==0x0084 || at==0x0000) && memory_.mapping(at)==Memory::Mapping{Memory::Kind::rom,0}) {
+        if (!synced) context.sync_->store(cpu);
+        cpu.pc.uint16_value=at;
+        throw RoutineAbandoned{};
+    }
+    // Under the test-side checks (a lockstep run): an address the host
+    // watches must begin its own observed segment, never be rendered inline
+    // by another body, which would bypass the hook (review of Part 0a, M2).
+    if (opcode_check_ && active_routines_ && active_routines_->may_observe(at)) {
+        const auto mapping=memory_.mapping(at);
+        const auto* watched=mapping.kind==Memory::Kind::rom ? active_routines_->find({mapping.bank,at}) : nullptr;
+        if (watched && watched->spec.observe_entry)
+            throw std::logic_error("A body rendered a host-observed address inline");
+    }
+    cpu.pc.uint16_value=at;
+    bool stored=synced, rendered=true, delivered=false;
+    for (;;) {
+        // Machine::advance sampled both lines at the previous instruction's
+        // E-1 and drove the INT input; arbitration reads only those samples.
+        // The NMI-reject marker is cleared at the entry of the segment an NMI
+        // response leads to (run_routine), and a handler returns here only
+        // after that: no boundary inside a body can see it.
+        if (cpu.request & Z80::request_reject_nmi)
+            throw std::logic_error("The NMI-reject marker reached an instruction boundary inside a body");
+        const auto kind=pending_acceptance();
+        const bool frame_due=frame_observer_ && !frame_observed_ && cycle_>=frame_target_;
+        if (kind==Acceptance::none && !frame_due && !boundary_observer_) break;
+        if (!stored) { context.sync_->store(cpu); stored=true; }
+        const bool late_nmi=(cpu.request & Z80::request_nmi) && !sampled_nmi_;
+        cpu.set_int_line(sampled_int_);
+        observe_boundary(at,true,rendered);
+        if (kind==Acceptance::none) break;
+        if (!accepts_in_cpp(kind)) unhandled(at,"an interrupt response other than IM 1 (or while halted) inside a body");
+        auto& counters=context.routine_.counters;
+        if (kind==Acceptance::nmi) ++counters.nmi_deliveries; else ++counters.irq_deliveries;
+        if (active_routines_) {
+            auto& census=active_routines_->census_;
+            if (kind==Acceptance::nmi) ++census.body_nmi; else ++census.body_irq;
+        }
+        const auto start=cycle_;
+        deliver(kind,late_nmi,at);
+        context.nested_cycles_+=cycle_-start;
+        rendered=false;
+        delivered=true;
+    }
+    if (delivered) {
+        if (!synced) context.sync_->load(cpu);
+        context.delivered_=true;
+        context.instruction_start_=cycle_;
+    }
+}
+void Machine::record_step(RoutineRegistry* routines, std::uint64_t start, std::uint16_t pc, Memory::Mapping mapping) {
+    if (!routines || depth_) return;
+    auto& census=routines->census_;
+    if (cycle_-start>census.max_step) {
+        census.max_step=cycle_-start;
+        census.max_step_entry={mapping.bank,pc};
+    }
+}
 std::uint64_t Machine::step(const Hook& hook, RoutineRegistry* routines) {
+    const auto start=cycle_;
+    struct Active {
+        Machine& m; const Hook* hook; RoutineRegistry* routines;
+        ~Active() { m.active_hook_=hook; m.active_routines_=routines; }
+    } active{*this,active_hook_,active_routines_};
+    active_hook_=&hook; active_routines_=routines;
     sync(cycle_);
-    const bool unsampled_nmi=(cpu_.raw().request & Z80_REQUEST_NMI) && !sampled_nmi_;
-    z80_int(&cpu_.raw(), sampled_int_);
-    const bool accepted=interrupt_accepted_at_boundary();
-    const bool boundary=cpu_.raw().resume==0 && !accepted;
-    bool observed=false, native=false, callback_nmi=false;
-    const auto pc=cpu_.raw().pc.uint16_value;
-    if (boundary && hook && routines && routines->may_observe(pc)) {
-        const auto mapping=memory_.mapping(pc);
-        const auto* entry=mapping.kind==Memory::Kind::rom ? routines->find({mapping.bank,pc}) : nullptr;
+    auto& cpu=cpu_;
+    const bool unsampled_nmi=(cpu.request & Z80::request_nmi) && !sampled_nmi_;
+    cpu.set_int_line(sampled_int_);
+    const auto pc=cpu.pc.uint16_value;
+    const auto pc_mapping=memory_.mapping(pc);
+    if (cpu.resume) return scaffold(routines,start,pc,unsampled_nmi,"a prefix resumption");
+    observe_boundary(pc,false,false);
+    // A step with no rewritten code under the originals scaffolding (the
+    // reference run of the game's tests): the whole step, an interrupt
+    // response included, is the pinned core's, so the reference never shares
+    // the engine's arbitration it is compared with (reviews R1 M-3, R3 M3).
+    // The host hook keeps the engine's timing: it is not called at a boundary
+    // where an interrupt response takes the step.
+    if (scaffold_step_ && !scaffold_with_registry_ && (!routines || routines->empty()))
+        return scaffold(routines,start,pc,unsampled_nmi,"no rewritten code begins at this address",
+                        pending_acceptance()==Acceptance::none ? &hook : nullptr);
+    const auto kind=pending_acceptance();
+    if (kind!=Acceptance::none) {
+        if (!accepts_in_cpp(kind))
+            return scaffold(routines,start,pc,unsampled_nmi,"an interrupt response other than IM 1 (or while halted)");
+        accept(kind,unsampled_nmi);
+        if (routines) {
+            auto& census=routines->census_;
+            if (kind==Acceptance::nmi) ++(depth_ ? census.nested_nmi : census.top_nmi);
+            else ++(depth_ ? census.nested_irq : census.top_irq);
+        }
+        record_step(routines,start,pc,pc_mapping);
+        return cycle_-start;
+    }
+    auto snapshot=[&] {
+        const auto& c=cpu_;
+        return HookState{c.pc.uint16_value,c.sp.uint16_value,c.af.uint16_value,c.bc.uint16_value,c.de.uint16_value,
+            c.hl.uint16_value,c.af_.uint16_value,c.bc_.uint16_value,c.de_.uint16_value,c.hl_.uint16_value,
+            c.ix_iy[0].uint16_value,c.ix_iy[1].uint16_value,c.memptr.uint16_value,c.i,c.r,c.iff1,c.iff2,c.im,
+            c.request,c.resume,c.halt_line,cycle_,routines ? routines->generation() : 0,sampled_int_,sampled_nmi_,
+            memory_.rom_.get()};
+    };
+    // The host hook, at the entry of a segment flagged observe_entry only.
+    // It can replace the ROM and registry or redirect the PC; the segment at
+    // the resulting PC then runs, with no second hook call. Hooks below a
+    // suspended body must be passive (review H2).
+    bool hooked=false;
+    if (hook && routines && routines->may_observe(pc)) {
+        const auto* entry=pc_mapping.kind==Memory::Kind::rom ? routines->find({pc_mapping.bank,pc}) : nullptr;
         if (entry && entry->spec.observe_entry) {
-            // The callback can replace the ROM and registry, set the PC or
-            // advance the clock. Do not retain its old routine or bound.
-            auto arbitration=[&] {
-                const auto& cpu=cpu_.raw();
-                return std::tuple{cycle_,sampled_int_,sampled_nmi_,vdp_.irq(),+cpu.request,
-                    +cpu.iff1,+cpu.iff2,+cpu.resume,+cpu.halt_line,cpu.data.uint32_value};
-            };
-            const auto before=arbitration();
-            const auto image=memory_.rom_;
+            hooked=true;
+            const auto state=depth_ ? snapshot() : HookState{};
             std::optional<std::uint16_t> target;
             {
-                HideLateNmi mask(cpu_.raw(),unsampled_nmi);
-                target=hook(pc,mapping);
-                // The pre-existing late edge is hidden in this scope. A bit
-                // asserted by the callback is a new edge, visible to the
-                // native instruction just as on the path without a registry.
-                callback_nmi=unsampled_nmi && (cpu_.raw().request & Z80_REQUEST_NMI);
+                HideLateNmi mask(cpu,unsampled_nmi);
+                target=hook(pc,pc_mapping);
             }
-            observed=true;
-            native=callback_nmi || target.has_value() || cpu_.raw().pc.uint16_value!=pc || before!=arbitration() || image!=memory_.rom_;
-            if (target) cpu_.raw().pc.uint16_value=*target;
+            if (depth_ && (target || !(state==snapshot())))
+                throw std::logic_error("A host hook changed the machine while a registered body was suspended");
+            if (target) cpu.pc.uint16_value=*target;
+            // A hook that advanced the clock or raised an NMI can make an
+            // interrupt due at this boundary: it is accepted before the
+            // instruction, as the core accepted it on the native path.
+            const auto due=pending_acceptance();
+            if (due!=Acceptance::none) {
+                if (!accepts_in_cpp(due))
+                    return scaffold(routines,start,pc,(cpu.request & Z80::request_nmi) && !sampled_nmi_,
+                                    "an interrupt response other than IM 1 (or while halted)");
+                accept(due,(cpu.request & Z80::request_nmi) && !sampled_nmi_);
+                if (routines) {
+                    auto& census=routines->census_;
+                    if (due==Acceptance::nmi) ++(depth_ ? census.nested_nmi : census.top_nmi);
+                    else ++(depth_ ? census.nested_irq : census.top_irq);
+                }
+                record_step(routines,start,pc,pc_mapping);
+                return cycle_-start;
+            }
         }
     }
-    // Check while an entry-cycle NMI is still visible. Only the native path
-    // hides an edge which missed the preceding instruction's E-1 sample.
-    if (boundary && !native && routines && !routines->empty()) {
-        const auto entry=cycle_;
-        if (run_routine(*routines)) return cycle_-entry;
+    if (routines && !routines->empty()) {
+        if (depth_) {
+            if (run_routine(*routines)) return cycle_-start;
+        } else {
+            struct Pin {
+                RoutineRegistry& r;
+                explicit Pin(RoutineRegistry& registry) : r(registry) { r.pin(); }
+                ~Pin() { r.unpin(); }
+            } pin(*routines);
+            try {
+                if (run_routine(*routines)) { record_step(routines,start,pc,pc_mapping); return cycle_-start; }
+            } catch (const RoutineAbandoned&) {
+                ++routines->census_.abandoned;
+                record_step(routines,start,pc,pc_mapping);
+                return cycle_-start;
+            }
+        }
+    }
+    return scaffold(routines,start,pc,unsampled_nmi,"no rewritten code begins at this address",hooked ? nullptr : &hook);
+}
+Machine::ScaffoldStep Machine::scaffold_step_=nullptr;
+bool Machine::scaffold_with_registry_=false;
+std::uint64_t Machine::scaffold(RoutineRegistry* routines, std::uint64_t start, std::uint16_t pc, bool unsampled_nmi,
+                                const std::string& what, const Hook* hook) {
+    if (!scaffold_step_ || (routines && !routines->empty() && !scaffold_with_registry_)) unhandled(cpu_.pc.uint16_value,what);
+    // The host hook at the scaffolding's instruction boundary, as the native
+    // step of the transition called it (passive at depth); a redirect runs
+    // the target's instruction instead.
+    if (hook && *hook) {
+        const auto& c=cpu_;
+        auto state=[&] {
+            return HookState{c.pc.uint16_value,c.sp.uint16_value,c.af.uint16_value,c.bc.uint16_value,c.de.uint16_value,
+                c.hl.uint16_value,c.af_.uint16_value,c.bc_.uint16_value,c.de_.uint16_value,c.hl_.uint16_value,
+                c.ix_iy[0].uint16_value,c.ix_iy[1].uint16_value,c.memptr.uint16_value,c.i,c.r,c.iff1,c.iff2,c.im,
+                c.request,c.resume,c.halt_line,cycle_,routines ? routines->generation() : 0,sampled_int_,sampled_nmi_,
+                memory_.rom_.get()};
+        };
+        const auto before=state();
+        std::optional<std::uint16_t> target;
+        {
+            HideLateNmi mask(cpu_,unsampled_nmi);
+            target=(*hook)(cpu_.pc.uint16_value,memory_.mapping(cpu_.pc.uint16_value));
+        }
+        if (depth_ && (target || !(before==state())))
+            throw std::logic_error("A host hook changed the machine while a registered body was suspended");
+        if (target) cpu_.pc.uint16_value=*target;
     }
     std::uint64_t elapsed;
     {
-        // Keep a callback-created edge visible, but still restore the old
-        // late edge after the native step, as the original hook scope does.
-        HideLateNmi mask(cpu_.raw(),unsampled_nmi,!callback_nmi);
-        if (boundary && !observed && hook) {
-            if (auto target=hook(pc,memory_.mapping(pc))) cpu_.raw().pc.uint16_value=*target;
-        }
-        elapsed=cpu_.step(cycle_);
+        // A late NMI edge is not visible to this instruction.
+        HideLateNmi mask(cpu_,unsampled_nmi);
+        elapsed=scaffold_step_(*this);
     }
-    // [S,E) samples the line at E-1, after any earlier I/O in that instruction.
-    sync(cycle_+elapsed-1); sampled_int_=vdp_.irq();
-    sampled_nmi_=(cpu_.raw().request & Z80_REQUEST_NMI)!=0;
-    cycle_+=elapsed; sync(cycle_);
+    finish_interval(elapsed);
+    if (routines) ++routines->census_.scaffold_steps;
+    record_step(routines,start,pc,memory_.mapping(pc));
     return elapsed;
-}
-std::uint8_t Machine::opcode(std::uint16_t addr) { ++opcode_fetches_; return read(addr); }
-std::uint8_t Machine::read(std::uint16_t addr) {
-    if (memory_.mapping(addr).kind!=Memory::Kind::unmapped) open_bus_=memory_.read(addr);
-    return open_bus_;
-}
-void Machine::write(std::uint16_t addr,std::uint8_t value) {
-    memory_.write(addr,value);open_bus_=value;
-    if(write_observer_)(*write_observer_)(addr,value);
-}
-std::uint8_t Machine::input(std::uint16_t addr,std::uint64_t cycle) { return read_port(addr,cycle); }
-void Machine::output(std::uint16_t addr,std::uint8_t value,std::uint64_t cycle) { write_port(addr,value,cycle); }
-std::uint8_t Machine::read_port(std::uint16_t raw,std::uint64_t cycle) {
-    sync(cycle);
-    const auto port=static_cast<std::uint8_t>(raw);
-    std::uint8_t value;
-    if (port<0x40) value=open_bus_;
-    else if (port<0x80) value=(port&1) ? vdp_.h_counter() : vdp_.v_counter();
-    else if (port<0xc0) value=(port&1) ? vdp_.read_status(open_bus_) : vdp_.read_data();
-    else if (!memory_.io_enabled()) value=open_bus_;
-    else {
-        auto low=[](bool pressed)->unsigned { return pressed ? 0 : 1; };
-        auto pin=[&](unsigned direction,unsigned output,bool input) {
-            return (io_control_&(1u<<direction)) ? low(input) : ((io_control_>>output)&1u);
-        };
-        auto& a=pads_[0]; auto& b=pads_[1];
-        if (!(port&1)) value=low(a.up)|(low(a.down)<<1)|(low(a.left)<<2)|(low(a.right)<<3)|
-            (low(a.one)<<4)|(pin(0,4,a.two)<<5)|(low(b.up)<<6)|(low(b.down)<<7);
-        else value=low(b.left)|(low(b.right)<<1)|(low(b.one)<<2)|(pin(2,6,b.two)<<3)|
-            (low(reset_)<<4)|0x20|(pin(1,5,false)<<6)|(pin(3,7,false)<<7);
-    }
-    record_access({cycle,port,value,false});
-    return value;
-}
-void Machine::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle) {
-    const auto port=static_cast<std::uint8_t>(raw);
-    if (port>=0x40 && port<0x80) psg_.check_write(cycle);
-    sync(cycle);
-    if (port<0x40) {
-        if (port&1) {
-            auto th=[](std::uint8_t control,unsigned direction,unsigned output) {
-                return (control&(1u<<direction)) || (control&(1u<<output));
-            };
-            if ((!th(io_control_,1,5) && th(value,1,5)) || (!th(io_control_,3,7) && th(value,3,7))) vdp_.latch_h_counter();
-            io_control_=value;
-        } else memory_.set_memory_control(value);
-    } else if (port<0x80) {
-        psg_.write(value,cycle);
-    } else if (port<0xc0) {
-        if (port&1) vdp_.write_control(value); else vdp_.write_data(value);
-    }
-    record_access({cycle,port,value,true});
 }
 }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "machine/machine.h"
+#include "machine/console.h"
 
 namespace psmodern {
-std::vector<FieldDifference> Machine::differences(const Machine& o) const {
+std::vector<FieldDifference> Console::differences(const Console& o) const {
     DifferenceList out;
-    cpu_.differences(o.cpu_,out);
+    register_differences(cpu_,o.cpu_,out);
     out.add("machine.cycle",cycle_,o.cycle_,false);
     out.add("machine.opcode_fetches",opcode_fetches_,o.opcode_fetches_,false);
     out.add("machine.scheduled_nmi",scheduled_nmi_,o.scheduled_nmi_,false);

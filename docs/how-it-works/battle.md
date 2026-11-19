@@ -5,6 +5,13 @@ executing the actions. The command handlers described here are separate from
 the turn scheduler and damage effects. The same code and addresses serve the
 US Rev-A and Brazilian cartridges (see [design](../design.md#55-languages)).
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 ## Timed battle sprites
 
 **ROM static.** An attack object selects a six-byte record at `01:5B87`.

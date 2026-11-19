@@ -2,9 +2,16 @@
 
 **ROM static.** The game keeps two small records of the controller: which
 buttons are held now, and which have just been pressed. The routine at
-`00:0339` does this in both the US Rev-A and Brazilian cartridges. It is
-the first game routine rewritten in C++; the rest of the controls still
-run as original Z80 code.
+`00:0339` does this in both the US Rev-A and Brazilian cartridges. It was
+the first game routine rewritten in C++; since milestone 14 all of the controls
+run in C++.
+
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
 
 The keys and buttons a player presses are turned into the console's buttons
 before the game reads the port, and can be changed; see
@@ -47,6 +54,7 @@ and compare all frames with routines off and with the reference emulator.
 The [generated coverage](../coverage.md) records how often C++ runs.
 
 **Maintainer decision.** When an interrupt or frame boundary could fall
-inside the call's 70-cycle window, PSModern leaves that call on the Z80.
-This keeps the original timing while letting the other calls run in C++.
+inside the call's 70-cycle window, the interrupt is accepted at the exact
+instruction inside the piece (before milestone 14 PSModern left such a call on
+the Z80). This keeps the original timing.
 See [development](../development.md#registered-routines) for that rule.

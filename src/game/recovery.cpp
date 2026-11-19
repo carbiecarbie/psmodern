@@ -6,41 +6,37 @@
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 
 // The selected recipient and amount survive the existing character picker.
 template <class Z> Exit pick_recipient(Z &z) {
     z.push(0x1E2D, z.r.b, z.r.c);
     z.push(0x1E2E, z.r.d, z.r.e);
-    return continues(0x1E2F, k::call_cycles);
+    return z.final_call(0x1E2F);
 }
 template <class Z> Exit current_recipient(Z &z) {
     z.load_a_direct(0x1E4C);
-    return continues(0x1E4F, k::call_cycles);
+    return z.final_call(0x1E4F);
 }
 template <class Z> Exit debit_magic(Z &z) {
     z.push(0x1E53, z.r.d, z.r.e);
     z.copy(0x1E54, z.r.a, z.r.b);
-    return continues(0x1E55, k::call_cycles);
+    return z.final_call(0x1E55);
 }
 template <class Z> Exit announce_healing(Z &z) {
     z.push(0x1E5F, z.r.d, z.r.e);
     z.load_hl(0x1E60);
-    return continues(0x1E63, k::call_cycles);
+    return z.final_call(0x1E63);
 }
 template <class Z> Exit food_return(Z &z) {
     z.load_a_direct(0x2361);
     z.or_a(0x2364);
-    if (!z.zero())
-        return returns(0x2365, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x2365);
-    return continues(0x2366, k::jump_cycles);
+    if (auto exit=z.final_return_if(0x2365,k::Condition::nz)) return *exit;
+    return z.final_jump(0x2366);
 }
 template <class Z> Exit food_target(Z &z) {
     z.store_a_direct(0x234B);
-    return continues(0x234E, k::call_cycles);
+    return z.final_call(0x234E);
 }
 template <class Z> Exit food_begin(Z &z) {
     z.load_a_direct(0x2339);
@@ -49,7 +45,7 @@ template <class Z> Exit food_begin(Z &z) {
     if (z.relative_if(0x2340, !z.zero()))
         return food_target(z);
     z.push(0x2342, z.r.d, z.r.e);
-    return continues(0x2343, k::call_cycles);
+    return z.final_call(0x2343);
 }
 template <class Z> Exit remaining_magic_points(Z &z) {
     auto &r = z.r;
@@ -69,7 +65,7 @@ template <class Z> Exit remaining_magic_points(Z &z) {
     z.bus().fetch(0x1B9C);
     r.a = kit::subtract_flags(r, r.a, z.bus().read(z.hl()), 0);
     z.bus().advance(7);
-    return returns(0x1B9D, k::return_cycles);
+    return z.final_return(0x1B9D);
 }
 
 template <class Z> Exit choose_small_healing(Z &z) {
@@ -88,15 +84,15 @@ template <class Z> Exit accept_healing_recipient(Z &z) {
     z.test_bit(0x1E33, 4, z.r.c);
     z.pop(0x1E35, z.r.b, z.r.c);
     if (z.relative_if(0x1E36, !z.zero()))
-        return continues(0x1E43, k::jump_cycles);
+        return z.final_jump(0x1E43);
     z.store_a_direct(0x1E38);
-    return continues(0x1E3B, k::call_cycles);
+    return z.final_call(0x1E3B);
 }
 
 template <class Z> Exit check_healing_recipient(Z &z) {
     if (z.relative_if(0x1E3E, z.zero()))
-        return continues(0x1E43, k::jump_cycles);
-    return continues(0x1E40, k::call_cycles);
+        return z.final_jump(0x1E43);
+    return z.final_call(0x1E40);
 }
 
 template <class Z> Exit small_healing_on_current_recipient(Z &z) {
@@ -111,9 +107,7 @@ template <class Z> Exit large_healing_on_current_recipient(Z &z) {
 }
 
 template <class Z> Exit check_current_healing_recipient(Z &z) {
-    if (z.zero())
-        return returns(0x1E52, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x1E52);
+    if (auto exit=z.final_return_if(0x1E52,k::Condition::z)) return *exit;
     return debit_magic(z);
 }
 
@@ -134,7 +128,7 @@ template <class Z> Exit request_healing_sound(Z &z) {
     z.load_immediate(0x1E67, z.r.a);
     z.store_a_direct(0x1E69);
     z.load_a_direct(0x1E6C);
-    return continues(0x1E6F, k::call_cycles);
+    return z.final_call(0x1E6F);
 }
 
 template <class Z> Exit restore_hit_points(Z &z) {
@@ -149,7 +143,7 @@ template <class Z> Exit restore_hit_points(Z &z) {
     if (!z.relative_if(0x1E81, z.carry()))
         z.copy(0x1E83, z.r.a, z.r.b);
     z.store_to_indexed(0x1E84, k::Index::ix, z.r.a);
-    return continues(0x1E87, k::jump_cycles);
+    return z.final_jump(0x1E87);
 }
 
 template <class Z> Exit accept_food_recipient(Z &z) {
@@ -165,12 +159,12 @@ template <class Z> Exit check_food_recipient(Z &z) {
         return food_return(z);
     z.push(0x2353, z.r.d, z.r.e);
     z.load_hl(0x2354);
-    return continues(0x2357, k::call_cycles);
+    return z.final_call(0x2357);
 }
 
 template <class Z> Exit apply_food_healing(Z &z) {
     z.pop(0x235A, z.r.d, z.r.e);
-    return continues(0x235B, k::call_cycles);
+    return z.final_call(0x235B);
 }
 
 template <class Z> Exit finish_food_use(Z &z) { return food_return(z); }
@@ -184,6 +178,22 @@ void register_recovery(RoutineRegistry &registry) {
         k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)},
                        segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions), logic);
     };
+
+    // Instructions that ran between the pieces below: each is a segment of its
+    // own. Calls need room for the return address.
+    auto single = [&](unsigned entry, unsigned unit, std::initializer_list<SegmentExit> exits,
+                      k::Permissions permissions, auto logic) {
+        auto spec = segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions);
+        spec.single_instruction = true;
+        k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)}, std::move(spec), logic);
+    };
+    // After the MP lookup returns to its callers, they draw the item window.
+    single(0x1B9E, 0x1B87, {core_final_at(0x1B9E)}, {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x1B9E); });
+    single(0x1BA1, 0x1B87, {core_final_at(0x1BA1)}, {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x1BA1); });
+    // After the healing message, the window is closed by a jump.
+    single(0x1E43, 0x1E27, {core_final_at(0x1E43)}, {}, [](auto &z) { return z.final_jump(0x1E43); });
+    // After the food message, one more call closes the use.
+    single(0x235E, 0x2333, {core_final_at(0x235E)}, {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x235E); });
 
     // The MP lookup computes the remaining MP and its flags; the caller
     // decides whether to store it.

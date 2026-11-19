@@ -23,13 +23,15 @@ inline unsigned cost(const probe::Rom &rom, unsigned spell) {
 }
 
 // Compare a whole effect while feeding identical input at each replacement
-// boundary. The independent interpreter advances to the exact same cycle.
+// boundary. The oracle (milestone 14: state transferred from the engine to a
+// native machine on the pinned core) advances to the exact same cycle.
 // Ordered sound writes are checked at every sample point; full state is
-// checked at completed ordinary instructions and always at the final return.
+// checked through the documented equality at every 256th top-level boundary
+// and always at the final return.
 template <class Controls>
 void compare_call(Machine &machine, RoutineRegistry &registry, Controls controls,
                   const std::string &context, std::uint16_t stop = 0x0180) {
-    Machine original = machine;
+    oracle::NativeMachine original(machine);
     (void)machine.take_psg_writes();
     (void)machine.take_samples();
     (void)original.take_psg_writes();
@@ -39,16 +41,13 @@ void compare_call(Machine &machine, RoutineRegistry &registry, Controls controls
         probe::check(expected == actual, "effect ordered sound writes/cycles: " + context);
         (void)original.take_samples();
         (void)machine.take_samples();
-        // Cpu::differences documents decoder scratch which is overwritten by
-        // the next decode. Prefix/HALT continuations are not stable snapshot
-        // points; the per-call verifier still checks every declared segment.
-        const auto opcode = machine.cpu().data.uint8_array[0];
-        const bool stable = machine.cpu().resume == 0 && opcode != 0xCB && opcode != 0xED &&
-                            (opcode & 0xDF) != 0xDD;
+        // Prefix and HALT continuations are not instruction boundaries.
+        const bool stable = machine.cpu().resume == 0;
         if (final || stable) {
             std::string fields;
-            for (const auto &difference : original.differences(machine))
-                fields += " " + difference.field;
+            for (const auto &difference :
+                 oracle::differences(machine, original, oracle::Scope::whole))
+                fields += " " + difference;
             probe::check(fields.empty(), "effect state differs at cycle " +
                                              std::to_string(machine.cycles()) + ": " + context +
                                              fields);

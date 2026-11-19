@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Menus and windows (milestone 12): the rewritten units, their planned
 // segment entries per part, the code each part may register in, and the
-// instructions that stay native. Named constants only; every table byte and
+// instructions left out of the segments (none since milestone 14). Named constants only; every table byte and
 // operand is read from the player's ROM at run time.
 //
 // The six parts each own one source file and register only there:
@@ -344,21 +344,21 @@ inline constexpr std::span<const Range> part_ranges(Part part) {
     }
 }
 
-// Units whose first instruction stays native (interrupts off, a bare call or a
+// Units whose first instruction was excluded from the milestone-12 catalog (interrupts off, a bare call or a
 // cartridge-RAM switch first), so they have no entry at their own address.
 inline constexpr std::array<RoutineEntry,15> native_first_units{{
     number_wide_label_unit,number_unit,long_number_unit,enemy_name_line_unit,item_name_line_unit,money_wide_label_unit,
     money_unit,shop_line_unit,row_drawer_unit,save_under_unit,save_slots_unit,
     stats_unit,magic_unit,item_exit_unit,chest_trap_member_unit}};
 
-// ---- Instructions the milestone-12 catalog leaves native -----------------------------
-// Every DI and EI, the instruction after each EI (it always falls back with
-// ei_delay), the instructions right before a DI or EI that cannot end a
+// ---- Instructions the milestone-12 catalog leaves out (milestone 14 registers them as segments) -----------------------------
+// Every DI and EI, the instruction after each EI (it always ended in a refusal with
+// ei_delay at that time), the instructions right before a DI or EI that cannot end a
 // segment (pushes, pops, stores), the cartridge-RAM switches, the host-observed
 // instructions, the save copy stretch, and the two loads before the dialogue
 // scroll's last window call (00:3451, 00:3454) and the end of a window row
 // (00:3A97, 52 cycles): the frame boundary falls on them on most scrolls (ROM
-// run), so a segment there would mostly fall back.
+// run), so a segment there would mostly be refused at its entry.
 // These exclusions describe the six milestone-12 registrations. Milestone 13
 // registers most of these instructions separately, without changing the six
 // catalogs: the save copy in save_menu.cpp, the DI/EI and pop sites in
@@ -378,7 +378,7 @@ inline constexpr std::array<RoutineEntry,61> native_instructions{{
 // automap's observation point 00:1D2D, cartridge RAM switched out.
 inline constexpr Range save_copy_stretch{0,0x1D0E,0x1D32};
 // The host's hold of the field menu (src/app/frame_driver.cpp): it redirects
-// the frame wait to the menu's first instruction (run by the core), watches
+// the frame wait to the menu's first instruction, watches
 // the cancel point and, in the save, the observation point. 00:0B14 and
 // 00:0F48 (the waits) belong to milestone 11 code and stay untouched.
 inline constexpr RoutineEntry host_menu_entry=at0(0x1BE1);

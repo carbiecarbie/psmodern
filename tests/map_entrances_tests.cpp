@@ -20,6 +20,7 @@
 // data (bank 3) and over the real tables of real map frames.
 #include "game/map_kit.h"
 #include "map_probe.h"
+#include <vector>
 #include <algorithm>
 #include <functional>
 #include <iostream>
@@ -42,7 +43,7 @@ constexpr std::uint16_t ram_mode=0xC202, ram_flag=0xC265, ram_type=0xC29E, ram_n
 constexpr std::uint16_t sentinel=0x0180;   // the word under the entry's return address
 
 // ---- Registration catalog --------------------------------------------------------
-struct Expected { std::uint16_t entry, unit; std::vector<SegmentExit> exits; unsigned scratch, inherited; bool mapper; };
+struct Expected { std::uint16_t entry, unit; std::vector<SegmentExit> exits; unsigned scratch, inherited; bool mapper; bool single=false; };
 std::vector<Expected> expected_catalog() {
     using game::map_kit::returned_at; using game::map_kit::core_final_at; using game::map_kit::conditional_at;
     using game::map_kit::loop_at;
@@ -62,6 +63,7 @@ std::vector<Expected> expected_catalog() {
         {0x7877,0x7877,{core_final_at(0x7921)},0,0,false},
         {0x787B,0x787B,{core_final_at(0x7921)},0,0,false},
         {0x7908,0x7908,{core_final_at(0x7921)},0,0,false},
+        {0x7924,0x7908,{core_final_at(0x7924)},0,0,false,true},   // joining: the fill's seed store (milestone 14)
         {0x7928,0x7908,{returned_at(0x7929,2)},0,2,false},
         {0x792A,0x792A,{returned_at(0x7937),returned_at(0x793C),returned_at(0x7965),returned_at(0x7988),returned_at(0x7993),
                         returned_at(0x79A6),returned_at(0x79B9),returned_at(0x79C3),returned_at(0x79D3),returned_at(0x79D6),
@@ -74,17 +76,18 @@ std::vector<Expected> expected_catalog() {
         {0x79EE,0x792A,{core_final_at(0x79F0)},0,0,false},
         {0x79F3,0x792A,{core_final_at(0x79F5)},0,0,false},
         {0x79F8,0x792A,{returned_at(0x79FA),core_final_at(0x7921)},0,0,false},
+        {0x7A0C,0x7A0C,{core_final_at(0x7A0C)},2,0,false,true},   // joining: the aliveness call (milestone 14)
         {0x7A0F,0x7A0C,{returned_at(0x7A20)},0,0,false},
     };
 }
 void registration() {
     const auto entries=map_probe::registered_entries(part,game::register_map_entrances);
     std::cout<<entries.size()<<" of "<<map::planned_segments(part).size()<<" planned entrances segments registered.\n";
-    check(entries.size()==22 && map::planned_segments(part).size()==22,"all 22 planned entrances segments are registered, and nothing else");
+    check(entries.size()==24 && map::planned_segments(part).size()==24,"all 24 planned entrances segments are registered, and nothing else");
     RoutineRegistry registry;
     game::register_map_entrances(registry);
     const auto catalog=expected_catalog();
-    check(catalog.size()==22,"the expected catalog lists 22 entries");
+    check(catalog.size()==24,"the expected catalog lists 24 entries");
     for (const auto& expected:catalog) {
         const RoutineEntry entry{1,expected.entry};
         const auto* routine=registry.find(entry);
@@ -96,7 +99,7 @@ void registration() {
             check(spec.exits[i].same_declaration(expected.exits[i]),"an exit of a registered entry is declared as expected");
         check(spec.scratch_stack==expected.scratch && spec.inherited_stack==expected.inherited && spec.slot2_mapper==expected.mapper,
               "the permissions of a registered entry");
-        check(!spec.single_instruction && !spec.force_admit,"no entrances segment is single-instruction or forced");
+        check(spec.single_instruction==expected.single,"only the joining one-instruction entrances segments are single-instruction, none is forced");
     }
 }
 
@@ -442,6 +445,12 @@ public:
                 run({1,entry},next_setup(),[&](Machine& m) { common_ram(m); lay_stack(m,{0x0B1A,sentinel,0}); });
             run({1,0x79F8},next_setup(),[&](Machine& m) { common_ram(m); set_b(m,(k%3==0) ? 0 : byte()); lay_stack(m,{0x0B1A,sentinel,0}); });
         }
+        // Joining stretches (milestone 14): the object-table fill's seed store (HL in work RAM) and the call
+        // that asks whether a character is alive.
+        for (unsigned k=0;k<24;++k) {
+            run({1,0x7924},next_setup(),[&](Machine& m) { common_ram(m); set_hl(m,static_cast<std::uint16_t>(0xC800+16*k)); lay_stack(m,{0x0B1A,sentinel,0}); });
+            run({1,0x7A0C},next_setup(),[&](Machine& m) { common_ram(m); lay_stack(m,{0x0B1A,sentinel,0}); });
+        }
         // 01:7A0F: the hit points at HL + 1 against C, both flags of the character check.
         for (unsigned k=0;k<750;++k) {
             const std::uint8_t c=(k%4==0) ? 0 : byte();
@@ -571,12 +580,52 @@ void probes(const map_probe::Inputs& inputs) {
 }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body of this part
+// (sampled: about 40 runs per kind), each run compared with the oracle at every
+// instruction boundary, handler included. One-instruction segments have no
+// boundary inside and are left out. The state is the map's work RAM with
+// recognisable bytes, pointers into RAM and the video data port in C.
+void sweep_state(RoutineEntry entry, Machine& m) {
+    (void)entry;
+    auto& cpu=m.cpu();
+    for (unsigned a=0xC200;a<0xC700;++a) m.memory().write(static_cast<std::uint16_t>(a),static_cast<std::uint8_t>((a*167u+(a>>8)*13u)>>1));
+    cpu.hl.uint16_value=0xC900; cpu.de.uint16_value=0xD000; cpu.bc.uint16_value=0x04BE;
+    cpu.ix_iy[0].uint16_value=0xC800; cpu.ix_iy[1].uint16_value=0xC800;
+}
+void sweeps(const probe::Rom& rom) {
+    probe::Harness h(rom);
+    std::vector<RoutineEntry> entries;
+    for (const auto& s:map::entrance_segments) entries.push_back(s.entry);
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction) continue;
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            const auto adjust=[&](Machine& m) { sweep_state(entry,m); };
+            auto base=h.prepare(entry,setup);
+            adjust(base);
+            const auto length=h.run_cpp(base,entry).cycles;
+            probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    check(failures.empty(),"map sweeps failed:"+failures);
+    std::cout<<"map entrances: "<<swept<<" segments swept\n";
+}
+
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        sweeps(inputs->rom);
         probes(*inputs);
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

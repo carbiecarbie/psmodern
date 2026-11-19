@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "game/joins.h"
 #include "game/map.h"
 #include "game/frame_updates.h"
 #include "game/common.h"
@@ -40,6 +41,7 @@
 #include "game/dungeon_view.h"
 #include "game/video_transfer.h"
 #include "machine/machine.h"
+#include "oracle/native_machine.h"
 #include "rom/rom.h"
 #include "rom/sha1.h"
 #include <algorithm>
@@ -55,6 +57,8 @@ void check(bool condition,const char* message) { if(!condition) throw std::runti
 // add their names.
 bool declared(RoutineEntry entry, RoutineEntry unit) {
     auto in=[&](const auto& list) { return std::find(list.begin(),list.end(),entry)!=list.end(); };
+    for (const auto list:game::joins::all)
+        for (const auto& s:list) if (s.entry==entry) return s.unit==unit;
     if (entry==RoutineEntry{0,0x0429}) return unit==entry;
     if (in(game::map_button_resume_entries)) return unit==game::map::map_loop_unit;
     if (in(game::map_exit_copies)) return unit==entry;
@@ -260,33 +264,38 @@ void options() {
     catch(const std::invalid_argument&) { check(r.empty(),"invalid options register nothing"); }
 }
 void compare(const std::shared_ptr<const Memory::Rom>& rom,RoutineRegistry& registry,unsigned current,unsigned previous,unsigned mode=0) {
-    Machine native(rom);
+    Machine cpp(rom);
     auto pad=[](unsigned bits) { return Pad{bool(bits&1),bool(bits&2),bool(bits&4),bool(bits&8),bool(bits&16),bool(bits&32)}; };
-    native.set_pad(0,pad(current)); native.set_pad(1,pad(current>>6));
-    native.advance(1); // Latch pending input before entering the routine.
+    cpp.set_pad(0,pad(current)); cpp.set_pad(1,pad(current>>6));
+    cpp.advance(1); // Latch pending input before entering the routine.
     auto expected_current=current;
-    if(mode==1) { native.write_port(0x3f,0,native.cycles()); expected_current|=0x20; }
-    if(mode==2) { native.memory().set_memory_control(native.memory().memory_control()|0x04); expected_current=0x23; }
-    auto& cpu=native.cpu();
+    if(mode==1) { cpp.write_port(0x3f,0,cpp.cycles()); expected_current|=0x20; }
+    if(mode==2) { cpp.memory().set_memory_control(cpp.memory().memory_control()|0x04); expected_current=0x23; }
+    auto& cpu=cpp.cpu();
     cpu.pc.uint16_value=game::controller_poll_entry.address;
     const std::uint16_t stack=mode==3 ? 0xdfff : 0xc700;
     cpu.sp.uint16_value=stack;
-    native.memory().write(stack,0x80);native.memory().write(static_cast<std::uint16_t>(stack+1),0x01);
-    native.memory().write(0xc204,previous);native.memory().write(0xc205,0xa5);
+    cpp.memory().write(stack,0x80);cpp.memory().write(static_cast<std::uint16_t>(stack+1),0x01);
+    cpp.memory().write(0xc204,previous);cpp.memory().write(0xc205,0xa5);
     cpu.af.uint16_value=(previous<<8)|current;
     cpu.bc.uint16_value=0x12e3;cpu.hl.uint16_value=0x9876;
-    cpu.r=previous;cpu.r7=previous&0x80;cpu.q=current;
+    cpu.r=previous;cpu.q=current;
     cpu.memptr.uint16_value=0xabcd;
-    Machine cpp=native;
+    oracle::NativeMachine native(cpp);   // the original: the pinned core
     const auto calls=registry.find(game::controller_poll_entry)->counters.cpp_calls;
     const auto start=native.cycles(),fetches=native.opcode_fetches();
     for(unsigned instruction=0;instruction<10;++instruction) native.step();
     cpp.step(registry);
-    if(!native.equivalent(cpp)) {
+    // The documented equality of the oracle (the core's own per-step scratch is
+    // not state: a rendered body leaves none), plus what that equality leaves
+    // to the port and write traces: the sound writes and the cartridge RAM flag.
+    if(!oracle::equal(cpp,native,oracle::Scope::whole)) {
         std::string fields;
-        for(const auto& field:native.differences(cpp)) fields+=' '+field.field;
+        for(const auto& field:oracle::differences(cpp,native,oracle::Scope::whole)) fields+=' '+field;
         throw std::runtime_error("Controller state differs:"+fields);
     }
+    check(cpp.psg().writes()==native.psg().writes(),"controller sound writes differ");
+    check(cpp.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),"controller cartridge RAM flag differs");
     check(cpp.last_access()==native.last_access(),"controller port timestamp differs");
     check(cpp.cycles()-start==70 && cpp.opcode_fetches()-fetches==10,"controller timing or refresh differs");
     check(registry.find(game::controller_poll_entry)->counters.cpp_calls==calls+1,"C++ body did not run");

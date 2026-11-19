@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // State probes for rewritten game routines: start from a real power-on machine
-// of the identified ROM, set up one entry state, dispatch it once with the
-// per-call verifier (original first, whole-machine comparison) and assert that
-// the call really ran in C++. A probe that falls back verifies nothing, so
-// fallbacks are only expected where a variation is meant to cause one.
+// of the identified ROM, set up one entry state, dispatch it once under strict
+// lockstep with an oracle (milestone 14: the state is transferred to a native
+// machine and both are compared at every instruction boundary) and assert that
+// the call really ran in C++. A refused call (the engine stops: it has no
+// processor core to run the original) is only expected where a variation is
+// meant to cause one.
 #pragma once
 #include "game/routines.h"
 #include "machine/machine.h"
 #include "replay/verification.h"
+#include "replay/census.h"
+#include "oracle/lockstep.h"
 #include "rom/rom.h"
 #include "rom/sha1.h"
+#include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <functional>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -22,6 +30,11 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace psmodern::probe {
 inline void check(bool condition, const std::string& message) { if (!condition) throw std::runtime_error(message); }
@@ -58,7 +71,7 @@ struct Setup {
     std::uint16_t return_address=0x0180;      // written at SP when the stack is writable and below $FFFC
     bool iff1=false, iff2=false;
     std::uint8_t r=0;
-    std::uint64_t seed=0;                     // AF, BC, DE, HL, IX, IY, I, MEMPTR, Q, R7 and the alternate set
+    std::uint64_t seed=0;                     // AF, BC, DE, HL, IX, IY, I, MEMPTR, Q and the alternate set
 };
 
 // Unrelated state from a fixed seed, so a hidden dependence shows up as a
@@ -71,13 +84,34 @@ inline void randomize(Z80& cpu, std::uint64_t seed) {
     cpu.ix_iy[0].uint16_value=word(); cpu.ix_iy[1].uint16_value=word();
     cpu.i=static_cast<std::uint8_t>(random());
     cpu.q=static_cast<std::uint8_t>(random());
-    cpu.r7=static_cast<std::uint8_t>(random()); // R7 is reloaded by every core step
+}
+
+// Sweep results: runs made, interrupts delivered inside the body, and runs in
+// which the interrupt fell outside the body (accepted before its entry).
+struct SweepResult {
+    unsigned runs=0, irq_deliveries=0, nmi_deliveries=0, outside=0;
+};
+// The positions of a sweep. Stride 1 is every cycle of the body's run. Any
+// other stride (`auto_stride`: about `sampled_positions` positions per kind
+// spread over the whole body, starting at a phase that depends on the entry)
+// is a sample, to which one position inside every instruction interval of the
+// plain run is always added (review R3 M1: the interval between two
+// instruction boundaries, taken from the cycles of the plain run's boundaries,
+// at an offset that depends on the entry and the interval), so that every
+// boundary of the body is interrupted. The environment variable
+// PSMODERN_FULL_SWEEPS (CTest label `full_sweep`) turns every sample into the
+// complete sweep, every cycle (milestone 14: the long sweep files keep the
+// suite near its time).
+inline constexpr unsigned auto_stride=0, sampled_positions=64;
+inline bool full_sweeps() {
+    const char* value=std::getenv("PSMODERN_FULL_SWEEPS");
+    return value && *value && std::string_view(value)!="0";
 }
 
 class Harness {
 public:
     explicit Harness(Rom rom, const game::Options& options = {})
-        : rom_(std::move(rom)), power_on_(rom_.image), verifier_("probe",true) {
+        : rom_(std::move(rom)), power_on_(rom_.image) {
         // The VDP powers on with its frame interrupt pending. Reading its
         // status clears it, and one cycle later the CPU has sampled the
         // released line, so a probe can set IFF1 without an immediate
@@ -86,10 +120,31 @@ public:
         power_on_.advance(1);
         check(!power_on_.vdp().irq(),"probe machine still has an interrupt pending");
         check(game::register_routines(registry_,rom_.sha1,options),"identified ROM registry");
-        registry_.verifier=&verifier_;
+    }
+    Harness(const Harness&)=delete;
+    Harness& operator=(const Harness&)=delete;
+    // With PSMODERN_CENSUS_DIR set, each harness leaves the engine census of
+    // everything its probes ran there (milestone 14).
+    ~Harness() {
+        const char* folder=std::getenv("PSMODERN_CENSUS_DIR");
+        if (!folder || !*folder) return;
+        static unsigned count=0;
+        try {
+            std::filesystem::create_directories(folder);
+            const auto name="probe-"+std::string(rom_.version==RomVersion::us_rev_a ? "us" : "br")+"-"+
+                std::to_string(process_id())+"-"+std::to_string(count++)+".tsv";
+            std::ofstream out(std::filesystem::path(folder)/name,std::ios::binary);
+            replay::write_transition_census(out,registry_);
+        } catch (...) {}
     }
     const Rom& rom() const { return rom_; }
     RoutineRegistry& registry() { return registry_; }
+    const RoutineRegistry& registry() const { return registry_; }
+    // Off for an option state, where the game differs from the original by
+    // design: probes then run without the oracle.
+    bool verified=true;
+    // When set, receives the exit each C++ call of run_cpp took.
+    std::optional<SegmentExit>* exit_sink=nullptr;
     const RegisteredRoutine& routine(RoutineEntry entry) const {
         const auto* found=registry_.find(entry);
         check(found!=nullptr,"probe entry is not registered");
@@ -120,48 +175,161 @@ public:
     }
 
     struct Result { std::uint64_t cycles, fetches; };
-    // One dispatch that must run in C++ (cpp 1, fallback 0, forced as given),
-    // checked by the per-call verifier against the original.
-    Result run_cpp(Machine& machine, RoutineEntry entry, std::uint64_t forced=0) {
+    // One dispatch that must run in C++ (cpp 1, refused 0), prepared on the
+    // engine, transferred to an oracle and compared with it under strict
+    // lockstep: at every instruction boundary of the segment, inside its body
+    // and in any handler delivered there, and as whole machines where the
+    // step ends.
+    Result run_cpp(Machine& machine, RoutineEntry entry) {
         check(machine.memory().mapping(entry.address)==Memory::Mapping{Memory::Kind::rom,entry.bank} &&
               machine.cpu().pc.uint16_value==entry.address,"probe machine is not at its entry");
         const auto before=routine(entry).counters;
+        const auto scaffold=registry_.census().scaffold_steps;
+        const auto cycle=machine.cycles(), fetches=machine.opcode_fetches();
+        if (verified) {
+            oracle::Lockstep lockstep(machine,"probe "+describe(entry,machine),oracle::Mode::instructions);
+            lockstep.step(machine,&registry_);
+        } else machine.step(registry_);
+        if (exit_sink) *exit_sink=routine(entry).last_exit;
+        const auto& after=routine(entry).counters;
+        check(after.cpp_calls==before.cpp_calls+1 && after.fallback_calls==before.fallback_calls,
+              "probe did not run in C++: "+describe(entry,machine)+reasons(before,after));
+        check(registry_.census().scaffold_steps==scaffold,"a probe of the game ran test scaffolding: "+describe(entry,machine));
+        return {machine.cycles()-cycle,machine.opcode_fetches()-fetches};
+    }
+    // For a state the lockstep cannot stop on as one step: the original runs
+    // a known number of instructions on an oracle instead, and the whole
+    // machines are compared through the same equality.
+    Result run_cpp_against_steps(Machine& machine, RoutineEntry entry, unsigned instructions) {
+        oracle::NativeMachine original(machine);
+        for (unsigned i=0;i<instructions;++i) original.step();
+        const auto before=routine(entry).counters;
+        const auto scaffold=registry_.census().scaffold_steps;
         const auto cycle=machine.cycles(), fetches=machine.opcode_fetches();
         machine.step(registry_);
         const auto& after=routine(entry).counters;
-        check(after.cpp_calls==before.cpp_calls+1 && after.fallback_calls==before.fallback_calls &&
-              after.forced_calls==before.forced_calls+forced && after.forced_failed==before.forced_failed,
+        check(after.cpp_calls==before.cpp_calls+1 && after.fallback_calls==before.fallback_calls,
               "probe did not run in C++: "+describe(entry,machine)+reasons(before,after));
+        check(registry_.census().scaffold_steps==scaffold,"a probe of the game ran test scaffolding: "+describe(entry,machine));
+        std::string fields;
+        for (const auto& difference:oracle::differences(machine,original,oracle::Scope::whole)) fields+=" "+difference;
+        for (const auto& difference:oracle::queue_differences(machine,original)) fields+=" "+difference;
+        check(fields.empty(),"C++ differs from the original's "+std::to_string(instructions)+" instructions:"+fields);
         return {machine.cycles()-cycle,machine.opcode_fetches()-fetches};
     }
-    // For a state the verifier cannot stop on: a segment that overwrites its
-    // own return address (a stack placed on the data it stores) returns
-    // elsewhere, and the verifier recognizes a return only by the target it
-    // read at entry. Here the original runs a known number of instructions on
-    // a copy instead, and the whole machines are compared the same way.
-    Result run_cpp_against_steps(Machine& machine, RoutineEntry entry, unsigned instructions) {
-        Machine original=machine;
-        for (unsigned i=0;i<instructions;++i) original.step();
-        registry_.verifier=nullptr;
-        Result result{};
-        try { result=run_cpp(machine,entry); } catch (...) { registry_.verifier=&verifier_; throw; }
-        registry_.verifier=&verifier_;
-        std::string fields;
-        for (const auto& difference:original.differences(machine)) fields+=" "+difference.field;
-        check(fields.empty(),"C++ differs from the original's "+std::to_string(instructions)+" instructions:"+fields);
+    // One dispatch that must be refused for exactly this reason: the engine
+    // stops with UnhandledState (there is no core to run the original) and
+    // counts the refusal; nothing is executed. Milestone 14: an exact segment
+    // takes interrupts and frame ends at its own boundaries, so for it the
+    // window reasons (irq, nmi, ei_delay, and frame when the estimated bound
+    // fits in one frame) no longer refuse it: the call must then run in C++
+    // with the exact result instead.
+    void run_fallback(Machine& machine, RoutineEntry entry, RoutineFallback reason) {
+        const auto& r=routine(entry);
+        // The guards that still fall back with reason frame: an uncertain
+        // bound, or a sprite slice on another port than BE.
+        const bool sprite_port=!r.spec.exits.empty() && r.spec.exits.front().sprite_outputs &&
+            (machine.cpu().bc.uint16_value&255)!=0xbe;
+        const bool window=reason==RoutineFallback::irq || reason==RoutineFallback::nmi ||
+            reason==RoutineFallback::ei_delay ||
+            (reason==RoutineFallback::frame && r.bound(machine)<=Machine::frame_cycles && !sprite_port);
+        if (r.exact && window) { (void)run_cpp(machine,entry); ++exact_instead_; return; }
+        const auto before=r.counters;
+        const auto pc=machine.cpu().pc.uint16_value, sp=machine.cpu().sp.uint16_value;
+        const auto cycle=machine.cycles();
+        bool refused=false;
+        try { machine.step(registry_); }
+        catch (const UnhandledState&) { refused=true; }
+        const auto& after=routine(entry).counters;
+        check(refused && after.cpp_calls==before.cpp_calls && after.fallback_calls==before.fallback_calls+1 &&
+              after.fallback(reason)==before.fallback(reason)+1,"probe was not refused as expected: "+describe(entry,machine));
+        check(machine.cpu().pc.uint16_value==pc && machine.cpu().sp.uint16_value==sp && machine.cycles()==cycle,
+              "a refused call changed the machine");
+    }
+    // Calls of run_fallback that ran in C++ instead (see there).
+    unsigned exact_instead() const { return exact_instead_; }
+
+    // Forced-interrupt sweep (milestone 14 planning 4): from one prepared
+    // state, an IRQ (the frame interrupt moved to that cycle, IFF1 and IFF2
+    // set) and, separately, an NMI raised at every `stride`-th cycle of the
+    // segment's run. Each run must reach the segment's C++ call and match the
+    // oracle at every instruction boundary; an interrupt landing at the entry
+    // is accepted first and the segment runs after its handler.
+    SweepResult sweep_interrupts(RoutineEntry entry, const Setup& setup,
+                                 const std::function<void(Machine&)>& adjust = {}, unsigned stride=1) {
+        auto base=prepare(entry,setup);
+        if (adjust) adjust(base);
+        auto plain=base;
+        const auto length=run_cpp(plain,entry).cycles;
+        if (stride!=1 && full_sweeps()) stride=1;
+        std::uint64_t phase=0;
+        if (stride==auto_stride) {
+            stride=static_cast<unsigned>(std::max<std::uint64_t>(1,(length+sampled_positions-1)/sampled_positions));
+            phase=entry.address%stride;
+        }
+        // The instruction boundaries of the plain run (cycles from the entry, at
+        // the top level of the body), for one position in each interval.
+        std::vector<std::uint64_t> boundaries;
+        if (stride>1) {
+            auto timing=base;
+            const auto start=timing.cycles();
+            const Machine::BoundaryObserver observer=[&](const Machine::Boundary& at) {
+                if (!at.depth) boundaries.push_back(timing.cycles()-start);
+            };
+            timing.set_boundary_observer(&observer);
+            try { timing.step(registry_); } catch (...) { timing.set_boundary_observer(nullptr); throw; }
+            timing.set_boundary_observer(nullptr);
+            check(timing.cycles()-start==length,"sweep: the timing run of "+describe(entry,timing)+" differs from the plain run");
+            boundaries.push_back(length);
+            std::sort(boundaries.begin(),boundaries.end());
+            boundaries.erase(std::unique(boundaries.begin(),boundaries.end()),boundaries.end());
+        }
+        SweepResult result;
+        for (int kind=0;kind<2;++kind) {
+            std::vector<std::uint64_t> offsets;
+            for (std::uint64_t k=phase;k<length;k+=stride) offsets.push_back(k);
+            for (std::size_t i=0;i+1<boundaries.size();++i) {
+                const auto from=boundaries[i], width=boundaries[i+1]-from;
+                const auto mix=(static_cast<std::uint64_t>(entry.bank)<<16|entry.address)*0x9e3779b97f4a7c15ull+i*0xbf58476d1ce4e5b9ull+
+                    static_cast<std::uint64_t>(kind)*0x94d049bb133111ebull;
+                offsets.push_back(from+(mix>>33)%width);
+            }
+            std::sort(offsets.begin(),offsets.end());
+            offsets.erase(std::unique(offsets.begin(),offsets.end()),offsets.end());
+            for (const auto k:offsets) {
+                last_sweep_run_={kind,k};
+                auto m=base;
+                if (kind==0) {
+                    m.cpu().iff1=m.cpu().iff2=1;
+                    const auto irq=m.next_irq();
+                    check(irq && *irq>m.cycles()+k,"sweep needs the frame interrupt enabled and ahead");
+                    m.advance(*irq-m.cycles()-k);
+                } else m.schedule_nmi(m.cycles()+k);
+                const auto before=routine(entry).counters;
+                oracle::Lockstep lockstep(m,"sweep "+describe(entry,m)+(kind ? " NMI +" : " IRQ +")+std::to_string(k),
+                                          oracle::Mode::instructions);
+                for (unsigned steps=0;routine(entry).counters.cpp_calls==before.cpp_calls;++steps) {
+                    check(steps<200000 && routine(entry).counters.fallback_calls==before.fallback_calls,
+                          "sweep did not reach the segment in C++: "+describe(entry,m));
+                    lockstep.step(m,&registry_);
+                }
+                const auto& after=routine(entry).counters;
+                check(registry_.census().scaffold_steps==0,"a sweep of the game ran test scaffolding: "+describe(entry,m));
+                ++result.runs;
+                result.irq_deliveries+=static_cast<unsigned>(after.irq_deliveries-before.irq_deliveries);
+                result.nmi_deliveries+=static_cast<unsigned>(after.nmi_deliveries-before.nmi_deliveries);
+                if (after.irq_deliveries==before.irq_deliveries && after.nmi_deliveries==before.nmi_deliveries) ++result.outside;
+            }
+        }
         return result;
     }
-    // One dispatch that must fall back for exactly this reason (the core then
-    // executes the entry's first instruction).
-    void run_fallback(Machine& machine, RoutineEntry entry, RoutineFallback reason) {
-        const auto before=routine(entry).counters;
-        machine.step(registry_);
-        const auto& after=routine(entry).counters;
-        check(after.cpp_calls==before.cpp_calls && after.fallback_calls==before.fallback_calls+1 &&
-              after.fallback(reason)==before.fallback(reason)+1,"probe did not fall back as expected: "+describe(entry,machine));
-    }
+    // The run of the last sweep_interrupts started (or running when it threw):
+    // kind 0 an IRQ, 1 an NMI, at `offset` cycles from the entry's state.
+    struct SweepRun { int kind=0; std::uint64_t offset=0; };
+    SweepRun last_sweep_run() const { return last_sweep_run_; }
 
 private:
+    static unsigned long process_id();
     static std::string describe(RoutineEntry entry, const Machine& machine) {
         return "entry "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+
             ", SP "+std::to_string(machine.cpu().sp.uint16_value);
@@ -169,15 +337,36 @@ private:
     static std::string reasons(const RoutineCounters& before, const RoutineCounters& after) {
         std::string text;
         for (unsigned i=0;i<routine_fallback_names.size();++i)
-            if (after.reasons[i]!=before.reasons[i] || after.forced_reasons[i]!=before.forced_reasons[i])
-                text+=", "+std::string(routine_fallback_names[i]);
+            if (after.reasons[i]!=before.reasons[i]) text+=", "+std::string(routine_fallback_names[i]);
         return text;
     }
     Rom rom_;
     Machine power_on_;
     RoutineRegistry registry_;
-    replay::CallVerifier verifier_;
+    unsigned exact_instead_=0;
+    SweepRun last_sweep_run_;
 };
+inline unsigned long Harness::process_id() {
+#ifdef _WIN32
+    return static_cast<unsigned long>(::_getpid());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
+
+// The interrupt sweep of one converted segment (milestone 14 recipe, step 5):
+// an IRQ and an NMI at every cycle of the body's run (every `stride` cycles),
+// each run under strict lockstep with the oracle; at least one IRQ and one NMI
+// must be delivered inside the body. Prints one line.
+inline SweepResult sweep(Harness& harness, RoutineEntry entry, const Setup& setup,
+                         const std::function<void(Machine&)>& adjust = {}, unsigned stride=1) {
+    const auto result=harness.sweep_interrupts(entry,setup,adjust,stride);
+    const auto name=std::to_string(entry.bank)+":"+std::to_string(entry.address);
+    check(result.irq_deliveries>0 && result.nmi_deliveries>0,"sweep "+name+": nothing was delivered inside the body");
+    std::cout<<"sweep "<<name<<": "<<result.runs<<" runs, "<<result.irq_deliveries<<" IRQ and "<<result.nmi_deliveries
+             <<" NMI inside the body\n";
+    return result;
+}
 
 // Slot-2 mappings the review asked every probe family to vary: the game's
 // usual bank 3, other ROM banks (first, last, unrelated) and cartridge RAM.
@@ -197,7 +386,7 @@ inline std::vector<std::uint8_t> r_wrap_values(unsigned fetches) {
     return values;
 }
 
-// Stack placements. A segment with a scratch stack of N bytes falls back
+// Stack placements. A segment with a scratch stack of N bytes is refused
 // (unmapped_stack) when any byte from SP-N to SP+1 is unmapped or a mapper
 // register; every other placement must run in C++. A ROM stack ignores the
 // saves and reads ROM bytes back, exactly as natively.

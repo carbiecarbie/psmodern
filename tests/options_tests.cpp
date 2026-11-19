@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "app/options_menu.h"
 #include "rom/sha256.h"
@@ -6,6 +7,7 @@
 #include "temporary_cleanup.h"
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <cstdlib>
 using namespace psmodern;
@@ -202,16 +204,17 @@ void driver(){
   check(!driver.automap_tracking() && !driver.automap_enabled() && !driver.request_menu(HostMenu::map),"no tracker without an identified image");
   check(!driver.choose_options({50,400},false) && !driver.automap_option(),"automap off applied");
  }
- for(bool routines:{true,false}) {
+ // Milestone 14: the only restricted session left is recording mode.
+ for(bool recording:{false,true}) {
   game::OptionOverrides overrides;overrides.experience=100;
-  FrameDriver driver(program(),SaveStore(t.path,RomVersion::us_rev_a),routines,overrides,!routines);
+  FrameDriver driver(program(),SaveStore(t.path,RomVersion::us_rev_a),overrides,recording);
   check(driver.configured_options()==game::Options{50,400},"stored preferences retained");
-  check(driver.effective_options()==(routines?game::Options{50,100}:game::Options{}),"per-field explicit100 or restricted originals");
-  change(driver.machine().memory(),routines?1:2);check(!driver.flush(),"session SRAM flush");
-  if(!routines)check(driver.choose_options({0,400}).has_value() && driver.choose_options({},true).has_value(),"restricted changes refused");
+  check(driver.effective_options()==(recording?game::Options{}:game::Options{50,100}),"per-field explicit100 or restricted originals");
+  change(driver.machine().memory(),recording?2:1);check(!driver.flush(),"session SRAM flush");
+  if(recording)check(driver.choose_options({0,400}).has_value() && driver.choose_options({},true).has_value(),"restricted changes refused");
  }
  {
-  FrameDriver recording(program(),SaveStore(t.path,RomVersion::us_rev_a),true,{},true);
+  FrameDriver recording(program(),SaveStore(t.path,RomVersion::us_rev_a),{},true);
   check(recording.effective_options()==game::Options{} && recording.configured_options()==game::Options{50,400},"recording forced original");
   change(recording.machine().memory(),3);check(!recording.flush(),"recording SRAM write");
  }
@@ -219,12 +222,12 @@ void driver(){
 }
 // The encounter row visits 0, 25, 50, 100 and 200 in order, in both directions.
 void encounter_choices(){
- OptionsMenu menu;menu.open({},false,false);menu.update({},1);
+ OptionsMenu menu;menu.open({},false);menu.update({},1);
  double now=2;
  for(unsigned expected:{200u,0u,25u,50u,100u}){menu.update({.right=true},now);now+=1;menu.update({},now);now+=1;check(menu.draft().encounter_percent==expected,"right walks the encounter choices");}
  for(unsigned expected:{50u,25u,0u,200u,100u}){menu.update({.left=true},now);now+=1;menu.update({},now);now+=1;check(menu.draft().encounter_percent==expected,"left walks the encounter choices back");}
  // A saved 50 from before the 25 choice opens on 50 and still steps to its neighbours.
- menu.open({50,400},false,false);menu.update({},now);now+=1;
+ menu.open({50,400},false);menu.update({},now);now+=1;
  menu.update({.right=true},now);now+=1;menu.update({},now);now+=1;check(menu.draft().encounter_percent==100,"saved 50 steps to 100");
  menu.update({.left=true},now);now+=1;menu.update({},now);now+=1;menu.update({.left=true},now);now+=1;menu.update({},now);now+=1;
  check(menu.draft().encounter_percent==25,"saved 50 steps back to 25");
@@ -235,7 +238,7 @@ void language_row(){
  using P=LanguagePreference;
  OptionsMenu menu;double now=0;
  auto tap=[&](MenuInput input){menu.update({},now+=1);auto action=menu.update(input,now+=1);menu.update({},now+=1);return action;};
- menu.open({},false,false);menu.update({},now);
+ menu.open({},false);menu.update({},now);
  check(menu.language_draft()==P::native,"the language defaults to AUTO");
  tap({.up=true});check(menu.selected()==options_layout::language_row,"up wraps to Language");
  check(tap({.right=true})==MenuAction::language && menu.language_draft()==P::english,"right: AUTO to ENGLISH, handed to the owner");
@@ -280,15 +283,15 @@ void layout(){
  check(l::explanation.height==l::line_step*int(l::explanation_lines+1)+1 && l::state_row==l::explanation.row+1+l::line_step*int(l::explanation_lines),"three lines and the state line");
  check(int(l::line_limit)<=l::explanation.width-2,"explanation lines fit the window");
  for(auto language:{Language::english,Language::portuguese})
- for(bool restricted:{false,true})for(bool pending:{false,true})for(bool recording:{false,true})
+ for(bool pending:{false,true})
  for(auto choices:{game::Options{},game::Options{25,400},game::Options{50,200},game::Options{200,100}})
  for(bool on:{false,true})for(unsigned preference=0;preference<3;++preference) {
-  OptionsMenu menu;menu.open(choices,restricted,pending,recording,on,!on);
+  OptionsMenu menu;menu.open(choices,pending,on,!on);
   menu.set_language(LanguagePreference(preference),{true,preference!=2,preference!=1});
   const auto state=menu.state(language);
   check(!state.empty() && state.size()<=l::line_limit,"the state line fits");
   menu.failed();check(menu.state(language).size()<=l::line_limit,"the failure line fits");
-  menu.open(choices,restricted,pending,recording,on,!on);menu.update({},0);
+  menu.open(choices,pending,on,!on);menu.update({},0);
   for(unsigned row=0;row<l::rows;++row) {
    check(menu.selected()==row,"walking the rows");
    const auto label=OptionsMenu::label(row,language);const auto values=menu.choices(row,language);
@@ -316,13 +319,13 @@ void layout(){
  check(OptionsMenu::label(1,Language::english)=="EXP / MESETA" && OptionsMenu::label(1,Language::portuguese)=="EXP / MESETA" &&
   OptionsMenu::label(3,Language::english)=="WIDESCREEN" && OptionsMenu::label(3,Language::portuguese)=="WIDESCREEN","the short labels");
  // The old suffixes left the values for the explanations.
- OptionsMenu menu;menu.open({25,400},false,false);
+ OptionsMenu menu;menu.open({25,400},false);
  check(menu.choices(0,Language::english)[menu.current(0)]=="25%" && menu.choices(1,Language::english)[menu.current(1)]=="400%","plain percentages");
  check(OptionsMenu::explanation(0,Language::english)[2]=="25% IS RECOMMENDED." && OptionsMenu::explanation(1,Language::english)[2]=="400% IS RECOMMENDED.","recommendations in the explanations");
  check(game::switch_like_encounter_percent==25 && game::switch_like_experience_percent==400,"the recommended values named in the texts");
 }
 void navigation(){
- OptionsMenu menu;menu.open({},false,false);
+ OptionsMenu menu;menu.open({},false);
  check(menu.update({.accept=true},0)==MenuAction::none,"opening held buttons consumed");menu.update({},1);
  menu.update({.right=true},2);check(menu.draft().encounter_percent==200,"right cycles encounter choices");
  menu.update({.right=true},2.1);check(menu.draft().encounter_percent==200,"held input delay");
@@ -353,36 +356,23 @@ void navigation(){
  menu.update({},6.51);check(menu.update({.map=true},6.52)==MenuAction::none,"the map key does nothing in Options");
  menu.update({},6.53);check(menu.update({.accept=true},6.54)==MenuAction::apply,"confirm persists from encounter row");
  menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::apply,"options toggle saves draft on exit");
- menu.open({},true,false);menu.update({},7);menu.update({.right=true},8);check(menu.draft()==game::Options{},"restricted menu read only");
- menu.update({},8.01);menu.update({.down=true},8.02);menu.update({},8.03);menu.update({.down=true},8.04);menu.update({},8.05);menu.update({.right=true},8.06);
- check(menu.selected()==2 && !menu.automap_draft(),"restricted automap row read only");
- menu.update({},8.07);menu.update({.down=true},8.08);menu.update({},8.09);menu.update({.right=true},8.095);
- check(menu.selected()==3 && !menu.widescreen_draft(),"restricted widescreen row read only");
- check(menu.update({.accept=true},8.1)==MenuAction::close,"read-only confirmation closes without applying");
- check(menu.update({.cancel=true},9)==MenuAction::close,"restricted menu escapable");
- // Controls remains usable in restricted sessions; Language cannot open.
- menu.open({},false,false);menu.update({},10);menu.update({.right=true},10.1);menu.update({},10.2);menu.update({.up=true},10.3);
+ // (Milestone 14 removed the read-only Options state with --no-routines.)
+ menu.open({},false);menu.update({},10);menu.update({.right=true},10.1);menu.update({},10.2);menu.update({.up=true},10.3);
  menu.update({},10.31);menu.update({.up=true},10.32);
  check(menu.selected()==4 && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on Controls opens Controls");
  menu.resume();check(menu.visible() && menu.selected()==4 && menu.draft().encounter_percent==200,"resume keeps row and draft");
  check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for neutral input");
  menu.update({},10.7);check(menu.update({.accept=true},10.8)==MenuAction::controls,"re-armed after resume");
  menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::apply,"Options saves on exit after round trip");
- menu.open({},true,false);menu.update({},12);menu.update({.up=true},12.1);
- menu.update({},12.11);check(menu.update({.right=true},12.12)==MenuAction::none && menu.update({},12.13)==MenuAction::none && menu.update({.left=true},12.14)==MenuAction::none &&
-  menu.language_draft()==LanguagePreference::native,"Language cannot change in a restricted session");
- menu.update({},12.15);check(menu.selected()==5 && menu.update({.accept=true},12.2)==MenuAction::close,"accept on Language only closes when read-only");
- menu.update({},12.3);menu.update({.up=true},12.4);
- check(menu.update({.accept=true},12.5)==MenuAction::controls,"Controls opens also when read-only");
  // Both exit bindings save all three displayed values from every row,
- // including the child-screen entries. Restricted sessions only close.
- for(bool restricted:{false,true})for(bool toggle:{false,true})for(unsigned row=0;row<6;++row) {
-  menu.open({50,400},restricted,false,false,true,true);menu.update({},20);
+ // including the child-screen entries.
+ for(bool toggle:{false,true})for(unsigned row=0;row<6;++row) {
+  menu.open({50,400},false,true,true);menu.update({},20);
   menu.update({.right=true},21);menu.update({},22);
   for(unsigned i=0;i<row;++i){menu.update({.down=true},23+i*2);menu.update({},24+i*2);}
   const MenuInput exit=toggle ? MenuInput{.toggle=true} : MenuInput{.cancel=true};
-  check(menu.update(exit,40)==(restricted ? MenuAction::close : MenuAction::apply),"exit saves from every editable row and only closes when read-only");
-  check(menu.draft()==game::Options{restricted ? 50u : 100u,400} && menu.automap_draft() && menu.widescreen_draft(),"exit retains the displayed rates, automap and widescreen");
+  check(menu.update(exit,40)==MenuAction::apply,"exit saves from every editable row");
+  check(menu.draft()==game::Options{100u,400} && menu.automap_draft() && menu.widescreen_draft(),"exit retains the displayed rates, automap and widescreen");
  }
  InputRelease release;release.consume();FrameInput held;held.pause=true;held.reset=true;held.pads[0].one=true;
  auto consumed=release.filter(held);check(!consumed.pause&&!consumed.reset&&!consumed.pads[0].one,"menu pause reset actions consumed");
@@ -407,13 +397,12 @@ bool shows(const Frame& frame,const RomFont& font,int column,int row,std::string
 void options_frames(const RomFont& font,const std::filesystem::path& output){
  namespace l=options_layout;using namespace menu_style;
  constexpr std::uint32_t backdrop=0xff123456;
- struct State {const char* name;bool restricted,pending,recording,failed,language_failed;};
- constexpr State states[]{{"normal",false,false,false,false,false},{"pending",false,true,false,false,false},{"recording",true,false,true,false,false},
-  {"z80",true,false,false,false,false},{"failed",false,false,false,true,false},{"language-failed",false,false,false,false,true}};
+ struct State {const char* name;bool pending,failed,language_failed;};
+ constexpr State states[]{{"normal",false,false,false},{"pending",true,false,false},{"failed",false,true,false},{"language-failed",false,false,true}};
  for(auto language:{Language::english,Language::portuguese}) {
   const std::string suffix=language==Language::english ? "-en" : "-pt";
   for(const auto& state:states)for(unsigned row=0;row<l::rows;++row)for(bool missing:{false,true}) {
-   OptionsMenu menu;menu.open({25,400},state.restricted,state.pending,state.recording,true,false);
+   OptionsMenu menu;menu.open({25,400},state.pending,true,false);
    menu.set_language(LanguagePreference::english,{true,true,!missing});
    if(state.failed)menu.failed();
    if(state.language_failed)menu.language_failed(LanguagePreference::english);
@@ -448,7 +437,7 @@ void options_frames(const RomFont& font,const std::filesystem::path& output){
    } else check(row==l::controls_row,"only Controls has no values window");
    const auto lines=menu.explanation_text(language);
    for(unsigned i=0;i<l::explanation_lines;++i)check(shows(pixels,font,l::explanation.column+1,l::explanation.row+1+l::line_step*int(i),lines[i],white),"explanation line");
-   const bool quiet=!state.restricted && !state.pending && !state.failed && !state.language_failed;
+   const bool quiet=!state.pending && !state.failed && !state.language_failed;
    check(shows(pixels,font,l::explanation.column+1,l::state_row,menu.state(language),quiet ? grey : white),"the state line");
    for(const auto& line:lines)for(char c:line)check(font.supports(c),"explanation in the ROM font");
    for(char c:menu.state(language))check(font.supports(c),"state in the ROM font");
@@ -517,8 +506,14 @@ int crash_worker(const char* folder,std::string_view phase){
  Memory memory(program(),bytes);change(memory,45);check(!store.flush(memory),"crash worker flush");return 0;
 }
 }
-int main(int argc,char**argv){try{
+int main(int argc,char**argv){
+    // The authored programs' code that no test renders runs on the oracle's
+    // core; the real ROM's runs with the game's registry get no scaffolding
+    // (review R1 H-1): only its registry-less original does.
+    std::optional<oracle::Scaffold> scaffold;
+    try{
  if(argc==4 && std::string_view(argv[1])=="--crash-worker")return crash_worker(argv[2],argv[3]);
- if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;rom(argv[1],argc>2?argv[2]:nullptr);}else{codec();persistence();failures();driver();encounter_choices();navigation();language_row();layout();}
+ if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;scaffold.emplace(oracle::Scaffold::originals);rom(argv[1],argc>2?argv[2]:nullptr);}
+ else{scaffold.emplace(oracle::Scaffold::authored);codec();persistence();failures();driver();encounter_choices();navigation();language_row();layout();}
  std::cout<<"Options tests passed.\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -30,7 +30,7 @@ namespace kit=game::kit;
 namespace {
 // ---- Registration catalog ----------------------------------------------------
 
-struct Expected { std::uint16_t entry; std::vector<SegmentExit> exits; unsigned scratch, inherited; bool mapper; };
+struct Expected { std::uint16_t entry; std::vector<SegmentExit> exits; unsigned scratch, inherited; bool mapper; bool single=false; };
 std::vector<Expected> expected_catalog() {
     using kit::returned_at; using kit::core_final_at; using kit::conditional_at; using kit::loop_at;
     return {
@@ -62,16 +62,17 @@ std::vector<Expected> expected_catalog() {
         {0x6A12,{returned_at(0x6A16),core_final_at(0x6A17)},0,0,false},
         {0x6A29,{core_final_at(0x6A39,2)},0,2,true},
         {0x6A2F,{core_final_at(0x6A39)},0,0,false},
+        {0x6A3C,{core_final_at(0x6A3C)},2,0,false,true},   // joining stretch (milestone 14): the follow-up call
         {0x6A3F,{returned_at(0x6A57)},0,0,false},
     };
 }
 void registration() {
     RoutineRegistry registry;
     game::register_dungeon_objects(registry);
-    check(registry.entries().size()==dungeon::object_segments.size() && dungeon::object_segments.size()==25,
-          "the 25 object segments are registered, and nothing else");
+    check(registry.entries().size()==dungeon::object_segments.size() && dungeon::object_segments.size()==26,
+          "the 26 object segments are registered, and nothing else");
     const auto catalog=expected_catalog();
-    check(catalog.size()==25,"the expected catalog lists 25 entries");
+    check(catalog.size()==26,"the expected catalog lists 26 entries");
     for (const auto& expected:catalog) {
         const RoutineEntry entry{1,expected.entry};
         const auto listed=std::find_if(dungeon::object_segments.begin(),dungeon::object_segments.end(),
@@ -82,7 +83,7 @@ void registration() {
         const auto& spec=routine->spec;
         check(spec.unit==listed->unit,"an entry belongs to the unit dungeon.h names");
         check(spec.slot2_mapper==expected.mapper && spec.scratch_stack==expected.scratch && spec.inherited_stack==expected.inherited &&
-              !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,
+              spec.single_instruction==expected.single,
               "an entry declares the permissions of the design");
         check(spec.exits.size()==expected.exits.size(),"an entry declares the exits of the design");
         for (const auto& exit:expected.exits)
@@ -558,6 +559,8 @@ public:
                 lay_stack(m,{static_cast<std::uint16_t>(0x8000+rng_()%0x3000),static_cast<std::uint16_t>(rng_()),0x0180});
             });
             run({1,0x6A3F},next_setup(),[&](Machine& m) { lay_stack(m,{0x0180}); });
+            // The follow-up call after the event's handler returned (joining stretch, milestone 14).
+            run({1,0x6A3C},next_setup(),[&](Machine& m) { lay_stack(m,{0x0180}); });
         }
         // The menu flag after a dialogue or a fight: zero returns, anything else goes on to the menu.
         for (unsigned value=0;value<256;++value)
@@ -660,6 +663,94 @@ void first_records(const probe::Rom& rom, const game::DungeonTables& tables, Sta
     }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body (sampled: about 40
+// runs per kind), each run compared with the oracle at every instruction
+// boundary, handler included. Each segment runs on a state that takes its
+// interesting path: the door and the exit kinds, the object check on a record
+// of each type seen from ahead and from behind, its continuations and tails.
+void sweeps(Lab& lab, const game::DungeonTables& tables) {
+    std::string failures;     // every failing segment is reported, not only the first
+    const auto sweep=[&](RoutineEntry entry,const std::function<void(Machine&)>& adjust) {
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            auto base=lab.harness.prepare(entry,setup);
+            adjust(base);
+            const auto length=lab.harness.run_cpp(base,entry).cycles;
+            probe::sweep(lab.harness,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.address)+": "+error.what();
+        }
+    };
+    const auto objects=tables.objects();
+    const auto exits=tables.exits();
+    const auto first_of=[&](std::uint8_t type) {
+        for (std::size_t i=0;i<objects.size();++i)
+            if (objects[i].type==type && tables.layout(objects[i].floor)[objects[i].cell]==8) return i;
+        throw std::runtime_error("no object record of the type");
+    };
+    const auto record_data=[&](std::size_t i) {
+        return static_cast<std::uint16_t>(dungeon::objects_table.address+dungeon::object_record_bytes*i+5);
+    };
+    const auto stack=[](Machine& m,std::initializer_list<std::uint16_t> words) { Lab::lay_stack(m,words); };
+    // The door: the cell ahead is a closed door, C holds its row base.
+    sweep(dungeon::door_unit,[&](Machine& m) {
+        lab.scene(m,1,0x55,0);
+        lab.put_cell(m,lab.target(1,0x55,dungeon::ahead),4);
+        Lab::set_c(m,2); stack(m,{0x0180});
+    });
+    sweep({1,0x6835},[&](Machine& m) { stack(m,{0x1234,0x5678,0x0180}); });
+    sweep({1,0x683A},[&](Machine& m) { stack(m,{0x2040,0x0355,0x0180}); });
+    // The exit lookup on a record that goes to the world map and one that does not.
+    for (const auto& record:{*std::find_if(exits.begin(),exits.end(),[](const auto& r) { return r.kind<dungeon::world_map_kinds_end; }),
+                             *std::find_if(exits.begin(),exits.end(),[](const auto& r) { return r.kind>=dungeon::world_map_kinds_end; })})
+        sweep(dungeon::exit_lookup_unit,[&](Machine& m) {
+            lab.exit_scene(m,record.cell,record.floor,static_cast<std::uint8_t>(0x0A)); stack(m,{0x0180});
+        });
+    sweep({1,0x68E2},[&](Machine& m) {
+        const auto& record=exits[3];
+        Lab::set_hl(m,dungeon::exits_table.address); Lab::set_b(m,record.floor); Lab::set_c(m,record.cell);
+        Lab::set_d(m,0); Lab::set_e(m,4); Lab::poke(m,dungeon::game_mode,0x0B); stack(m,{0x0180});
+    });
+    for (const std::uint8_t kind:{std::uint8_t{5},std::uint8_t{0xFD},std::uint8_t{0xFF}})
+        sweep({1,0x68F7},[&](Machine& m) { Lab::set_d(m,kind); stack(m,{0x0180}); });
+    for (const std::uint16_t entry:{0x6900,0x690E,0x6914,0x6939,0x6960})
+        sweep({1,entry},[&](Machine& m) { stack(m,{0x1234,0x0180}); });
+    sweep({1,0x6925},[&](Machine& m) { Lab::set_hl(m,0xC600); stack(m,{0x9000,0x0180}); });
+    for (const std::uint8_t mode:{std::uint8_t{0x0B},std::uint8_t{0x0C}})
+        sweep({1,0x6930},[&](Machine& m) { Lab::poke(m,dungeon::game_mode,mode); stack(m,{0x0180}); });
+    for (const std::uint8_t kind:{std::uint8_t{5},std::uint8_t{0xFD},std::uint8_t{0xFE}})
+        sweep({1,0x694C},[&](Machine& m) { stack(m,{static_cast<std::uint16_t>((kind<<8)|0x40),0x9000,0x0180}); });
+    // The object check on the first record of each type, from ahead and (for the
+    // types that turn the party) from behind; and its continuation on that record.
+    for (std::uint8_t type=0;type<4;++type) {
+        const auto i=first_of(type);
+        for (const unsigned view:{dungeon::ahead,dungeon::behind})
+            sweep(dungeon::object_check_unit,[&](Machine& m) {
+                lab.object_scene(m,objects[i].floor,objects[i].cell,view,8);
+                Lab::poke(m,objects[i].flag,0);
+            });
+        sweep({1,0x6989},[&](Machine& m) {
+            Lab::poke(m,objects[i].flag,0);
+            lab.object_scene(m,objects[i].floor,objects[i].cell,dungeon::ahead,8);
+            Lab::set_b(m,objects[i].floor); Lab::set_c(m,objects[i].cell);
+            Lab::set_hl(m,static_cast<std::uint16_t>(dungeon::objects_table.address+dungeon::object_record_bytes*i));
+            m.cpu().de.uint16_value=6;
+            stack(m,{static_cast<std::uint16_t>((dungeon::ahead<<8)|objects[i].cell),0x0180});
+        });
+        sweep({1,0x69F1},[&](Machine& m) { stack(m,{record_data(i),0x0180}); });
+        sweep({1,0x6A29},[&](Machine& m) { stack(m,{record_data(i),0x0180}); });
+        sweep({1,0x6A2F},[&](Machine& m) { Lab::set_hl(m,record_data(i)); stack(m,{0x0180}); });
+    }
+    sweep({1,0x69D1},[&](Machine& m) { stack(m,{0x1234,0x0180}); });
+    sweep({1,0x69D5},[&](Machine& m) { stack(m,{0x1234,0x0180}); });
+    for (const std::uint16_t entry:{0x69D9,0x6A12})
+        sweep({1,entry},[&](Machine& m) { Lab::poke(m,0xC800,1); stack(m,{0x0180}); });
+    sweep({1,0x6A07},[&](Machine& m) { stack(m,{0x8000,0x1234,0x0180}); });
+    sweep({1,0x6A3F},[&](Machine& m) { stack(m,{0x0180}); });
+    check(failures.empty(),"dungeon object sweeps failed:"+failures);
+}
+
 void probes(const probe::Rom& rom) {
     const auto started=std::chrono::steady_clock::now();
     const game::DungeonTables tables(*rom.image);
@@ -673,6 +764,7 @@ void probes(const probe::Rom& rom) {
           "the exit lookup scans the table dungeon.h names and branches at 80h");
     Stats stats;
     Lab lab(rom,tables,stats,0x7AB1);
+    sweeps(lab,tables);
     auto phase=[&](const char* name, const std::function<void()>& work) {
         const auto before=stats.calls;
         const auto t=std::chrono::steady_clock::now();
@@ -706,7 +798,7 @@ void probes(const probe::Rom& rom) {
                   "an exit was never taken: entry "+std::to_string(entry.address)+", exit "+std::to_string(exit.address));
     }
     std::cout<<stats.calls<<" calls in C++ against the original in "<<stats.chains<<" chains ("<<stats.fallbacks
-             <<" fallbacks as expected, "<<stats.unpredictable<<" of them for a stack that cannot return the inline call), all 25 entries and every declared exit, in "
+             <<" fallbacks as expected, "<<stats.unpredictable<<" of them for a stack that cannot return the inline call), all 26 entries and every declared exit, in "
              <<std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()<<" s.\n";
     for (const auto& [address,calls]:stats.per_entry)
         std::cout<<"  01:"<<std::hex<<address<<std::dec<<" "<<calls<<" calls, "<<stats.exits[address].size()<<" exits\n";
@@ -714,6 +806,8 @@ void probes(const probe::Rom& rom) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc==1) { registration(); std::cout<<"Dungeon object catalog checks passed.\n"; return 0; }
         if (argc!=3) throw std::runtime_error("Expected <rom> <us|br>.");

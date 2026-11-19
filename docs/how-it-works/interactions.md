@@ -4,6 +4,13 @@ When the party talks to someone, opens a door or reaches a special spot, the
 game starts an "interaction". Some interactions only show a message, some open
 a shop, and some are longer scenes that remember where the story stands.
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 ## Choosing an interaction
 
 **ROM static; ROM run.** The interaction entry at `01:474B` reads the number of

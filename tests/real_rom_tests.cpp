@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "rom/rom.h"
 #include "machine/machine.h"
+#include "oracle/native_machine.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,13 +11,13 @@
 
 namespace {
 void check(bool value,const char* message) { if (!value) throw std::runtime_error(message); }
-void frame(psmodern::Machine& m,unsigned n,bool& wrote_r0,
+void frame(psmodern::oracle::NativeMachine& m,unsigned n,bool& wrote_r0,
            unsigned& total,unsigned& first_irq,unsigned& bad_frames) {
     const auto target=static_cast<std::uint64_t>(n)*psmodern::Machine::frame_cycles;
     const auto event=target-psmodern::Machine::frame_cycles+43986;
     unsigned after_event=0;
     bool enabled_at_event=false;
-    while (m.cycles()<target || m.cpu().resume==Z80_RESUME_XY) {
+    while (m.cycles()<target || m.cpu().resume==psmodern::Z80::resume_xy) {
         const auto start=m.cycles();
         const auto before=m.cpu().pc.uint16_value;
         const auto elapsed=m.step();
@@ -37,6 +38,8 @@ void frame(psmodern::Machine& m,unsigned n,bool& wrote_r0,
 }
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    psmodern::oracle::Scaffold scaffold(psmodern::oracle::Scaffold::originals);
     if (argc!=3) return 1;
     if (*argv[1]=='\0' || !std::filesystem::exists(argv[1])) { std::cout << "ROM path missing; skipping.\n"; return 77; }
     try {
@@ -44,7 +47,7 @@ int main(int argc,char** argv) {
         if (psmodern::identify_rom(argv[1])!=expected) throw std::runtime_error("Wrong ROM version.");
         std::ifstream f(argv[1],std::ios::binary);
         auto rom=std::make_shared<psmodern::Memory::Rom>(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>());
-        psmodern::Machine first(rom), second(rom);
+        psmodern::oracle::NativeMachine first(rom), second(rom);
         bool wrote=false; unsigned total=0,first_irq=0,bad=0;
         std::vector<std::vector<psmodern::PsgWrite>> logs(1200);
         std::vector<psmodern::PsgSamples> samples(1200);

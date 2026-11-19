@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Battle endings, field restoration, treasure and party unlock.
+#include "game/joins.h"
 #include "game/battle_outcomes.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 template <class Z> Exit prepare_field_objects(Z &);
 template <class Z> Exit choose_field_restore(Z &);
 template <class Z> Exit wait_field_restore(Z &);
@@ -35,16 +34,17 @@ template <class Z> Exit prepare_field_objects(Z &z) {
     z.load_hl(0x15DC);
     z.load_de(0x15DF);
     z.load_bc(0x15E2);
-    return continues(0x15E5, 10);
+    z.store_to_hl(0x15E5);
+    return k::fall_through(0x15E5, 0x15E7);
 }
 template <class Z> Exit choose_field_restore(Z &z) {
     z.load_a_direct(0x15EC);
     z.or_a(0x15EF);
-    return continues(0x15F0, k::jump_cycles);
+    return z.final_jump_if(0x15F0,k::Condition::nz);
 }
 template <class Z> Exit wait_field_restore(Z &z) {
     z.load_immediate(0x15FC, z.r.a);
-    return continues(0x15FE, k::call_cycles);
+    return z.final_call(0x15FE);
 }
 template <class Z> Exit begin_defeat(Z &z) {
     z.load_a_direct(0x1602);
@@ -56,7 +56,7 @@ template <class Z> Exit begin_defeat(Z &z) {
     }
     z.load_immediate(0x160D, z.r.a);
     z.store_a_direct(0x160F);
-    return returns(0x1612, k::return_cycles);
+    return z.final_return(0x1612);
 }
 template <class Z> Exit report_defeat(Z &z) {
     z.compare_immediate(0x1613);
@@ -73,35 +73,31 @@ template <class Z> Exit report_defeat(Z &z) {
     z.load_a_direct(0x1626);
     z.or_a(0x1629);
     z.load_hl(0x162A);
-    return continues(0x162D, z.zero() ? k::untaken_call_cycles : k::call_cycles);
+    return z.final_call_if(0x162D,k::Condition::nz);
 }
 template <class Z> Exit report_game_over(Z &z) {
     z.load_hl(0x1630);
-    return continues(0x1633, k::call_cycles);
+    return z.final_call(0x1633);
 }
 template <class Z> Exit request_title(Z &z) {
     z.load_hl(0x1636);
     z.store_to_hl(0x1639);
-    return continues(0x163B, k::jump_cycles);
+    return z.final_jump(0x163B);
 }
 template <class Z> Exit begin_escape_restore(Z &z) {
     z.push(0x163E, z.r.a, z.r.f);
-    return continues(0x163F, k::call_cycles);
+    return z.final_call(0x163F);
 }
 template <class Z> Exit finish_escape_restore(Z &z) {
     z.load_immediate(0x1645, z.r.a);
     z.store_a_direct(0x1647);
     z.pop(0x164A, z.r.a, z.r.f);
     z.compare_immediate(0x164B);
-    if (!z.zero())
-        return returns(0x164D, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x164D);
+    if (auto exit=z.final_return_if(0x164D,k::Condition::nz)) return *exit;
     z.load_a_direct(0x164E);
     z.or_a(0x1651);
-    if (!z.zero())
-        return returns(0x1652, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x1652);
-    return continues(0x1653, k::jump_cycles);
+    if (auto exit=z.final_return_if(0x1652,k::Condition::nz)) return *exit;
+    return z.final_jump(0x1653);
 }
 template <class Z> Exit begin_victory(Z &z) {
     z.load_a_direct(0x1656);
@@ -110,7 +106,7 @@ template <class Z> Exit begin_victory(Z &z) {
         return report_victory(z);
     z.load_immediate(0x165D, z.r.a);
     z.store_a_direct(0x165F);
-    return returns(0x1662, k::return_cycles);
+    return z.final_return(0x1662);
 }
 template <class Z> Exit report_victory(Z &z) {
     z.compare_immediate(0x1663);
@@ -124,7 +120,7 @@ template <class Z> Exit report_victory(Z &z) {
     }
     z.load_immediate(0x1671, z.r.a);
     z.store_a_direct(0x1673);
-    return continues(0x1676, k::call_cycles);
+    return z.final_call(0x1676);
 }
 template <class Z> Exit wait_late_victory(Z &z) {
     z.load_a_direct(0x1679);
@@ -135,62 +131,63 @@ template <class Z> Exit wait_late_victory(Z &z) {
             return announce_victory(z);
     }
     z.load_immediate(0x1684, z.r.b);
-    return continues(0x1686, k::call_cycles);
+    return z.final_call(0x1686);
 }
 template <class Z> Exit announce_victory(Z &z) {
     z.load_immediate(0x1689, z.r.a);
     z.store_a_direct(0x168B);
     z.load_hl(0x168E);
-    return continues(0x1691, k::call_cycles);
+    return z.final_call(0x1691);
 }
 template <class Z> Exit check_battle_treasure(Z &z) {
     z.load_hl_direct(0x169A);
     z.load_a_direct(0x169D);
     z.or_register(0x16A0, z.r.l);
     z.or_register(0x16A1, z.r.h);
-    if (z.zero())
-        return returns(0x16A2, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x16A2);
+    if (auto exit=z.final_return_if(0x16A2,k::Condition::z)) return *exit;
     z.load_hl(0x16A3);
-    return continues(0x16A6, k::call_cycles);
+    return z.final_call(0x16A6);
 }
 template <class Z> Exit select_treasure_graphics(Z &z) {
     z.load_hl(0x16B2);
     z.store_to_hl(0x16B5);
     z.load_hl(0x16B7);
     z.load_de(0x16BA);
-    return continues(0x16BD, 10);
+    z.load_bc(0x16BD);
+    return k::fall_through(0x16BD, 0x16C0);
 }
 template <class Z> Exit prepare_treasure_palette(Z &z) {
     z.load_hl(0x16C2);
     z.load_de(0x16C5);
-    return continues(0x16C8, 10);
+    z.load_bc(0x16C8);
+    return k::fall_through(0x16C8, 0x16CB);
 }
 template <class Z> Exit load_treasure_graphics(Z &z) {
     z.load_hl(0x16CD);
     z.load_de(0x16D0);
-    return continues(0x16D3, k::call_cycles);
+    return z.final_call(0x16D3);
 }
 template <class Z> Exit prepare_treasure_objects(Z &z) {
     z.load_hl(0x16D6);
     z.load_de(0x16D9);
     z.load_bc(0x16DC);
-    return continues(0x16DF, 10);
+    z.store_to_hl(0x16DF);
+    return k::fall_through(0x16DF, 0x16E1);
 }
 template <class Z> Exit create_treasure_object(Z &z) {
     z.load_immediate(0x16E3, z.r.a);
     z.store_a_direct(0x16E5);
-    return continues(0x16E8, k::call_cycles);
+    return z.final_call(0x16E8);
 }
 template <class Z> Exit wait_treasure_object(Z &z) {
     z.load_immediate(0x16EB, z.r.a);
-    return continues(0x16ED, k::call_cycles);
+    return z.final_call(0x16ED);
 }
 template <class Z> Exit unlock_party_member(Z &z) {
     z.store_immediate_indexed(0x16F1, k::Index::iy);
     z.store_immediate_indexed(0x16F5, k::Index::iy);
     z.push_index(0x16F9, k::Index::iy);
-    return continues(0x16FB, k::call_cycles);
+    return z.final_call(0x16FB);
 }
 template <class Z> Exit fill_unlocked_resources(Z &z) {
     z.pop_index(0x16FE, k::Index::iy);
@@ -198,7 +195,7 @@ template <class Z> Exit fill_unlocked_resources(Z &z) {
     z.store_to_indexed(0x1703, k::Index::iy, z.r.a);
     z.load_from_indexed(0x1706, k::Index::iy, z.r.a);
     z.store_to_indexed(0x1709, k::Index::iy, z.r.a);
-    return returns(0x170C, k::return_cycles);
+    return z.final_return(0x170C);
 }
 } // namespace
 void register_battle_outcomes(RoutineRegistry &registry) {
@@ -212,20 +209,26 @@ void register_battle_outcomes(RoutineRegistry &registry) {
     auto treasure_seed = core_final_at(0x16DF);
     treasure_seed.wram_seed = 0xC800;
     treasure_seed.seed_target = SeedTarget::sprite_shadow_zero;
+    // The two work RAM clears (the field objects at C800 and the treasure
+    // objects) are rendered only while the buffer is plain work RAM; the
+    // mapping of C800 is fixed by the hardware, so it also holds across an
+    // interrupt delivered inside the body.
+    static const k::Guard work_ram{"C800 is plain work RAM", [](const Machine &m) {
+        return m.memory().mapping(0xC800).kind == Memory::Kind::ram;
+    }};
     auto add = [&](unsigned entry, unsigned unit, std::initializer_list<SegmentExit> exits,
                    k::Permissions permissions, auto logic) {
         auto spec = segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions);
         if (entry == 0x15DC || entry == 0x16D6)
-            registry.add(
-                {0, static_cast<std::uint16_t>(entry)}, spec,
-                [](const Machine &m) -> std::uint64_t {
-                    return m.memory().mapping(0xC800).kind == Memory::Kind::ram
-                               ? 40
-                               : k::uncertain_maximum;
-                },
-                [logic](RoutineContext &context) { k::run(context, logic); });
+            k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)}, spec, work_ram, logic);
         else
             k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)}, spec, logic);
+    };
+    // Instructions that ran between two pieces: each is a segment of its own.
+    auto single = [&](unsigned entry, unsigned unit, SegmentExit exit, k::Permissions permissions, auto logic) {
+        auto spec = segment({0, static_cast<std::uint16_t>(unit)}, {exit}, permissions);
+        spec.single_instruction = true;
+        k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)}, std::move(spec), logic);
     };
     add(0x15DC, 0x15D9, {field_seed}, {}, [](auto &z) { return prepare_field_objects(z); });
     add(0x15EC, 0x15D9, {conditional_at(0x15F0)}, {},
@@ -266,7 +269,33 @@ void register_battle_outcomes(RoutineRegistry &registry) {
         [](auto &z) { return unlock_party_member(z); });
     add(0x16FE, 0x16F1, {returned_at(0x170C, 2)}, {.inherited_stack = 2},
         [](auto &z) { return fill_unlocked_resources(z); });
+    // The field restore helper, and the calls and jump that follow the
+    // object update and the two ways the field is redrawn.
+    single(0x15D9, 0x15D9, core_final_at(0x15D9), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x15D9); });
+    single(0x15F3, 0x15D9, core_final_at(0x15F3), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x15F3); });
+    single(0x15F6, 0x15D9, core_final_at(0x15F6), {}, [](auto &z) { return z.final_jump(0x15F6); });
+    single(0x15F9, 0x15D9, core_final_at(0x15F9), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x15F9); });
+    single(0x1601, 0x15D9, returned_at(0x1601), {}, [](auto &z) { return z.final_return(0x1601); });
+    // Victory: after the dialogue, the experience award and the party stats.
+    single(0x1694, 0x1656, core_final_at(0x1694), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x1694); });
+    single(0x1697, 0x1656, core_final_at(0x1697), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x1697); });
+    // Treasure: after the reward dialogue, the graphics setup, the wait for
+    // a button, and the hand-off to the chest opening.
+    single(0x16A9, 0x1656, core_final_at(0x16A9), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x16A9); });
+    single(0x16AC, 0x1656, core_final_at(0x16AC), {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x16AC); });
+    single(0x16AF, 0x1656, core_final_at(0x16AF), {}, [](auto &z) { return z.final_jump(0x16AF); });
+    single(0x16F0, 0x16B2, returned_at(0x16F0), {}, [](auto &z) { return z.final_return(0x16F0); });
     for (auto entry : battle_outcomes::copy_entries)
         register_block_transfer(registry, entry);
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_battle_outcomes_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x1642},{0,0x163E},{kit::core_final_at(0x1642)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x1642); });
 }
 } // namespace psmodern::game

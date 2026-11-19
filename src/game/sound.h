@@ -31,7 +31,7 @@ inline constexpr RoutineEntry command{12,0x8519};
 inline constexpr RoutineEntry ack{12,0x8420};
 inline constexpr RoutineEntry pair{12,0x8426};
 inline constexpr RoutineEntry address{12,0x842F};
-inline constexpr std::array<Segment,185> segments{{
+inline constexpr std::array<Segment,217> segments{{
     {init,init},
     {{12,0x800C},init},
     {{12,0x8011},init},
@@ -217,6 +217,38 @@ inline constexpr std::array<Segment,185> segments{{
     {ack,ack},
     {pair,pair},
     {address,address},
+    {{12,0x8047},{12,0x8043}},
+    {{12,0x804A},{12,0x8043}},
+    {{12,0x804D},{12,0x8043}},
+    {{12,0x8050},{12,0x8043}},
+    {{12,0x8075},{12,0x8043}},
+    {{12,0x807D},{12,0x8043}},
+    {{12,0x809A},{12,0x8043}},
+    {{12,0x80A2},{12,0x8043}},
+    {{12,0x8377},request},
+    {{12,0x8386},request},
+    {{12,0x83AA},request},
+    {{12,0x83B9},request},
+    {{12,0x83BC},request},
+    {{12,0x8477},{12,0x846D}},
+    {{12,0x86F1},{12,0x86D0}},
+    {{12,0x86FF},{12,0x86D0}},
+    {{12,0x870B},{12,0x86D0}},
+    {{12,0x874A},{12,0x872D}},
+    {{12,0x874F},{12,0x872D}},
+    {{12,0x8759},{12,0x872D}},
+    {{12,0x875F},{12,0x872D}},
+    {{12,0x878D},{12,0x8772}},
+    {{12,0x87CF},{12,0x8772}},
+    {{12,0x87D9},{12,0x8772}},
+    {{12,0x87EC},{12,0x8772}},
+    {{12,0x8801},{12,0x8772}},
+    {{12,0x801C},init},
+    {{12,0x8196},{12,0x8196}},
+    {{12,0x8369},request},
+    {{12,0x836C},request},
+    {{12,0x833E},request},
+    {{12,0x8380},request},
 
 }};
 }

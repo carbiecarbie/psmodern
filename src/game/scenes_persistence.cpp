@@ -16,12 +16,14 @@
 // is switched off again before the routine returns.
 //
 // How the code is cut. Every store to the cartridge control register
-// ($FFFC) is the last instruction of a segment, run by the core: the machine
-// remaps memory at that exact moment (the exit is declared
-// `cartridge_control`). Each long copy (LDIR) is a separate, resumable entry
-// (block_transfer.cpp), and the zero byte that seeds the erase is a declared
-// seed store. The addresses passed to the kit are the original's, because the
-// kit reads each instruction's operands and cycle cost from the player's ROM.
+// ($FFFC) is the last instruction of a segment: the machine remaps memory at
+// that exact moment (the exit is declared `cartridge_control`). Each long copy
+// (LDIR) is a separate, resumable entry (block_transfer.cpp), and the zero
+// byte that seeds the erase is a declared seed store. Every final instruction
+// is rendered (milestone 14), and the two returns that follow the stores are
+// segments of their own. The addresses passed to the kit are the original's,
+// because the kit reads each instruction's operands and cycle cost from the
+// player's ROM.
 #include "game/scenes.h"
 #include "game/menu_kit.h"
 namespace psmodern::game {
@@ -30,14 +32,12 @@ namespace {
 namespace mk=menu_kit;
 using mk::Exit;
 
-constexpr unsigned cartridge_store_cycles=13;   // `ld ($FFFC),a`, run by the core
-constexpr unsigned seed_store_cycles=7;         // `ld (hl),l`, run by the core
-
 // ---- The header check: 00:07DA-0806 --------------------------------------------------------------
-// 00:07DA: cartridge RAM on (A = 08h, stored by the core at 07DC).
+// 00:07DA: cartridge RAM on (A = 08h, stored at 07DC).
 template<class Z> Exit enable_cartridge_ram(Z& z) {
     z.load_immediate(0x07DA,z.r.a);
-    return mk::continues(0x07DC,cartridge_store_cycles);
+    z.store_a_direct(0x07DC);
+    return mk::fall_through(0x07DC,0x07DF);
 }
 
 // 00:07EE, CPI: compare A with the header byte at HL, step HL and count BC
@@ -55,7 +55,7 @@ template<class Z> void compare_next_header_byte(Z& z) {
     z.set_bc(static_cast<std::uint16_t>(z.bc()-1));
     z.r.f=static_cast<std::uint8_t>((z.r.f&mk::carry_flag)|(difference&mk::sign_flag)|
         (difference==0 ? mk::zero_flag : 0)|half|((adjusted&2)<<4)|(adjusted&mk::x_flag)|
-        (z.bc() ? mk::parity_flag : 0)|mk::subtract_flag);
+        (z.bc() ? mk::parity_flag : 0)|mk::subtract_flag); z.r.q=z.r.f;
     z.r.wz=static_cast<std::uint16_t>(z.r.wz+1);
     z.bus().advance(16);
 }
@@ -64,7 +64,7 @@ template<class Z> void compare_next_header_byte(Z& z) {
 // failed ones; both wait on the stack during the pass. 32 header bytes from
 // 8001h are compared with the ROM copy, stopping at the first difference. A
 // failed pass adds one to C (00:0803). The pass ends on the DJNZ at 07F6,
-// which the core runs: back to 07E2 while passes are left.
+// which ends the segment: back to 07E2 while passes are left.
 template<class Z> Exit compare_header_once(Z& z) {
     z.push(0x07E2,z.r.b,z.r.c);                                      // the pass counters
     z.load_hl(0x07E3);                                               // the header in cartridge RAM
@@ -83,7 +83,7 @@ template<class Z> Exit compare_header_once(Z& z) {
         z.increment(0x0804,z.r.c);                                   // one more failed pass
         z.relative(0x0805);
     } else z.pop(0x07F5,z.r.b,z.r.c);
-    return mk::decrement_jump_exit(z,0x07F6);
+    return z.final_decrement_jump(0x07F6);
 }
 // 00:07DF: sixteen passes (B = 10h), none failed yet (C = 0), then the first.
 template<class Z> Exit start_header_check(Z& z) {
@@ -96,24 +96,29 @@ template<class Z> Exit start_header_check(Z& z) {
 template<class Z> Exit header_verdict(Z& z) {
     z.copy(0x07F8,z.r.a,z.r.c);
     z.compare_immediate(0x07F9);                                     // 8
-    return mk::relative_if_exit(0x07FB,!z.carry());
+    return z.final_relative_if(0x07FB,mk::Condition::nc);
 }
 // 00:07FD: the header is good; cartridge RAM off (A = 80h, stored at 07FF),
 // then the routine returns.
 template<class Z> Exit disable_cartridge_ram(Z& z) {
     z.load_immediate(0x07FD,z.r.a);
-    return mk::continues(0x07FF,cartridge_store_cycles);
+    z.store_a_direct(0x07FF);
+    return mk::fall_through(0x07FF,0x0802);
 }
 
+// 00:0802: the header check is over; the routine returns to its caller.
+template<class Z> Exit leave_header_check(Z& z) { return z.final_return(0x0802); }
+
 // ---- The erase: 00:0847-086E ---------------------------------------------------------------------
-// 00:0847: erase cartridge RAM from 8000h. The core stores the zero seed
-// (L of 8000h) at 0850; the LDIR at 0851 copies it forward over 1FFBh bytes,
+// 00:0847: erase cartridge RAM from 8000h. The zero seed (L of 8000h) is
+// stored at 0850; the LDIR at 0851 copies it forward over 1FFBh bytes,
 // so the last four bytes of the 8 KiB are left as they were.
 template<class Z> Exit erase_cartridge_ram(Z& z) {
     z.load_hl(0x0847);                                               // 8000h
     z.load_de(0x084A);                                               // 8001h
     z.load_bc(0x084D);                                               // 1FFBh
-    return mk::continues(0x0850,seed_store_cycles);
+    z.store_register_to_hl(0x0850,z.r.l);                            // the zero seed
+    return mk::fall_through(0x0850,0x0851);
 }
 // 00:0853: write the empty saved-game window (D8h bytes from the ROM at
 // 3AC4h into 8100h: the slot names as the slot window shows them) and the
@@ -128,8 +133,11 @@ template<class Z> Exit write_empty_slots_and_header(Z& z) {
     z.load_bc(0x0864);
     z.block_copy(0x0867);                                            // the header
     z.load_immediate(0x0869,z.r.a);                                  // 80h
-    return mk::continues(0x086B,cartridge_store_cycles);
+    z.store_a_direct(0x086B);
+    return mk::fall_through(0x086B,0x086E);
 }
+// 00:086E: cartridge RAM is off again; the erase returns to its caller.
+template<class Z> Exit leave_erase(Z& z) { return z.final_return(0x086E); }
 }
 
 // ---- Registration ---------------------------------------------------------------------------------
@@ -147,18 +155,32 @@ void register_scene_persistence(RoutineRegistry& registry) {
     add(0x07F8,{mk::conditional_at(0x07FB)},{},[](auto& z) -> Exit { return header_verdict(z); });
     add(0x07FD,{cartridge_control_at(0x07FF)},{},[](auto& z) -> Exit { return disable_cartridge_ram(z); });
 
-    // The erase seeds cartridge RAM, so its bound needs cartridge RAM mapped
-    // at 8000h (otherwise the path is not known and the segment falls back).
+    // The erase seeds cartridge RAM: it runs only with cartridge RAM mapped at
+    // 8000h (the header check just selected it). Read at entry; no interrupt
+    // handler remaps slot 2 for good, and the store comes before any boundary
+    // that matters, so the guard need not hold across a delivery.
     const RoutineEntry erase{0,0x0847};
     auto seeded=mk::core_final_at(0x0850);
     seeded.wram_seed=0x8000;
     seeded.seed_target=SeedTarget::cartridge_ram;
-    const auto erase_logic=[](auto& z) -> Exit { return erase_cartridge_ram(z); };
-    registry.add(erase,mk::segment(erase,{seeded}),[=](const Machine& m) {
-        if (m.memory().mapping(0x8000).kind!=Memory::Kind::cartridge_ram) return mk::uncertain_maximum;
-        return mk::cost(m,erase_logic,mk::uncertain_maximum);
-    },[=](RoutineContext& c) { mk::run(c,erase_logic); });
+    mk::add_segment(registry,erase,mk::segment(erase,{seeded}),
+        mk::Guard{"cartridge RAM is mapped at 8000h",[](const Machine& m) {
+            return m.memory().mapping(0x8000).kind==Memory::Kind::cartridge_ram;
+        }},[](auto& z) -> Exit { return erase_cartridge_ram(z); });
     register_block_transfer(registry,{0,0x0851});                    // the erase's copy
     add(0x0853,{cartridge_control_at(0x086B)},{},[](auto& z) -> Exit { return write_empty_slots_and_header(z); });
+    // The returns after the cartridge-RAM-off stores (joining stretches).
+    {
+        const RoutineEntry lone{0,0x0802};
+        auto spec=mk::segment(lone,{mk::returned_at(0x0802)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,lone,std::move(spec),[](auto& z) -> Exit { return leave_header_check(z); });
+    }
+    {
+        const RoutineEntry lone{0,0x086E};
+        auto spec=mk::segment(lone,{mk::returned_at(0x086E)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,lone,std::move(spec),[](auto& z) -> Exit { return leave_erase(z); });
+    }
 }
 }

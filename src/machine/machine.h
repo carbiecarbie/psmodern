@@ -1,140 +1,122 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "hw/memory.h"
-#include "hw/cpu.h"
-#include "hw/vdp.h"
-#include "hw/psg.h"
+#include "machine/console.h"
 #include "machine/routines.h"
-#include <Z80.h>
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
-#include <vector>
+#include <string>
 
 namespace psmodern {
-struct PortAccess {
-    std::uint64_t cycle;
-    std::uint8_t port, value;
-    bool write;
-    bool operator==(const PortAccess&) const = default;
-};
-struct Pad {
-    bool up=false, down=false, left=false, right=false, one=false, two=false;
-    bool operator==(const Pad&) const = default;
-};
-struct FrameInput {
-    std::array<Pad,2> pads{};
-    bool reset=false, pause=false;
-};
-class Machine : private CpuBus {
+// The engine: the console running the game's registered C++ segments. It has
+// no processor core (milestone 14): every instruction is rendered by a
+// segment's body, and interrupts are accepted in C++ at every instruction
+// boundary: between segments and, for an exact segment, inside its body,
+// where the handler runs by nested dispatch and the body resumes after it.
+// A state no rendered code handles (an address with no segment, a segment
+// refused at its entry, an interrupt response other than IM 1) stops the run
+// with UnhandledState; nothing runs in its place.
+class Machine : public Console {
 public:
-    // Verification instrumentation bound to this machine for one call.
-    // Snapshots carry hardware state only. Leaving the scope restores the
-    // previous collector, including when the verifier reports a divergence.
-    class PortTrace {
-    public:
-        explicit PortTrace(Machine& machine);
-        ~PortTrace();
-        PortTrace(const PortTrace&)=delete;
-        PortTrace& operator=(const PortTrace&)=delete;
-        const std::vector<PortAccess>& accesses() const { return accesses_; }
-    private:
-        Machine& machine_;
-        std::vector<PortAccess> accesses_;
-        std::vector<PortAccess>* previous_;
-    };
-    // A fully prepared immutable image. Construction validates shape before
-    // a host may reach its proven instruction boundary; installation cannot
-    // allocate, throw or change any other machine field. This is not Reset.
-    class RomReplacement {
-    public:
-        RomReplacement(const RomReplacement&)=default;
-        RomReplacement& operator=(const RomReplacement&)=default;
-    private:
-        friend class Machine;
-        explicit RomReplacement(std::shared_ptr<const Memory::Rom> image):image_(std::move(image)) {}
-        std::shared_ptr<const Memory::Rom> image_;
-    };
-    static RomReplacement prepare_rom_replacement(std::shared_ptr<const Memory::Rom> image);
-    void replace_rom(const RomReplacement& prepared) noexcept { memory_.rom_=prepared.image_; }
-    static constexpr std::uint64_t frame_cycles=228*262;
-    // MesenCE samples Pause on VDP dot 315 when VCounter reaches 261.
-    // With 342 dots/line and 3 master clocks/T versus 2/dot, this is
-    // 260*228+210 T. CE observes NMI through the instruction end E;
-    // our arbiter samples at E-1, so represent that boundary one T earlier.
-    // This is a reference timing convention, not a hardware measurement.
-    static constexpr std::uint64_t pause_sample_offset=260*228+209;
     using Hook = std::function<std::optional<std::uint16_t>(std::uint16_t, Memory::Mapping)>;
-    // Read-only host instrumentation, scoped to one frame and never copied
-    // into snapshots. Both native and registered-routine writes pass here.
-    using WriteObserver = std::function<void(std::uint16_t,std::uint8_t)>;
-    explicit Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram = {});
+    // One instruction boundary as the engine reaches it: the PC of the next
+    // instruction, the nesting depth of interrupt deliveries inside bodies,
+    // whether it lies inside a body (or before its final instruction), and
+    // whether the previous instruction was rendered by a body (its Q is then
+    // not rendered yet: Part 0b of milestone 14 adds it).
+    struct Boundary {
+        std::uint16_t pc;
+        unsigned depth;
+        bool in_body;
+        bool rendered;
+    };
+    // Test instrumentation: called at every instruction boundary where the
+    // register file holds the whole state (top level, nested handlers, and
+    // inside exact bodies), once per boundary. It must not change the machine.
+    using BoundaryObserver = std::function<void(const Boundary&)>;
+    // Called exactly once per run_frame, at the first instruction boundary at
+    // or after the frame target, at any depth, with the registers synced: the
+    // state the reference emulator is sampled in. It must not change the
+    // machine (taking PSG writes or samples is allowed), copy it or run it.
+    using FrameObserver = std::function<void()>;
+    explicit Machine(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram = {})
+        : Console(std::move(rom),ram) {}
+    // A Machine is a value only at top level: copying one from inside a
+    // nested delivery (an observer at depth) is refused.
     Machine(const Machine& other);
     Machine& operator=(const Machine& other);
+    // One top-level step: an interrupt response, or one segment with every
+    // handler delivered inside it.
     std::uint64_t step(const Hook& hook = {}, RoutineRegistry* routines = nullptr);
     std::uint64_t step(RoutineRegistry& routines, const Hook& hook = {}) { return step(hook,&routines); }
-    void advance(std::uint64_t cycles);
-    std::uint64_t run_frame(const FrameInput& next_input, RoutineRegistry* routines = nullptr, const Hook& hook = {}, const WriteObserver& writes = {});
-    std::uint64_t run_frame(const FrameInput& input, RoutineRegistry& routines, const Hook& hook = {}, const WriteObserver& writes = {}) { return run_frame(input,&routines,hook,writes); }
-    std::uint64_t cycles() const { return cycle_; }
-    std::uint64_t opcode_fetches() const { return opcode_fetches_; }
-    void set_pause(bool level) { pending_pause_=level; }
-    std::optional<std::uint64_t> next_nmi() const;
+    // Runs steps until the first top-level boundary at or after the next
+    // frame target and returns how far past the target it stopped.
+    std::uint64_t run_frame(const FrameInput& next_input, RoutineRegistry* routines = nullptr, const Hook& hook = {},
+                            const WriteObserver& writes = {}, const FrameObserver& frame = {});
+    std::uint64_t run_frame(const FrameInput& input, RoutineRegistry& routines, const Hook& hook = {},
+                            const WriteObserver& writes = {}, const FrameObserver& frame = {}) {
+        return run_frame(input,&routines,hook,writes,frame);
+    }
     unsigned block_copy_cycles() const;
     unsigned block_copy_frame_cycles() const;
     unsigned video_register_output_cycles() const;
-    std::optional<std::uint64_t> next_irq() const { return vdp_.next_irq(); }
-    void schedule_nmi(std::uint64_t cycle);
-    void set_pad(unsigned index, Pad pad) { pending_pads_.at(index)=pad; }
-    void set_reset(bool pressed) { pending_reset_=pressed; }
-    std::uint8_t read_port(std::uint16_t port, std::uint64_t cycle);
-    void write_port(std::uint16_t port, std::uint8_t value, std::uint64_t cycle);
-    Memory& memory() { return memory_; }
-    const Memory& memory() const { return memory_; }
-    Vdp& vdp() { return vdp_; }
-    const Vdp& vdp() const { return vdp_; }
-    const Psg& psg() const { return psg_; }
-    std::vector<PsgWrite> take_psg_writes() { return psg_.take_writes(); }
-    PsgSamples take_samples() { return psg_.take_samples(); }
-    const Vdp::Picture& picture() const { return vdp_.picture(); }
-    Z80& cpu() { return cpu_.raw(); }
-    const Z80& cpu() const { return cpu_.raw(); }
-    // Single bounded probe for timing tests; never retains a history.
-    const std::optional<PortAccess>& last_access() const { return last_access_; }
-    bool equivalent(const Machine& other) const;
-    // Values are ordered as original (*this), replacement (other).
-    std::vector<FieldDifference> differences(const Machine& other) const;
-    std::uint8_t peek(std::uint16_t address) const;
-    bool interrupt_accepted_at_boundary() const;
+    // Instrumentation, never copied; the observer must outlive its use.
+    void set_boundary_observer(const BoundaryObserver* observer) { boundary_observer_=observer; }
+    // Test-side opcode check of the renderers (review H4): called with the
+    // address and declared pattern of every rendered instruction that declares
+    // one (RoutineContext::expect_opcode). The program installs none, so it
+    // never reads an opcode to decide anything. Never copied.
+    using OpcodeCheck = std::function<void(const Machine&, std::uint16_t, OpcodePattern)>;
+    void set_opcode_check(const OpcodeCheck* check) { opcode_check_=check; }
+    const OpcodeCheck* opcode_check() const { return opcode_check_; }
+    unsigned depth() const { return depth_; }
+    // Test scaffolding (milestone 14). The program installs none and links no
+    // processor core, so for it an address where no segment begins, a
+    // interrupt response other than IM 1, or a prefix resumption
+    // stops the run (UnhandledState). Only the test oracle provides a step
+    // (oracle::native_step, the pinned core on the register file), which the
+    // mechanism tests install for the parts of their authored programs they
+    // do not render (callers, idle loops, handlers). Process-wide; every use
+    // is counted in the registry's census (scaffold_steps), and the game's
+    // probes and checkpoint runs require that count to stay zero.
+    // With `with_registry` false the scaffolding serves only steps given no
+    // registry (or an empty one): an original run with no rewritten code, as
+    // the game's tests use for comparison, where the scaffolding then takes
+    // the whole step, interrupt responses included (the engine's arbitration
+    // is not used, so the reference matches oracle::NativeMachine); a step
+    // with routines registered still stops at unrendered code.
+    using ScaffoldStep = std::uint64_t (*)(Machine&);
+    static void set_scaffold_step(ScaffoldStep step, bool with_registry) { scaffold_step_=step; scaffold_with_registry_=with_registry; }
+    static ScaffoldStep scaffold_step() { return scaffold_step_; }
+    static bool scaffold_with_registry() { return scaffold_with_registry_; }
 private:
     friend class RoutineContext;
     bool run_routine(RoutineRegistry& routines);
-    void bind();
-    void record_access(PortAccess access);
-    void sync(std::uint64_t target);
-    void latch_input();
-    std::uint8_t opcode(std::uint16_t address) override;
-    std::uint8_t read(std::uint16_t address) override;
-    void write(std::uint16_t address, std::uint8_t value) override;
-    std::uint8_t input(std::uint16_t port, std::uint64_t cycle) override;
-    void output(std::uint16_t port, std::uint8_t value, std::uint64_t cycle) override;
-    Memory memory_;
-    Cpu cpu_;
-    Vdp vdp_;
-    Psg psg_;
-    std::uint64_t cycle_ = initial_state::cpu_cycle;
-    std::uint64_t opcode_fetches_ = 0;
-    std::optional<std::uint64_t> scheduled_nmi_;
-    std::array<Pad, 2> pads_{}, pending_pads_{};
-    std::uint8_t io_control_ = initial_state::io_control;
-    std::uint8_t open_bus_ = initial_state::open_bus;
-    bool reset_ = false, pause_ = false, pending_reset_ = false, pending_pause_ = false;
-    bool input_latched_ = false, sampled_int_ = false, sampled_nmi_ = false,
-        pause_nmi_level_ = false;
-    std::optional<PortAccess> last_access_;
-    std::vector<PortAccess>* port_trace_=nullptr;
+    // An instruction boundary inside a body (or before its final): observers,
+    // then arbitration and nested delivery until no interrupt is due.
+    void body_boundary(RoutineContext& context, std::uint16_t at, bool synced);
+    void observe_boundary(std::uint16_t pc, bool in_body, bool rendered);
+    bool accepts_in_cpp(Acceptance kind) const;
+    std::uint64_t accept(Acceptance kind, bool late_nmi);
+    // Runs the handler accepted at `at` by nested dispatch until it returns
+    // there; throws RoutineAbandoned when it reaches the reset code.
+    void deliver(Acceptance kind, bool late_nmi, std::uint16_t at);
+    void record_step(RoutineRegistry* routines, std::uint64_t start, std::uint16_t pc, Memory::Mapping mapping);
+    [[noreturn]] void unhandled(std::uint16_t pc, const std::string& what) const;
     std::uint64_t routine_window() const;
-    const WriteObserver* write_observer_=nullptr;
+    // Transient engine state; none of it is copied.
+    unsigned depth_=0;
+    const Hook* active_hook_=nullptr;
+    RoutineRegistry* active_routines_=nullptr;
+    const BoundaryObserver* boundary_observer_=nullptr;
+    const OpcodeCheck* opcode_check_=nullptr;
+    const FrameObserver* frame_observer_=nullptr;
+    std::uint64_t frame_target_=0;
+    bool frame_observed_=true;
+    std::uint64_t observed_cycle_=~std::uint64_t{0};
+    static ScaffoldStep scaffold_step_;
+    static bool scaffold_with_registry_;
+    std::uint64_t scaffold(RoutineRegistry* routines, std::uint64_t start, std::uint16_t pc, bool unsampled_nmi,
+                           const std::string& what, const Hook* hook=nullptr);
 };
 }

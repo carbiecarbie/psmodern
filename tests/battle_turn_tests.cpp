@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/battle_turn.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
 #include <algorithm>
 #include <iostream>
 using namespace psmodern;
 namespace {
+// The documented equality of the engine and the oracle (milestone 14), plus the
+// two host-side records the equality leaves out: the PSG writes waiting to be
+// taken and the cartridge RAM dirty flag.
+bool same_state(Machine& engine, Machine& original) {
+    return oracle::equal(engine,original,oracle::Scope::whole) && engine.take_psg_writes()==original.take_psg_writes() &&
+           engine.memory().cartridge_ram_dirty()==original.memory().cartridge_ram_dirty();
+}
 void registration() {
     RoutineRegistry registry;
     game::register_battle_turn(registry);
@@ -85,7 +93,7 @@ void complete_shuffles(probe::Harness &harness) {
         };
         run(original, false);
         run(machine, true);
-        probe::check(original.differences(machine).empty(),
+        probe::check(same_state(machine, original),
                      "whole shuffle differs, including random state and cycles");
         std::array<unsigned, 12> actors{};
         for (unsigned i = 0; i < 12; ++i)
@@ -97,6 +105,8 @@ void complete_shuffles(probe::Harness &harness) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -106,6 +116,10 @@ int main(int argc, char **argv) {
         if (!rom)
             return 77;
         probe::Harness harness(*rom);
+        {
+            probe::Harness sweeping(*rom);
+            c4::sweep_file(sweeping,"battle_turn",game::battle_turn::segments);
+        }
         const auto count = state_probes(harness);
         cleared_actions(harness);
         battle_outcomes(harness);

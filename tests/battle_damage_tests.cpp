@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/battle_damage.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
 #include <iostream>
 using namespace psmodern;
 namespace {
+// The documented equality of the engine and the oracle (milestone 14), plus the
+// two host-side records the equality leaves out: the PSG writes waiting to be
+// taken and the cartridge RAM dirty flag.
+bool same_state(Machine& engine, Machine& original) {
+    return oracle::equal(engine,original,oracle::Scope::whole) && engine.take_psg_writes()==original.take_psg_writes() &&
+           engine.memory().cartridge_ram_dirty()==original.memory().cartridge_ram_dirty();
+}
 void registration() {
     RoutineRegistry registry;
     game::register_battle_damage(registry);
@@ -119,7 +127,7 @@ unsigned complete_variances(probe::Harness &harness) {
                 probe::check(steps < 10000, "C++ variance failed to return");
                 machine.step(harness.registry());
             }
-            probe::check(original.differences(machine).empty(),
+            probe::check(same_state(machine, original),
                          "complete variance machine and RNG");
             const unsigned expected = stat / 2 + stat / 4 + (draw * (stat / 4)) / 256;
             probe::check(machine.cpu().af.uint8_values.at_1 == expected, "stat variance formula");
@@ -196,7 +204,7 @@ unsigned incoming_damage(probe::Harness &harness) {
             probe::check(steps < 100000, "incoming C++ returns");
             m.step(harness.registry());
         }
-        probe::check(original.differences(m).empty(), "incoming full state/cycles/RNG");
+        probe::check(same_state(m, original), "incoming full state/cycles/RNG");
         if (seed % 4 == 0)
             probe::check(m.peek(0xC401) == 100 && m.peek(0xC2ED) == 0,
                          "protection prevents incoming hit");
@@ -206,6 +214,8 @@ unsigned incoming_damage(probe::Harness &harness) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -215,6 +225,10 @@ int main(int argc, char **argv) {
         if (!rom)
             return 77;
         probe::Harness harness(*rom);
+        {
+            probe::Harness sweeping(*rom);
+            c4::sweep_file(sweeping,"battle_damage",game::battle_damage::segments);
+        }
         unsigned count = state_probes(harness);
         count += hit_points_and_death(harness);
         count += minimum_damage(harness);

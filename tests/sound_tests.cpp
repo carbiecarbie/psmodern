@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "probe.h"
+#include "game/sound.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -60,8 +61,13 @@ void sound_write_callbacks(probe::Harness& harness,const probe::Rom& rom) {
                 actual.advance(*irq_at-actual.cycles()-distance);actual.cpu().iff1=actual.cpu().iff2=1;
             } else actual.schedule_nmi(actual.cycles()+distance);
             Machine native=actual;
+            // This fixture registers the one sound segment only; the rest of
+            // the program (callers, handlers) runs on the oracle's core.
+            oracle::Scaffold partial(oracle::Scaffold::authored);
             RoutineRegistry registry;
-            registry.add({12,static_cast<std::uint16_t>(entry)},routine->spec,routine->bound,routine->body);
+            if(routine->guard) registry.add_exact({12,static_cast<std::uint16_t>(entry)},routine->spec,*routine->guard,routine->bound,routine->body);
+            else if(routine->exact) registry.add_exact({12,static_cast<std::uint16_t>(entry)},routine->spec,routine->bound,routine->body);
+            else registry.add({12,static_cast<std::uint16_t>(entry)},routine->spec,routine->bound,routine->body);
             using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t,Memory::Kind>;
             std::vector<Write> expected,observed;
             std::set<std::uint16_t> native_sites;
@@ -94,7 +100,7 @@ void sound_write_callbacks(probe::Harness& harness,const probe::Rom& rom) {
                 throw std::runtime_error("sound callback fixture did not restore its caller");
             };
             run(native,nullptr,expected);run(actual,&registry,observed);
-            probe::check(actual.equivalent(native),"sound callback fix preserves CPU/WZ/R, RAM, VDP/PSG and IRQ/NMI state");
+            probe::check(oracle::equal(actual,native,oracle::Scope::whole) && actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),"sound callback fix preserves CPU/WZ/R, RAM, VDP/PSG and IRQ/NMI state");
             probe::check(expected_ports.accesses()==actual_ports.accesses(),"sound callbacks preserve every PSG/VDP port value, order and cycle");
             probe::check(expected==observed,"sound writes preserve every address, value, order, mapping and callback cycle; entry="+std::to_string(entry));
             if(registry.find({12,static_cast<std::uint16_t>(entry)})->counters.cpp_calls)
@@ -108,9 +114,106 @@ void sound_write_callbacks(probe::Harness& harness,const probe::Rom& rom) {
         probe::check(rendered_sites.contains(static_cast<std::uint16_t>(pc)),"sound callback matrix executed every RES/SET and indexed INC/DEC site in C++");
     std::cout<<cases<<" sound memory-callback windows match the original, including all five local indexed RES sites.\n";
 }
+// Milestone 14 (Part C6): every sound segment under many seeded states. A state puts IX, HL, DE and BC
+// at the voice records and ports the driver uses, and randomizes only the bytes of those records (at most
+// 0x30 bytes at IX, HL and DE each: the driver RAM the segments read), never the whole work RAM, so that the
+// nested sound tick cannot overflow the PSG queue. Each admitted run goes under strict lockstep
+// (Harness::run_cpp, which also runs the opcode check of every rendered final); the exit address and the
+// address the run continued at are recorded, so that an exit or a branch direction no state reaches is
+// reported instead of silently untested. A segment with more than one instruction also gets the forced
+// IRQ/NMI sweep (probe::sweep) with the IRQ enabled.
+struct Coverage { std::set<std::tuple<std::uint16_t,std::uint16_t,std::uint16_t>> seen; };
+void prepare_state(const probe::Rom& rom,RoutineEntry entry,unsigned n,Machine& machine) {
+    std::mt19937_64 random(n*0x9e3779b97f4a7c15ull+entry.address);
+    static constexpr std::uint16_t records[]={0xc040,0xc0a0,0xc120,0xc180,0xc1c0,0xc00e,0xc14e};
+    static constexpr std::uint16_t shared[]={0xc12e,0xc08e,0xc18e,0xc1ae,0xc00c,0xc12e};
+    auto& cpu=machine.cpu();
+    const auto ix=records[random()%7], hl=shared[random()%6], de=static_cast<std::uint16_t>(0xc000+(random()%0x1f0));
+    cpu.ix_iy[0].uint16_value=ix; cpu.hl.uint16_value=hl; cpu.de.uint16_value=de;
+    if(random()%2) cpu.bc.uint8_values.at_0=0x7f;
+    cpu.bc.uint8_values.at_1=static_cast<std::uint8_t>(random()%12);
+    static constexpr std::uint8_t pool[]={0,1,2,3,0x0a,0x0b,0x0c,0x0f,0x10,0x7f,0x80,0x81,0x8a,0x8b,0xff};
+    auto byte=[&]()->std::uint8_t { const auto v=random(); return v%3==0 ? pool[(v>>8)%15] : v%5==0 ? 0 : v%7==0 ? 0xff : static_cast<std::uint8_t>(v>>8); };
+    // The driver's own variables (C001, C002, C005, C006, C009-C00B) and the level fields of the ten voice records the fade and
+    // the timer walk (C00E.. and C14E.., stride 0x20): 7 + 30 bytes in all.
+    for(unsigned i:{1u,2u,5u,6u,9u,10u,11u}) machine.memory().write(static_cast<std::uint16_t>(0xc000+i),byte());
+    for(unsigned record=0;record<10;++record) for(unsigned field:{0u,8u,23u})
+        machine.memory().write(static_cast<std::uint16_t>((record<6 ? 0xc00eu : 0xc14eu - 6*0x20)+record*0x20+field),byte());
+    for(auto base:{ix,hl,de}) for(unsigned i=0;i<0x30;++i) machine.memory().write(static_cast<std::uint16_t>(base+i),byte());
+    // The return address of an inherited-stack segment, when the unit is entered after its caller pushed it.
+    machine.memory().write(static_cast<std::uint16_t>(cpu.sp.uint16_value+4),0x80);
+    machine.memory().write(static_cast<std::uint16_t>(cpu.sp.uint16_value+5),0x01);
+    // Fade phase ends (the timer reaching zero at the last step of a phase, either direction), and the
+    // envelope sentinel byte the tone voice compares with.
+    if(entry.address==0x80f0 && n%3==0) {
+        machine.memory().write(0xc00b,1);
+        machine.memory().write(0xc00a,static_cast<std::uint8_t>(random()%2 ? 0x0b : 0x8a));
+        machine.memory().write(0xc002,static_cast<std::uint8_t>(random()%3==0 ? 0x7f : random()%2 ? 0x05 : 0x85));
+        machine.memory().write(0xc006,static_cast<std::uint8_t>(random()%2));
+    }
+    if(entry.address==0x8791 || entry.address==0x87ad) {
+        const auto sentinel=rom.byte(12,0x87b6);
+        if(random()%2) {
+            const auto flags=static_cast<std::uint16_t>(ix+static_cast<std::int8_t>(rom.byte(12,0x87af)));
+            const auto level=static_cast<std::uint16_t>(ix+static_cast<std::int8_t>(rom.byte(12,0x87b3)));
+            machine.memory().write(flags,static_cast<std::uint8_t>(machine.memory().read(flags)&~4u));
+            machine.memory().write(level,sentinel);
+        }
+    }
+}
+bool admitted(probe::Harness& h,RoutineEntry entry,const Machine& machine) {
+    const auto& routine=h.registry().find(entry)->bound;
+    const auto* r=h.registry().find(entry);
+    return (!r->guard || r->guard->holds(machine)) && routine(machine)<Machine::frame_cycles;
+}
+void sound_exit_probes_and_sweeps(probe::Harness& h,const probe::Rom& rom) {
+    Coverage coverage;
+    unsigned probes=0,swept=0,skipped=0;
+    std::vector<std::pair<RoutineEntry,std::uint16_t>> all_exits;
+    for(const auto& segment:game::sound::segments) {
+        const auto* r=h.registry().find(segment.entry);
+        probe::check(r!=nullptr,"sound segment is registered");
+        for(const auto& exit:r->spec.exits) all_exits.emplace_back(segment.entry,exit.address);
+        bool did_sweep=false;
+        for(unsigned n=0;n<400;++n) {
+            probe::Setup setup; setup.seed=n; setup.iff1=setup.iff2=true; setup.r=static_cast<std::uint8_t>(n*7);
+            auto machine=h.prepare(segment.entry,setup);
+            prepare_state(rom,segment.entry,n,machine);
+            if(!admitted(h,segment.entry,machine)) continue;
+            try {
+                std::optional<SegmentExit> exit;
+                h.exit_sink=&exit;
+                h.run_cpp(machine,segment.entry);
+                h.exit_sink=nullptr;
+                ++probes;
+                if(exit) coverage.seen.emplace(segment.entry.address,exit->address,static_cast<std::uint16_t>(machine.cpu().pc.uint16_value));
+                if(!did_sweep && !r->spec.single_instruction) {
+                    did_sweep=true; ++swept;
+                    // Every cycle with PSMODERN_FULL_SWEEPS set; by default about 64
+                    // positions per kind over the whole body (probe::auto_stride).
+                    probe::sweep(h,segment.entry,setup,[&](Machine& m) { prepare_state(rom,segment.entry,n,m); },probe::auto_stride);
+                }
+            } catch(const std::exception& e) {
+                h.exit_sink=nullptr;
+                throw std::runtime_error("sound segment 12:"+std::to_string(segment.entry.address)+" state "+std::to_string(n)+": "+e.what());
+            }
+        }
+        if(!r->spec.single_instruction && !did_sweep) { ++skipped; std::cout<<"NOT SWEPT (never admitted): "<<std::hex<<segment.entry.address<<std::dec<<"\n"; }
+    }
+    unsigned missing=0;
+    for(const auto& [entry,at]:all_exits) {
+        bool any=false;
+        for(const auto& t:coverage.seen) if(std::get<0>(t)==entry.address && std::get<1>(t)==at) any=true;
+        if(!any) { ++missing; std::cout<<"EXIT NOT REACHED: segment "<<std::hex<<entry.address<<" exit "<<at<<std::dec<<"\n"; }
+    }
+    probe::check(missing==0 && skipped==0,"a sound exit is reached by no probe, or a multi-instruction segment was never swept");
+    std::cout<<"sound exit probes: "<<probes<<" runs, "<<swept<<" segments swept, "<<missing<<" exits not reached, "<<skipped<<" not swept\n";
+}
 }
 
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
  try {
     if(argc!=3) return 1;
     auto rom=probe::load(argv[1],argv[2]); if(!rom) return 77;
@@ -144,7 +247,7 @@ int main(int argc,char** argv) {
     {
         auto machine=h.prepare({12,0x8028},{});
         machine.cpu().bc.uint8_values.at_0=0xbf;
-        h.run_fallback(machine,{12,0x8028},RoutineFallback::frame);
+        h.run_fallback(machine,{12,0x8028},RoutineFallback::guard);
     }
     // Compare each actual PSG access with the native transfer, including
     // offsets from the same starting cycle and bytes read from the ROM.
@@ -159,10 +262,10 @@ int main(int argc,char** argv) {
         Machine::PortTrace native_trace(native);
         while(native.cpu().pc.uint16_value!=setup.return_address) native.step();
         Machine::PortTrace cpp_trace(cpp);
-        auto* verifier=h.registry().verifier;
-        h.registry().verifier=nullptr;
+        // The lockstep's own port trace would take the accesses from this one.
+        h.verified=false;
         h.run_cpp(cpp,{12,0x8028});
-        h.registry().verifier=verifier;
+        h.verified=true;
         const auto& a=native_trace.accesses(); const auto& b=cpp_trace.accesses();
         probe::check(a==b && b.size()==8,"ordered PSG access trace differs");
         for(unsigned i=0;i<8;++i) {
@@ -230,7 +333,7 @@ int main(int argc,char** argv) {
     }
     { auto machine=h.prepare({12,0x81F8},{});
     machine.cpu().hl.uint16_value=0xffff;
-      h.run_fallback(machine,{12,0x81F8},RoutineFallback::frame); }
+      h.run_fallback(machine,{12,0x81F8},RoutineFallback::guard); }
     for(unsigned seed=0;seed<64;++seed) {
         probe::Setup setup;
         setup.seed=seed;
@@ -244,7 +347,7 @@ int main(int argc,char** argv) {
     }
     { auto machine=h.prepare({12,0x8234},{});
     machine.cpu().hl.uint16_value=0xffff;
-      h.run_fallback(machine,{12,0x8234},RoutineFallback::frame); }
+      h.run_fallback(machine,{12,0x8234},RoutineFallback::guard); }
     for(unsigned value=0;value<256;++value) {
         for(unsigned at:{0x82f2u,0x82f7u,0x82fbu,0x8300u,0x8305u,0x830au,0x8319u,0x8321u,0x832fu,0x8334u}) {
             probe::Setup setup;
@@ -287,7 +390,7 @@ int main(int argc,char** argv) {
     }
     { auto machine=h.prepare({12,0x85AD},{});
     machine.cpu().ix_iy[0].uint16_value=0xffff;
-      h.run_fallback(machine,{12,0x85AD},RoutineFallback::frame); }
+      h.run_fallback(machine,{12,0x85AD},RoutineFallback::guard); }
     for(unsigned value=0;value<256;++value) for(unsigned at:{0x857eu,0x85cfu,0x85e7u,0x85edu,0x8618u}) for(unsigned state:{0u,1u,2u,0xffu}) {
         probe::Setup setup;
         setup.seed=value;
@@ -326,7 +429,7 @@ int main(int argc,char** argv) {
     }
     { auto machine=h.prepare({12,0x8687},{});
     machine.cpu().ix_iy[0].uint16_value=0xffff;
-      h.run_fallback(machine,{12,0x8687},RoutineFallback::frame); }
+      h.run_fallback(machine,{12,0x8687},RoutineFallback::guard); }
     // Vary every command byte and representative voice fields, including
     // all early returns and both outcomes of each score dispatch.
     for(unsigned value=0;value<256;++value) {
@@ -413,7 +516,7 @@ int main(int argc,char** argv) {
     {
         auto machine=h.prepare({12,0x83F8},{});
         machine.cpu().de.uint16_value=0xfff8;
-        h.run_fallback(machine,{12,0x83F8},RoutineFallback::frame);
+        h.run_fallback(machine,{12,0x83F8},RoutineFallback::guard);
     }
     // Score-note branches, signed pitch shifts and every byte-sized duration
     // multiplier are checked against the original, including wraparound.
@@ -526,7 +629,7 @@ int main(int argc,char** argv) {
     {
         auto machine=h.prepare({12,0x878E},{});
         machine.cpu().hl.uint16_value=0xffff;
-        h.run_fallback(machine,{12,0x878E},RoutineFallback::frame);
+        h.run_fallback(machine,{12,0x878E},RoutineFallback::guard);
     }
     // Short continuations preserve the saved caller state and original
     // conditional-call boundaries between sound subsystems.
@@ -541,7 +644,9 @@ int main(int argc,char** argv) {
         }
     }
     // Host-observed sound entries run the callback once, before admission,
-    // whether the replacement runs or an NMI forces the original path.
+    // whether an NMI is pending or not. Milestone 14: the replacement is exact,
+    // so the NMI is taken inside it and the hook also sees the handler's own
+    // native boundaries at depth 1; only top-level calls are the entry's.
     for(unsigned at:{0x02edu,0x02f5u,0x8043u,0x82efu}) {
         const RoutineEntry entry{at<0x4000 ? 0u : 12u,static_cast<std::uint16_t>(at)};
         for(unsigned fallback=0;fallback<2;++fallback) {
@@ -552,6 +657,7 @@ int main(int argc,char** argv) {
             const auto before=h.routine(entry).counters;
             const auto old_cycles=machine.cycles();
             machine.step([&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
+                if(machine.depth()) return {};
                 probe::check(pc==entry.address && mapping==Memory::Mapping{Memory::Kind::rom,entry.bank},"observed sound entry differs");
                 probe::check(machine.cycles()==old_cycles,"sound hook occurred after execution");
                 ++calls;
@@ -559,7 +665,7 @@ int main(int argc,char** argv) {
             },&h.registry());
             const auto& after=h.routine(entry).counters;
             probe::check(calls==1,"sound hook did not occur exactly once");
-            probe::check(fallback ? after.fallback_calls==before.fallback_calls+1 : after.cpp_calls==before.cpp_calls+1,
+            probe::check(after.cpp_calls==before.cpp_calls+1,
                          "sound entry did not follow the expected admission path");
         }
     }
@@ -589,9 +695,9 @@ int main(int argc,char** argv) {
         probe::check(steps<2000,"rewritten sound chain did not return");
         steps=0; while(original.cpu().pc.uint16_value!=setup.return_address && steps++<2000) original.step();
         probe::check(steps<2000,"original sound chain did not return");
-        const auto diff=rewritten.differences(original);
-        for(const auto& d:diff) std::cerr<<d.field<<" ";
-        probe::check(diff.empty(),"sound chain diverged from original");
+        for(const auto& d:oracle::differences(rewritten,original,oracle::Scope::whole)) std::cerr<<d<<" ";
+        probe::check(oracle::equal(rewritten,original,oracle::Scope::whole) &&
+                     rewritten.memory().cartridge_ram_dirty()==original.memory().cartridge_ram_dirty(),"sound chain diverged from original");
     }
     // The duration setup is interruptible at its original branches. Check
     // the complete multiplication and clear, including byte wrap and B=0.
@@ -604,7 +710,7 @@ int main(int argc,char** argv) {
         Machine native=actual;
         for(unsigned step=0;native.cpu().pc.uint16_value!=0x0180 && step<2000;++step) native.step();
         for(unsigned step=0;actual.cpu().pc.uint16_value!=0x0180 && step<2000;++step) actual.step(h.registry());
-        probe::check(actual.cpu().pc.uint16_value==0x0180 && actual.equivalent(native),"full note duration chain differs");
+        probe::check(actual.cpu().pc.uint16_value==0x0180 && oracle::equal(actual,native,oracle::Scope::whole) && actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),"full note duration chain differs");
         const auto expected=static_cast<std::uint8_t>(0xa7*multiplier);
         probe::check(actual.peek(0xc12a)==expected && actual.peek(0xc135)==expected,"duration multiplier or wrap differs");
     }
@@ -626,11 +732,14 @@ int main(int argc,char** argv) {
             Machine::Hook hook=[](auto pc,auto)->std::optional<std::uint16_t> {if(pc==0x0180) throw Stop{};return {};};
             try {for(unsigned frame=0;frame<4;++frame) machine.run_frame({},registry,hook,observer);}
             catch(const Stop&) {return;}
+            // The game's registry has no segment at the probe's return address:
+            // the engine stops there before running anything, as the hook does.
+            catch(const UnhandledState&) {if(machine.cpu().pc.uint16_value==0x0180) return; throw;}
             throw std::runtime_error("duration chain did not return");
         };
         run(native,nullptr,expected);
         run(actual,&h.registry(),observed);
-        probe::check(actual.equivalent(native) && expected==observed,"duration split changes write callback order or cycles");
+        probe::check(oracle::equal(actual,native,oracle::Scope::whole) && actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty() && expected==observed,"duration split changes write callback order or cycles");
         probe::check(expected.size()==9,"duration chain must write both duration and seven voice fields");
     }
     // A frame or NMI at an entry still uses the unmodified native opcode.
@@ -654,6 +763,7 @@ int main(int argc,char** argv) {
             h.run_fallback(machine,entry,event==0 ? RoutineFallback::nmi : event==1 ? RoutineFallback::frame : RoutineFallback::irq);
         }
     }
+    sound_exit_probes_and_sweeps(h,*rom);
     std::cout<<"Sound initialization and silence segments verified against ROM.\n";
     return 0;
  } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

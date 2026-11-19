@@ -13,9 +13,10 @@
 // (00:277F) and addition (00:279F), the encounter setup, the battle (00:100F)
 // and the dialogue-window close (00:3464). Those routines belong to other
 // parts, so every call into them is where a segment ends: the segment renders
-// the loads, tests and stores between two calls and hands the call (or the
-// tail jump that ends a script) to the Z80 core. The instruction after a call
-// is the next entry. A script's jumps become if/else and early returns.
+// the loads, tests and stores between two calls and renders the call (or the
+// tail jump that ends a script) as its last instruction. The instruction after
+// a call is the next entry (a one-instruction segment where a call follows a
+// call). A script's jumps become if/else and early returns.
 //
 // No dialogue, item, enemy group, price or flag value is written here: the
 // kit reads every operand and cycle cost from the player's ROM at the
@@ -25,6 +26,7 @@
 // of the next encounter, C2E9 the travel request, C2F0 the members a damage
 // tile knocked out, C309 the location, C500 onwards the story flags (C503,
 // C504, C506, C508, C511, C516, C517), C800 the first object slot.
+#include "game/joins.h"
 #include "game/scenes.h"
 #include "game/menu_kit.h"
 #include <vector>
@@ -34,18 +36,15 @@ namespace {
 namespace mk=menu_kit;
 using mk::Exit;
 
-// The ways a segment ends. Each names the original's final instruction and
-// charges its cycles; the core runs that instruction.
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit call_if_at(std::uint16_t at, bool taken) { return mk::continues(at,taken ? mk::call_cycles : mk::untaken_call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit taken_return_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
 
 // What follows a dialogue selection: a tail jump into the renderer (the script
 // ends there) or a call (the script goes on after the text).
 enum class Next { jump, call };
-Exit next_at(Next next, std::uint16_t at) { return next==Next::call ? call_at(at) : jump_at(at); }
+template<class Z> Exit next_at(Z& z, Next next, std::uint16_t at) { return next==Next::call ? call_at(z,at) : jump_at(z,at); }
 std::uint16_t after(std::uint16_t at, unsigned length) { return static_cast<std::uint16_t>(at+length); }
 
 // ---- Shared shapes ----------------------------------------------------------------------------
@@ -53,7 +52,7 @@ std::uint16_t after(std::uint16_t at, unsigned length) { return static_cast<std:
 // the jump or call into the dialogue renderer right after it.
 template<class Z> Exit dialogue(Z& z, std::uint16_t at, Next next) {
     z.load_hl(at);
-    return next_at(next,after(at,3));
+    return next_at(z,next,after(at,3));
 }
 template<class Z> Exit dialogue_then_jump(Z& z, std::uint16_t at) { return dialogue(z,at,Next::jump); }
 template<class Z> Exit dialogue_then_call(Z& z, std::uint16_t at) { return dialogue(z,at,Next::call); }
@@ -61,7 +60,7 @@ template<class Z> Exit dialogue_then_call(Z& z, std::uint16_t at) { return dialo
 // (01:617D) or the item for the inventory search.
 template<class Z> Exit number_then_call(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
-    return call_at(after(at,2));
+    return call_at(z,after(at,2));
 }
 // `ld a,n; ld (nn),a` at `at`, then the call or jump after it: an enemy group
 // into C2E6 before the encounter setup, an item into the current-item byte
@@ -69,14 +68,14 @@ template<class Z> Exit number_then_call(Z& z, std::uint16_t at) {
 template<class Z> Exit store_number(Z& z, std::uint16_t at, Next next) {
     z.load_immediate(at,z.r.a);
     z.store_a_direct(after(at,2));
-    return next_at(next,after(at,5));
+    return next_at(z,next,after(at,5));
 }
 // The reply to a yes/no answer (Z set for yes): `ld hl,nn` with the yes text,
 // `jr z` over the second `ld hl,nn` with the no text, then the renderer.
 template<class Z> Exit reply_by_answer(Z& z, std::uint16_t at, Next next) {
     z.load_hl(at);
     if (!z.relative_if(after(at,3),z.zero())) z.load_hl(after(at,5));
-    return next_at(next,after(at,8));
+    return next_at(z,next,after(at,8));
 }
 // A `jr cc` that picks one of two dialogue loads, each followed by its own
 // jump or call into the renderer.
@@ -103,9 +102,8 @@ template<class Z> Exit flag_then_dialogue(Z& z, std::uint16_t at) {
 // After the inventory search for an item the script hands out: `ret z` when
 // the party already carries it, else a jump to the inventory addition.
 template<class Z> Exit add_unless_carried(Z& z, std::uint16_t at) {
-    if (z.zero()) return taken_return_at(at);
-    z.return_not_taken(at);
-    return jump_at(after(at,1));
+    if (auto exit=z.final_return_if(at,mk::Condition::z)) return *exit;
+    return jump_at(z,after(at,1));
 }
 
 // ---- The cake seller: 01:510D-5156 ------------------------------------------------------------
@@ -124,7 +122,7 @@ template<class Z> Exit cake_money(Z& z) {
     z.load_hl_direct(0x5127);                                        // the party's money
     z.or_a(0x512A);
     z.subtract_hl_with_carry(0x512B,z.de());
-    return mk::relative_if_exit(0x512D,!z.carry());
+    return z.final_relative_if(0x512D,mk::Condition::nc);
 }
 // 01:511C: after the yes/no. No ends with its own text; yes checks the money.
 template<class Z> Exit cake_answer(Z& z) {
@@ -135,7 +133,7 @@ template<class Z> Exit cake_answer(Z& z) {
 template<class Z> Exit cake_capacity(Z& z) {
     z.load_a_direct(0x5135);                                         // the item count
     z.compare_immediate(0x5138);
-    return mk::relative_if_exit(0x513A,z.carry());
+    return z.final_relative_if(0x513A,mk::Condition::c);
 }
 // 01:5142: the new balance is stored and the thanks shown.
 template<class Z> Exit cake_paid(Z& z) {
@@ -151,26 +149,25 @@ template<class Z> Exit party_reply(Z& z) {
     z.compare_immediate(0x5162);
     z.load_hl(0x5164);
     if (!z.relative_if(0x5167,!z.zero())) z.load_hl(0x5169);
-    return jump_at(0x516C);
+    return jump_at(z,0x516C);
 }
-// 01:516F: a complete party leaves the interaction (the `jp nc`, decided by the core).
+// 01:516F: a complete party leaves the interaction (the `jp nc`).
 template<class Z> Exit recruit_party_full(Z& z) {
     z.load_a_direct(0x516F);
     z.compare_immediate(0x5172);
-    return mk::jump_if_exit(0x5174);
+    return z.final_jump_if(0x5174,mk::Condition::nc);
 }
 // 01:518A: after the search for the letter. Without it (NZ) the script returns;
 // with it the letter is removed.
 template<class Z> Exit recruit_letter(Z& z) {
-    if (!z.zero()) return taken_return_at(0x518A);
-    z.return_not_taken(0x518A);
-    return call_at(0x518B);                                          // 00:277F
+    if (auto exit=z.final_return_if(0x518A,mk::Condition::nz)) return *exit;
+    return call_at(z,0x518B);                                          // 00:277F
 }
 // 01:518E: the interaction's return address is dropped, then the dialogue
 // window is closed.
 template<class Z> Exit recruit_unwind(Z& z) {
     z.pop(0x518E,z.r.h,z.r.l);
-    return call_at(0x518F);                                          // 00:3464
+    return call_at(z,0x518F);                                          // 00:3464
 }
 // 01:5195: the recruitment flag (C506) is set and Noah's record gets its
 // starting weapon and armour through IY; then his record is initialized (00:16F1).
@@ -180,7 +177,7 @@ template<class Z> Exit recruit_equip(Z& z) {
     z.load_index(0x519A,mk::Index::iy);                              // Noah's record
     z.store_immediate_indexed(0x519E,mk::Index::iy);                 // weapon
     z.store_immediate_indexed(0x51A2,mk::Index::iy);                 // armour
-    return call_at(0x51A6);
+    return call_at(z,0x51A6);
 }
 
 // ---- Conversation progress: 01:51B1-5217 -----------------------------------------------------
@@ -189,7 +186,7 @@ template<class Z> Exit progress_gate(Z& z) {
     z.load_hl(0x51B1);                                               // C504
     z.load_from_hl(0x51B4,z.r.a);
     z.compare_immediate(0x51B5);
-    return mk::jump_if_exit(0x51B7);
+    return z.final_jump_if(0x51B7,mk::Condition::nc);
 }
 // 01:51C2: the reply. At the first stage the byte advances to the second and
 // the alternative text is chosen; the dialogue number travels through DE and
@@ -204,20 +201,20 @@ template<class Z> Exit progress_reply(Z& z) {
         z.load_de(0x51CF);
     }
     z.exchange_de_hl(0x51D2);
-    return jump_at(0x51D3);
+    return jump_at(z,0x51D3);
 }
 // 01:51DC: once C504 has started, this introduction leaves the interaction.
 template<class Z> Exit introduction_gate(Z& z) {
     z.load_a_direct(0x51DC);                                         // C504
     z.or_a(0x51DF);
-    return mk::jump_if_exit(0x51E0);
+    return z.final_jump_if(0x51E0,mk::Condition::nz);
 }
 // 01:51EB: C503 counts the visits. Zero goes on to the first visit (01:51F2).
 template<class Z> Exit visit_count(Z& z) {
     z.load_hl(0x51EB);                                               // C503
     z.load_from_hl(0x51EE,z.r.a);
     z.or_a(0x51EF);
-    return mk::relative_if_exit(0x51F0,!z.zero());
+    return z.final_relative_if(0x51F0,mk::Condition::nz);
 }
 // 01:51F2 and 01:51FD: the first and the second visit count themselves and
 // show their own text.
@@ -232,7 +229,7 @@ template<class Z> Exit second_visit(Z& z) {
 // 01:51F9: anything but the second visit goes on to the question.
 template<class Z> Exit visit_second(Z& z) {
     z.compare_immediate(0x51F9);
-    return mk::relative_if_exit(0x51FB,!z.zero());
+    return z.final_relative_if(0x51FB,mk::Condition::nz);
 }
 // 01:520D: after the question's yes/no. No keeps the refusal text; yes starts
 // the story byte C504 and takes the acceptance text.
@@ -243,7 +240,7 @@ template<class Z> Exit introduction_answer(Z& z) {
         z.store_to_hl(0x5215);
         z.load_hl(0x5217);
     }
-    return jump_at(0x521A);
+    return jump_at(z,0x521A);
 }
 
 // ---- The road-pass guards: 01:521D-5248 and 01:534B-5394 ------------------------------------
@@ -275,19 +272,19 @@ template<class Z> Exit dungeon_guard_through(Z& z) {
     z.store_a_direct(0x5377);                                        // the direction
     z.load_hl(0x537A);
     z.store_to_hl(0x537D);                                           // the game mode
-    return return_at(0x537F);
+    return return_at(z,0x537F);
 }
 // 01:538C: after the battle, a party still standing on the field (the first
 // object slot, C800, in use) opens the field menu (00:1BE1).
 template<class Z> Exit after_battle_menu(Z& z) {
     z.load_a_direct(0x538C);                                         // C800
     z.or_a(0x538F);
-    return call_if_at(0x5390,!z.zero());
+    return z.final_call_if(0x5390,mk::Condition::nz);
 }
 // 01:5393: the interaction's return address is dropped and the script returns.
 template<class Z> Exit after_battle_leave(Z& z) {
     z.pop(0x5393,z.r.h,z.r.l);
-    return return_at(0x5394);
+    return return_at(z,0x5394);
 }
 
 // ---- The cola trade: 01:5249-526F -------------------------------------------------------------
@@ -299,7 +296,7 @@ template<class Z> Exit cola_answer(Z& z) {
 // 01:525F: without a cola, its text; with one, the cola is removed (00:277F).
 template<class Z> Exit cola_carried(Z& z) {
     if (z.relative_if(0x525F,!z.zero())) return dialogue_then_jump(z,0x526A);
-    return call_at(0x5261);
+    return call_at(z,0x5261);
 }
 
 // ---- The cake guard: 01:53BF-5400 -------------------------------------------------------------
@@ -314,7 +311,7 @@ template<class Z> Exit cake_guard_answer(Z& z) {
 template<class Z> Exit cake_guard_carried(Z& z) {
     if (z.relative_if(0x53DF,!z.zero())) return dialogue_then_call(z,0x53F1);
     z.push(0x53E1,z.r.b,z.r.c);
-    return call_at(0x53E2);                                          // 00:277F
+    return call_at(z,0x53E2);                                          // 00:277F
 }
 // 01:53E5: BC back; the guard's flag (C511) is set and the thanks shown.
 template<class Z> Exit cake_guard_paid(Z& z) {
@@ -327,7 +324,7 @@ template<class Z> Exit cake_guard_paid(Z& z) {
 // party then steps back in the dungeon (01:688C).
 template<class Z> Exit cake_guard_leave(Z& z) {
     z.pop(0x53F7,z.r.h,z.r.l);
-    return call_at(0x53F8);                                          // 00:3464
+    return call_at(z,0x53F8);                                          // 00:3464
 }
 
 // ---- The item exchange: 01:5401-542F ----------------------------------------------------------
@@ -340,7 +337,7 @@ template<class Z> Exit exchange_answer(Z& z) {
 // and the new one is given (01:541C).
 template<class Z> Exit exchange_carried(Z& z) {
     if (z.relative_if(0x5417,!z.zero())) return dialogue_then_jump(z,0x542A);
-    return call_at(0x5419);
+    return call_at(z,0x5419);
 }
 
 // ---- The solo duel: 01:5430-54CD --------------------------------------------------------------
@@ -353,13 +350,13 @@ template<class Z> Exit duel_armour_worn(Z& z) {
     z.load_immediate(0x543C,r.a);                                    // the prize
     z.compare_register(0x543E,r.b);
     if (z.relative_if(0x543F,z.zero())) return dialogue_then_jump(z,0x5446);
-    return call_at(0x5441);                                          // 00:282E
+    return call_at(z,0x5441);                                          // 00:282E
 }
 // 01:544C: a party without its fourth member gets the yes/no conversation.
 template<class Z> Exit duel_party_size(Z& z) {
     z.load_a_direct(0x544C);                                         // the party size
     z.compare_immediate(0x544F);
-    return mk::relative_if_exit(0x5451,!z.carry());
+    return z.final_relative_if(0x5451,mk::Condition::nc);
 }
 // 01:5444: a carried prize takes the same text as a worn one.
 template<class Z> Exit duel_armour_carried(Z& z) {
@@ -370,7 +367,7 @@ template<class Z> Exit duel_armour_carried(Z& z) {
 template<class Z> Exit duel_noah_status(Z& z) {
     z.load_a_direct(0x546D);                                         // Noah's status
     z.or_a(0x5470);
-    return mk::relative_if_exit(0x5471,!z.zero());
+    return z.final_relative_if(0x5471,mk::Condition::nz);
 }
 // 01:5482: Noah fights alone. His HP and the status bytes of the other three
 // members are pushed in that order, the three statuses are cleared (they are
@@ -389,7 +386,7 @@ template<class Z> Exit duel_start(Z& z) {
     z.store_a_direct(0x5493);
     z.store_a_direct(0x5496);
     z.store_a_direct(0x5499);
-    return call_at(0x549C);                                          // 00:100F
+    return call_at(z,0x549C);                                          // 00:100F
 }
 // 01:549F: after the battle the three statuses come back in reverse order and
 // Noah's old HP goes to B. HP left (nonzero) means he won (01:54C2).
@@ -405,7 +402,7 @@ template<class Z> Exit duel_end(Z& z) {
     z.copy(0x54AC,r.b,r.a);                                          // Noah's HP before the fight
     z.load_a_direct(0x54AD);                                         // and now
     z.or_a(0x54B0);
-    return mk::relative_if_exit(0x54B1,!z.zero());
+    return z.final_relative_if(0x54B1,mk::Condition::nz);
 }
 // 01:54B3: a lost duel does not kill him: his old HP and his status are put
 // back before the text.
@@ -427,24 +424,23 @@ template<class Z> Exit encounter_won(Z& z) { return flag_then_dialogue(z,0x54E4)
 template<class Z> Exit battle_outcome(Z& z) {
     z.load_a_direct(0x54F2);                                         // the game mode
     z.compare_immediate(0x54F5);
-    if (!z.zero()) return taken_return_at(0x54F7);
-    z.return_not_taken(0x54F7);
+    if (auto exit=z.final_return_if(0x54F7,mk::Condition::nz)) return *exit;
     z.pop(0x54F8,z.r.h,z.r.l);
     z.pop(0x54F9,z.r.h,z.r.l);
-    return return_at(0x54FA);
+    return return_at(z,0x54FA);
 }
 // 01:54FB: an encounter already won (C516 set) leaves the interaction.
 template<class Z> Exit won_gate(Z& z) {
     z.load_a_direct(0x54FB);                                         // C516
     z.or_a(0x54FE);
-    return mk::jump_if_exit(0x54FF);
+    return z.final_jump_if(0x54FF,mk::Condition::nz);
 }
 // 01:5524: after that encounter, C516 is set.
 template<class Z> Exit gate_won(Z& z) { return flag_then_dialogue(z,0x5524); }
 // 01:553B: the interaction's return address is dropped and the script returns.
 template<class Z> Exit leave_after_field_menu(Z& z) {
     z.pop(0x553B,z.r.h,z.r.l);
-    return return_at(0x553C);
+    return return_at(z,0x553C);
 }
 
 // ---- Hapsby and the vehicles: 01:5546-5594 ----------------------------------------------------
@@ -452,13 +448,13 @@ template<class Z> Exit leave_after_field_menu(Z& z) {
 // (01:553D); otherwise the window is closed and Hapsby is woken.
 template<class Z> Exit robot_carried(Z& z) {
     if (z.relative_if(0x554E,z.zero())) return dialogue_then_call(z,0x553D);
-    return call_at(0x5550);                                          // 00:3464
+    return call_at(z,0x5550);                                          // 00:3464
 }
 // 01:5553: the second object slot's state (C801) advances; the objects are redrawn.
 template<class Z> Exit robot_wakes(Z& z) {
     z.load_hl(0x5553);                                               // C801
     z.increment_at_hl(0x5556);
-    return call_at(0x5557);
+    return call_at(z,0x5557);
 }
 // 01:5566: without the story flag C508, the shared text; with it, the search for Hapsby.
 template<class Z> Exit vehicle_flag(Z& z) {
@@ -486,13 +482,13 @@ template<class Z> Exit encounter_without_reward(Z& z) {
     z.pop(0x55C3,z.r.h,z.r.l);
     z.load_hl(0x55C4);
     z.store_hl_direct(0x55C7);                                       // the money reward
-    return jump_at(0x55CA);                                          // 00:100F
+    return jump_at(z,0x55CA);                                          // 00:100F
 }
 // 01:55EF: C504 below its seventh stage keeps the first text.
 template<class Z> Exit transfer_progress(Z& z) {
     z.load_a_direct(0x55EF);                                         // C504
     z.compare_immediate(0x55F2);
-    return mk::relative_if_exit(0x55F4,!z.carry());
+    return z.final_relative_if(0x55F4,mk::Condition::nc);
 }
 // 01:5602: the transfer record depends on the camera's X position (C301):
 // one record from the right half, the other from the left; then the map
@@ -502,7 +498,7 @@ template<class Z> Exit transfer_by_side(Z& z) {
     z.compare_immediate(0x5605);
     z.load_hl(0x5607);
     if (!z.relative_if(0x560A,!z.carry())) z.load_hl(0x560C);
-    return call_at(0x560F);
+    return call_at(z,0x560F);
 }
 
 // ---- The party-status report: 01:56A2-56CC ----------------------------------------------------
@@ -517,7 +513,7 @@ template<class Z> Exit status_member(Z& z) {
     z.rotate_right_through_carry(0x56AC,r.d);
     z.push(0x56AE,r.d,r.e);
     z.load_hl(0x56AF);
-    return call_if_at(0x56B2,z.carry());
+    return z.final_call_if(0x56B2,mk::Condition::c);
 }
 // 01:56A2: D holds the mask, E counts the members from zero.
 template<class Z> Exit status_report(Z& z) {
@@ -531,7 +527,7 @@ template<class Z> Exit status_report(Z& z) {
 template<class Z> Exit survivor_check(Z& z) {
     z.copy(0x56BE,z.r.a,z.r.b);
     z.decrement(0x56BF,z.r.a);
-    return call_at(0x56C0);
+    return call_at(z,0x56C0);
 }
 // 01:56B5: the next member, until all four are done; then the survivor search
 // starts with B at four.
@@ -548,9 +544,9 @@ template<class Z> Exit status_next(Z& z) {
 // 01:56C3: a survivor closes the window (a jump to 00:3464); when no member
 // is left alive, the final jump goes to the defeat.
 template<class Z> Exit survivor_found(Z& z) {
-    if (z.relative_if(0x56C3,!z.zero())) return jump_at(0x56CA);
+    if (z.relative_if(0x56C3,!z.zero())) return jump_at(z,0x56CA);
     if (z.decrement_jump(0x56C5)) return survivor_check(z);
-    return jump_at(0x56C7);
+    return jump_at(z,0x56C7);
 }
 
 // ---- Travel requests and the destination menu: 01:56D9-5751 -----------------------------------
@@ -558,18 +554,17 @@ template<class Z> Exit survivor_found(Z& z) {
 template<class Z> Exit request_travel(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
     z.store_a_direct(after(at,2));                                   // C2E9
-    return return_at(after(at,5));
+    return return_at(z,after(at,5));
 }
 // 01:56E2 and 01:56F2: after a yes/no, no (NZ) returns; yes makes the request.
 template<class Z> Exit request_travel_if_yes(Z& z, std::uint16_t at) {
-    if (!z.zero()) return taken_return_at(at);
-    z.return_not_taken(at);
+    if (auto exit=z.final_return_if(at,mk::Condition::nz)) return *exit;
     return request_travel(z,after(at,1));
 }
 // 01:56FF: BC is kept across the three-choice window (00:3A21).
 template<class Z> Exit destination_menu(Z& z) {
     z.push(0x56FF,z.r.b,z.r.c);
-    return call_at(0x5700);
+    return call_at(z,0x5700);
 }
 // 01:5707: D is the chosen destination; E the current one, bits 3-4 of the
 // location (C309). Choosing where the party already is goes to the "already
@@ -584,14 +579,13 @@ template<class Z> Exit destination_compare(Z& z) {
     z.and_immediate(0x570E);
     z.copy(0x5710,r.e,r.a);
     z.compare_register(0x5711,r.d);
-    return mk::relative_if_exit(0x5712,!z.zero());
+    return z.final_relative_if(0x5712,mk::Condition::nz);
 }
 // 01:5703: button 1 (bit 4 of C) cancels the menu and returns; BC comes back first.
 template<class Z> Exit destination_chosen(Z& z) {
     z.test_bit(0x5703,4,z.r.c);
     z.pop(0x5705,z.r.b,z.r.c);
-    if (!z.zero()) return taken_return_at(0x5706);
-    z.return_not_taken(0x5706);
+    if (auto exit=z.final_return_if(0x5706,mk::Condition::nz)) return *exit;
     return destination_compare(z);
 }
 // One of three texts by A (0, 1 or anything else): `or a` at `at`, then two
@@ -608,12 +602,12 @@ template<class Z> void text_by_destination(Z& z, std::uint16_t at) {
 // 01:5714: the "already here" text of the current destination; the menu then opens again.
 template<class Z> Exit destination_already_here(Z& z) {
     text_by_destination(z,0x5714);
-    return call_at(0x5723);
+    return call_at(z,0x5723);
 }
 // 01:5738: DE (both destinations) is kept across the confirmation text and its yes/no.
 template<class Z> Exit destination_hold(Z& z) {
     z.push(0x5738,z.r.d,z.r.e);
-    return call_at(0x5739);
+    return call_at(z,0x5739);
 }
 // 01:5728: the confirmation question of the chosen destination.
 template<class Z> Exit destination_question(Z& z) {
@@ -635,7 +629,7 @@ template<class Z> Exit destination_request(Z& z) {
     z.add_to_hl(0x574C,z.de());
     z.load_from_hl(0x574D,r.a);
     z.store_a_direct(0x574E);                                        // C2E9
-    return return_at(0x5751);
+    return return_at(z,0x5751);
 }
 // 01:573F: DE back. No (NZ) opens the menu again from its first text (01:56F9).
 template<class Z> Exit destination_answer(Z& z) {
@@ -810,10 +804,73 @@ void register_all(RoutineRegistry& registry) {
     add_in(0x5738,0x56FF,{F(0x5739,-2)},{.scratch_stack=4},[](auto& z) -> Exit { return destination_hold(z); });
     add_in(0x573F,0x56FF,{F(0x56FC,2),R(0x5751,2)},{.inherited_stack=2},[](auto& z) -> Exit { return destination_answer(z); }); // after the yes/no (00:2D19)
     add_in(0x5742,0x56FF,{R(0x5751)},{},[](auto& z) -> Exit { return destination_request(z); });
+
+    // ---- joining stretches (milestone 14) ----
+    // The calls that follow a dialogue, a window close or a yes/no in the
+    // cake guard, the party report and the travel menu: the yes/no window
+    // (00:2D19) and the window close (00:3464), each a one-instruction segment.
+    for (const std::uint16_t at:{0x53CD,0x5695,0x56EF}) {
+        auto spec=mk::segment(RoutineEntry{1,at},{F(at)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,at},std::move(spec),[at](auto& z) -> Exit { return z.final_call(at); });
+    }
 }
 }
 
 void register_scene_quests(RoutineRegistry& registry) {
     register_all(registry);
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_scenes_quests_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{1,0x4461},{1,0x51A9},{kit::core_final_at(0x4461)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x4461); });
+    kit::add_joining(registry,{1,0x5119},{1,0x510D},{kit::core_final_at(0x5119)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5119); });
+    kit::add_joining(registry,{1,0x517C},{1,0x5177},{kit::core_final_at(0x517C)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x517C); });
+    kit::add_joining(registry,{1,0x5192},{1,0x518E},{kit::core_final_at(0x5192)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5192); });
+    kit::add_joining(registry,{1,0x51BF},{1,0x51BA},{kit::core_final_at(0x51BF)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x51BF); });
+    kit::add_joining(registry,{1,0x51E8},{1,0x51E3},{kit::core_final_at(0x51E8)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x51E8); });
+    kit::add_joining(registry,{1,0x520A},{1,0x5204},{kit::core_final_at(0x520A)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x520A); });
+    kit::add_joining(registry,{1,0x522B},{1,0x5225},{kit::core_final_at(0x522B)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x522B); });
+    kit::add_joining(registry,{1,0x5243},{1,0x522E},{kit::core_final_at(0x5243)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5243); });
+    kit::add_joining(registry,{1,0x5246},{1,0x522E},{kit::core_final_at(0x5246)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5246); });
+    kit::add_joining(registry,{1,0x524F},{1,0x5249},{kit::core_final_at(0x524F)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x524F); });
+    kit::add_joining(registry,{1,0x5276},{1,0x5270},{kit::core_final_at(0x5276)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5276); });
+    kit::add_joining(registry,{1,0x5296},{1,0x5290},{kit::core_final_at(0x5296)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5296); });
+    kit::add_joining(registry,{1,0x52D6},{1,0x52D0},{kit::core_final_at(0x52D6)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x52D6); });
+    kit::add_joining(registry,{1,0x52ED},{1,0x52E7},{kit::core_final_at(0x52ED)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x52ED); });
+    kit::add_joining(registry,{1,0x52FE},{1,0x52F8},{kit::core_final_at(0x52FE)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x52FE); });
+    kit::add_joining(registry,{1,0x530F},{1,0x5309},{kit::core_final_at(0x530F)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x530F); });
+    kit::add_joining(registry,{1,0x5320},{1,0x5312},{kit::core_final_at(0x5320)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5320); });
+    kit::add_joining(registry,{1,0x533D},{1,0x5337},{kit::core_final_at(0x533D)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x533D); });
+    kit::add_joining(registry,{1,0x5359},{1,0x5353},{kit::core_final_at(0x5359)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5359); });
+    kit::add_joining(registry,{1,0x536B},{1,0x5363},{kit::core_final_at(0x536B)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x536B); });
+    kit::add_joining(registry,{1,0x5386},{1,0x535C},{kit::core_final_at(0x5386)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5386); });
+    kit::add_joining(registry,{1,0x53D8},{1,0x53D0},{kit::core_final_at(0x53D8)},12,0,[](auto& z) { return z.final_relative(0x53D8); });
+    kit::add_joining(registry,{1,0x53FB},{1,0x53F7},{kit::core_final_at(0x53FB)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x53FB); });
+    kit::add_joining(registry,{1,0x53FE},{1,0x53F7},{kit::core_final_at(0x53FE)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x53FE); });
+    kit::add_joining(registry,{1,0x5407},{1,0x5401},{kit::core_final_at(0x5407)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5407); });
+    kit::add_joining(registry,{1,0x5459},{1,0x5453},{kit::core_final_at(0x5459)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5459); });
+    kit::add_joining(registry,{1,0x547F},{1,0x5471},{kit::core_final_at(0x547F)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x547F); });
+    kit::add_joining(registry,{1,0x54DE},{1,0x54D8},{kit::core_final_at(0x54DE)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x54DE); });
+    kit::add_joining(registry,{1,0x54E1},{1,0x54D8},{kit::core_final_at(0x54E1)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x54E1); });
+    kit::add_joining(registry,{1,0x5510},{1,0x550A},{kit::core_final_at(0x5510)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5510); });
+    kit::add_joining(registry,{1,0x551E},{1,0x5513},{kit::core_final_at(0x551E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x551E); });
+    kit::add_joining(registry,{1,0x5521},{1,0x5513},{kit::core_final_at(0x5521)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5521); });
+    kit::add_joining(registry,{1,0x5543},{1,0x553D},{kit::core_final_at(0x5543)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5543); });
+    kit::add_joining(registry,{1,0x555A},{1,0x5553},{kit::core_final_at(0x555A)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x555A); });
+    kit::add_joining(registry,{1,0x5563},{1,0x555D},{kit::core_final_at(0x5563)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5563); });
+    kit::add_joining(registry,{1,0x5586},{1,0x557E},{kit::core_final_at(0x5586)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5586); });
+    kit::add_joining(registry,{1,0x5589},{1,0x557E},{kit::core_final_at(0x5589)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5589); });
+    kit::add_joining(registry,{1,0x5592},{1,0x558C},{kit::core_final_at(0x5592)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5592); });
+    kit::add_joining(registry,{1,0x55D3},{1,0x55CD},{kit::core_final_at(0x55D3)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x55D3); });
+    kit::add_joining(registry,{1,0x5612},{1,0x5602},{kit::returned_at(0x5612)},kit::return_cycles,0,[](auto& z) { return z.final_return(0x5612); });
+    kit::add_joining(registry,{1,0x56DF},{1,0x56D9},{kit::core_final_at(0x56DF)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x56DF); });
+    kit::add_joining(registry,{1,0x5726},{1,0x5714},{kit::core_final_at(0x5726)},12,0,[](auto& z) { return z.final_relative(0x5726); });
+    kit::add_joining(registry,{1,0x573C},{1,0x56FF},{kit::core_final_at(0x573C)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x573C); });
 }
 }

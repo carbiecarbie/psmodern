@@ -21,7 +21,7 @@ template<class Z> k::Exit unpack_pair(Z& z) {
     z.store_a_to_pair(0x6D7A,z.de());
     z.increment_pair(0x6D7B,r.d,r.e);
     z.increment_hl(0x6D7C);
-    return k::decrement_jump_exit(z,0x6D7D);
+    return z.final_decrement_jump(0x6D7D);
 }
 template<class Z> k::Exit begin_layout(Z& z) {
     auto& r=z.r;
@@ -54,12 +54,12 @@ template<class Z> void find_lit_floor(Z& z) {
         const auto flags=(delta&kit::sign_flag) | (delta ? 0 : kit::zero_flag) |
             half | (z.bc() ? kit::parity_flag : 0) | kit::subtract_flag | (r.f&kit::carry_flag);
         if (delta && z.bc()) {
-            r.f=flags | (0x6D & (kit::x_flag|kit::y_flag));
+            r.f=flags | (0x6D & (kit::x_flag|kit::y_flag)); r.q=r.f;
             r.wz=0x6DB5;
             z.bus().advance(21);
         } else {
             const auto adjusted=delta-(half>>4);
-            r.f=flags | ((adjusted&2)<<4) | (adjusted&kit::x_flag);
+            r.f=flags | ((adjusted&2)<<4) | (adjusted&kit::x_flag); r.q=r.f;
             ++r.wz;
             z.bus().advance(16);
             return;
@@ -114,7 +114,7 @@ template<class Z> k::Exit configure_floor(Z& z) {
     z.store_a_direct(0x6DD8);
     z.load_a_direct(0x6DDB);
     z.store_a_direct(0x6DDE);
-    return k::returns(0x6DE1,k::return_cycles);
+    return z.final_return(0x6DE1);
 }
 }
 void register_dungeon_layout(RoutineRegistry& registry) {

@@ -26,6 +26,8 @@
 //                     (needs the work folder)
 // A ROM run exits 77 without the ROM, or when a start image or the work
 // folder is not available (after running everything else).
+#include "game/joins.h"
+#include "oracle/native_machine.h"
 #include "menu_probe.h"
 #include "game/menu_remainder.h"
 #include "game/frame_updates.h"
@@ -151,6 +153,9 @@ void registrations_together() {
     game::register_window_rows(extensions);
     game::register_block_transfers(extensions);
     game::frame_updates::register_updates(extensions);
+    // The joining segments of milestone 14 (game/joins.h) that fall in the menu
+    // ranges, each owned by the file of its neighbouring code.
+    game::register_joins(extensions);
     RoutineRegistry game_registry;
     check(game::register_routines(game_registry,"07fcf297be4f4c9d92cd3f119a7ac48467e06838"),"identified ROM registry");
     std::size_t in_menu=0;
@@ -190,31 +195,56 @@ struct FrameEvents {
     }
 };
 std::vector<FrameEvents> watch(const probe::Rom& rom, const menu_probe::StartImage& image, const replay::Recording& recording, bool routines_on) {
-    Machine m(rom.image,image);
+    // Milestone 14: routines off is the original on the oracle's native
+    // machine, stepped one instruction at a time with the same observation at
+    // every instruction boundary (the program has no core to run it).
+    Machine engine(rom.image,image);
+    oracle::NativeMachine original(rom.image,image);
+    Console& m=routines_on ? static_cast<Console&>(engine) : static_cast<Console&>(original);
     RoutineRegistry registry;
     check(game::register_routines(registry,rom.sha1),"identified ROM registry");
     app::guard_observed_instructions(registry);
-    registry.enabled=routines_on;
     std::vector<bool> watched_pc(0x10000,false);
     for (const auto watched:app::host_observed_instructions) watched_pc[watched.address]=true;
     std::vector<FrameEvents> frames(recording.frames);
     std::uint64_t frame=0;
+    // Milestone 14: an event belongs to the frame its cycle lies in. A run
+    // with routines can return after the segment crossing the frame end, so
+    // the run_frame call that saw it is not the original's.
+    auto at_frame=[&] { return std::min<std::uint64_t>(m.cycles()/Machine::frame_cycles,frames.size()-1); };
     Machine::Hook hook=[&](std::uint16_t pc, Memory::Mapping mapping) -> std::optional<std::uint16_t> {
         if (!watched_pc[pc]) return {};
         for (const auto watched:app::host_observed_instructions)
             if (watched.address==pc && mapping==Memory::Mapping{Memory::Kind::rom,watched.bank}) {
                 const auto sp=m.cpu().sp.uint16_value;
-                frames[frame].add({'i',watched.bank,pc,sp,menu_probe::word(m,sp),m.cycles()});
+                frames[at_frame()].add({'i',watched.bank,pc,sp,static_cast<std::uint16_t>(m.peek(sp)|(m.peek(static_cast<std::uint16_t>(sp+1))<<8)),m.cycles()});
             }
         return {};
     };
     Machine::WriteObserver writes=[&](std::uint16_t address, std::uint8_t value) {
         if ((address&0x1fff)!=4 || m.memory().mapping(address).kind!=Memory::Kind::ram) return;
         const auto writer=m.memory().mapping(m.cpu().pc.uint16_value);
-        frames[frame].add({'w',0,0,0,0,0,value,writer==Memory::Mapping{Memory::Kind::rom,12}});
+        frames[at_frame()].add({'w',0,0,0,0,0,value,writer==Memory::Mapping{Memory::Kind::rom,12}});
     };
+    original.set_write_observer(&writes);
     for (;frame<recording.frames;++frame) {
-        m.run_frame(recording.input_at(frame),registry,hook,writes);
+        if (routines_on) engine.run_frame(recording.input_at(frame),registry,hook,writes);
+        else {
+            original.set_input(recording.input_at(frame));
+            const auto target=(original.cycles()/Machine::frame_cycles+1)*Machine::frame_cycles;
+            while (original.cycles()<target || original.cpu().resume) {
+                if (!original.cpu().resume) {
+                    original.settle();
+                    // The engine observes an instruction boundary, not one where
+                    // an interrupt response takes the step instead.
+                    if (original.pending_acceptance()==Console::Acceptance::none) {
+                        const auto pc=original.cpu().pc.uint16_value;
+                        (void)hook(pc,original.memory().mapping(pc));
+                    }
+                }
+                original.step();
+            }
+        }
         m.take_psg_writes(); m.take_samples();
     }
     return frames;
@@ -249,13 +279,16 @@ void hold(const menu_probe::Inputs& inputs, const std::filesystem::path& work) {
         check(recording.rom_sha1==inputs.rom.sha1,std::string(point.stem)+" was recorded with another ROM");
         const auto report=menu_probe::hold_compare(inputs.rom,recording,point.frame,90,30,work/point.stem,point.stem);
         check(report.mode==point.mode,std::string(point.stem)+": the hold was not taken at the expected wait");
-        std::cout<<point.stem<<": host hold at the "<<(point.mode==0x09 ? "00:0B14" : "00:0F48")<<" wait equal with routines on and off ("
-                 <<report.held<<" frames held, "<<report.closing<<" closing, "<<report.menu_cpp<<" C++ calls of menu segments).\n";
+        std::cout<<point.stem<<": host hold at the "<<(point.mode==0x09 ? "00:0B14" : "00:0F48")<<" wait equal to the original ("
+                 <<report.held<<" frames held, "<<report.closing<<" closing, "<<report.compared<<" frames compared, "
+                 <<report.menu_cpp<<" C++ calls of menu segments).\n";
     }
 }
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         plan();
         registrations_together();

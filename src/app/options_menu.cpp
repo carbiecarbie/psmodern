@@ -124,9 +124,9 @@ constexpr LanguagePreference language_choices[]{LanguagePreference::native,Langu
 // one of them finds it.
 constexpr std::string_view language_names[]{"","ENGLISH","PORTUGUES"};
 }
-void OptionsMenu::open(game::Options options,bool restricted,bool pending,bool recording,bool automap,bool widescreen) {
-    game::validate(options);draft_=options;restricted_=restricted;pending_=pending;automap_=automap;widescreen_=widescreen;
-    visible_=true;armed_=false;failed_=language_failed_=false;recording_=recording;selected_=0;previous_={};next_repeat_=0;
+void OptionsMenu::open(game::Options options,bool pending,bool automap,bool widescreen) {
+    game::validate(options);draft_=options;pending_=pending;automap_=automap;widescreen_=widescreen;
+    visible_=true;armed_=false;failed_=language_failed_=false;selected_=0;previous_={};next_repeat_=0;
 }
 void OptionsMenu::set_language(LanguagePreference preference,std::array<bool,3> available) {
     (void)format_language(preference); // refuse unknown values
@@ -145,19 +145,19 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     const bool direction=input.up||input.down||input.left||input.right;
     const bool move=direction && (fresh||now>=next_repeat_);
     previous_=input;
-    if(cancel)return restricted_ ? MenuAction::close : MenuAction::apply;
+    if(cancel)return MenuAction::apply;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
         if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : rows-1))%rows;
-        if(!restricted_ && selected_==2 && input.left!=input.right)automap_=!automap_;
-        if(!restricted_ && selected_==3 && input.left!=input.right)widescreen_=!widescreen_;
-        if(!restricted_ && selected_<2 && input.left!=input.right) {
+        if(selected_==2 && input.left!=input.right)automap_=!automap_;
+        if(selected_==3 && input.left!=input.right)widescreen_=!widescreen_;
+        if(selected_<2 && input.left!=input.right) {
             const auto& choices=selected_==0 ? game::encounter_percent_choices : game::experience_percent_choices;
             auto& current=selected_==0 ? draft_.encounter_percent : draft_.experience_percent;
             std::size_t i=0;while(i<choices.count && choices.values[i]!=current)++i;
             current=choices.values[(i+choices.count+(input.right?1:choices.count-1))%choices.count];
         }
-        if(!restricted_ && selected_==language_row && input.left!=input.right) {
+        if(selected_==language_row && input.left!=input.right) {
             // The next preference with a ROM, skipping those without; the
             // owner saves the change at once, as the Language screen's Save did.
             const auto from=std::size_t(language_);
@@ -167,7 +167,7 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
             }
         }
     }
-    if(accept)return selected_==controls_row ? MenuAction::controls : restricted_ ? MenuAction::close : MenuAction::apply;
+    if(accept)return selected_==controls_row ? MenuAction::controls : MenuAction::apply;
     return MenuAction::none;
 }
 std::string_view OptionsMenu::label(unsigned row,Language language) {
@@ -231,7 +231,7 @@ std::array<std::string,explanation_lines> OptionsMenu::explanation_text(Language
     const auto fixed=explanation(selected_,language);
     std::array<std::string,explanation_lines> lines{std::string(fixed[0]),std::string(fixed[1]),std::string(fixed[2])};
     // A language without its ROM: say which ROM it needs instead of how AUTO works.
-    if(selected_==language_row && !restricted_) {
+    if(selected_==language_row) {
         if(!language_available_[std::size_t(LanguagePreference::english)])lines[2]=ui_text(UiText::english_needs_rom,language);
         else if(!language_available_[std::size_t(LanguagePreference::portuguese)])lines[2]=ui_text(UiText::portuguese_needs_rom,language);
     }
@@ -240,7 +240,6 @@ std::array<std::string,explanation_lines> OptionsMenu::explanation_text(Language
 std::string_view OptionsMenu::state(Language language) const {
     // The pending state concerns the routine options only.
     if(failed_ || language_failed_)return ui_text(UiText::save_failed,language);
-    if(restricted_)return ui_text(recording_ ? UiText::recording_read_only : UiText::z80_read_only,language);
     if(pending_)return ui_text(UiText::saved_waiting,language);
     return ui_text(UiText::saves_on_exit,language);
 }
@@ -273,7 +272,7 @@ void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Lan
     menu_style::window(pixels,font,options_layout::explanation);
     const auto lines=explanation_text(language);
     for(unsigned i=0;i<explanation_lines;++i)menu_style::text(pixels,font,options_layout::explanation.column+1,options_layout::explanation.row+1+line_step*int(i),lines[i],white);
-    const bool quiet=!failed_ && !language_failed_ && !restricted_ && !pending_;
+    const bool quiet=!failed_ && !language_failed_ && !pending_;
     menu_style::text(pixels,font,options_layout::explanation.column+1,state_row,state(language),quiet ? grey : white);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {

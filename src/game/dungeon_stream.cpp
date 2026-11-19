@@ -7,15 +7,14 @@ namespace {
 namespace k = map_kit;
 
 // Both encodings start with a count. Zero terminates a stream and the high
-// bit selects a literal run. Leave the sign branch to the core so the next
+// bit selects a literal run. The sign branch ends the segment so the next
 // transfer opens its own interrupt window.
 template<class Z>
 k::Exit read_count(Z& z, std::uint16_t at) {
     z.load_from_hl(at,z.r.a);
     z.or_a(at+1);
-    if (z.zero()) return k::returns(at+2,k::taken_conditional_return_cycles);
-    z.return_not_taken(at+2);
-    return k::jump_if_exit(at+3);
+    if (auto exit=z.final_return_if(at+2,k::Condition::z)) return *exit;
+    return z.final_jump_if(at+3,k::Condition::m);
 }
 
 // The room's tile words use two streams. Each pass fills every other byte.
@@ -25,7 +24,7 @@ k::Exit tile_byte(Z& z, bool literal) {
     z.load_increment(at);
     if (!literal) z.decrement_hl(0x6B78);
     z.increment_pair(literal ? 0x6B87 : 0x6B79,z.r.d,z.r.e);
-    return k::jump_if_exit(literal ? 0x6B88 : 0x6B7A);
+    return z.final_jump_if(literal ? 0x6B88 : 0x6B7A,k::Condition::pe);
 }
 
 template<class Z>
@@ -56,23 +55,25 @@ k::Exit pattern_row(Z& z, bool literal) {
         for (unsigned i=0; i<3; ++i) z.decrement_hl(0x6BA3+i);
     }
     z.output(literal ? 0x6BC2 : 0x6BA6);
-    return k::jump_if_exit(literal ? 0x6BC4 : 0x6BA8);
+    return z.final_jump_if(literal ? 0x6BC4 : 0x6BA8,k::Condition::nz);
 }
 
 template<class Logic>
 void add_transfer(RoutineRegistry& registry, RoutineEntry unit, std::uint16_t pc,
                   std::uint16_t branch, k::Permissions permissions, Logic logic) {
     // A game stream writes tile bytes in RAM or pattern bytes to VDP data.
-    // Let the original handle incoming pointers into the mapper or an
-    // unrelated port, where an individual write can change the next window.
-    registry.add({1,pc},k::segment(unit,{k::conditional_at(branch)},permissions),
-        [unit,logic](const Machine& machine) {
-            if (unit==dungeon_tile_entries.front() ? machine.cpu().de.uint16_value>=0xFFFC
-                                                  : (machine.cpu().bc.uint16_value & 255)!=0xBE)
-                return k::uncertain_maximum;
-            return k::cost(machine,logic,k::uncertain_maximum);
-        },
-        [logic](RoutineContext& context) { k::run(context,logic); });
+    // The guards keep out incoming pointers into the mapper or an unrelated
+    // port, where an individual write can change the next window. They read
+    // registers only, which a delivery inside the body restores, so they hold
+    // across one.
+    static const k::Guard tile_target{"DE is below the cartridge control registers",[](const Machine& machine) {
+        return machine.cpu().de.uint16_value<0xFFFC;
+    }};
+    static const k::Guard pattern_port{"C selects the video data port",[](const Machine& machine) {
+        return (machine.cpu().bc.uint16_value & 255)==0xBE;
+    }};
+    k::add_segment(registry,{1,pc},k::segment(unit,{k::conditional_at(branch)},permissions),
+                   unit==dungeon_tile_entries.front() ? tile_target : pattern_port,logic);
 }
 }
 
@@ -82,22 +83,23 @@ void register_dungeon_streams(RoutineRegistry& registry) {
         [](auto& z) {
             z.load_immediate(0x6B62,z.r.b);
             z.load_de(0x6B64);
-            return k::continues(0x6B67,k::call_cycles);
+            return z.final_call(0x6B67);
         });
     // The tile reader is also called just before the line interrupt. Its
     // first eleven cycles leave a boundary between testing and branching.
     k::add_segment(registry,{1,0x6B6E},k::segment(tiles,{k::core_final_at(0x6B6F)}),[](auto& z) {
         z.load_from_hl(0x6B6E,z.r.a);
-        return k::continues(0x6B6F,4);
+        z.or_a(0x6B6F);
+        return k::fall_through(0x6B6F,0x6B70);
     });
     k::add_segment(registry,{1,0x6B70},k::segment(tiles,{k::returned_at(0x6B70),k::conditional_at(0x6B71)}),[](auto& z) {
-        if (z.zero()) return k::returns(0x6B70,k::taken_conditional_return_cycles);
-        z.return_not_taken(0x6B70);
-        return k::jump_if_exit(0x6B71);
+        if (auto exit=z.final_return_if(0x6B70,k::Condition::z)) return *exit;
+        return z.final_jump_if(0x6B71,k::Condition::m);
     });
     k::add_segment(registry,{1,0x6B6A},k::segment(tiles,{k::core_final_at(0x6B6B)}),[](auto& z) {
         z.increment_hl(0x6B6A);
-        return k::continues(0x6B6B,10);
+        z.load_de(0x6B6B);
+        return k::fall_through(0x6B6B,0x6B6E);
     });
     // Return to the common count reader after either kind of run. Ending at
     // the original jump leaves a separate interrupt window for the header.
@@ -107,7 +109,7 @@ void register_dungeon_streams(RoutineRegistry& registry) {
         spec.single_instruction=pc==jump;
         k::add_segment(registry,{1,pc},std::move(spec),[=](auto& z) {
             if (pc==0x6B7D) z.increment_hl(pc);
-            return k::continues(jump,10);
+            return z.final_jump(jump);
         });
     }
     for (auto pc : {0x6B74,0x6B76,0x6B81,0x6B85}) {
@@ -135,7 +137,7 @@ void register_dungeon_streams(RoutineRegistry& registry) {
         spec.single_instruction=pc==jump;
         k::add_segment(registry,{1,pc},std::move(spec),[=](auto& z) {
             for (auto at=pc;at<jump;++at) z.increment_hl(at);
-            return k::continues(jump,10);
+            return z.final_jump(jump);
         });
     }
     for (auto pc : {0x6B96,0x6B98,0x6BB1,0x6BB5}) {

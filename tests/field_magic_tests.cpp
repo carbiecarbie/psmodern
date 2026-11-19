@@ -3,6 +3,7 @@
 #include "game/dungeon_tables.h"
 #include "game/field_magic.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
 #include <iostream>
 using namespace psmodern;
 namespace {
@@ -205,6 +206,8 @@ int scenarios(probe::Harness &harness, const map_probe::Inputs &inputs) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -213,6 +216,10 @@ int main(int argc, char **argv) {
         if (!inputs)
             return 77;
         probe::Harness harness(inputs->rom);
+        {
+            probe::Harness sweeping(inputs->rom);
+            c4::sweep_file(sweeping,"field_magic",game::field_magic::segments);
+        }
         const unsigned count = state_probes(harness) + cell_rules(harness);
         (void)dispatch_ownership(harness);
         const int chains = scenarios(harness, *inputs);

@@ -17,10 +17,12 @@ sound, play and keep time exactly like the original. Anything the cartridge
 never had, such as adjustable encounters and experience or fast-forward, is
 an option, and the options start off.
 
-The original program runs on a virtual Z80 from day one. Its routines are
-rewritten in C++ one at a time, and each rewrite is checked against the
-original, call by call and frame by frame, until no Z80 code is left. Along
-the way the project writes down [how the game works inside][how-it-works].
+The project began by running the original program on a virtual Z80 and
+rewriting its routines in C++ one at a time, each checked against the
+original. That work is done: the program now runs C++ only and contains no
+Z80. The original survives in the tests, which run it beside the C++ and
+compare the two instruction by instruction. Along the way the project writes
+down [how the game works inside][how-it-works].
 
 | Start screen (0.6.0) | Options | Widescreen |
 | --- | --- | --- |
@@ -29,10 +31,11 @@ the way the project writes down [how the game works inside][how-it-works].
 ## What works today
 
 The whole game can be played in English (US) or Portuguese (Brazilian Tec
-Toy release). In the current source, battles, items, dungeon exploration,
-menus, sound and story scenes through the ending run in C++. The virtual
-Z80 still runs a few original instructions where the exact timing depends on
-them; removing it is the next milestone. The latest Windows release, 0.6.0,
+Toy release). In the current source, everything runs in C++: battles, items,
+dungeon exploration, menus, sound and story scenes through the ending, with
+no Z80 in the program (milestone 14). If the game
+ever reaches a part of the cartridge that PSModern cannot run, it stops with a
+message and keeps your save as it was. The latest Windows release, 0.6.0,
 covers milestone 11.
 
 What you get today:
@@ -172,7 +175,7 @@ changes size during play. Switching the option resizes a normal window to the
 new shape at its current scale (smaller if it would not fit on the screen); a
 maximized or fullscreen window keeps its size. At 1366x768 fullscreen the
 picture is drawn at 3x instead of 4x. Off by default; the game runs the same
-either way. While recording, or with `--no-routines`, the row is read-only and
+either way. While recording, the row cannot be changed and stays
 off. [How it works](docs/how-it-works/world-map.md) explains what it reads.
 
 ## Saves
@@ -211,8 +214,8 @@ psmodern.exe --version
 `--encounter-rate` takes 0, 25, 50, 100 or 200 and `--experience-rate` takes 100,
 200 or 400. A flag you leave out uses the saved choice, and an explicit 100
 overrides a saved one. Opening and then leaving the Options window saves its
-displayed values, including launch flags. The developer modes `--record` and
-`--no-routines` always use the original rules and refuse any other value;
+displayed values, including launch flags. The developer mode `--record`
+always uses the original rules and refuses any other value;
 [development][development] has the details.
 
 ## About the project

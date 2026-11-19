@@ -151,7 +151,7 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
     }
     // Options (milestone 12): every row on one page, the state on the
     // explanation window's last line; options_tests checks the layout in full.
-    OptionsMenu menu;menu.open({25,400},false,false,false,true,true);menu.update({},0);
+    OptionsMenu menu;menu.open({25,400},false,true,true);menu.update({},0);
     for(unsigned row=0;row<options_layout::rows;++row) {
         Frame pixels(256*192,0xff123456);menu.render(pixels,font,language);
         check(shows(pixels,font,16,8*options_layout::state_row,ui_text(UiText::saves_on_exit,language),0xffaaaaaa),"Options explains save on exit in the current language");

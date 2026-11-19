@@ -93,7 +93,7 @@ void registration() {
         check(routine!=nullptr,"a planned select entry is registered");
         const auto& spec=routine->spec;
         check(spec.unit==w.unit && spec.slot2_mapper==w.permissions.slot2_mapper && spec.scratch_stack==w.permissions.scratch_stack &&
-              spec.inherited_stack==w.permissions.inherited_stack && !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,
+              spec.inherited_stack==w.permissions.inherited_stack && !spec.single_instruction,
               "select entry "+std::to_string(w.entry.address)+" has the unit and permissions of the 4S table");
         check(spec.exits.size()==w.exits.size(),"select entry "+std::to_string(w.entry.address)+" declares the exits of the 4S table");
         for (const auto& exit:w.exits)
@@ -140,14 +140,8 @@ void code_shape(const probe::Rom& rom) {
 }
 
 // ---- State probes -------------------------------------------------------------------------
-struct Spy final : RoutineVerifier {
-    replay::CallVerifier inner{"probe"};
-    std::optional<SegmentExit> last;
-    void run(Machine& machine, RoutineEntry entry, const SegmentSpec& spec, bool forced, std::uint64_t bound,
-             std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override {
-        inner.run(machine,entry,spec,forced,bound,call,[&] { last=body(); return last; });
-    }
-};
+// The exit each call of the harness took (milestone 14: from the registry).
+struct Spy { std::optional<SegmentExit> last; };
 
 using Prepare=std::function<void(Machine&,std::mt19937_64&)>;
 struct Rig {
@@ -157,7 +151,7 @@ struct Rig {
     std::uint64_t seed=1, count=0, refusals=0, unmapped=0;
     std::map<RoutineEntry,std::set<std::uint16_t>> reached;
     std::map<RoutineEntry,std::uint64_t> per_entry;
-    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.registry().verifier=&spy; }
+    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.exit_sink=&spy.last; }
 
     static bool admitted(const probe::Setup& s, unsigned scratch, unsigned inherited) {
         auto bad=[&](unsigned offset, bool strict) {
@@ -317,6 +311,14 @@ void power_on_probes(const probe::Rom& rom) {
         for (const auto r:probe::r_wrap_values(40)) { probe::Setup setup; setup.r=r; g.run(entry,setup,nullptr,prepare); }
     }
     exits_reached(g);
+    // Interrupt sweeps (milestone 14): an IRQ and an NMI at every cycle of every segment (all have more
+    // than one instruction), from inputs biased to the paths the probes above found.
+    for (const auto& [entry,prepare]:list)
+        for (unsigned variant=0;variant<2;++variant) {
+            probe::Setup setup; setup.seed=7000+variant;
+            std::mt19937_64 random(0x2D51u+variant*977u+entry.address);
+            probe::sweep(g.harness,entry,setup,[&](Machine& m) { if (prepare) prepare(m,random); },variant ? 3 : 1);
+        }
     std::cout<<"power-on probes: "<<g.count<<" calls in C++, "<<g.refusals<<" refused states (frame), "<<g.unmapped
              <<" refused stacks; every declared exit taken.\n";
 }
@@ -422,6 +424,8 @@ bool real_frame_probes(const menu_probe::Inputs& inputs, Found& found) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;

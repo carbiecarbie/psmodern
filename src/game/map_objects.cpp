@@ -2,14 +2,14 @@
 // World map and towns (milestone 11), part objects:
 // The object engine 01:576A, 01:5818 and 01:5853, and the map's object types
 // (01:599F to 01:5A70) with their walking helpers 01:5A76, 01:5A98, 01:5B5C
-// and 01:5B6B; the battle types stay native behind the engine's dispatcher.
+// and 01:5B6B; the battle types are other registered segments behind the engine's dispatcher.
 // Planned segments: map::object_segments in game/map.h, rendered with game/map_kit.h.
 //
 // Each segment is written once as a sequence of original instructions over a
 // bus (the milestone 11 kit); its bound is that sequence run on the estimating
 // bus. A segment ends where the routine calls, jumps or returns into code that
-// stays native (the type dispatcher, the party step 01:7143), and the
-// core executes that last instruction.
+// another segment renders (the type dispatcher, the party step 01:7143), and
+// that last instruction is left to the segment at its target.
 #include "game/map.h"
 #include "game/map_kit.h"
 #include "game/routines.h"
@@ -21,23 +21,20 @@ namespace {
 namespace mk=map_kit;
 using mk::Exit;
 using mk::Index;
-using mk::continues;
-using mk::returns;
 inline constexpr Index iy=Index::iy;
-inline constexpr unsigned taken_return=mk::taken_conditional_return_cycles;
 
 // A loop that reads its counter back from the stack (the sort's outer loop
 // pops BC) never ends when the stack lies in ROM, in the original as in this
 // rendering. The estimate then gives up: it marks itself uncertain (the
-// segment's maximum, above a frame, makes dispatch fall back) and stops. The
-// live side never meets such a state, since it runs only after the estimate.
+// segment's maximum, above a frame, makes the segment refuse the state at its entry, which stops the run) and stops. The
+// live side never meets such a state, since it runs only after the estimate;
+// if it did, the guard stops the game with its message. The guard reads only
+// the cycle count of the body, so a delivery inside the body does not change it.
 template<class Z> bool runaway(Z& z) {
-    if (z.elapsed()<=mk::uncertain_maximum) return false;
-    if constexpr (std::is_base_of_v<kit::Estimate,std::remove_reference_t<decltype(z.bus())>>) z.bus().uncertain=true;
-    else throw std::logic_error("a registered map segment ran past two frames");
-    return true;
+    return !z.guard(z.elapsed()<=mk::uncertain_maximum,"a registered map segment ran past two frames");
 }
-inline Exit gave_up() { return returns(0,0); }
+// The exit an abandoned estimate returns; it is never run (the estimate is uncertain).
+inline Exit gave_up() { return kit::refused(); }
 
 // ---- 01:576A: the object engine ----------------------------------------------------
 // Eight slots of 20h bytes at C800h. Pass one calls each used slot's type
@@ -65,7 +62,7 @@ template<class Z> Exit engine_scan(Z& z, bool step_first) {
         if (z.relative_if(0x5796,z.zero())) continue;
         z.push(0x5798,r.b,r.c);
         z.load_hl(0x5799);
-        return continues(0x579C,mk::call_cycles);
+        return z.final_call(0x579C);
     }
     return engine_sort_and_draw(z);
 }
@@ -116,11 +113,11 @@ template<class Z> Exit engine_draw_loop(Z& z, bool step_first) {
             z.load_bc(0x5803);
         }
         z.store_a_direct(0x5806);
-        return continues(0x5809,mk::call_cycles);
+        return z.final_call(0x5809);
     }
     z.load_hl_direct(0x5812);
     z.store_to_hl(0x5815);
-    return returns(0x5817,mk::return_cycles);
+    return z.final_return(0x5817);
 }
 template<class Z> Exit engine_sort_and_draw(Z& z) {
     auto& r=z.r;
@@ -176,7 +173,8 @@ template<class Z> Exit engine_start(Z& z) {                    // 01:576A-577D
     z.store_to_hl(0x5779);
     z.decrement_hl(0x577B);
     z.block_copy(0x577C);
-    return continues(0x577E,10);
+    z.load_hl(0x577E);
+    return mk::fall_through(0x577E,0x5781);
 }
 template<class Z> Exit engine_second(Z& z) {                   // 01:5781-578E
     z.store_hl_direct(0x5781);
@@ -207,7 +205,7 @@ template<class Z> Exit clear_slot(Z& z) {
     z.store_register_to_hl(0x5820,r.a);
     z.load_bc(0x5821);
     z.block_copy(0x5824);
-    return returns(0x5826,mk::return_cycles);
+    return z.final_return(0x5826);
 }
 
 // ---- 01:5853: the slot's sprites ---------------------------------------------------------
@@ -217,14 +215,15 @@ template<class Z> Exit clear_slot(Z& z) {
 // The two copy loops are cut at their first instruction (the loads at 01:5868
 // and 01:587B) once 128 cycles have passed: the sprite lists of some objects
 // are long (several thousand cycles) and would otherwise cross the frame
-// boundary. 01:5869 and 01:587C resume after the load the core executed.
+// boundary. 01:5869 and 01:587C resume after the load.
 constexpr std::uint16_t draw_chunk=128;
 template<class Z> Exit draw_second_loop(Z& z, bool resumed) {
     auto& r=z.r;
     for (;;) {
         if (!resumed) {
-            if (z.loop_exit(draw_chunk)) return continues(0x587B,7);
+            const bool chunk_end=z.loop_exit(draw_chunk);
             z.load_from_hl(0x587B,r.a);
+            if (chunk_end) return mk::fall_through(0x587B,0x587C);
         }
         resumed=false;
         z.add_register(0x587C,r.c);
@@ -238,14 +237,15 @@ template<class Z> Exit draw_second_loop(Z& z, bool resumed) {
         if (!z.decrement_jump(0x5884)) break;
     }
     z.store_pair_direct(0x5886,r.d,r.e);
-    return returns(0x588A,mk::return_cycles);
+    return z.final_return(0x588A);
 }
 template<class Z> Exit draw_first_loop(Z& z, bool resumed) {
     auto& r=z.r;
     for (;;) {
         if (!resumed) {
-            if (z.loop_exit(draw_chunk)) return continues(0x5868,7);
+            const bool chunk_end=z.loop_exit(draw_chunk);
             z.load_from_hl(0x5868,r.a);
+            if (chunk_end) return mk::fall_through(0x5868,0x5869);
         }
         resumed=false;
         z.add_register(0x5869,r.c);
@@ -290,7 +290,7 @@ template<class Z> Exit spawn_head(Z& z, std::uint16_t at, bool with_jump) {
         if (with_jump) (void)z.jump(static_cast<std::uint16_t>(at+2));
     }
     z.push(0x59A1,r.b,r.c);
-    return continues(0x59A2,mk::call_cycles);
+    return z.final_call(0x59A2);
 }
 template<class Z> Exit spawn_tail(Z& z) {                        // 01:59A5-59D3
     auto& r=z.r;
@@ -311,17 +311,17 @@ template<class Z> Exit spawn_tail(Z& z) {                        // 01:59A5-59D3
     if (!z.relative_if(0x59CA,!z.zero())) z.load_immediate(0x59CC,r.a);
     z.store_to_indexed(0x59CE,iy,r.a);
     z.load_immediate(0x59D1,r.a);
-    return returns(0x59D3,mk::return_cycles);
+    return z.final_return(0x59D3);
 }
 // A walking type: DE and HL = its two tables, then the call of 01:5A98 at `call_at`.
 template<class Z> Exit walk_start(Z& z, std::uint16_t at) {
     z.load_de(at);
     z.load_hl(static_cast<std::uint16_t>(at+3));
-    return continues(static_cast<std::uint16_t>(at+6),mk::call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+6));
 }
 template<class Z> Exit walk_return(Z& z, std::uint16_t at) {     // ld a,FFh; ret
     z.load_immediate(at,z.r.a);
-    return returns(static_cast<std::uint16_t>(at+2),mk::return_cycles);
+    return z.final_return(static_cast<std::uint16_t>(at+2));
 }
 
 // ---- 01:5A4F and 01:5A70: the party's vehicle on the map -------------------------------------
@@ -336,11 +336,11 @@ template<class Z> Exit vehicle_start(Z& z) {                    // 01:5A52-5A6F,
     z.store_to_indexed(0x5A66,iy,r.a);
     z.store_immediate_indexed(0x5A69,iy);
     z.load_immediate(0x5A6D,r.a);
-    return returns(0x5A6F,mk::return_cycles);
+    return z.final_return(0x5A6F);
 }
 template<class Z> Exit vehicle_answer(Z& z) {                   // 01:5A73: ld a,FFh; ret
     z.load_immediate(0x5A73,z.r.a);
-    return returns(0x5A75,mk::return_cycles);
+    return z.final_return(0x5A75);
 }
 // 01:5A79, after the party's step 01:7143: with a direction held, the lowest
 // set bit of the move bits C264h picks the vehicle's frame from a table of four.
@@ -348,8 +348,7 @@ template<class Z> Exit vehicle_step(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x5A79);
     z.and_immediate(0x5A7C);
-    if (z.zero()) return returns(0x5A7E,taken_return);
-    z.return_not_taken(0x5A7E);
+    if (auto exit=z.final_return_if(0x5A7E,mk::Condition::z)) return *exit;
     z.load_immediate(0x5A7F,r.c);
     do {
         z.rotate_right_circular_a(0x5A81);
@@ -361,7 +360,7 @@ template<class Z> Exit vehicle_step(Z& z) {
     z.load_a_direct(0x5A8C);
     z.add_from_hl(0x5A8F);
     z.store_to_indexed(0x5A90,iy,r.a);
-    return returns(0x5A93,mk::return_cycles);
+    return z.final_return(0x5A93);
 }
 
 // ---- 01:5A98: the walker ----------------------------------------------------------------
@@ -398,7 +397,7 @@ template<class Z> Exit walker_direction(Z& z) {                  // 01:5B04-5B2F
     z.add_to_hl(0x5B2A,z.de());
     z.load_from_hl(0x5B2B,r.a);
     z.store_to_indexed(0x5B2C,iy,r.a);
-    return returns(0x5B2F,mk::return_cycles);
+    return z.final_return(0x5B2F);
 }
 template<class Z> Exit walker_idle(Z& z) {                       // 01:5AFC
     z.load_a_direct(0x5AFC);
@@ -458,7 +457,7 @@ template<class Z> Exit walker_frame(Z& z) {                       // 01:5B30: a 
     auto& r=z.r;
     z.copy(0x5B30,r.a,r.c);
     z.or_a(0x5B31);
-    return continues(0x5B32,z.zero() ? mk::untaken_call_cycles : mk::call_cycles);
+    return z.final_call_if(0x5B32,mk::Condition::nz);
 }
 template<class Z> Exit walker_animate(Z& z) {                    // 01:5B35: the walking animation
     auto& r=z.r;
@@ -466,8 +465,7 @@ template<class Z> Exit walker_animate(Z& z) {                    // 01:5B35: the
     z.or_a(0x5B38);
     if (z.relative_if(0x5B39,!z.zero())) return walker_direction(z);
     z.decrement_indexed(0x5B3B,iy);
-    if (!z.sign()) return returns(0x5B3E,taken_return);
-    z.return_not_taken(0x5B3E);
+    if (auto exit=z.final_return_if(0x5B3E,mk::Condition::p)) return *exit;
     z.store_immediate_indexed(0x5B3F,iy);
     z.load_from_indexed(0x5B43,iy,r.a);
     z.add_register(0x5B46,r.a);
@@ -483,7 +481,7 @@ template<class Z> Exit walker_animate(Z& z) {                    // 01:5B35: the
     z.add_to_hl(0x5B56,z.de());
     z.load_from_hl(0x5B57,r.a);
     z.store_to_indexed(0x5B58,iy,r.a);
-    return returns(0x5B5B,mk::return_cycles);
+    return z.final_return(0x5B5B);
 }
 
 // ---- 01:5B5C and 01:5B6B: the follower's nudge -------------------------------------------------
@@ -495,19 +493,19 @@ template<class Z> Exit nudge_move(Z& z) {                        // 01:5B6B-5B86
         if (!z.relative_if(0x5B71,!z.zero())) z.decrement(0x5B73,r.a);
         z.add_from_indexed(0x5B74,iy);
         z.store_to_indexed(0x5B77,iy,r.a);
-        return returns(0x5B7A,mk::return_cycles);
+        return z.final_return(0x5B7A);
     }
     z.subtract_immediate(0x5B7B);
     if (!z.relative_if(0x5B7D,!z.zero())) z.decrement(0x5B7F,r.a);
     z.add_from_indexed(0x5B80,iy);
     z.store_to_indexed(0x5B83,iy,r.a);
-    return returns(0x5B86,mk::return_cycles);
+    return z.final_return(0x5B86);
 }
 template<class Z> Exit follow_start(Z& z) {                      // 01:5B5C
     auto& r=z.r;
     z.test_bit_indexed(0x5B5C,iy,0);
     z.load_from_indexed(0x5B60,iy,r.a);
-    return continues(0x5B63,z.zero() ? mk::untaken_call_cycles : mk::call_cycles);
+    return z.final_call_if(0x5B63,mk::Condition::nz);
 }
 template<class Z> Exit follow_resume(Z& z) {                     // 01:5B66
     z.load_a_direct(0x5B66);
@@ -548,13 +546,20 @@ void register_map_objects(RoutineRegistry& registry) {
         add(back,at,{returned_at(static_cast<std::uint16_t>(back+2))},{},[back](auto& z) { return walk_return(z,back); });
     }
     // The vehicle
+    // The vehicle types' first instructions: the call that clears the slot, the
+    // call into the vehicle step, and the party step it makes.
+    for (const std::uint16_t entry : {0x5A4F,0x5A70,0x5A76}) {
+        auto spec=mk::segment(unit(entry),{core_final_at(entry)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,map::at1(entry),std::move(spec),[entry](auto& z) -> Exit { return z.final_call(entry); });
+    }
     add(0x5A52,0x5A4F,{returned_at(0x5A6F)},{},[](auto& z) { return vehicle_start(z); });
     add(0x5A73,0x5A70,{returned_at(0x5A75)},{},[](auto& z) { return vehicle_answer(z); });
     add(0x5A79,0x5A76,{returned_at(0x5A7E),returned_at(0x5A93)},{},[](auto& z) { return vehicle_step(z); });
     // The walker and the follower
     add(0x5A98,0x5A98,{core_final_at(0x5A9A)},{},[](auto& z) {
         z.copy(0x5A98,z.r.a,z.r.c); z.or_a(0x5A99);
-        return mk::continues(0x5A9A,z.zero() ? mk::call_cycles : mk::untaken_call_cycles); });
+        return z.final_call_if(0x5A9A,mk::Condition::z); });
     add(0x5A9D,0x5A98,{returned_at(0x5B2F),core_final_at(0x5B32),returned_at(0x5B3E),returned_at(0x5B5B)},{},
         [](auto& z) { return walker_head(z); });
     add(0x5B35,0x5A98,{returned_at(0x5B2F),returned_at(0x5B3E),returned_at(0x5B5B)},{},[](auto& z) { return walker_animate(z); });

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/text.h"
 #include "probe.h"
+#include <algorithm>
+#include <functional>
 #include <iostream>
 
 using namespace psmodern;
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         RoutineRegistry registry;
         game::register_text(registry);
@@ -14,8 +18,7 @@ int main(int argc,char** argv) {
         auto check_group=[&](const auto& entries,RoutineEntry unit) {
             for (auto address:entries) {
                 const auto* segment=registry.find(address);
-                probe::check(segment && segment->spec.unit==unit && !segment->spec.exits.empty() &&
-                             !segment->spec.force_admit,"text segment declares its unit and bounded exits");
+                probe::check(segment && segment->spec.unit==unit && !segment->spec.exits.empty(),"text segment declares its unit and bounded exits");
             }
         };
         check_group(game::text_output_entries,game::text_output_unit);
@@ -104,6 +107,45 @@ int main(int argc,char** argv) {
             machine.memory().write(0xc800,static_cast<std::uint8_t>(value*2));
             harness.run_cpp(machine,entry);
         }
+        // Interrupt sweeps (milestone 14): the text bodies have their own port bus (the LiveText of text.cpp), so every
+        // instruction family is swept: loads and stores, the port writes of the tile printers, the divisions of the
+        // number printer, the pushes and pops, and every final. An IRQ and an NMI at every cycle of each segment of
+        // more than one instruction (every n-th of the longest), from the states the probes above use.
+        auto sweep_group=[&](const auto& entries,const std::function<void(Machine&,unsigned)>& state) {
+            for (auto entry:entries) {
+                if (harness.routine(entry).spec.single_instruction) continue;
+                for (unsigned value:{3u,34u,77u,120u}) {
+                    probe::Setup setup; setup.seed=value; setup.banks[2]=static_cast<std::uint8_t>(value%32);
+                    auto pilot=harness.prepare(entry,setup);
+                    state(pilot,value);
+                    const auto length=harness.routine(entry).bound(pilot);
+                    const unsigned stride=static_cast<unsigned>(std::max<std::uint64_t>(1,length/300));
+                    probe::sweep(harness,entry,setup,[&](Machine& m) { state(m,value); },stride);
+                }
+            }
+        };
+        sweep_group(game::text_output_entries,[](Machine& m,unsigned value) {
+            m.cpu().hl.uint16_value=static_cast<std::uint16_t>(0xc800+value);
+            m.memory().write(m.cpu().hl.uint16_value,static_cast<std::uint8_t>(value*5));
+            m.cpu().bc.uint8_values.at_1=static_cast<std::uint8_t>(value%3);
+        });
+        sweep_group(game::text_stream_entries,[](Machine& m,unsigned value) {
+            m.cpu().hl.uint16_value=0xc800; m.memory().write(0xc800,static_cast<std::uint8_t>(value));
+            m.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(value);
+        });
+        sweep_group(game::text_dictionary_entries,[](Machine& m,unsigned value) {
+            m.cpu().hl.uint16_value=0xc800; m.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(value*2);
+            m.memory().write(0xc800,static_cast<std::uint8_t>(value*2)); m.cpu().bc.uint8_values.at_1=static_cast<std::uint8_t>(value%3);
+        });
+        sweep_group(game::text_continuation_entries,[](Machine& m,unsigned value) { m.memory().write(0xc2d3,static_cast<std::uint8_t>(value)); });
+        sweep_group(game::text_number_entries,[](Machine& m,unsigned value) {
+            m.cpu().hl.uint16_value=static_cast<std::uint16_t>(value*997);
+            m.memory().write(0xc2c5,static_cast<std::uint8_t>(value*97)); m.memory().write(0xc2c6,static_cast<std::uint8_t>(value*19));
+        });
+        sweep_group(game::text_alternate_entries,[](Machine& m,unsigned value) {
+            m.cpu().hl.uint16_value=0xc800; m.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(value*2);
+            m.memory().write(0xc800,static_cast<std::uint8_t>(value*2));
+        });
         for (auto entry:{RoutineEntry{0,0x33d7},RoutineEntry{0,0x33da},RoutineEntry{0,0x3308}}) {
             probe::Setup setup;
             auto near_interrupt=harness.prepare(entry,setup);

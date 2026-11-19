@@ -5,6 +5,7 @@
 // 77 without the ROM), the tests of the experience-rate option and of its cap
 // rule, and the check whether the original can reach the experience cap.
 #include "probe.h"
+#include "c4_sweep.h"
 #include <algorithm>
 #include <chrono>
 #include <functional>
@@ -36,8 +37,9 @@ void registration() {
                   "experience segment outside its unit");
             const bool option=entry==award || entry==add_entry;
             const bool scaled=options.experience_percent!=100;
-            check(routine.spec.single_instruction==option && routine.spec.force_admit==(option && scaled),
-                  "only the two reward instructions are single instructions, forced only with the option on");
+            (void)scaled;
+            check(routine.spec.single_instruction==option,
+                  "only the two reward instructions are single instructions, none forced");
             check(!routine.spec.exits.empty(),"segments declare exits");
             const bool mapper=entry==fourth_record || entry==helper || entry==level_entry;
             check(routine.spec.slot2_mapper==mapper,"slot-2 mapper permission only where the original writes it");
@@ -122,26 +124,26 @@ struct Context {
         run(entry,setup,arrange,[](Machine&, Result) {});
     }
 };
-void poke(Machine& machine, std::uint16_t address, std::uint8_t value) { machine.memory().write(address,value); }
-void poke_word(Machine& machine, std::uint16_t address, std::uint16_t value) {
+void poke(Console& machine, std::uint16_t address, std::uint8_t value) { machine.memory().write(address,value); }
+void poke_word(Console& machine, std::uint16_t address, std::uint16_t value) {
     poke(machine,address,static_cast<std::uint8_t>(value)); poke(machine,static_cast<std::uint16_t>(address+1),static_cast<std::uint8_t>(value>>8));
 }
-std::uint8_t peek(const Machine& machine, std::uint16_t address) { return machine.memory().read(address); }
-std::uint16_t peek_word(const Machine& machine, std::uint16_t address) {
+std::uint8_t peek(const Console& machine, std::uint16_t address) { return machine.memory().read(address); }
+std::uint16_t peek_word(const Console& machine, std::uint16_t address) {
     return static_cast<std::uint16_t>(peek(machine,address)|(peek(machine,static_cast<std::uint16_t>(address+1))<<8));
 }
-std::uint8_t a_of(const Machine& m) { return m.cpu().af.uint8_values.at_1; }
-std::uint8_t f_of(const Machine& m) { return m.cpu().af.uint8_values.at_0; }
-std::uint16_t hl_of(const Machine& m) { return m.cpu().hl.uint16_value; }
-std::uint16_t de_of(const Machine& m) { return m.cpu().de.uint16_value; }
-std::uint16_t ix_of(const Machine& m) { return m.cpu().ix_iy[0].uint16_value; }
-std::uint16_t iy_of(const Machine& m) { return m.cpu().ix_iy[1].uint16_value; }
-void set_a(Machine& m, unsigned v) { m.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(v); }
-void set_f(Machine& m, unsigned v) { m.cpu().af.uint8_values.at_0=static_cast<std::uint8_t>(v); }
-void set_hl(Machine& m, unsigned v) { m.cpu().hl.uint16_value=static_cast<std::uint16_t>(v); }
-void set_de(Machine& m, unsigned v) { m.cpu().de.uint16_value=static_cast<std::uint16_t>(v); }
-void set_ix(Machine& m, unsigned v) { m.cpu().ix_iy[0].uint16_value=static_cast<std::uint16_t>(v); }
-void set_iy(Machine& m, unsigned v) { m.cpu().ix_iy[1].uint16_value=static_cast<std::uint16_t>(v); }
+std::uint8_t a_of(const Console& m) { return m.cpu().af.uint8_values.at_1; }
+std::uint8_t f_of(const Console& m) { return m.cpu().af.uint8_values.at_0; }
+std::uint16_t hl_of(const Console& m) { return m.cpu().hl.uint16_value; }
+std::uint16_t de_of(const Console& m) { return m.cpu().de.uint16_value; }
+std::uint16_t ix_of(const Console& m) { return m.cpu().ix_iy[0].uint16_value; }
+std::uint16_t iy_of(const Console& m) { return m.cpu().ix_iy[1].uint16_value; }
+void set_a(Console& m, unsigned v) { m.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(v); }
+void set_f(Console& m, unsigned v) { m.cpu().af.uint8_values.at_0=static_cast<std::uint8_t>(v); }
+void set_hl(Console& m, unsigned v) { m.cpu().hl.uint16_value=static_cast<std::uint16_t>(v); }
+void set_de(Console& m, unsigned v) { m.cpu().de.uint16_value=static_cast<std::uint16_t>(v); }
+void set_ix(Console& m, unsigned v) { m.cpu().ix_iy[0].uint16_value=static_cast<std::uint16_t>(v); }
+void set_iy(Console& m, unsigned v) { m.cpu().ix_iy[1].uint16_value=static_cast<std::uint16_t>(v); }
 bool returned(const Machine& machine, std::uint16_t sp) {
     return machine.cpu().sp.uint16_value==static_cast<std::uint16_t>(sp+2) && machine.cpu().pc.uint16_value==caller;
 }
@@ -448,15 +450,14 @@ void own_return(Context& c) {
 void sabotage(Context& c) {
     const auto& real=c.harness.routine(message);
     RoutineRegistry sabotaged;
-    replay::CallVerifier verifier("sabotage");
-    sabotaged.verifier=&verifier;
     sabotaged.add(message,real.spec,real.bound,[body=real.body](RoutineContext& context) {
         auto& r=context.cpu().r; r=static_cast<std::uint8_t>((r&0x80)|((r+1)&0x7f)); body(context);
     });
     auto machine=c.harness.prepare(message,{});
     set_hl(machine,300);
     bool caught=false;
-    try { machine.step(sabotaged); } catch (const std::runtime_error& e) { caught=std::string(e.what()).find("Divergence")==0; }
+    try { oracle::Lockstep lockstep(machine,"sabotage",oracle::Mode::instructions); lockstep.step(machine,&sabotaged); }
+    catch (const std::runtime_error& e) { caught=std::string(e.what()).find("Lockstep divergence")==0; }
     check(caught,"the verifier did not catch a sabotaged body");
 }
 
@@ -527,8 +528,10 @@ void award_chains(Context& c, Tally& t) {
         const auto native_texts=run_award(c,native,nullptr);
         check(texts==native_texts,"text calls differ");
         std::string fields;
-        for (const auto& difference:native.differences(machine)) fields+=" "+difference.field;
+        for (const auto& difference:oracle::differences(machine,native,oracle::Scope::whole)) fields+=" "+difference;
         check(fields.empty(),"award differs from the original:"+fields);
+        check(machine.take_psg_writes()==native.take_psg_writes() && machine.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),
+              "award sound writes or cartridge RAM flag differ");
         check(fallbacks(c.harness.registry())==before,"a segment fell back inside a whole award");
         level_ups+=texts>1 ? 1 : 0;
         ++t.chains; ++c.probes;
@@ -571,18 +574,17 @@ void scaling_properties() {
 // the unscaled instruction. The stored reward stays as it was.
 void rate_formula(const probe::Rom& rom, unsigned rate, std::uint64_t& count) {
     probe::Harness harness(rom,game::Options{100,rate});
-    harness.registry().verifier=nullptr;
+    harness.verified=false;
     Context c{rom,harness};
     for (const auto entry:{award,add_entry}) {
         const auto& spec=harness.routine(entry).spec;
-        check(spec.force_admit==(rate!=100) && spec.single_instruction,"option declaration");
+        check(spec.single_instruction,"option declaration");
     }
     probe::Setup setup; setup.seed=rate; setup.iff1=true;
     const auto load_base=harness.prepare(award,setup), add_base=harness.prepare(add_entry,setup);
     auto admitted=[&](RoutineEntry entry, const RoutineCounters& before) {
         const auto& after=harness.routine(entry).counters;
-        check(after.cpp_calls==before.cpp_calls+1 && after.fallback_calls==before.fallback_calls &&
-              after.forced_calls==before.forced_calls+(rate!=100) && after.forced_failed==0,"call was not admitted in C++");
+        check(after.cpp_calls==before.cpp_calls+1 && after.fallback_calls==before.fallback_calls,"call was not admitted in C++");
     };
     for (unsigned reward=0;reward<65536;++reward) {
         const auto scaled=expected_scaled(reward,rate);
@@ -618,7 +620,6 @@ void rate_formula(const probe::Rom& rom, unsigned rate, std::uint64_t& count) {
     }
     if (rate==100) {
         // At 100 the segments are the original instructions.
-        for (const auto entry:{award,add_entry}) check(!harness.routine(entry).spec.force_admit,"not forced at 100");
     }
 }
 
@@ -635,21 +636,25 @@ void make_window(Machine& machine, unsigned kind, unsigned offset) {
 }
 // The oracle for a non-default rate: the original instruction, run natively on
 // a copy, with the adjustment the option describes written out again.
-void oracle_load(Machine& m, unsigned rate) { m.step(); set_hl(m,expected_scaled(hl_of(m),rate)); }
-void oracle_add(Machine& m, unsigned rate) {
+void oracle_load(oracle::NativeMachine& m, unsigned rate) { m.step(); set_hl(m,expected_scaled(hl_of(m),rate)); }
+void oracle_add(oracle::NativeMachine& m, unsigned rate) {
     set_hl(m,expected_scaled(hl_of(m),rate)); m.step();
-    if (f_of(m)&1) { set_hl(m,0xffff); set_f(m,f_of(m)&0xfe); }
+    if (f_of(m)&1) { set_hl(m,0xffff); set_f(m,f_of(m)&0xfe); m.cpu().q=f_of(m); }
 }
-struct WindowCounts { std::uint64_t forced=0, irq=0, nmi=0, frame=0, ei=0, fallbacks=0, accepted=0; };
-// With a non-default rate both option segments are admitted in every
-// interrupt, NMI and frame window, with no added delay: the machine equals the
-// oracle, also a few steps later.
+struct WindowCounts { std::uint64_t calls=0, ei=0, accepted=0; };
+// With a non-default rate both option segments are rendered single
+// instructions: in every interrupt, NMI and frame window they are ordinary C++
+// calls with no added delay, and the machine equals the oracle, also a few
+// steps later.
 void windows(const probe::Rom& rom, WindowCounts& counts) {
-    for (const unsigned rate:{200u,400u}) {
+    for (const unsigned rate:{100u,200u,400u}) {
         probe::Harness harness(rom,game::Options{100,rate});
-        harness.registry().verifier=nullptr;
+        harness.verified=false;
         for (const auto entry:{award,add_entry}) {
-            auto oracle=[&](Machine& m) { if (entry==award) oracle_load(m,rate); else oracle_add(m,rate); };
+            auto reference=[&](oracle::NativeMachine& m) {
+                if (rate==100) m.step();
+                else if (entry==award) oracle_load(m,rate); else oracle_add(m,rate);
+            };
             auto arrange=[&](Machine& m, unsigned offset) {
                 if (entry==award) poke_word(m,Context{rom,harness}.reward(),static_cast<std::uint16_t>(1000+offset*9000));
                 else { set_hl(m,1000+offset*9000); set_de(m,offset%2 ? 65535-offset*500 : offset*1000); }
@@ -662,51 +667,38 @@ void windows(const probe::Rom& rom, WindowCounts& counts) {
                     // An interrupt accepted at the entry itself starts no call.
                     if (base.interrupt_accepted_at_boundary()) { ++counts.accepted; continue; }
                     arrange(base,offset);
-                    Machine expected=base, actual=base;
-                    oracle(expected);
+                    oracle::NativeMachine expected(base); Machine actual=base;
+                    reference(expected);
                     const auto before=harness.routine(entry).counters;
                     actual.step(harness.registry());
                     const auto& after=harness.routine(entry).counters;
-                    check(after.cpp_calls==before.cpp_calls+1 && after.forced_calls==before.forced_calls+1 &&
-                          after.fallback_calls==before.fallback_calls && after.forced_failed==before.forced_failed,
-                          "forced call in a window: rate "+std::to_string(rate)+", kind "+std::to_string(kind)+", offset "+std::to_string(offset));
-                    ++counts.forced;
-                    counts.irq+=after.forced(RoutineFallback::irq)-before.forced(RoutineFallback::irq);
-                    counts.nmi+=after.forced(RoutineFallback::nmi)-before.forced(RoutineFallback::nmi);
-                    counts.frame+=after.forced(RoutineFallback::frame)-before.forced(RoutineFallback::frame);
-                    check(expected.equivalent(actual),"forced call differs from the oracle");
+                    check(after.cpp_calls==before.cpp_calls+1 &&
+                          after.fallback_calls==before.fallback_calls,
+                          "C++ call in a window: rate "+std::to_string(rate)+", kind "+std::to_string(kind)+", offset "+std::to_string(offset));
+                    ++counts.calls;
+                    check(oracle::equal(actual,expected,oracle::Scope::whole),"call differs from the oracle");
+                    // Both continue on the original from there (state transfer).
+                    oracle::NativeMachine continued(actual);
                     for (unsigned step=0;step<6;++step) {
-                        expected.step(); actual.step();
-                        check(expected.equivalent(actual),"forced call differs a few steps later");
+                        expected.step(); continued.step();
+                        check(oracle::equal(continued,expected,oracle::Scope::whole),"call differs a few steps later");
                     }
                 }
-            // EI delay: forced, counted, equal.
+            // EI delay: an ordinary call, equal.
             probe::Setup setup; setup.iff1=setup.iff2=true;
             auto base=harness.prepare(entry,setup);
             base.cpu().data.uint8_array[0]=0xfb;
             arrange(base,3);
-            Machine expected=base, actual=base;
-            oracle(expected);
+            oracle::NativeMachine expected(base); Machine actual=base;
+            reference(expected);
             const auto before=harness.routine(entry).counters;
             actual.step(harness.registry());
             const auto& after=harness.routine(entry).counters;
-            check(after.forced_calls==before.forced_calls+1 && after.forced(RoutineFallback::ei_delay)==before.forced(RoutineFallback::ei_delay)+1 &&
-                  after.forced_failed==before.forced_failed && after.fallback_calls==before.fallback_calls,"forced call after an EI");
-            check(expected.equivalent(actual),"forced call after an EI differs");
+            check(after.cpp_calls==before.cpp_calls+1 && after.fallback_calls==before.fallback_calls,"call after an EI");
+            check(oracle::equal(actual,expected,oracle::Scope::whole),"call after an EI differs");
             ++counts.ei;
         }
     }
-    // The same windows with the option at its default: the call falls back.
-    probe::Harness original(rom);
-    for (const auto entry:{award,add_entry})
-        for (unsigned kind=1;kind<4;++kind) {
-            probe::Setup setup; setup.iff1=setup.iff2=kind!=3; setup.sp=0xdf00;
-            auto machine=original.prepare(entry,setup);
-            make_window(machine,kind,kind==3 ? 0 : 2);
-            check(!machine.interrupt_accepted_at_boundary(),"control window starts a call");
-            original.run_fallback(machine,entry,kind==1 ? RoutineFallback::irq : kind==2 ? RoutineFallback::nmi : RoutineFallback::frame);
-            ++counts.fallbacks;
-        }
 }
 
 // With a non-default rate and no total overflowing, a whole award equals the
@@ -714,7 +706,7 @@ void windows(const probe::Rom& rom, WindowCounts& counts) {
 // its value; every segment ran in C++ and none was forced to fall back.
 void award_chains_with_rate(const probe::Rom& rom, unsigned rate, std::uint64_t& count) {
     probe::Harness harness(rom,game::Options{100,rate});
-    harness.registry().verifier=nullptr;
+    harness.verified=false;
     Context c{rom,harness};
     for (unsigned n=0;n<400;++n) {
         auto setup=c.vary(); setup.iff1=setup.iff2=false; setup.sp=0xdf00; setup.banks[2]=3; setup.cartridge_ram=false;
@@ -741,7 +733,7 @@ void award_chains_with_rate(const probe::Rom& rom, unsigned rate, std::uint64_t&
         check(peek_word(machine,c.reward())==reward,"the stored reward is unchanged");
         poke_word(native,c.reward(),static_cast<std::uint16_t>(reward));
         std::string fields;
-        for (const auto& difference:native.differences(machine)) fields+=" "+difference.field;
+        for (const auto& difference:oracle::differences(machine,native,oracle::Scope::whole)) fields+=" "+difference;
         check(fields.empty(),"award at a rate differs from the original on the scaled reward:"+fields);
         check(peek_word(machine,c.displayed())==scaled,"the displayed reward is the scaled one");
         ++count;
@@ -770,7 +762,7 @@ struct Cap {
 void cap_rule(const probe::Rom& rom, std::uint64_t& awards) {
     for (const unsigned rate:{100u,200u,400u}) {
         probe::Harness harness(rom,game::Options{100,rate});
-        if (rate!=100) harness.registry().verifier=nullptr;
+        if (rate!=100) harness.verified=false;
         Context c{rom,harness};
         probe::Setup setup; setup.iff1=setup.iff2=false; setup.sp=0xdf00;
         auto machine=harness.prepare(award,setup);
@@ -875,7 +867,10 @@ CapReach cap_reachability(const probe::Rom& rom) {
 }
 }
 
-int main(int argc, char** argv) { try {
+int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try {
     registration();
     scaling_properties();
     if (argc==1) { std::cout<<"Experience registration and scaling checks passed.\n"; return 0; }
@@ -885,6 +880,7 @@ int main(int argc, char** argv) { try {
     const auto start=std::chrono::steady_clock::now();
     auto seconds=[&] { return std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count(); };
     probe::Harness harness(*rom);
+    { probe::Harness sweeping(*rom); c4::sweep_file(sweeping,"experience",game::experience_entries); }
     for (const auto& entry:game::experience_entries) check(harness.registry().find(entry)!=nullptr,"experience entry registered for the ROM");
     Context c{*rom,harness};
     Tally t;
@@ -918,8 +914,7 @@ int main(int argc, char** argv) { try {
     windows(*rom,window);
     cap_rule(*rom,cap_awards);
     std::cout<<"Experience-rate option: "<<formula<<" reward checks over "<<std::size(rates)<<" rates x 65536 rewards (display, addition, cap); "
-        <<with_rate<<" whole awards at rates; "<<window.forced<<" forced windows ("<<window.irq<<" irq, "<<window.nmi<<" nmi, "<<window.frame
-        <<" frame reasons), "<<window.ei<<" after EI, "<<window.fallbacks<<" default-rate windows falling back, "<<window.accepted
+        <<with_rate<<" whole awards at rates; "<<window.calls<<" window calls, "<<window.ei<<" after EI, "<<window.accepted
         <<" cases with the interrupt accepted at the entry; cap rule "<<cap_awards<<" awards; "<<seconds()<<" s total.\n";
 
     // Can the original reach the cap below level 30?

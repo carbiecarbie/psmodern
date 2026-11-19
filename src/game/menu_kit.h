@@ -25,12 +25,11 @@ namespace psmodern::game::menu_kit {
 using kit::carry_flag; using kit::subtract_flag; using kit::parity_flag; using kit::x_flag;
 using kit::half_flag; using kit::y_flag; using kit::zero_flag; using kit::sign_flag;
 using kit::pair; using kit::high_byte; using kit::low_byte;
-using kit::Exit; using kit::returns; using kit::continues;
+using kit::Exit; using kit::fall_through; using kit::refused; using kit::Condition; using kit::Guard;
 using kit::returned_at; using kit::core_final_at; using kit::conditional_at; using kit::loop_at;
 using kit::Permissions; using kit::segment;
 using kit::call_cycles; using kit::untaken_call_cycles; using kit::jump_cycles; using kit::return_cycles;
 using kit::taken_conditional_return_cycles;
-using kit::jump_if_exit; using kit::relative_if_exit; using kit::decrement_jump_exit;
 using map_kit::conditional_loop_at; using map_kit::restart_cycles;
 using map_kit::vdp_address_helper; using map_kit::vdp_address_helper_return;
 using map_kit::Registers; using map_kit::Index; using map_kit::load; using map_kit::store;
@@ -73,7 +72,7 @@ public:
     // incremented, B decremented; MEMPTR = BC + 1 with the old B; flags from
     // the new B and from the byte plus C + 1 (as the core computes them).
     void input_increment(std::uint16_t at) {
-        bus().fetch(at); bus().fetch(at+1);
+        bus().expect(at,OpcodePattern::prefixed(0xED,0xA2)); bus().fetch(at); bus().fetch(at+1);
         const auto port=this->bc();
         const auto value=bus().input_increment(port,this->hl());
         this->set_hl(static_cast<std::uint16_t>(this->hl()+1));
@@ -82,24 +81,26 @@ public:
         const unsigned t=value+static_cast<std::uint8_t>(r.c+1);
         r.f=static_cast<std::uint8_t>((r.b&(sign_flag|y_flag|x_flag))|(r.b ? 0 : zero_flag)|
             kit::parity(static_cast<std::uint8_t>((t&7)^r.b))|(t>255 ? (half_flag|carry_flag) : 0)|((value>>6)&subtract_flag));
+        r.q=r.f;
     }
     // cpl: A inverted; H and N set, S, Z, P/V and C kept, the undocumented
     // bits from the result.
     void complement_a(std::uint16_t at) {
-        this->one_byte(at,4);
+        bus().expect(at,this->op(0x2F)); this->one_byte(at,4);
         r.a=static_cast<std::uint8_t>(~r.a);
         r.f=static_cast<std::uint8_t>((r.f&(sign_flag|zero_flag|parity_flag|carry_flag))|(r.a&(y_flag|x_flag))|half_flag|subtract_flag);
+        r.q=r.f;
     }
     // res b,r and set b,r: two opcode fetches, flags unchanged.
     void reset_bit(std::uint16_t at, unsigned bit, std::uint8_t& value) {
-        bus().fetch(at); bus().fetch(at+1); value=static_cast<std::uint8_t>(value&~(1u<<bit)); bus().advance(8);
+        bus().expect(at,this->with_field(0xCB,static_cast<std::uint8_t>(0x80|((bit&7)<<3)),0,value)); bus().fetch(at); bus().fetch(at+1); value=static_cast<std::uint8_t>(value&~(1u<<bit)); bus().advance(8);
     }
     void set_bit(std::uint16_t at, unsigned bit, std::uint8_t& value) {
-        bus().fetch(at); bus().fetch(at+1); value=static_cast<std::uint8_t>(value|(1u<<bit)); bus().advance(8);
+        bus().expect(at,this->with_field(0xCB,static_cast<std::uint8_t>(0xC0|((bit&7)<<3)),0,value)); bus().fetch(at); bus().fetch(at+1); value=static_cast<std::uint8_t>(value|(1u<<bit)); bus().advance(8);
     }
     // sub (ix+d) / sub (iy+d): MEMPTR = IX + d.
     void subtract_indexed(std::uint16_t at, Index which) {
-        bus().fetch(at); bus().fetch(at+1);
+        bus().expect(at,this->indexed(which,0x96)); bus().fetch(at); bus().fetch(at+1);
         const auto offset=static_cast<std::int8_t>(bus().read(static_cast<std::uint16_t>(at+2)));
         r.wz=static_cast<std::uint16_t>(this->index(which)+offset);
         r.a=kit::subtract_flags(r,r.a,bus().read(r.wz),0);
@@ -108,23 +109,21 @@ public:
     // A bare `call nn` at `at` whose callee the segment renders completely,
     // its returning instruction included: `callee(z)` renders the callee's
     // path and ends with return_from (ret) or a taken return_if (ret cc), and
-    // returns the address it popped (r.wz). Same guard as
-    // map_kit::Instructions::inline_call: a return elsewhere (a stack in ROM)
-    // makes the estimate uncertain and is a logic error on the live bus.
+    // returns the address it popped (r.wz). Same explicit in-body guard as
+    // map_kit::Instructions::inline_call for a return elsewhere (a stack not
+    // in RAM).
     template<class Callee> bool inline_subroutine(std::uint16_t at, Callee callee) {
         (void)this->call(at);
         const std::uint16_t target=callee(*this);
-        if (target==static_cast<std::uint16_t>(at+3)) return true;
-        if constexpr (std::is_base_of_v<kit::Estimate,Bus>) bus().uncertain=true;
-        else throw std::logic_error("a registered menu segment returned from an inline subroutine to another address");
-        return false;
+        return this->guard(target==static_cast<std::uint16_t>(at+3),
+                           "an inline subroutine returned to another address (stack not in RAM)");
     }
 };
 
 // ---- Bounds and registration -----------------------------------------------------
 // As in the map kit, with the port-input buses. `maximum` is used when the
 // estimate is uncertain; choose it above one frame (uncertain_maximum) so that
-// such a state falls back.
+// the segment refuses such a state at its entry (the run stops).
 template<class Logic> std::uint64_t cost(const Machine& machine, const Logic& logic, std::uint64_t maximum) {
     Estimate bus(machine);
     auto registers=load(machine.cpu());
@@ -137,18 +136,38 @@ template<class Logic> void run(RoutineContext& context, const Logic& logic) {
     Live bus(context);
     auto registers=load(cpu);
     Instructions<Live> instructions(bus,registers);
-    const auto exit=logic(instructions);
+    Exit exit{};
+    {
+        kit::Sync<Registers,&map_kit::store,&map_kit::load> sync(registers);
+        RoutineContext::SyncScope scope(context,sync);
+        exit=logic(instructions);
+    }
     store(cpu,registers);
-    if (exit.segment.kind==RoutineExit::returned) context.finish_return(exit.segment.address);
-    else context.finish_core(exit.segment.address);
+    kit::finish(context,exit);
 }
 template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry entry, SegmentSpec spec,
-                                       std::uint64_t maximum, Logic logic) {
-    registry.add(entry,std::move(spec),
+                                       std::uint64_t maximum, Logic logic,
+                                       std::source_location where=std::source_location::current()) {
+    registry.add_exact(entry,std::move(spec),
         [logic,maximum](const Machine& machine) { return cost(machine,logic,maximum); },
-        [logic](RoutineContext& context) { run(context,logic); });
+        [logic](RoutineContext& context) { run(context,logic); },where);
 }
-template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry entry, SegmentSpec spec, Logic logic) {
-    add_segment(registry,entry,std::move(spec),uncertain_maximum,std::move(logic));
+template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry entry, SegmentSpec spec, Logic logic,
+                                       std::source_location where=std::source_location::current()) {
+    add_segment(registry,entry,std::move(spec),uncertain_maximum,std::move(logic),where);
+}
+// A segment with its own bound function (a fixed cost, for one).
+template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry entry, SegmentSpec spec,
+                                       RegisteredRoutine::Bound bound, Logic logic,
+                                       std::source_location where=std::source_location::current()) {
+    registry.add_exact(entry,std::move(spec),std::move(bound),[logic](RoutineContext& context) { run(context,logic); },where);
+}
+// With an explicit entry guard (see kit::Guard).
+template<class Logic> void add_segment(RoutineRegistry& registry, RoutineEntry entry, SegmentSpec spec,
+                                       kit::Guard guard, Logic logic,
+                                       std::source_location where=std::source_location::current()) {
+    registry.add_exact(entry,std::move(spec),std::move(guard),
+        [logic](const Machine& machine) { return cost(machine,logic,uncertain_maximum); },
+        [logic](RoutineContext& context) { run(context,logic); },where);
 }
 }

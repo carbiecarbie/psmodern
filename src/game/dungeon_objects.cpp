@@ -6,11 +6,11 @@
 // Each segment is written once as a sequence of original instructions over a
 // bus; its bound is that sequence run on the estimating bus, so it is the exact
 // cost of the path this machine state takes. A segment ends where the routine
-// calls, jumps or returns into code that stays native, and the core executes
-// that last instruction.
+// calls, jumps or returns into code that another segment renders, and that last
+// instruction is left to the segment at its target.
 //
 // Three things in these routines need the milestone's mechanism extensions:
-//  - words held on the stack across a native call (the door's loop counter and
+//  - words held on the stack across a call (the door's loop counter and
 //    row, the object check's saved cell and its fight or event words), popped
 //    by the segment that the call returns to;
 //  - a conditional jump as the last instruction (01:68F4 to the world-map
@@ -22,6 +22,7 @@
 // Both scans read their tables through slot 2 after the segment that starts
 // them has switched it to bank 3; the continuations never switch it, so they
 // read whatever is mapped there, as the original does.
+#include "game/joins.h"
 #include "game/dungeon_kit.h"
 #include "game/routines.h"
 
@@ -29,18 +30,20 @@ namespace psmodern::game {
 namespace {
 namespace d=dungeon;
 using kit::Exit;
-using kit::continues;
-using kit::returns;
-inline constexpr unsigned taken_return=kit::taken_conditional_return_cycles;
 
 // The cell reader 01:6BE9 reached by a bare call, rendered inline by
 // kit::inline_reader with the shared guard: a stack the pushed return address
 // cannot be read back from (ROM, for one) makes the original return somewhere
 // else, which a segment cannot follow. The estimate then marks itself
 // uncertain and the three segments that render the reader have a maximum
-// above a frame, so dispatch falls back (reason frame) and the core runs the
-// original; the states are outside any play, and a reader that did return
+// above a frame, so the segment refuses the state at its entry (reason frame) and the
+// run stops; the states are outside any play, and a reader that did return
 // here is exact. The segment stops rendering at once in that case.
+// The stop is deliberate. The estimate returns a maximum above one frame
+// whenever a read hits an open-bus (unmapped) address, so the segment refuses
+// the state at its entry and the run stops. That is reachable only when work
+// RAM or cartridge RAM is switched off through port 3E, which the game never
+// does.
 inline constexpr std::uint64_t unpredictable_cycles=1u<<20;
 inline Exit unpredictable() { return Exit{{RoutineExit::returned,0},static_cast<unsigned>(unpredictable_cycles)}; }
 
@@ -48,14 +51,13 @@ inline Exit unpredictable() { return Exit{{RoutineExit::returned,0},static_cast<
 // The cell ahead; one already carrying the opened mark returns at once. Else
 // the mark is set, a sound byte is stored, and the overlay is drawn in three
 // rounds of rows: BC (the round counter and the row base copied from C) and HL
-// (the row) are pushed and stay held across each native call that draws one.
+// (the row) are pushed and stay held across each call that draws one.
 template<class Z> Exit door_open(Z& z) {                    // 01:681B-6832
     auto& r=z.r;
     z.load_immediate(0x681B,r.b);
     if (!kit::inline_reader(z,false,0x681D)) return unpredictable();
     z.test_bit_at_hl(0x6820,7);
-    if (!z.zero()) return returns(0x6822,taken_return);
-    z.return_not_taken(0x6822);
+    if (auto exit=z.final_return_if(0x6822,kit::Condition::nz)) return *exit;
     z.set_bit_at_hl(0x6823,7);
     z.load_immediate(0x6825,r.a);
     z.store_a_direct(0x6827);
@@ -65,11 +67,11 @@ template<class Z> Exit door_open(Z& z) {                    // 01:681B-6832
     z.push(0x682F,r.b,r.c);
     z.push(0x6830,r.h,r.l);
     z.copy(0x6831,r.a,r.h);
-    return continues(0x6832,kit::call_cycles);
+    return z.final_call(0x6832);
 }
 template<class Z> Exit door_wait(Z& z) {                    // 01:6835-6837: a wait of 0Ch frames
     z.load_immediate(0x6835,z.r.a);
-    return continues(0x6837,kit::call_cycles);
+    return z.final_call(0x6837);
 }
 // After a wait: the next four-row step of the overlay; when the high byte of
 // the row no longer changes the same round continues, else the round counter
@@ -84,7 +86,7 @@ template<class Z> Exit door_rows(Z& z) {                    // 01:683A-6849
     if (z.relative_if(0x6841,z.zero())) {                   // same round: draw the row at 6830
         z.push(0x6830,r.h,r.l);
         z.copy(0x6831,r.a,r.h);
-        return continues(0x6832,kit::call_cycles);
+        return z.final_call(0x6832);
     }
     z.increment(0x6843,r.h);
     z.increment(0x6844,r.h);
@@ -93,10 +95,10 @@ template<class Z> Exit door_rows(Z& z) {                    // 01:683A-6849
         z.push(0x682F,r.b,r.c);
         z.push(0x6830,r.h,r.l);
         z.copy(0x6831,r.a,r.h);
-        return continues(0x6832,kit::call_cycles);
+        return z.final_call(0x6832);
     }
     z.xor_a(0x6848);
-    return returns(0x6849,kit::return_cycles);
+    return z.final_return(0x6849);
 }
 
 // ---- 01:68BC: the exit lookup ---------------------------------------------------
@@ -113,7 +115,7 @@ template<class Z> Exit exit_match(Z& z) {                    // 01:68EC-68F4
     z.decrement_hl(0x68EF);
     z.compare_immediate(0x68F0);
     z.load_immediate(0x68F2,r.a);
-    return kit::jump_if_exit(0x68F4);
+    return z.final_jump_if(0x68F4,kit::Condition::c);
 }
 // The scan from the record test at 01:68D4. A chunk is one record: at the step
 // to the next one (68E1) the segment ends with the addition, and the entry at
@@ -126,7 +128,7 @@ template<class Z> Exit exit_scan(Z& z) {                     // 01:68D4-68EB
         if (z.relative_if(0x68D7,z.zero())) {               // the end of the table: no record
             z.load_hl(0x68E6);
             z.store_to_hl(0x68E9);
-            return returns(0x68EB,kit::return_cycles);
+            return z.final_return(0x68EB);
         }
         z.increment_hl(0x68D9);
         z.compare_register(0x68DA,r.b);
@@ -135,7 +137,10 @@ template<class Z> Exit exit_scan(Z& z) {                     // 01:68D4-68EB
             z.compare_register(0x68DE,r.c);
             if (z.relative_if(0x68DF,z.zero())) return exit_match(z);
         }
-        if (z.loop_exit(0)) return continues(0x68E1,11);
+        if (z.loop_exit(0)) {
+            z.add_to_hl(0x68E1,z.de());
+            return kit::fall_through(0x68E1,0x68E2);
+        }
         z.add_to_hl(0x68E1,z.de());
         (void)z.jump(0x68E2);
     }
@@ -145,8 +150,7 @@ template<class Z> Exit exit_lookup(Z& z) {                   // 01:68BC-68D4 and
     z.load_immediate(0x68BC,r.b);
     if (!kit::inline_reader(z,false,0x68BE)) return unpredictable();
     z.and_immediate(0x68C1);
-    if (z.zero()) return returns(0x68C3,taken_return);
-    z.return_not_taken(0x68C3);
+    if (auto exit=z.final_return_if(0x68C3,kit::Condition::z)) return *exit;
     z.copy(0x68C4,r.c,r.l);
     z.load_a_direct(0x68C5);
     z.copy(0x68C8,r.b,r.a);
@@ -169,22 +173,22 @@ template<class Z> Exit exit_kind(Z& z) {                     // 01:68F7-6949
     z.compare_immediate(0x68F8);
     if (!z.relative_if(0x68FA,!z.zero())) {
         z.push(0x68FC,r.h,r.l);
-        return continues(0x68FD,kit::call_cycles);
+        return z.final_call(0x68FD);
     }
     z.push(0x6947,r.h,r.l);
     z.push(0x6948,r.a,r.f);
-    return continues(0x6949,kit::call_cycles);
+    return z.final_call(0x6949);
 }
 template<class Z> Exit exit_scene_graphics(Z& z) {           // 01:6900-690B
     z.load_hl(0x6900);
     z.store_to_hl(0x6903);
     z.load_hl(0x6905);
     z.load_de(0x6908);
-    return continues(0x690B,kit::call_cycles);
+    return z.final_call(0x690B);
 }
 template<class Z> Exit exit_scene_map(Z& z) {               // 01:690E-6911
     z.load_hl(0x690E);
-    return continues(0x6911,kit::call_cycles);
+    return z.final_call(0x6911);
 }
 // The interaction is set; the shared wait at 691D follows.
 template<class Z> Exit exit_interaction(Z& z) {             // 01:6914-691F
@@ -194,12 +198,12 @@ template<class Z> Exit exit_interaction(Z& z) {             // 01:6914-691F
     z.xor_a(0x6919);
     z.store_a_direct(0x691A);
     z.load_immediate(0x691D,r.a);
-    return continues(0x691F,kit::call_cycles);
+    return z.final_call(0x691F);
 }
 template<class Z> Exit exit_wait_jump(Z& z) {              // 01:6960-691F
     (void)z.jump(0x6960);
     z.load_immediate(0x691D,z.r.a);
-    return continues(0x691F,kit::call_cycles);
+    return z.final_call(0x691F);
 }
 // The event of the exit: bank 3, the held HL, two steps on to the event record.
 template<class Z> Exit exit_event(Z& z) {                   // 01:6925-692D
@@ -209,18 +213,17 @@ template<class Z> Exit exit_event(Z& z) {                   // 01:6925-692D
     z.pop(0x692A,r.h,r.l);
     z.increment_hl(0x692B);
     z.increment_hl(0x692C);
-    return continues(0x692D,kit::call_cycles);
+    return z.final_call(0x692D);
 }
 template<class Z> Exit exit_after_event(Z& z) {            // 01:6930-6936
     z.load_a_direct(0x6930);
     z.compare_immediate(0x6933);
-    if (!z.zero()) return returns(0x6935,taken_return);
-    z.return_not_taken(0x6935);
-    return continues(0x6936,kit::call_cycles);
+    if (auto exit=z.final_return_if(0x6935,kit::Condition::nz)) return *exit;
+    return z.final_call(0x6936);
 }
 template<class Z> Exit exit_redraw(Z& z) {                  // 01:6939-693A
     z.xor_a(0x6939);
-    return continues(0x693A,kit::call_cycles);
+    return z.final_call(0x693A);
 }
 // FEh and FDh start an interaction (0Dh, 1Eh); any other kind is an event.
 template<class Z> Exit exit_pick(Z& z) {                    // 01:694C-695D
@@ -236,7 +239,7 @@ template<class Z> Exit exit_pick(Z& z) {                    // 01:694C-695D
     }
     z.copy(0x6959,r.a,r.c);
     z.store_a_direct(0x695A);
-    return continues(0x695D,kit::call_cycles);
+    return z.final_call(0x695D);
 }
 
 // ---- 01:6963: the object check --------------------------------------------------
@@ -254,49 +257,46 @@ template<class Z> Exit object_event_pointer(Z& z) {         // 01:6A2F-6A39
     z.copy(0x6A32,r.l,r.a);
     z.store_hl_direct(0x6A33);
     z.load_a_direct(0x6A36);
-    return continues(0x6A39,kit::call_cycles);
+    return z.final_call(0x6A39);
 }
 template<class Z> Exit object_fight_record(Z& z) {          // 01:69F7-6A04
     auto& r=z.r;
     z.load_from_hl(0x69F7,r.a);
     z.store_a_direct(0x69F8);
     z.or_a(0x69FB);
-    if (z.zero()) return returns(0x69FC,taken_return);
-    z.return_not_taken(0x69FC);
+    if (auto exit=z.final_return_if(0x69FC,kit::Condition::z)) return *exit;
     z.increment_hl(0x69FD);
     z.load_from_hl(0x69FE,r.a);
     z.push(0x69FF,r.a,r.f);
     z.load_hl_direct(0x6A00);
     z.push(0x6A03,r.h,r.l);
-    return continues(0x6A04,kit::call_cycles);
+    return z.final_call(0x6A04);
 }
 template<class Z> Exit object_reward_done(Z& z) {           // 01:69C7-69CE: a chest, from ahead only
     auto& r=z.r;
     z.copy(0x69C7,r.a,r.b);
     z.compare_immediate(0x69C8);
-    if (!z.zero()) return returns(0x69CA,taken_return);
-    z.return_not_taken(0x69CA);
+    if (auto exit=z.final_return_if(0x69CA,kit::Condition::nz)) return *exit;
     z.load_hl(0x69CB);
-    return continues(0x69CE,kit::call_cycles);
+    return z.final_call(0x69CE);
 }
 template<class Z> Exit object_fight_or_event(Z& z) {        // 01:69E1-6A23
     auto& r=z.r;
     z.compare_immediate(0x69E1);
     if (z.relative_if(0x69E3,!z.zero())) {                  // not a fight: 6A1A
         z.compare_immediate(0x6A1A);
-        if (!z.zero()) return returns(0x6A1C,taken_return);
-        z.return_not_taken(0x6A1C);
+        if (auto exit=z.final_return_if(0x6A1C,kit::Condition::nz)) return *exit;
         z.copy(0x6A1D,r.a,r.b);
         z.compare_immediate(0x6A1E);
         if (z.relative_if(0x6A20,z.zero())) return object_event_pointer(z);
         z.push(0x6A22,r.h,r.l);
-        return continues(0x6A23,kit::call_cycles);
+        return z.final_call(0x6A23);
     }
     z.copy(0x69E5,r.a,r.b);
     z.compare_immediate(0x69E6);
     if (z.relative_if(0x69E8,z.zero())) return object_fight_record(z);
     z.push(0x69EA,r.h,r.l);
-    return continues(0x69EB,kit::call_cycles);
+    return z.final_call(0x69EB);
 }
 template<class Z> Exit object_match(Z& z) {                 // 01:698E-6A3E: a record matched
     auto& r=z.r;
@@ -307,8 +307,7 @@ template<class Z> Exit object_match(Z& z) {                 // 01:698E-6A3E: a r
     z.load_from_hl(0x6992,r.d);
     z.load_a_from_pair(0x6993,z.de());
     z.compare_immediate(0x6994);
-    if (z.zero()) return returns(0x6996,taken_return);      // already done
-    z.return_not_taken(0x6996);
+    if (auto exit=z.final_return_if(0x6996,kit::Condition::z)) return *exit;      // already done
     z.store_pair_direct(0x6997,r.d,r.e);
     z.load_immediate(0x699B,r.a);
     z.store_a_direct(0x699D);
@@ -347,7 +346,7 @@ template<class Z> Exit object_scan(Z& z) {                  // 01:697A-698D
         z.compare_immediate(0x697B);
         if (z.jump_if(0x697D,z.zero())) {                   // the end of the table: nothing here
             z.pop(0x698C,r.b,r.c);
-            return returns(0x698D,kit::return_cycles);
+            return z.final_return(0x698D);
         }
         z.increment_hl(0x6980);
         z.compare_register(0x6981,r.b);
@@ -356,7 +355,10 @@ template<class Z> Exit object_scan(Z& z) {                  // 01:697A-698D
             z.compare_register(0x6985,r.c);
             if (z.relative_if(0x6986,z.zero())) return object_match(z);
         }
-        if (z.loop_exit(128)) return continues(0x6988,11);
+        if (z.loop_exit(128)) {
+            z.add_to_hl(0x6988,z.de());
+            return kit::fall_through(0x6988,0x6989);
+        }
         z.add_to_hl(0x6988,z.de());
         (void)z.jump(0x6989);
     }
@@ -365,8 +367,7 @@ template<class Z> Exit object_check(Z& z) {                 // 01:6963-697A and 
     auto& r=z.r;
     if (!kit::inline_reader(z,false,0x6963)) return unpredictable();
     z.compare_immediate(0x6966);
-    if (!z.zero()) return returns(0x6968,taken_return);
-    z.return_not_taken(0x6968);
+    if (auto exit=z.final_return_if(0x6968,kit::Condition::nz)) return *exit;
     z.copy(0x6969,r.c,r.l);
     z.push(0x696A,r.b,r.c);
     z.load_a_direct(0x696B);
@@ -381,22 +382,21 @@ template<class Z> Exit object_continue(Z& z) {              // 01:6989: the jump
     (void)z.jump(0x6989);
     return object_scan(z);
 }
-// After the native calls of the chest and fight paths.
+// After the calls of the chest and fight paths.
 template<class Z> Exit object_dialogue_return(Z& z) {       // 01:69D1: hold BC over the next call
     z.push(0x69D1,z.r.b,z.r.c);
-    return continues(0x69D2,kit::call_cycles);
+    return z.final_call(0x69D2);
 }
 template<class Z> Exit object_pop_bc(Z& z) {                // 01:69D5
     z.pop(0x69D5,z.r.b,z.r.c);
-    return continues(0x69D6,kit::call_cycles);
+    return z.final_call(0x69D6);
 }
 template<class Z> Exit object_menu_flag(Z& z, std::uint16_t at) {   // 01:69D9 and 01:6A12
     z.load_a_direct(at);
     z.or_a(static_cast<std::uint16_t>(at+3));
     const auto ret=static_cast<std::uint16_t>(at+4);
-    if (z.zero()) return returns(ret,taken_return);
-    z.return_not_taken(ret);
-    return continues(static_cast<std::uint16_t>(ret+1),kit::jump_cycles);
+    if (auto exit=z.final_return_if(ret,kit::Condition::z)) return *exit;
+    return z.final_jump(static_cast<std::uint16_t>(ret+1));
 }
 template<class Z> Exit object_fight_after_turns(Z& z) {     // 01:69F1: the turns are done
     auto& r=z.r;
@@ -411,7 +411,7 @@ template<class Z> Exit object_fight_after_setup(Z& z) {     // 01:6A07: the figh
     z.store_hl_direct(0x6A08);
     z.pop(0x6A0B,r.a,r.f);
     z.store_a_direct(0x6A0C);
-    return continues(0x6A0F,kit::call_cycles);
+    return z.final_call(0x6A0F);
 }
 template<class Z> Exit object_event_after_turns(Z& z) {     // 01:6A29: the turns are done
     auto& r=z.r;
@@ -431,14 +431,14 @@ template<class Z> Exit object_event_done(Z& z) {            // 01:6A3F-6A57: the
     z.store_a_direct(0x6A4E);
     z.load_hl(0x6A51);
     z.store_hl_direct(0x6A54);
-    return returns(0x6A57,kit::return_cycles);
+    return z.final_return(0x6A57);
 }
 
 // A segment on its unit with its exits and permissions. The maximum is only
 // used when the estimate read an unmapped address (RAM switched off): it covers
 // the longest path, a match through the longest type path being under 600
 // cycles, and for the three segments that render the cell reader inline it is
-// above a frame, so that state falls back (see unpredictable_cycles).
+// above a frame, so the segment refuses that state at its entry (see unpredictable_cycles).
 template<class Logic> void add(RoutineRegistry& registry, RoutineEntry entry, RoutineEntry unit, std::vector<SegmentExit> exits,
                                kit::Permissions permissions, std::uint64_t maximum, Logic logic) {
     kit::add_segment(registry,entry,kit::segment(unit,std::move(exits),permissions),maximum,logic);
@@ -512,7 +512,30 @@ void register_dungeon_objects(RoutineRegistry& registry) {
         [](auto& z) -> Exit { return object_event_after_turns(z); });
     add(registry,at(0x6A2F),object_unit,{core_final_at(0x6A39)},{},120,
         [](auto& z) -> Exit { return object_event_pointer(z); });
+    // The chest or fight handler returned: the event's follow-up call.
+    {
+        auto spec=kit::segment(object_unit,{core_final_at(0x6A3C)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        kit::add_segment(registry,at(0x6A3C),std::move(spec),std::uint64_t{24},
+            [](auto& z) -> Exit { return z.final_call(0x6A3C); });
+    }
     add(registry,at(0x6A3F),object_unit,{returned_at(0x6A57)},{},200,
         [](auto& z) -> Exit { return object_event_done(z); });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_dungeon_objects_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{1,0x6922},{1,0x68BC},{kit::core_final_at(0x6922)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x6922); });
+    kit::add_joining(registry,{1,0x693D},{1,0x68BC},{kit::core_final_at(0x693D)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x693D); });
+    kit::add_joining(registry,{1,0x6940},{1,0x68BC},{kit::core_final_at(0x6940)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x6940); });
+    kit::add_joining(registry,{1,0x6943},{1,0x68BC},{kit::core_final_at(0x6943)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x6943); });
+    kit::add_joining(registry,{1,0x6946},{1,0x68BC},{kit::returned_at(0x6946)},kit::return_cycles,0,[](auto& z) { return z.final_return(0x6946); });
+    kit::add_joining(registry,{1,0x69EE},{1,0x6963},{kit::core_final_at(0x69EE)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x69EE); });
+    kit::add_joining(registry,{1,0x6A26},{1,0x6963},{kit::core_final_at(0x6A26)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x6A26); });
 }
 }

@@ -6,6 +6,13 @@ A new game switches to its initialization path; Continue first checks whether
 any of the five saved slots is occupied. If all five are empty it starts a new
 game instead. Otherwise it opens the saved-game conversation.
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 The cartridge holds a separate occupied flag for each slot. The game enables
 cartridge RAM only while checking a flag, then restores the cartridge control
 value. The processor executes each control-register store as the last

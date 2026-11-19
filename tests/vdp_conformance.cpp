@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "machine/machine.h"
+#include "oracle/native_machine.h"
 #include "rom/sha256.h"
 #include <filesystem>
 #include <fstream>
@@ -23,6 +24,8 @@ unsigned symbol(const std::filesystem::path& file,const std::string& name) {
 }
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     if (argc!=2) return 1;
     const std::filesystem::path dir(argv[1]);
     const bool have_rom=!dir.empty() && std::filesystem::exists(dir/"VDPTest.sms");
@@ -47,13 +50,13 @@ int main(int argc,char** argv) {
                                                std::istreambuf_iterator<char>());
         if (rom->size()!=32768) throw std::runtime_error("Expected the pinned 32 KiB VDPTest ROM");
         rom->resize(512*1024,0);
-        Machine machine(rom);
+        oracle::NativeMachine machine(rom);
         bool reached_last=false, complete=false;
         unsigned completed_frame=0;
         for (unsigned frame=0;frame<600 && !complete;++frame) {
             machine.set_pad(0,Pad{.one=frame%12==4});
             const auto target=(static_cast<std::uint64_t>(frame)+1)*Machine::frame_cycles;
-            while (machine.cycles()<target || machine.cpu().resume==Z80_RESUME_XY) {
+            while (machine.cycles()<target || machine.cpu().resume==Z80::resume_xy) {
                 const auto pc=machine.cpu().pc.uint16_value;
                 if (pc==last_test) reached_last=true;
                 if (reached_last && pc==results_page) {

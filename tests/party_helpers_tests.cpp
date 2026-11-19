@@ -2,10 +2,18 @@
 #include "battle_effect_probe.h"
 #include "game/party_helpers.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
 #include <bit>
 #include <iostream>
 using namespace psmodern;
 namespace {
+// The documented equality of the engine and the oracle (milestone 14), plus the
+// two host-side records the equality leaves out: the PSG writes waiting to be
+// taken and the cartridge RAM dirty flag.
+bool same_state(Machine& engine, Machine& original) {
+    return oracle::equal(engine,original,oracle::Scope::whole) && engine.take_psg_writes()==original.take_psg_writes() &&
+           engine.memory().cartridge_ram_dirty()==original.memory().cartridge_ram_dirty();
+}
 void registration() {
     RoutineRegistry registry;
     game::register_party_helpers(registry);
@@ -109,7 +117,7 @@ unsigned complete_refreshes(probe::Harness &h) {
                 probe::check(steps < 10000, "C++ refresh returns");
                 m.step(h.registry());
             }
-            probe::check(original.differences(m).empty(), "complete refresh state/cycles");
+            probe::check(same_state(m, original), "complete refresh state/cycles");
             for (unsigned actor = 0; actor < 4; ++actor)
                 for (unsigned field = 0; field < 16; ++field)
                     probe::check(m.peek(0xC400 + 16 * actor + field) == expected[actor][field],
@@ -153,6 +161,8 @@ int scenarios(probe::Harness &harness, const map_probe::Inputs &inputs) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -161,6 +171,10 @@ int main(int argc, char **argv) {
         if (!inputs)
             return 77;
         probe::Harness harness(inputs->rom);
+        {
+            probe::Harness sweeping(inputs->rom);
+            c4::sweep_file(sweeping,"party_helpers",game::party_helpers::segments);
+        }
         const auto count =
             state_probes(harness) + activity_lookup(harness) + complete_refreshes(harness);
         const int chains = scenarios(harness, *inputs);

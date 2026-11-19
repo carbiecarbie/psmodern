@@ -30,6 +30,7 @@ inline constexpr std::array segments{
     Segment{{0, 0x1B36}, {0, 0x1B31}}, Segment{{0, 0x1B43}, {0, 0x1B31}},
     Segment{{0, 0x1B51}, {0, 0x1B31}}, Segment{{0, 0x1B66}, {0, 0x1B31}},
     Segment{{0, 0x1BA4}, {0, 0x1B9E}}, Segment{{0, 0x1BB1}, {0, 0x1B9E}},
-    Segment{{0, 0x1BB9}, {0, 0x1BB9}}, Segment{{0, 0x1BCE}, {0, 0x1BCE}}};
+    Segment{{0, 0x1BB9}, {0, 0x1BB9}}, Segment{{0, 0x1BCE}, {0, 0x1BCE}},
+    Segment{{0, 0x1A48}, {0, 0x19DE}}};
 } // namespace battle_commands
 } // namespace psmodern::game

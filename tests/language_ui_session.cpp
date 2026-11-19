@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exercises the actual main.cpp Options flow of the Language row with a dummy SDL host.
+#include "oracle/native_machine.h"
 #include "app/sdl_host.h"
 #include "app/frame_driver.h"
 #include "app/options_menu.h"
@@ -70,8 +71,8 @@ int scripted_message_box(const SDL_MessageBoxData* box,int* selected) {
 }
 class SeededDriver : public FrameDriver {
 public:
-    SeededDriver(std::shared_ptr<const Memory::Rom> image,SaveStore store,bool routines,game::OptionOverrides overrides,bool original)
-        :FrameDriver(std::move(image),std::move(store),routines,overrides,original) {
+    SeededDriver(std::shared_ptr<const Memory::Rom> image,SaveStore store,game::OptionOverrides overrides,bool original)
+        :FrameDriver(std::move(image),std::move(store),overrides,original) {
         if(mode==0) {
             check(prompts==1,"migration chooser was not shown exactly once");
             check(read_bytes(host_folder/"shared"/(std::string(shared_save_name)+".bak"))==br_backup,
@@ -207,7 +208,10 @@ void prompt_fixtures() {
     }
 }
 
-int main(int argc,char** argv) {try {
+int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try {
     if(argc!=5)return 1;
     for(unsigned i=1;i<=2;++i)if(!*argv[i] || !std::filesystem::is_regular_file(argv[i]))return 77;
     const auto us=load_rom(argv[1]),br=load_rom(argv[2]);
@@ -236,7 +240,7 @@ int main(int argc,char** argv) {try {
             }
         }
         check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"start dummy SDL host");
-        const auto result=play(session,nullptr,{},true,{});
+        const auto result=play(session,nullptr,{},{});
         check(result==0 && finished && language_frames>0 && parent_frames>0,"actual Language row flow did not finish");
         check(load_language(host_folder).preference==(target_language==Language::english ? LanguagePreference::english : LanguagePreference::portuguese),"the global language preference did not persist");
         check(mode!=2 || failed_shown,"failed Save was not visibly reported before retry");

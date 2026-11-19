@@ -1,158 +1,73 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The game's random-number routine (00:05B1), rewritten as one segment that
-// ends with its original return executed by the core.
+// The game's random-number routine (00:05B1), rewritten as one exact segment
+// on the shared rendering kit: every instruction, its final return included,
+// is rendered, and an interrupt can be taken between any two of them.
+#include "game/dungeon_kit.h"
 #include "game/routines.h"
 #include "machine/machine.h"
-#include <bit>
 
 namespace psmodern::game {
 namespace {
-constexpr std::uint8_t carry_flag=0x01, parity_flag=0x04, undocumented_flags=0x28, half_flag=0x10,
-    zero_flag=0x40, sign_flag=0x80;
+namespace k=kit;
 constexpr std::uint16_t return_address=0x05CF;
 // Cycles including the final return: 151 when the new state is nonzero; the
 // recovery path skips no branch (7 instead of 12 cycles) and loads a fixed
-// state (10 cycles), five more in all.
-constexpr std::uint64_t normal_cycles=151, recovery_cycles=normal_cycles+5;
+// state (10 cycles), five more in all. The longer one is the bound when the
+// estimate cannot know the path (a state read from the open bus).
+constexpr std::uint64_t recovery_cycles=156;
 
-struct Registers { std::uint8_t a, f; std::uint16_t hl; };
-
-// Sign, zero, parity and the two undocumented bits of a logical result.
-std::uint8_t logic_flags(std::uint8_t value) {
-    return static_cast<std::uint8_t>((value&(sign_flag|undocumented_flags))|(value ? 0 : zero_flag)|
-        (std::popcount(value)%2 ? 0 : parity_flag));
-}
-// Rotations keep sign, zero and parity, clear the half-carry and subtract
-// flags, copy the undocumented bits of the result and put the bit shifted out
-// in carry. The circular form re-enters that bit at the top; the other form
-// enters the previous carry.
-void rotate(Registers& r, bool circular) {
-    const auto out=static_cast<std::uint8_t>(r.a&1);
-    const auto top=circular ? out : static_cast<std::uint8_t>(r.f&carry_flag);
-    r.a=static_cast<std::uint8_t>((r.a>>1)|(top<<7));
-    r.f=static_cast<std::uint8_t>((r.f&(sign_flag|zero_flag|parity_flag))|(r.a&undocumented_flags)|out);
-}
-void exclusive_or(Registers& r, std::uint8_t value) { r.a^=value; r.f=logic_flags(r.a); }
-
-// 00:05B5-05C2: mix the state bytes into one bit, then double the state and
-// add that bit (a 16-bit add with carry of the pair to itself).
-void mix(Registers& r) {
-    const auto high=static_cast<std::uint8_t>(r.hl>>8), low=static_cast<std::uint8_t>(r.hl);
-    r.a=high;
-    rotate(r,true); rotate(r,true);
-    exclusive_or(r,high);
-    rotate(r,true);
-    exclusive_or(r,low);
-    for (unsigned i=0;i<4;++i) rotate(r,true);
-    exclusive_or(r,low);
-    rotate(r,false); // the carry entering here is the one the last mix cleared
-    const unsigned before=r.hl, sum=before+before+(r.f&carry_flag);
-    const auto result=static_cast<std::uint16_t>(sum);
-    // Both operands are equal, so the half carry out of bit 11 is bit 12 of the
-    // sum, and signed overflow is a sign change.
-    r.f=static_cast<std::uint8_t>(((result>>8)&(sign_flag|undocumented_flags))|(result ? 0 : zero_flag)|
-        ((sum>>8)&half_flag)|(((before^result)&0x8000) ? parity_flag : 0)|((sum>>16)&1));
-    r.hl=result;
-}
-
-std::uint16_t peek_word(const Machine& machine, std::uint16_t address) {
-    return static_cast<std::uint16_t>(machine.peek(address)|
-        (machine.peek(static_cast<std::uint16_t>(address+1))<<8));
-}
-std::uint16_t read_word(RoutineContext& context, std::uint16_t address) {
-    const auto low=context.read(address);
-    const auto high=context.read(static_cast<std::uint16_t>(address+1));
-    return static_cast<std::uint16_t>(low|(high<<8));
-}
-
-// The exact cost of the path this machine will take, which depends on the
-// state as the routine will read it: after the two scratch stack writes,
-// which land on the state if the stack points at it, and as the open bus if
-// work RAM is disabled. Memory is copied so that nothing here has an effect.
-std::uint64_t random_cycles(const Machine& machine) {
-    const auto& cpu=machine.cpu();
-    Memory memory=machine.memory();
-    memory.write(static_cast<std::uint16_t>(cpu.sp.uint16_value-1),cpu.hl.uint8_values.at_1);
-    memory.write(static_cast<std::uint16_t>(cpu.sp.uint16_value-2),cpu.hl.uint8_values.at_0);
-    const auto address=peek_word(machine,0x05B3);
-    auto byte=[&](std::uint16_t at, std::uint8_t bus) {
-        return memory.mapping(at).kind==Memory::Kind::unmapped ? bus : memory.read(at);
-    };
-    // An unmapped read returns the last byte on the bus: the operand's high
-    // byte, or the state's low byte when that one was mapped.
-    const auto low=byte(address,machine.peek(0x05B4));
-    const auto high=byte(static_cast<std::uint16_t>(address+1),low);
-    Registers r{0,0,static_cast<std::uint16_t>(low|(high<<8))};
-    mix(r);
-    return r.hl ? normal_cycles : recovery_cycles;
-}
-
-void advance_random_state(RoutineContext& context) {
-    auto& cpu=context.cpu();
-    Registers r{cpu.af.uint8_values.at_1,cpu.af.uint8_values.at_0,cpu.hl.uint16_value};
-    // Save the caller's pair below the stack pointer through the bus, high byte
-    // first. SP itself stays at its entry value for the native return.
-    const auto saved_high=static_cast<std::uint16_t>(cpu.sp.uint16_value-1);
-    const auto saved_low=static_cast<std::uint16_t>(cpu.sp.uint16_value-2);
-    context.fetch_opcode(0x05B1); context.advance(5);
-    context.write(saved_high,static_cast<std::uint8_t>(r.hl>>8)); context.advance(3);
-    context.write(saved_low,static_cast<std::uint8_t>(r.hl)); context.advance(3);
-
-    // Load the two-byte state; its address is the instruction's operand.
-    context.fetch_opcode(0x05B2);
-    const auto state_address=read_word(context,0x05B3);
-    r.hl=read_word(context,state_address);
-    context.advance(16);
-
-    // Twelve one-byte instructions of four cycles, then the two-byte add.
-    for (std::uint16_t address=0x05B5;address<=0x05C0;++address) { context.fetch_opcode(address); context.advance(4); }
-    context.fetch_opcode(0x05C1); context.fetch_opcode(0x05C2); context.advance(15);
-    mix(r);
-
-    // A zero state would stay zero forever: replace it with a fixed one, the
-    // operand of the instruction at 00:05C5. The branch reads its offset
-    // either way.
-    context.fetch_opcode(0x05C3); (void)context.read(0x05C4);
-    if (r.f&zero_flag) {
-        context.advance(7);
-        context.fetch_opcode(0x05C5);
-        r.hl=read_word(context,0x05C6);
-        context.advance(10);
-    } else context.advance(12);
-
-    // 00:05C8: read the refresh counter. Its low seven bits have counted every
-    // opcode fetch so far, including both of this instruction's; bit 7 is
-    // the caller's. Parity/overflow receives the interrupt flip-flop IFF2.
-    context.fetch_opcode(0x05C8); context.fetch_opcode(0x05C9); context.advance(9);
-    r.a=cpu.r;
-    r.f=static_cast<std::uint8_t>((r.a&(sign_flag|undocumented_flags))|(r.a ? 0 : zero_flag)|
-        (cpu.iff2 ? parity_flag : 0)|(r.f&carry_flag));
-    // The draw is that counter mixed with the new state's low byte; the
-    // counter never enters the stored state.
-    context.fetch_opcode(0x05CA); context.advance(4);
-    exclusive_or(r,static_cast<std::uint8_t>(r.hl));
-
-    // Store the new state, low byte first, at the operand's address.
-    context.fetch_opcode(0x05CB);
-    const auto store_address=read_word(context,0x05CC);
-    context.write(store_address,static_cast<std::uint8_t>(r.hl));
-    context.write(static_cast<std::uint16_t>(store_address+1),static_cast<std::uint8_t>(r.hl>>8));
-    context.advance(16);
-
-    // Restore the caller's pair through the bus: whatever the stack bytes hold
-    // now, as natively (a stack in ROM, or on the state itself, reads back
-    // something else).
-    context.fetch_opcode(0x05CE);
-    const auto low=context.read(saved_low), high=context.read(saved_high);
-    context.advance(10);
-    cpu.af.uint8_values.at_1=r.a;
-    cpu.af.uint8_values.at_0=r.f;
-    cpu.hl.uint16_value=static_cast<std::uint16_t>(low|(high<<8));
-    context.finish_return(return_address);
+// 00:05B1-05CF. The two-byte state shifts left by one and takes in, at bit 0,
+// a mix of its own bits; a zero state would stay zero forever and is replaced
+// by a fixed one. The draw returned in A is the refresh counter mixed with
+// the new state's low byte; the counter never enters the stored state. HL is
+// kept on the stack meanwhile and read back from there, whatever the stack
+// holds then (a stack in ROM, or on the state itself, reads back something
+// else, as in the original).
+template<class Z> k::Exit advance_random_state(Z& z) {
+    auto& r=z.r;
+    z.push(0x05B1,r.h,r.l);
+    z.load_hl_direct(0x05B2);
+    // Mix the state's bits into one carry, then double the state and add it.
+    z.copy(0x05B5,r.a,r.h);
+    z.rotate_right_circular_a(0x05B6);
+    z.rotate_right_circular_a(0x05B7);
+    z.xor_register(0x05B8,r.h);
+    z.rotate_right_circular_a(0x05B9);
+    z.xor_register(0x05BA,r.l);
+    for (std::uint16_t at=0x05BB;at<0x05BF;++at) z.rotate_right_circular_a(at);
+    z.xor_register(0x05BF,r.l);
+    z.rotate_right_a(0x05C0);
+    z.add_hl_with_carry(0x05C1,z.hl());
+    // The recovery: the fixed state is the operand of the load at 00:05C5.
+    if (!z.relative_if(0x05C3,k::Condition::nz)) z.load_hl(0x05C5);
+    z.load_a_from_refresh(0x05C8);
+    z.xor_register(0x05CA,r.l);
+    z.store_hl_direct(0x05CB);
+    z.pop(0x05CE,r.h,r.l);
+    return z.final_return(return_address);
 }
 }
 void register_random(RoutineRegistry& registry) {
-    registry.add(random_entry,SegmentSpec{random_entry,{{RoutineExit::returned,return_address}},false,2},
-        random_cycles,advance_random_state);
+    registry.add_exact(random_entry,SegmentSpec{random_entry,{{RoutineExit::returned,return_address}},false,2},
+        [](const Machine& machine) -> std::uint64_t {
+            k::Estimate bus(machine);
+            auto registers=k::load(machine.cpu());
+            k::Instructions<k::Estimate> z(bus,registers);
+            (void)advance_random_state(z);
+            return bus.uncertain ? recovery_cycles : bus.cycles();
+        },
+        [](RoutineContext& context) {
+            k::Live bus(context);
+            auto registers=k::load(context.cpu());
+            k::Instructions<k::Live> z(bus,registers);
+            k::Exit exit{};
+            {
+                k::Sync<k::Registers,&k::store,&k::load> sync(registers);
+                RoutineContext::SyncScope scope(context,sync);
+                exit=advance_random_state(z);
+            }
+            k::store(context.cpu(),registers);
+            k::finish(context,exit);
+        });
 }
 }

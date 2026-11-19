@@ -40,8 +40,8 @@ def cartridge_image(recording,reference):
     return image
 
 def enhanced(rows,flags):
-    # An option segment whose option is on is always admitted: every call is forced, none falls back.
-    # One whose option is at its default follows the original window rule and is never forced.
+    # An option segment is rendered C++ in every mode: with its option on, every call runs in C++
+    # (none forced onto the core, none falls back). One whose option is at its default is never forced.
     given=dict(zip(flags[::2],flags[1::2]))
     active={'00:0F5B':'--encounter-rate','01:5FB0':'--encounter-rate','00:170D':'--experience-rate','00:1773':'--experience-rate'}
     reached=[]
@@ -51,7 +51,7 @@ def enhanced(rows,flags):
         row=rows[entry]
         check(row['forced_failed']==0,f'{entry} failed a forced call with {flags}: {row}')
         if given.get(active[entry],'100')!='100':
-            check(row['fallback']==0 and row['forced']==total,f'{entry} forced {row["forced"]} of {total} calls, {row["fallback"]} fell back, with {flags}')
+            check(row['fallback']==0 and row['forced']==0 and row['cpp']==total,f'{entry} ran {row["cpp"]} of {total} calls in C++ ({row["forced"]} forced, {row["fallback"]} fell back) with {flags}')
             reached.append((entry,total))
         else:
             check(row['forced']==0,f'{entry} forced calls with its option at the default: {row}')

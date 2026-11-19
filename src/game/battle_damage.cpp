@@ -7,9 +7,7 @@
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 
 template <class Z> Exit choose_attack_strength(Z &z) {
     z.load_from_indexed(0x121D, k::Index::iy, z.r.a);
@@ -22,18 +20,18 @@ template <class Z> Exit choose_attack_strength(Z &z) {
         if (!z.relative_if(0x122B, !z.carry()))
             z.load_immediate(0x122D, z.r.a);
     }
-    return continues(0x122F, k::call_cycles);
+    return z.final_call(0x122F);
 }
 template <class Z> Exit choose_defense_strength(Z &z) {
     z.copy(0x1232, z.r.c, z.r.a);
     z.load_from_indexed(0x1233, k::Index::ix, z.r.a);
-    return continues(0x1236, k::call_cycles);
+    return z.final_call(0x1236);
 }
 template <class Z> Exit announce_damage(Z &z) {
     z.push(0x125E, z.r.a, z.r.f);
     z.load_immediate(0x125F, z.r.a);
     z.store_a_direct(0x1261);
-    return continues(0x1264, k::call_cycles);
+    return z.final_call(0x1264);
 }
 // Negative defense-minus-attack is direct damage. Otherwise the cartridge
 // may use its level-bounded minimum-damage draw or report a miss.
@@ -43,21 +41,21 @@ template <class Z> Exit resolve_attack_strength(Z &z) {
         return announce_damage(z);
     z.compare_immediate(0x123C);
     if (z.relative_if(0x123E, z.carry()))
-        return continues(0x1251, k::call_cycles);
+        return z.final_call(0x1251);
     z.rotate_right_circular_a(0x1240);
     if (z.relative_if(0x1241, z.carry()))
-        return continues(0x1251, k::call_cycles);
+        return z.final_call(0x1251);
     z.load_immediate(0x1243, z.r.a);
     z.store_a_direct(0x1245);
     z.load_hl(0x1248);
-    return continues(0x124B, k::call_cycles);
+    return z.final_call(0x124B);
 }
 template <class Z> Exit accept_minimum_damage(Z &z) {
     z.and_immediate(0x1254);
     z.compare_indexed(0x1256, k::Index::iy);
     if (!z.relative_if(0x1259, z.zero())) {
         if (z.relative_if(0x125B, !z.carry()))
-            return continues(0x1251, k::call_cycles);
+            return z.final_call(0x1251);
     }
     z.complement_a(0x125D);
     return announce_damage(z);
@@ -70,12 +68,10 @@ template <class Z> Exit apply_damage(Z &z) {
     if (!z.relative_if(0x126B, z.carry()))
         z.xor_a(0x126D);
     z.store_to_indexed(0x126E, k::Index::ix, z.r.a);
-    if (!z.zero())
-        return returns(0x1271, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x1271);
+    if (auto exit=z.final_return_if(0x1271,k::Condition::nz)) return *exit;
     z.store_to_indexed(0x1272, k::Index::ix, z.r.a);
     z.store_to_indexed(0x1275, k::Index::ix, z.r.a);
-    return returns(0x1278, k::return_cycles);
+    return z.final_return(0x1278);
 }
 // Split a stat into a half and a quarter before the original RNG call. Its
 // product helper supplies the high byte of draw*quarter for the final sum.
@@ -86,32 +82,32 @@ template <class Z> Exit begin_stat_variation(Z &z) {
     z.rotate_right_circular_a(0x127D);
     z.and_immediate(0x127E);
     z.copy(0x1280, z.r.e, z.r.a);
-    return continues(0x1281, k::call_cycles);
+    return z.final_call(0x1281);
 }
 template <class Z> Exit multiply_stat_variation(Z &z) {
     z.copy(0x1284, z.r.h, z.r.a);
-    return continues(0x1285, k::call_cycles);
+    return z.final_call(0x1285);
 }
 template <class Z> Exit finish_stat_variation(Z &z) {
     z.copy(0x1288, z.r.a, z.r.e);
     z.add_register(0x1289, z.r.b);
     z.add_register(0x128A, z.r.h);
-    return returns(0x128B, k::return_cycles);
+    return z.final_return(0x128B);
 }
 template <class Z> Exit begin_effect_animation(Z &z) {
     z.push_index(0x18A9, k::Index::iy);
     z.store_a_direct(0x18AB);
     z.load_immediate(0x18AE, z.r.a);
     z.store_a_direct(0x18B0);
-    return continues(0x18B3, k::call_cycles);
+    return z.final_call(0x18B3);
 }
 template <class Z> Exit finish_effect_animation(Z &z) {
     z.pop_index(0x18B6, k::Index::iy);
-    return returns(0x18B8, k::return_cycles);
+    return z.final_return(0x18B8);
 }
 template <class Z> Exit wait_effect_frame(Z &z) {
     z.load_immediate(0x18B9, z.r.a);
-    return continues(0x18BB, k::call_cycles);
+    return z.final_call(0x18BB);
 }
 template <class Z> Exit check_effect_animation(Z &z) {
     z.load_a_direct(0x18C1);
@@ -119,11 +115,11 @@ template <class Z> Exit check_effect_animation(Z &z) {
     if (z.jump_if(0x18C5, !z.zero()))
         return wait_effect_frame(z);
     z.load_immediate(0x18C8, z.r.a);
-    return continues(0x18CA, k::call_cycles);
+    return z.final_call(0x18CA);
 }
 template <class Z> Exit wait_enemy_frame(Z &z) {
     z.load_immediate(0x18DB, z.r.a);
-    return continues(0x18DD, k::call_cycles);
+    return z.final_call(0x18DD);
 }
 template <class Z> Exit begin_enemy_animation(Z &z) {
     z.push_index(0x18CE, k::Index::iy);
@@ -139,11 +135,11 @@ template <class Z> Exit check_enemy_animation(Z &z) {
     if (z.jump_if(0x18E7, !z.zero()))
         return wait_enemy_frame(z);
     z.load_immediate(0x18EA, z.r.a);
-    return continues(0x18EC, k::call_cycles);
+    return z.final_call(0x18EC);
 }
 template <class Z> Exit finish_enemy_animation(Z &z) {
     z.pop_index(0x18EF, k::Index::iy);
-    return returns(0x18F1, k::return_cycles);
+    return z.final_return(0x18F1);
 }
 // Incoming physical attacks share variance with outgoing attacks, but flag 6
 // weakens the enemy after the saturating flag-7 boost. Protection bypasses
@@ -151,7 +147,7 @@ template <class Z> Exit finish_enemy_animation(Z &z) {
 template <class Z> Exit enemy_miss(Z &z) {
     z.xor_a(0x15AD);
     z.store_a_direct(0x15AE);
-    return returns(0x15B1, k::return_cycles);
+    return z.final_return(0x15B1);
 }
 template <class Z> Exit enemy_attack_strength(Z &z) {
     z.load_from_indexed(0x1579, k::Index::iy, z.r.a);
@@ -174,7 +170,7 @@ template <class Z> Exit enemy_attack_strength(Z &z) {
         z.copy(0x1597, z.r.a, z.r.c);
         z.subtract_register(0x1598, z.r.b);
     }
-    return continues(0x1599, k::call_cycles);
+    return z.final_call(0x1599);
 }
 template <class Z> Exit begin_enemy_attack(Z &z) {
     z.load_a_direct(0x1573);
@@ -186,7 +182,7 @@ template <class Z> Exit begin_enemy_attack(Z &z) {
 template <class Z> Exit enemy_defense_strength(Z &z) {
     z.copy(0x159C, z.r.c, z.r.a);
     z.load_from_indexed(0x159D, k::Index::ix, z.r.a);
-    return continues(0x15A0, k::call_cycles);
+    return z.final_call(0x15A0);
 }
 template <class Z> Exit apply_enemy_damage(Z &z) {
     z.add_from_indexed(0x15C2, k::Index::ix);
@@ -199,7 +195,7 @@ template <class Z> Exit apply_enemy_damage(Z &z) {
     }
     z.load_immediate(0x15D3, z.r.a);
     z.store_a_direct(0x15D5);
-    return returns(0x15D8, k::return_cycles);
+    return z.final_return(0x15D8);
 }
 template <class Z> Exit resolve_enemy_attack(Z &z) {
     z.subtract_register(0x15A3, z.r.c);
@@ -207,10 +203,10 @@ template <class Z> Exit resolve_enemy_attack(Z &z) {
         return apply_enemy_damage(z);
     z.compare_immediate(0x15A6);
     if (z.relative_if(0x15A8, z.carry()))
-        return continues(0x15B2, k::call_cycles);
+        return z.final_call(0x15B2);
     z.rotate_right_circular_a(0x15AA);
     if (z.relative_if(0x15AB, z.carry()))
-        return continues(0x15B2, k::call_cycles);
+        return z.final_call(0x15B2);
     return enemy_miss(z);
 }
 template <class Z> Exit accept_enemy_minimum_damage(Z &z) {
@@ -218,7 +214,7 @@ template <class Z> Exit accept_enemy_minimum_damage(Z &z) {
     z.compare_indexed(0x15B7, k::Index::ix);
     if (!z.relative_if(0x15BA, z.zero())) {
         if (z.relative_if(0x15BC, !z.carry()))
-            return continues(0x15B2, k::call_cycles);
+            return z.final_call(0x15B2);
     }
     z.rotate_right_circular_a(0x15BE);
     z.and_immediate(0x15BF);
@@ -235,6 +231,26 @@ void register_battle_damage(RoutineRegistry &registry) {
         k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)},
                        segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions), logic);
     };
+    // Instructions that ran between the pieces below: each is a segment of its
+    // own. Calls need room for the return address.
+    auto single = [&](unsigned entry, unsigned unit, std::initializer_list<SegmentExit> exits,
+                      k::Permissions permissions, auto logic) {
+        auto spec = segment({0, static_cast<std::uint16_t>(unit)}, exits, permissions);
+        spec.single_instruction = true;
+        k::add_segment(registry, {0, static_cast<std::uint16_t>(entry)}, std::move(spec), logic);
+    };
+    // After the damage announcement, the round closes the battle window.
+    single(0x124E, 0x121D, {core_final_at(0x124E)}, {}, [](auto &z) { return z.final_jump(0x124E); });
+    // An enemy action starts with the alive check: a dead actor returns.
+    single(0x128F, 0x1279, {returned_at(0x128F), core_final_at(0x128F)}, {}, [](auto &z) -> Exit {
+        if (auto exit = z.final_return_if(0x128F, k::Condition::z))
+            return *exit;
+        return k::fall_through(0x128F, 0x1290);
+    });
+    // The effect and enemy animation waits each end with a frame call and a return.
+    single(0x18BE, 0x18B9, {core_final_at(0x18BE)}, {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x18BE); });
+    single(0x18CD, 0x18B9, {returned_at(0x18CD)}, {}, [](auto &z) { return z.final_return(0x18CD); });
+    single(0x18E0, 0x18CE, {core_final_at(0x18E0)}, {.scratch_stack = 2}, [](auto &z) { return z.final_call(0x18E0); });
     add(0x1573, 0x1573, {returned_at(0x15B1), core_final_at(0x1599)}, {},
         [](auto &z) { return begin_enemy_attack(z); });
     add(0x1579, 0x1573, {core_final_at(0x1599)}, {},

@@ -1,55 +1,60 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/menu_remainder.h"
 #include "probe.h"
-#include "game/scenes.h"
+#include "oracle/native_machine.h"
 #include <tuple>
 #include <vector>
 #include <iostream>
 using namespace psmodern;
 namespace {
 struct Stopped {};
-void protected_loads(probe::Harness& h,const probe::Rom& rom) {
-    std::vector<RoutineEntry> entries(game::menu_remainder::ei_delay_loads.begin(),game::menu_remainder::ei_delay_loads.end());
-    entries.insert(entries.end(),game::scenes::ei_delay_loads.begin(),game::scenes::ei_delay_loads.end());
-    for(const auto entry:entries) {
-        probe::check((rom.byte(entry.bank,entry.address)==0x3E || rom.byte(entry.bank,entry.address)==0x21 || rom.byte(entry.bank,entry.address)==0x11 || rom.byte(entry.bank,entry.address)==0x3A) && rom.byte(entry.bank,static_cast<std::uint16_t>(entry.address-1))==0xFB,
-            "EI scaffolding is exactly the following register load");
-        probe::check(h.registry().find(entry)==nullptr,"EI load stays on the original core");
-        for(unsigned remaining:{1u,7u,8u}) {
+// The instruction right after each EI of the printers (and the ones the printers' epilogues run after it):
+// an interrupt that falls due at the EI is taken only after that instruction, as on the original. Run in C++
+// under strict lockstep with the frame interrupt due a few cycles after the entry.
+const std::vector<RoutineEntry> after_enable{
+    {0,0x3030},{0,0x30A1},{0,0x332B},{0,0x3411},{0,0x35B6},{0,0x3633},{0,0x3A7A},
+    {0,0x319D},{0,0x33C7},{0,0x3AA1},{0,0x3AC3}};
+void after_enable_instructions(probe::Harness& h) {
+    for(const auto entry:after_enable) {
+        for(unsigned remaining:{1u,3u,7u,8u,17u,24u}) {
             probe::Setup setup; setup.iff1=true; setup.iff2=true;
-            auto actual=h.prepare(entry,setup);
-            actual.cpu().data.uint8_array[0]=0xFB;
-            const auto phase=actual.cycles()%Machine::frame_cycles;
-            actual.advance((Machine::frame_cycles-remaining+Machine::frame_cycles-phase)%Machine::frame_cycles);
-            Machine native=actual;
-            Machine::PortTrace ports(actual);
-            unsigned hooks=0;
-            Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
-                probe::check(pc==entry.address && map==Memory::Mapping{Memory::Kind::rom,entry.bank},"EI load callback mapping and PC");
-                ++hooks; return {};
-            };
-            const auto start=actual.cycles();
-            native.step();
-            actual.step(h.registry(),hook);
-            probe::check(actual.equivalent(native) && actual.cycles()-start==(rom.byte(entry.bank,entry.address)==0x3E ? 7u : rom.byte(entry.bank,entry.address)==0x3A ? 13u : 10u) && hooks==1 && ports.accesses().empty(),
-                "EI protected load preserves state, original load cycles, native callback and no I/O");
+            auto machine=h.prepare(entry,setup);
+            machine.cpu().data.uint8_array[0]=0xFB;
+            const auto phase=machine.cycles()%Machine::frame_cycles;
+            machine.advance((Machine::frame_cycles-remaining+Machine::frame_cycles-phase)%Machine::frame_cycles);
+            h.run_cpp(machine,entry);
         }
     }
-    for(const auto entry:game::menu_remainder::ei_delay_epilogues) {
-        const auto opcode=rom.byte(entry.bank,entry.address);
-        probe::check((opcode==0xC9 || opcode==0xE1 || opcode==0xF1) &&
-            rom.byte(entry.bank,static_cast<std::uint16_t>(entry.address-1))==0xFB,
-            "native EI epilogue is the original return or saved-register load");
-        probe::check(h.registry().find(entry)==nullptr,"EI epilogue stays on the original core");
-        auto actual=h.prepare(entry,{});
-        actual.cpu().iff1=actual.cpu().iff2=1;
-        actual.cpu().data.uint8_array[0]=0xFB;
-        Machine native=actual;
-        const auto start=actual.cycles();
-        native.step(); actual.step(h.registry());
-        probe::check(actual.equivalent(native) && actual.cycles()-start==10,"EI return/POP preserves the exact native state and delay step");
+}
+// Interrupt sweeps (milestone 14): an IRQ and an NMI at every cycle of every segment of more than one instruction.
+void sweeps(probe::Harness& h) {
+    auto follow_enable=[](Machine& m) { m.cpu().data.uint8_array[0]=0xFB; };
+    for(const std::uint16_t at:{0x3030,0x30A1,0x332B,0x3411,0x35B6,0x3633,0x3A7A})
+        probe::sweep(h,{0,at},{},follow_enable);       // load of the wait index, then the call of the frame wait
+    for(const std::uint16_t at:{0x319A,0x340F,0x35B3,0x3AC0})
+        probe::sweep(h,{0,at},{});                      // the saved registers come back, then EI
+    probe::sweep(h,{0,0x3A68},{});                      // the row's BC is saved, then DI
+    for(const std::uint16_t at:{0x39B1,0x39C2}) {
+        probe::Setup setup; setup.cartridge_ram=true;
+        probe::sweep(h,{0,at},setup);                   // the control value, then the cartridge RAM switch
     }
-
+    // The stretches of the other menu files.
+    probe::sweep(h,{0,0x3161},{},{},2);                 // the delay writes before the enemy-name loop
+    for(const std::uint16_t at:{0x3A6B,0x3A6E,0x3A73,0x3A8F,0x3AAD}) {
+        probe::Setup setup;
+        probe::sweep(h,{0,at},setup,[at](Machine& m) {
+            m.cpu().bc.uint16_value=at==0x3A6E ? 0x04BE : 0x0404; m.cpu().hl.uint16_value=0xC100;
+        });
+    }
+    for(const std::uint16_t at:{0x2F1B,0x2FA4,0x2FAF,0x2FBD}) probe::sweep(h,{0,at},{});
+    // 00:2FA1 is one instruction (the load the battle animation joins at): no boundary inside it to sweep; the
+    // probes of every catalog entry (main) run it under lockstep from 64 shaken states.
+}
+// A registry with the entries of the game's, keeping what the rendered bodies need (exactness, entry guard).
+void copy_entry(RoutineRegistry& chain,RoutineEntry at,const RegisteredRoutine& routine) {
+    if(routine.exact && routine.guard) chain.add_exact(at,routine.spec,*routine.guard,routine.bound,routine.body);
+    else if(routine.exact) chain.add_exact(at,routine.spec,routine.bound,routine.body);
+    else chain.add(at,routine.spec,routine.bound,routine.body);
 }
 void slot_name_mapping(probe::Harness& h) {
     for(unsigned initial:{0u,12u}) {
@@ -62,16 +67,15 @@ void slot_name_mapping(probe::Harness& h) {
         Machine native=actual;
         RoutineRegistry chain;
         for(const auto& [at,routine]:h.registry().entries()) if(at!=RoutineEntry{0,0x39C7}) {
-            if(routine.spec.exits.empty()) chain.add(at,routine.bound,routine.body);
-            else chain.add(at,routine.spec,routine.bound,routine.body);
+            copy_entry(chain,at,routine);
         }
         // The full-chain trace owns the port log. A nested per-call trace
         // would divert those same events into its private comparison buffer.
-        chain.verifier=nullptr;
         using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t,Memory::Kind>;
         std::vector<Write> expected,observed;
+        std::vector<PsgWrite> expected_psg,observed_psg;
         Machine::PortTrace expected_ports(native),actual_ports(actual);
-        auto run=[](Machine& m,RoutineRegistry* registry,std::vector<Write>& writes) {
+        auto run=[](Machine& m,RoutineRegistry* registry,std::vector<Write>& writes,std::vector<PsgWrite>& psg) {
             Machine::WriteObserver observer=[&](std::uint16_t address,std::uint8_t value) {
                 writes.emplace_back(address,value,m.cycles(),m.memory().mapping(0x8000).kind);
             };
@@ -82,16 +86,26 @@ void slot_name_mapping(probe::Harness& h) {
             try {
                 for(unsigned frame=0;frame<32;++frame) {
                     m.run_frame({},registry,hook,observer);
-                    m.take_psg_writes();
+                    for(const auto& w:m.take_psg_writes()) psg.push_back(w);
                     m.take_samples();
                 }
             }
-            catch(const Stopped&) { return; }
+            catch(const Stopped&) { for(const auto& w:m.take_psg_writes()) psg.push_back(w); return; }
+            // The chain has no segment at 00:39C7: the engine stops there before
+            // running anything, as the hook does on the original.
+            catch(const UnhandledState&) {
+                if(!registry || m.cpu().pc.uint16_value!=0x39C7 || m.memory().mapping(0x39C7)!=Memory::Mapping{Memory::Kind::rom,0}) throw;
+                for(const auto& w:m.take_psg_writes()) psg.push_back(w); return;
+            }
             throw std::runtime_error("save-name drawing did not restore cartridge mapping");
         };
-        run(native,nullptr,expected);
-        run(actual,&chain,observed);
-        probe::check(actual.equivalent(native),"save-name complete draw, interrupts and mapping");
+        run(native,nullptr,expected,expected_psg);
+        run(actual,&chain,observed,observed_psg);
+        // Whole-state equality (milestone 14: not Console::equivalent, which includes the core's per-step
+        // bookkeeping), with the PSG writes and the cartridge RAM's dirty flag compared explicitly.
+        probe::check(oracle::equal(actual,native,oracle::Scope::whole),"save-name complete draw, interrupts and mapping");
+        probe::check(expected_psg==observed_psg,"save-name PSG writes");
+        probe::check(actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),"save-name cartridge RAM dirty flag");
         if(expected!=observed) {
             const auto where=std::mismatch(expected.begin(),expected.end(),observed.begin(),observed.end());
             if(where.first!=expected.end() && where.second!=observed.end())
@@ -114,25 +128,33 @@ void draw_window_bank_observers(probe::Harness& h) {
         Machine native=actual;
         RoutineRegistry chain;
         for(const auto& [at,routine]:h.registry().entries()) {
-            if(routine.spec.exits.empty()) chain.add(at,routine.bound,routine.body);
-            else chain.add(at,routine.spec,routine.bound,routine.body);
+            copy_entry(chain,at,routine);
         }
         using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>;
         std::vector<Write> expected,observed;
+        std::vector<PsgWrite> expected_psg,observed_psg;
         Machine::PortTrace expected_ports(native),actual_ports(actual);
-        auto run=[](Machine& m,RoutineRegistry* r,std::vector<Write>& writes) {
+        auto run=[](Machine& m,RoutineRegistry* r,std::vector<Write>& writes,std::vector<PsgWrite>& psg) {
             Machine::WriteObserver observer=[&](std::uint16_t address,std::uint8_t value) { writes.emplace_back(address,value,m.cycles()); };
             Machine::Hook hook=[](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
                 if(pc==0x0180) throw Stopped{};
                 return {};
             };
-            try { for(unsigned frame=0;frame<2;++frame) m.run_frame({},r,hook,observer); }
-            catch(const Stopped&) { return; }
+            try { for(unsigned frame=0;frame<2;++frame) { m.run_frame({},r,hook,observer); for(const auto& w:m.take_psg_writes()) psg.push_back(w); } }
+            catch(const Stopped&) { for(const auto& w:m.take_psg_writes()) psg.push_back(w); return; }
+            // No segment begins at the probe's return address 00:0180: the
+            // engine stops there before running anything, as the hook does.
+            catch(const UnhandledState&) {
+                if(!r || m.cpu().pc.uint16_value!=0x0180 || m.memory().mapping(0x0180)!=Memory::Mapping{Memory::Kind::rom,0}) throw;
+                for(const auto& w:m.take_psg_writes()) psg.push_back(w); return;
+            }
             throw std::runtime_error("draw-at-once window did not return");
         };
-        run(native,nullptr,expected);
-        run(actual,&chain,observed);
-        probe::check(actual.equivalent(native),"window bank option preserves full original state");
+        run(native,nullptr,expected,expected_psg);
+        run(actual,&chain,observed,observed_psg);
+        probe::check(oracle::equal(actual,native,oracle::Scope::whole),"window bank option preserves full original state");
+        probe::check(expected_psg==observed_psg && actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),
+                     "window bank option: PSG writes and cartridge RAM dirty flag");
         probe::check(expected==observed && expected_ports.accesses()==actual_ports.accesses(),"window bank store/restore callbacks and all video ports match");
         probe::check(actual.memory().mapping(0x8000)==native.memory().mapping(0x8000),"window restores bank and cartridge mapping");
     }
@@ -140,6 +162,8 @@ void draw_window_bank_observers(probe::Harness& h) {
 
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         probe::check(argc==3,"Expected ROM and region");
         const auto rom=probe::load(argv[1],argv[2]);
@@ -155,10 +179,13 @@ int main(int argc,char** argv) {
                 setup.seed=seed;
                 setup.r=static_cast<std::uint8_t>(seed*7);
                 auto machine=harness.prepare(entry,setup);
+                // The row's OUTI loop writes through port C: the video data port (a random port could be the memory control).
+                if(entry==RoutineEntry{0,0x3A6E}) { machine.cpu().bc.uint8_values.at_0=0xBE; machine.cpu().bc.uint8_values.at_1=static_cast<std::uint8_t>(1+seed%4); }
                 harness.run_cpp(machine,entry);
             }
         }
-        protected_loads(harness,*rom);
+        after_enable_instructions(harness);
+        sweeps(harness);
         slot_name_mapping(harness);
         draw_window_bank_observers(harness);
         std::cout<<"Menu interrupt/SRAM boundaries verified on the identified ROM\n";

@@ -62,7 +62,7 @@ constexpr int line_row(unsigned row) { return list.row+1+line_step*int(row); }
 inline constexpr std::size_t line_limit=28;
 }
 // none: nothing to do. apply: save the draft and close. close: close without
-// saving (read-only). controls: open the Controls screen over Options.
+// saving (the automap screen). controls: open the Controls screen over Options.
 // language: the Language row changed language_draft(); the owner saves it at
 // once and calls language_saved() or language_failed().
 enum class MenuAction { none,apply,close,controls,language };
@@ -70,9 +70,9 @@ class OptionsMenu {
 public:
     // Six rows, all visible: encounters, experience/meseta, automap,
     // widescreen, Controls and Language. Left and right change the selected
-    // value; Controls also opens when read-only; nothing changes in a
-    // restricted session, Language included.
-    void open(game::Options options,bool restricted,bool pending,bool recording=false,bool automap=false,bool widescreen=false);
+    // value. (Milestone 14 removed the read-only state: a recording never
+    // opens Options, and the Z80 mode is gone.)
+    void open(game::Options options,bool pending,bool automap=false,bool widescreen=false);
     // The global language preference and which preferences have a ROM
     // (indexed by LanguagePreference). Defaults: native, all available.
     void set_language(LanguagePreference preference,std::array<bool,3> available);
@@ -111,7 +111,7 @@ private:
     unsigned selected_=0;
     LanguagePreference language_=LanguagePreference::native;
     std::array<bool,3> language_available_{true,true,true};
-    bool visible_=false,armed_=false,restricted_=false,pending_=false,failed_=false,language_failed_=false,recording_=false,automap_=false,widescreen_=false;
+    bool visible_=false,armed_=false,pending_=false,failed_=false,language_failed_=false,automap_=false,widescreen_=false;
     double next_repeat_=0;
 };
 // Menu buttons are consumed until every gameplay button is released.

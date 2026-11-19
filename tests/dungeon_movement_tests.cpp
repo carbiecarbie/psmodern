@@ -30,6 +30,7 @@ struct Want {
     std::uint16_t entry, unit;
     std::vector<SegmentExit> exits;
     kit::Permissions permissions={};
+    bool single=false;          // a one-instruction joining segment (milestone 14)
 };
 std::vector<Want> wanted() {
     const std::vector<SegmentExit> handler{R(0x6807),R(0x672B),R(0x67D9),L(0x6618,128),F(0x6622),X(0x6712),X(0x672E),
@@ -45,13 +46,19 @@ std::vector<Want> wanted() {
         {0x66CC,0x661C,{F(0x66C9),F(0x66D9)},{.slot2_mapper=true}},{0x66DC,0x661C,{F(0x66DE)}},
         {0x6758,0x6758,{F(0x675A)}},{0x675D,0x6758,{F(0x6772)}},{0x6775,0x6758,{F(0x6777)}},
         {0x6792,0x6792,{F(0x67A8)}},{0x67B7,0x67B7,{F(0x67D4)},{.scratch_stack=4}},{0x67E2,0x67E2,{F(0x67FF)},{.scratch_stack=4}},
+        // Joining stretches (milestone 14): where the original resumes after a call or a cell reader returned.
+        {0x662A,0x661C,{F(0x662A)},{},true},{0x665F,0x661C,{F(0x665F)},{},true},
+        {0x66B6,0x661C,{F(0x66B6)},{},true},{0x66F4,0x65EE,{X(0x66F7)}},
+        {0x6726,0x65EE,{F(0x6726)},{},true},{0x6731,0x65EE,{F(0x6731)},{.scratch_stack=2},true},
+        {0x674D,0x65EE,{F(0x674D)},{.scratch_stack=2},true},{0x67FB,0x67E2,{F(0x67FF)}},
+        {0x6816,0x65EE,{R(0x6816),F(0x6817)},{.scratch_stack=2}},{0x681A,0x65EE,{R(0x681A)},{},true},
     };
 }
 void registration() {
     RoutineRegistry registry;
     game::register_dungeon_movement(registry);
     const auto want=wanted();
-    check(want.size()==dungeon::movement_segments.size() && registry.entries().size()==want.size(),"26 movement segments are registered");
+    check(want.size()==dungeon::movement_segments.size() && registry.entries().size()==want.size(),"36 movement segments are registered");
     for (const auto& w:want) {
         const RoutineEntry entry{1,w.entry}, unit{1,w.unit};
         const auto listed=std::find_if(dungeon::movement_segments.begin(),dungeon::movement_segments.end(),
@@ -61,27 +68,20 @@ void registration() {
         check(routine!=nullptr,"the planned entry is registered");
         const auto& spec=routine->spec;
         check(spec.unit==unit && spec.slot2_mapper==w.permissions.slot2_mapper && spec.scratch_stack==w.permissions.scratch_stack &&
-              spec.inherited_stack==0 && !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,
-              "the entry has the unit and permissions of the R2 table");
+              spec.inherited_stack==w.permissions.inherited_stack && spec.single_instruction==w.single,"the entry has the unit and permissions of the R2 table");
         check(spec.exits.size()==w.exits.size(),"the entry declares the exits of the R2 table");
         for (const auto& exit:w.exits)
             check(std::count_if(spec.exits.begin(),spec.exits.end(),[&](const auto& e) { return e.same_declaration(exit); })==1,
                   "an exit of the R2 table is declared exactly as written");
     }
-    std::cout<<"26 movement segments registered with the exits and permissions of the R2 table.\n";
+    std::cout<<"36 movement segments registered with the exits and permissions of the R2 table and the joining stretches.\n";
 }
 
 // ---- ROM probes ------------------------------------------------------------------------
 
 // The verifier of the harness, wrapped to learn which exit each call took.
-struct Spy final : RoutineVerifier {
-    replay::CallVerifier inner{"probe"};
-    std::optional<SegmentExit> last;
-    void run(Machine& machine, RoutineEntry entry, const SegmentSpec& spec, bool forced, std::uint64_t bound,
-             std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override {
-        inner.run(machine,entry,spec,forced,bound,call,[&] { last=body(); return last; });
-    }
-};
+// The exit each call of the harness took (milestone 14: from the registry).
+struct Spy { std::optional<SegmentExit> last; };
 
 constexpr std::uint16_t ctrl_held=0xC204, ctrl_pressed=0xC205, scroll=0xC304;
 // The game's work RAM that the segments read or write, plus bytes around it
@@ -113,7 +113,7 @@ struct Rig {
         }
         return true;
     }
-    explicit Rig(const probe::Rom& r) : harness(r), rom(r), tables(*r.image) { harness.registry().verifier=&spy; }
+    explicit Rig(const probe::Rom& r) : harness(r), rom(r), tables(*r.image) { harness.exit_sink=&spy.last; }
 
     std::uint8_t byte() { return static_cast<std::uint8_t>(random()); }
     unsigned below(unsigned n) { return static_cast<unsigned>(random()%n); }
@@ -544,6 +544,70 @@ void environment_probes(Rig& g) {
     }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body (sampled: about 40
+// runs per kind), each run compared with the oracle at every instruction
+// boundary, handler included. The handler is swept on a scene of every kind
+// (idle, a door, forward, an opened door, stairs, a fake wall, back, Left,
+// Right, an object cell with and without a record); the other entries on a
+// plain scene. One-instruction segments have no boundary inside.
+void sweeps(Rig& g) {
+    std::string failures;     // every failing segment is reported, not only the first
+    const auto sweep=[&](RoutineEntry entry,const std::function<void(Machine&)>& adjust) {
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            auto base=g.harness.prepare(entry,setup);
+            adjust(base);
+            const auto length=g.harness.run_cpp(base,entry).cycles;
+            probe::sweep(g.harness,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.address)+": "+error.what();
+        }
+    };
+    Scene plain;
+    for (auto& c:plain.layout) c=1;
+    plain.position=0x55; plain.facing=1;
+    struct Kind { std::uint8_t held, pressed, ahead, behind; };
+    for (const Kind kind:{Kind{0,0,1,1},Kind{0,0x10,4,1},Kind{1,0,0,1},Kind{1,0,0x84,1},Kind{1,0,2,1},Kind{1,0,7,1},
+                          Kind{2,0,1,0},Kind{4,0,1,1},Kind{8,0,1,1},Kind{1,0,0x0A,1},Kind{1,0,0x0C,1}}) {
+        auto s=plain;
+        s.held=kind.held; s.pressed=kind.pressed;
+        s.layout[g.cell(s.position,s.facing,dungeon::ahead)]=kind.ahead;
+        s.layout[g.cell(s.position,s.facing,dungeon::behind)]=kind.behind;
+        sweep(handler,[&](Machine& m) { g.write_scene(m,s); });
+    }
+    for (unsigned floor=0;floor<dungeon::floor_count;++floor) {      // an object cell with a record, and a pit
+        const auto layout=g.tables.layout(floor);
+        bool record=false, pit=false;
+        for (unsigned cell=0;cell<256 && !(record && pit);++cell) {
+            if (layout[cell]!=8) continue;
+            const bool has=g.tables.object_at(static_cast<std::uint8_t>(floor),static_cast<std::uint8_t>(cell)).has_value();
+            if ((has && record) || (!has && pit)) continue;
+            (has ? record : pit)=true;
+            Scene s;
+            s.layout=layout; s.floor=static_cast<std::uint8_t>(floor); s.position=static_cast<std::uint8_t>(cell); s.held=1;
+            sweep(handler,[&](Machine& m) { g.write_scene(m,s); });
+        }
+        if (record && pit) break;
+    }
+    unsigned swept=0;
+    for (const auto& [entry,unit]:dungeon::movement_segments) {
+        (void)unit;
+        if (entry==handler || g.harness.routine(entry).spec.single_instruction) continue;
+        const auto hl=entry==continuation ? static_cast<std::uint16_t>(objects_start) : std::uint16_t{0xC600};
+        sweep(entry,[&](Machine& m) {
+            g.write_scene(m,plain);
+            auto& cpu=m.cpu();
+            cpu.hl.uint16_value=hl; cpu.de.uint16_value=6;
+            cpu.bc.uint8_values.at_1=3; cpu.bc.uint8_values.at_0=0x55;
+            if (entry==at(0x6816)) cpu.af.uint8_values.at_0=0;      // RET Z not taken: a call follows, so a boundary lies inside
+        });
+        ++swept;
+    }
+    check(failures.empty(),"dungeon movement sweeps failed:"+failures);
+    std::cout<<"dungeon movement: "<<swept<<" segments and the handler swept\n";
+}
+
 void probes(const probe::Rom& rom) {
     Rig g(rom);
     const auto before=g.count;
@@ -572,12 +636,18 @@ void probes(const probe::Rom& rom) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc==1) { registration(); return 0; }
         if (argc!=3) throw std::runtime_error("Expected <rom> <us|br>.");
         const auto rom=probe::load(argv[1],argv[2]);
         if (!rom) return 77;
         registration();
+        {
+            Rig g(*rom);
+            sweeps(g);
+        }
         probes(*rom);
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

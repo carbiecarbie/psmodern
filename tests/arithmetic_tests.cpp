@@ -4,6 +4,8 @@
 
 using namespace psmodern;
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc!=3) return 1;
         auto rom=probe::load(argv[1],argv[2]);
@@ -35,6 +37,19 @@ int main(int argc,char** argv) {
                              "division result or remainder differs");
             }
         }
+        // Interrupt sweeps (milestone 14): every segment, an IRQ and an NMI
+        // at every second or fourth cycle, compared with the oracle at every
+        // boundary (the carry complements of the division read Q).
+        const probe::Setup interrupts{.iff1=true,.iff2=true,.seed=11};
+        probe::sweep(h,{0,0x0429},interrupts,[](Machine& m) { m.cpu().hl.uint16_value=0xAB00; m.cpu().de.uint16_value=0x00CD; },2);
+        for (auto pc:game::word_product_entries)
+            probe::sweep(h,{0,pc},interrupts,[](Machine& m) {
+                m.cpu().de.uint16_value=0xABCD; m.cpu().bc.uint16_value=0xF00D; m.cpu().hl.uint16_value=0x1357;
+            },4);
+        for (auto pc:game::division_entries)
+            probe::sweep(h,{0,pc},interrupts,[](Machine& m) {
+                m.cpu().hl.uint16_value=0xFEDC; m.cpu().de.uint16_value=0x0089; m.cpu().af.uint8_values.at_1=0x12;
+            },4);
         return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

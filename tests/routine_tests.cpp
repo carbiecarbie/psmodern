@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// The registered-segment mechanism without a processor core (milestone 14):
+// the registry's validation, dispatch by bank, the stop on unrendered code and
+// on refused entry states, and the rules a body is held to. The cases of the
+// transition (core finals, forced admission, fallback to the core, the
+// disabled registry) were removed with the core; the interrupt mechanism of
+// exact bodies is tested in core_boundary_tests, the final renderers in
+// kit_final_tests and the oracle in lockstep_tests.
 #include "machine/machine.h"
-#include <algorithm>
-#include <functional>
 #include <iostream>
-#include <tuple>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
-#include <vector>
 using namespace psmodern;
 
 namespace psmodern {
@@ -22,12 +27,23 @@ struct VdpFixture {
 }
 namespace {
 void check(bool v, const char* message) { if (!v) throw std::runtime_error(message); }
-template<class F> void rejects(F operation, std::string_view message) {
-    try { operation(); } catch (const std::exception& e) {
-        check(std::string_view(e.what()).find(message)!=std::string_view::npos,"wrong guard diagnostic"); return;
-    }
-    throw std::runtime_error("missing registered routine guard");
+template<class F> std::string failure(F operation) {
+    try { operation(); } catch (const std::exception& e) { return e.what(); }
+    throw std::runtime_error("an expected error did not occur");
 }
+template<class F> void rejects(F operation, std::string_view message) {
+    const auto text=failure(operation);
+    if (text.find(message)==std::string::npos) throw std::runtime_error("wrong diagnostic: "+text);
+}
+template<class F> void stops(F operation, std::string_view message) {
+    try { operation(); } catch (const UnhandledState& e) {
+        if (std::string_view(e.what()).find(message)==std::string_view::npos) throw std::runtime_error(std::string("wrong stop message: ")+e.what());
+        return;
+    }
+    throw std::runtime_error("the engine did not stop");
+}
+constexpr auto R=RoutineExit::returned;
+constexpr auto F=RoutineExit::core_final;
 std::shared_ptr<const Memory::Rom> program(std::initializer_list<std::uint8_t> code) {
     auto rom=std::make_shared<Memory::Rom>(512*1024,0);
     std::copy(code.begin(),code.end(),rom->begin()); return rom;
@@ -36,1534 +52,516 @@ void stack(Machine& m) {
     m.cpu().sp.uint16_value=0xc100;
     m.memory().write(0xc100,0); m.memory().write(0xc101,2);
 }
-void original_call(Machine& m) {
-    for (unsigned i=0;i<1000;++i) {
-        m.step();
-        if (m.cpu().sp.uint16_value==0xc102 && m.cpu().pc.uint16_value==0x200) return;
-    }
-    throw std::runtime_error("synthetic original did not return");
-}
 RegisteredRoutine::Bound cost(std::uint64_t cycles) { return [=](const Machine&) {return cycles;}; }
-void simple_body(RoutineContext& c) {
-    c.fetch_opcode(0); c.advance(4); c.fetch_opcode(1); c.advance(4); c.finish_return(2);
+void nop(RoutineContext& c, std::uint16_t pc) { (void)c.fetch_opcode(pc); c.advance(4); }
+// NOP; NOP; RET at 00:0000, rendered (the RET pops the caller 00:0200).
+void two_nops_and_return(RoutineContext& c) {
+    nop(c,0); nop(c,1);
+    (void)c.fetch_opcode(2);
+    auto& z=c.cpu();
+    const auto low=c.read(z.sp.uint16_value), high=c.read(static_cast<std::uint16_t>(z.sp.uint16_value+1));
+    c.advance(10);
+    z.sp.uint16_value=static_cast<std::uint16_t>(z.sp.uint16_value+2);
+    z.memptr.uint16_value=static_cast<std::uint16_t>(low|(high<<8));
+    c.finish({R,2},z.memptr.uint16_value);
 }
-void results() {
-    Machine native(program({0xdd,0x21,0x23,0xc1,0x3e,0x7f,0x3c,0x32,0x20,0xc0,
-                            0xd3,0x7f,0xdb,0x3e,0x32,0x21,0xc0,0xcb,0x00,0xc9}));
-    stack(native); native.cpu().r=0xfe;
-    Machine cpp=native;
-    const Machine start=native;
-    RoutineRegistry registry;
-    registry.add({0,0},[](const Machine& m) { return m.cpu().r&0x80 ? 91 : 92; },[](RoutineContext& c) {
-        auto& z=c.cpu();
-        c.fetch_opcode(0); c.advance(4); c.fetch_opcode(1);
-        auto lo=c.read(2); auto hi=c.read(3); z.ix_iy[0].uint16_value=lo|(hi<<8); c.advance(10);
-        c.fetch_opcode(4); z.af.uint8_values.at_1=c.read(5); c.advance(7);
-        c.fetch_opcode(6); ++z.af.uint8_values.at_1; z.af.uint8_values.at_0=0x94; c.advance(4);
-        c.fetch_opcode(7); lo=c.read(8); hi=c.read(9); c.write(lo|(hi<<8),z.af.uint8_values.at_1); c.advance(13);
-        c.fetch_opcode(10); const auto output=c.read(11);
-        c.write_port(output,z.af.uint8_values.at_1,48); c.advance(1);
-        c.fetch_opcode(12); const auto input=c.read(13);
-        z.af.uint8_values.at_1=c.read_port(input,59); c.advance(1);
-        c.fetch_opcode(14); lo=c.read(15); hi=c.read(16); c.write(lo|(hi<<8),z.af.uint8_values.at_1); c.advance(13);
-        c.fetch_opcode(17); c.fetch_opcode(18); z.bc.uint8_values.at_1=0; z.af.uint8_values.at_0=0x44; c.advance(8);
-        c.finish_return(19);
-    });
-    const auto fetches=cpp.opcode_fetches();
-    unsigned hooks=0;
-    auto hook=[&](std::uint16_t,Memory::Mapping)->std::optional<std::uint16_t> {++hooks;return {};};
-    check(cpp.step(registry,hook)==91 && hooks==0,"complete call replaces exactly one step and bypasses native hook");
-    original_call(native);
-    check(cpp.equivalent(native),"register, flag, RAM, port, hidden state and exact cycles");
-    check(cpp.cpu().pc.uint16_value==0x200 && cpp.cpu().sp.uint16_value==0xc102,"no extra instruction after return");
-    check(cpp.cpu().af.uint16_value==0x3e44 && cpp.memory().read(0xc020)==0x80 &&
-          cpp.memory().read(0xc021)==0x3e,"synthetic arithmetic and open bus input");
-    check(cpp.last_access()==native.last_access() && cpp.psg().writes()==std::vector<PsgWrite>{{48,0x80}},"T3 port order and timestamp");
-    check(cpp.opcode_fetches()-fetches==11 && cpp.cpu().r==0x89,"fetches include prefixes and return, preserving R bit 7");
-    check(registry.find({0,0})->counters.cpp_calls==1,"C++ call count");
-    // The registry is host state. Its counters from the first call do not
-    // change a second identical call, and switching the same registry off
-    // sends that entry down the original path to the same machine state.
-    Machine second=start;
-    check(second.step(registry)==91 && second.equivalent(cpp) && registry.find({0,0})->counters.cpp_calls==2,
-          "a used registry repeats the same call exactly");
-    registry.enabled=false;
-    Machine third=start;
-    for (unsigned i=0;i<1000 && !(third.cpu().sp.uint16_value==0xc102 && third.cpu().pc.uint16_value==0x200);++i)
-        third.step(registry);
-    const auto& counters=registry.find({0,0})->counters;
-    check(third.equivalent(cpp) && counters.cpp_calls==2 && counters.fallback_calls==1 &&
-          counters.fallback(RoutineFallback::disabled)==1,
-          "switching the same registry off falls back to the same result, counted once");
-
-    // Bulk fetch accounting differs by 128 even when R is equal.
-    auto bulk_rom=std::make_shared<Memory::Rom>(512*1024,0); (*bulk_rom)[128]=0xc9;
-    Machine bulk(bulk_rom); stack(bulk); bulk.cpu().r=0xff;
-    Machine bulk_native=bulk;
-    const auto initial=bulk.cpu().r;
-    RoutineRegistry many;
-    many.add({0,0},cost(522),[=](RoutineContext& c) {
-        c.account_fetches(128); check(c.cpu().r==initial,"bulk accounting keeps R bit 7 and low-bit wrap");
-        c.advance(512); c.finish_return(128);
-    });
-    bulk.step(many); check(bulk.opcode_fetches()==129 && bulk.cpu().r==0x80,"bulk count does not collapse to R");
-    original_call(bulk_native); check(bulk.equivalent(bulk_native),"bulk fetch accounting matches the same original program");
-}
-void vdp_results() {
-    Machine native(program({0x3e,0x42,0xd3,0xbf,0x3e,0x82,0xd3,0xbf,
-                            0x3e,0x19,0xd3,0xbe,0xdb,0xbf,0xc9}));
-    stack(native); Machine cpp=native; RoutineRegistry r;
-    r.add({0,0},cost(85),[](RoutineContext& c) {
-        auto& z=c.cpu();
-        for (unsigned i=0;i<3;++i) {
-            const auto pc=static_cast<std::uint16_t>(4*i);
-            c.fetch_opcode(pc); z.af.uint8_values.at_1=c.read(pc+1); c.advance(7);
-            c.fetch_opcode(pc+2); const auto port=c.read(pc+3);
-            c.write_port(port,z.af.uint8_values.at_1,18*i+17); c.advance(1);
-        }
-        c.fetch_opcode(12); const auto port=c.read(13);
-        z.af.uint8_values.at_1=c.read_port(port,64); c.advance(1); c.finish_return(14);
-    });
-    cpp.step(r); original_call(native);
-    check(cpp.equivalent(native) && cpp.last_access()==native.last_access(),"allowed VDP register/data writes and timed status read match original");
-    check(cpp.vdp().registers()[2]==0x42,"unrestricted VDP register remains writable");
-}
-void window_case(bool nmi, unsigned distance, std::uint64_t bound, bool fallback) {
-    Machine native(program({0,0,0xc9})); stack(native);
-    if (nmi) native.set_pause(true);
-    native.read_port(0xbf,0); native.cpu().iff1=native.cpu().iff2=nmi ? 0 : 1;
-    const std::uint64_t event=nmi ? Machine::pause_sample_offset : 43986;
-    native.advance(event-distance);
-    Machine cpp=native;
-    RoutineRegistry registry; registry.add({0,0},cost(bound),simple_body);
-    cpp.step(registry);
-    if (fallback) {
-        check(cpp.cpu().pc.uint16_value==1,"fallback executes original first instruction");
-        while (cpp.cpu().pc.uint16_value!=0x200) cpp.step();
-    }
-    original_call(native);
-    check(cpp.equivalent(native),"window case equals the same original program");
-    const auto& calls=registry.find({0,0})->counters;
-    check(calls.cpp_calls==!fallback && calls.fallback_calls==fallback,"window outcome counting");
-    check(calls.fallback(nmi ? RoutineFallback::nmi : RoutineFallback::irq)==fallback,"window fallback reason");
-    // At event==E the edge missed the return's E-1 sample. One more
-    // instruction samples it; at event==E-1 the next boundary accepts it.
-    for (unsigned i=0;i<3;++i) {
-        check(cpp.step()==native.step() && cpp.equivalent(native),"post-call E-1 acceptance agrees");
-    }
-}
-void windows() {
-    // Actual E = entry+18. Inclusive last sample E-1 must fall back;
-    // first cycle outside [entry,E), E, is safe and sampled one instruction later.
-    window_case(false,17,18,true);
-    window_case(false,18,18,false);
-    // IRQ at actual E+2, before bound E=entry+24: still falls back.
-    window_case(false,20,24,true);
-    window_case(true,17,18,true);
-    window_case(true,18,18,false);
-    // IFF1 clear means a maskable line is harmless throughout the window.
-    Machine off(program({0,0,0xc9})); stack(off); Machine original=off;
-    RoutineRegistry allowed; allowed.add({0,0},cost(18),simple_body);
-    off.step(allowed); original_call(original); check(off.equivalent(original),"disabled maskable interrupts allow replacement");
-
-    // NMI first visible at entry: missed preceding E-1, so native executes
-    // one instruction before accepting. The registry must still reject it.
-    Machine entry(program({0,0,0xc9})); stack(entry); entry.schedule_nmi(4); entry.advance(4);
-    Machine baseline=entry;
-    RoutineRegistry r; r.add({0,0},cost(18),simple_body);
-    check(entry.step(r)==baseline.step() && entry.equivalent(baseline),"entry-visible NMI falls back without accepting early");
-    check(r.find({0,0})->counters.fallback(RoutineFallback::nmi)==1,"entry-visible NMI counted");
-    check(entry.step()==11 && baseline.step()==11 && entry.equivalent(baseline),"entry-visible edge accepted after next E-1");
-
-    // A request already sampled at E-1 suppresses both dispatch and hook.
-    Machine pending(program({0,0,0xc9})); stack(pending); pending.schedule_nmi(0); pending.advance(1);
-    baseline=pending; unsigned hooks=0;
-    auto hook=[&](std::uint16_t,Memory::Mapping)->std::optional<std::uint16_t> {++hooks;return {};};
-    pending.step(r,hook); baseline.step();
-    check(hooks==0 && pending.equivalent(baseline),"accepted interrupt suppresses registry and existing hook");
-
-    for (unsigned distance:{17,18}) {
-        Machine frame(program({0,0,0xc9})); stack(frame);
-        frame.advance(Machine::frame_cycles-distance); baseline=frame;
-        RoutineRegistry f; f.add({0,0},cost(18),simple_body);
-        frame.step(f); if (distance==17) while(frame.cpu().pc.uint16_value!=0x200) frame.step();
-        original_call(baseline);
-        check(frame.equivalent(baseline),"frame crossing fallback and boundary exactly at E");
-        check(f.find({0,0})->counters.fallback(RoutineFallback::frame)==(distance==17),"frame reason counted");
-    }
-    Machine multiple(program({0,0,0xc9})); stack(multiple); multiple.set_pause(true);
-    multiple.read_port(0xbf,0); multiple.cpu().iff1=1;
-    multiple.advance(1);
-    RoutineRegistry reasons; reasons.add({0,0},cost(Machine::frame_cycles+1),simple_body);
-    baseline=multiple; multiple.step(reasons); baseline.step();
-    const auto& c=reasons.find({0,0})->counters;
-    check(multiple.equivalent(baseline) && c.fallback_calls==1 && c.fallback(RoutineFallback::irq)==1 &&
-          c.fallback(RoutineFallback::nmi)==1 && c.fallback(RoutineFallback::frame)==1,"one fallback can count all applicable reasons");
-}
-void registry_and_guards() {
-    RoutineRegistry empty;
-    Machine a(program({0})),b=a;
-    a.run_frame({},empty); b.run_frame({}); check(a.equivalent(b),"empty frame registry is byte-equivalent");
-    RoutineRegistry disabled; disabled.enabled=false; disabled.add({0,0},cost(18),simple_body);
-    Machine d(program({0,0,0xc9})); stack(d); Machine native=d;
-    d.step(disabled); native.step(); check(d.equivalent(native),"disabled registry executes original");
-    check(disabled.find({0,0})->counters.fallback(RoutineFallback::disabled)==1,"disabled count");
-    rejects([&]{disabled.add({0,0},cost(18),simple_body);},"Duplicate");
-    rejects([&]{disabled.add({0,0xc000},cost(18),simple_body);},"Invalid");
-
-    auto guard=[](RegisteredRoutine::Body body, std::string_view diagnostic, std::uint64_t bound=18) {
-        Machine m(program({0,0,0xc9})); stack(m);
-        RoutineRegistry r; r.add({0,0},cost(bound),std::move(body));
-        rejects([&]{m.step(r);},diagnostic);
-    };
-    for (unsigned reg:{0,1,10}) for (unsigned port:{0x81,0xbf}) {
-        guard([=](RoutineContext& c){c.write_port(port,0x55,0);c.write_port(port,0x80|reg,0);},"interrupt control");
-        Machine half(program({0,0,0xc9})); stack(half); half.write_port(port,0x55,0);
-        RoutineRegistry r; r.add({0,0},cost(18),[=](RoutineContext& c){c.write_port(port,0x80|reg,0);});
-        const auto before=half.vdp().registers();
-        rejects([&]{half.step(r);},"interrupt control"); check(half.vdp().registers()==before,"entry half-latch guard rejects before changing register");
-    }
-    for (unsigned address=0xfffc;address<=0xffff;++address)
-        guard([=](RoutineContext& c){c.write(address,2);},"mapper");
-    for (unsigned port:{0x00,0x3e}) guard([=](RoutineContext& c){c.write_port(port,0,0);},"mapping");
-    guard([](RoutineContext& c){c.advance(19);},"exceeded");
-    guard(simple_body,"exceeded",17); // Includes the core's returning instruction.
-    guard([](RoutineContext&){},"omitted");
-    guard([](RoutineContext& c){c.finish_return(0);},"returning instruction");
-    guard([](RoutineContext& c){c.advance(2);c.read_port(0x3e,1);},"past");
-
-    // Same address in different banks, fixed first KiB, cartridge RAM,
-    // work RAM and unmapped cartridge must never alias the ROM registry.
-    for (unsigned mode=0;mode<5;++mode) {
-        Machine m(program({0})); stack(m); m.cpu().pc.uint16_value=0x8000;
-        RoutineRegistry r; unsigned calls=0;
-        r.add({2,static_cast<std::uint16_t>(mode==4 ? 0 : 0x8000)},cost(10),[&](RoutineContext&){++calls;});
-        if (mode==0) m.memory().write(0xffff,3);
-        if (mode==1) m.memory().write(0xfffc,8);
-        if (mode==2) m.cpu().pc.uint16_value=0xc000;
-        if (mode==3) m.memory().set_memory_control(0x40);
-        if (mode==4) { m.cpu().pc.uint16_value=0; m.memory().write(0xfffd,2); }
-        native=m; m.step(r); native.step(); check(calls==0 && m.equivalent(native),"ROM mapping and bank gate");
-    }
-    // Positive bank dispatch, and conditional / ignored-prefix returns.
-    for (const auto code:{0xc9,0xc0,0xc8}) {
-        auto rom=std::make_shared<Memory::Rom>(512*1024,0);
-        (*rom)[3*0x4000]=0xdd; (*rom)[3*0x4000+1]=code;
-        Machine m(rom); stack(m); m.memory().write(0xffff,3); m.cpu().pc.uint16_value=0x8000;
-        m.cpu().af.uint8_values.at_0=code==0xc8 ? 0x40 : 0;
-        native=m;
-        RoutineRegistry r; r.add({3,0x8000},cost(15),[](RoutineContext& c){c.finish_return(0x8000);});
-        m.step(r); original_call(native); check(m.equivalent(native),"mapped original returning instruction");
-    }
-    constexpr unsigned bits[]{6,0,2,7};
-    for (unsigned condition=0;condition<8;++condition) {
-        const auto code=static_cast<std::uint8_t>(0xc0+condition*8);
-        Machine m(program({code})); stack(m); m.cpu().af.uint8_values.at_0=(condition&1)<<bits[condition/2];
-        native=m; RoutineRegistry r; r.add({0,0},cost(11),[](RoutineContext& c){c.finish_return(0);});
-        m.step(r); original_call(native); check(m.equivalent(native),"each conditional returning path uses the core");
-        Machine untaken(program({code})); stack(untaken);
-        untaken.cpu().af.uint8_values.at_0=(!(condition&1))<<bits[condition/2];
-        rejects([&]{untaken.step(r);},"returning instruction");
-    }
-    Machine unmapped_stack(program({0xc9})); stack(unmapped_stack);
-    unmapped_stack.memory().set_memory_control(0x10); native=unmapped_stack;
-    RoutineRegistry unmapped_return;
-    unmapped_return.add({0,0},cost(10),[](RoutineContext& c){c.finish_return(0);});
-    unmapped_stack.step(unmapped_return); native.step();
-    check(unmapped_stack.equivalent(native),"return reads an unmapped stack through the real open bus");
-}
-void scratch_overwrite() {
-    // Perturb only excluded scratch, then execute every prefix family and
-    // the ordinary and extended returns. Live prefix bytes stay compared.
-    const std::vector<std::vector<std::uint8_t>> paths{
-        {0xcb,0x00}, {0xed,0x44}, {0xdd,0x21,0x12,0xc0}, {0xfd,0x21,0x34,0xc0},
-        {0xdd,0xcb,0,0x46}, {0xfd,0xcb,0,0x46}, {0xdd,0xfd,0x21,0x34,0xc0},
-        {0xed,0x45}, {0xed,0x4d}, {0xc9}, {0x00}, {0xdb,0x3e}
-    };
-    for (const auto& bytes:paths) {
-        auto rom=std::make_shared<Memory::Rom>(512*1024,0); std::copy(bytes.begin(),bytes.end(),rom->begin());
-        Machine a(rom); stack(a); a.cpu().ix_iy[0].uint16_value=a.cpu().ix_iy[1].uint16_value=0xc000;
-        Machine b=a;
-        a.cpu().data.uint8_array[0]=b.cpu().data.uint8_array[0]=0xc9;
-        for (unsigned j=1;j<4;++j) {a.cpu().data.uint8_array[j]=0x55;b.cpu().data.uint8_array[j]=0xaa;}
-        a.cpu().xy.uint16_value=0x1234; b.cpu().xy.uint16_value=0xabcd;
-        check(a.equivalent(b),"dead scratch excluded after an unprefixed instruction");
-        do {check(a.step()==b.step(),"overwrite path exact cycles");} while(a.cpu().resume==Z80_RESUME_XY);
-        if (bytes[0]==0xcb || bytes[0]==0xed || (bytes[0]&0xdf)==0xdd)
-            check(a.cpu().data.uint8_array[1]==b.cpu().data.uint8_array[1],"prefix operation byte overwritten before dispatch");
-        if ((bytes[0]&0xdf)==0xdd) check(a.cpu().xy.uint16_value==b.cpu().xy.uint16_value,"index temporary overwritten before use");
-        // data[2] is overwritten by the extended returning instructions;
-        // data[3] by the indexed bit instruction. Other unused bytes persist.
-        if (bytes[0]==0xed && (bytes[1]&0xc7)==0x45)
-            check(a.cpu().data.uint8_array[2]==b.cpu().data.uint8_array[2],"interrupt-delay marker overwritten");
-        if (bytes.size()==4 && bytes[1]==0xcb)
-            check(a.cpu().data.uint8_array[3]==b.cpu().data.uint8_array[3],"indexed operation byte overwritten");
-        // Complete a following unprefixed instruction: the deliberately
-        // conservative comparator retains every byte while data[0] is a prefix.
-        check(a.step()==b.step() && a.equivalent(b),"scratch replaced before use, unprefixed comparison restored");
-    }
-    for (unsigned prefix:{0xcb,0xed,0xdd,0xfd}) {
-        Machine a(program({0})); Machine b=a; a.cpu().data.uint8_array[0]=b.cpu().data.uint8_array[0]=prefix;
-        b.cpu().data.uint8_array[1]^=1; check(!a.equivalent(b),"live prefix bytes remain compared");
-    }
-    Machine a(program({0})); Machine b=a;
-    b.cpu().memptr.uint16_value^=1; check(!a.equivalent(b),"MEMPTR remains compared");
-    b=a; b.cpu().q^=1; check(!a.equivalent(b),"Q remains compared");
-    b=a; b.cpu().data.uint8_array[0]^=1; check(!a.equivalent(b),"last opcode remains compared");
-}
-constexpr auto R=RoutineExit::returned;
-constexpr auto F=RoutineExit::core_final;
 SegmentSpec segment(std::uint16_t unit, std::initializer_list<SegmentExit> exits) { return {{0,unit},exits}; }
-SegmentSpec forced_spec(std::uint16_t entry) { return {{0,entry},{{F,entry}},false,0,true,true}; }
-void nop(RoutineContext& c, std::uint16_t pc) { c.fetch_opcode(pc); c.advance(4); }
-std::shared_ptr<const Memory::Rom> image(const std::vector<std::pair<std::uint16_t,std::vector<std::uint8_t>>>& parts) {
-    auto rom=std::make_shared<Memory::Rom>(512*1024,0);
-    for (const auto& [at,bytes]:parts) std::copy(bytes.begin(),bytes.end(),rom->begin()+at);
-    return rom;
-}
-void until_return(Machine& m, RoutineRegistry* r=nullptr) {
-    for (unsigned i=0;i<1000;++i) {
-        if (m.cpu().pc.uint16_value==0x200 && m.cpu().sp.uint16_value==0xc102) return;
-        m.step({},r);
-    }
-    throw std::runtime_error("synthetic segments did not return");
-}
-// Native catch-up to the same boundary, then several native steps on both.
-void same_as_native(Machine& cpp, Machine& native, const char* message) {
-    while (native.cycles()<cpp.cycles()) native.step();
-    check(cpp.equivalent(native),message);
-    for (unsigned i=0;i<6;++i) check(cpp.step()==native.step() && cpp.equivalent(native),message);
-}
-void segments() {
-    // A table lookup can transfer to another bank, to RAM or to the next
-    // instruction. The target is the value of HL after the body has run.
-    for (const std::uint16_t target : {0x8000,0xc040,0x0004}) {
-        Machine pick(program({0x21,static_cast<std::uint8_t>(target),
-                              static_cast<std::uint8_t>(target>>8),0xe9}));
-        stack(pick);
-        Machine original=pick;
-        RoutineRegistry dispatch;
-        dispatch.add({0,0},segment(0,{{F,3}}),cost(14),[](RoutineContext& c) {
-            c.fetch_opcode(0);
-            auto& pair=c.cpu().hl;
-            pair.uint8_values.at_0=c.read(1);
-            pair.uint8_values.at_1=c.read(2);
-            c.advance(10);
-            c.finish_core(3);
-        });
-        pick.step(dispatch);
-        original.step();
-        original.step();
-        check(pick.cpu().pc.uint16_value==target && pick.equivalent(original),
-              "indirect exit must preserve native timing, SP and destination");
-    }
-    // A chain: the entry hands off by CALL to a shared helper, which returns
-    // to the next segment; that one ends in a plain two-byte instruction on
-    // the core and falls through into the helper, which returns.
-    Machine cpp(image({{0,{0x00,0xcd,0x07,0x00,0x00,0x3e,0x42,0x00,0xc9}}})); stack(cpp);
-    Machine native=cpp;
+
+void registry() {
+    auto body=[](RoutineContext& c){ two_nops_and_return(c); };
     RoutineRegistry r;
-    r.add({0,0},segment(0,{{F,1}}),cost(21),[](RoutineContext& c) {
-        nop(c,0); c.finish_core(1); check(c.last_exit()==SegmentExit{F,1},"call exit recorded");
-    });
-    r.add({0,4},segment(0,{{F,5}}),cost(11),[](RoutineContext& c) {
-        nop(c,4); c.finish_core(5); check(c.last_exit()==SegmentExit{F,5},"plain exit recorded");
-    });
-    r.add({0,7},segment(7,{{R,8}}),cost(14),[](RoutineContext& c) {
-        nop(c,7); c.finish_return(8); check(c.last_exit()==SegmentExit{R,8},"return exit recorded");
-    });
-    cpp.step(r);
-    check(cpp.cpu().pc.uint16_value==7 && cpp.cpu().sp.uint16_value==0xc0fe,"the core's CALL leaves the machine at the callee");
-    until_return(cpp,&r); until_return(native);
-    check(cpp.equivalent(native),"segment chain equals the original program");
-    check(r.find({0,0})->counters.cpp_calls==1 && r.find({0,4})->counters.cpp_calls==1 &&
-          r.find({0,7})->counters.cpp_calls==2 && r.find({0,7})->counters.fallback_calls==0,
-          "shared entry runs in C++ when reached by call and by fall-through");
-
-    for (bool taken:{true,false}) {
-        Machine m(image({{0,{0x00,0xc4,0x00,0x01,0x00,0xc9}},{0x100,{0x00,0xc9}}})); stack(m);
-        m.cpu().af.uint8_values.at_0=taken ? 0 : 0x40; native=m;
-        RoutineRegistry cc;
-        cc.add({0,0},segment(0,{{F,1}}),[](const Machine& x) { return x.cpu().af.uint8_values.at_0&0x40 ? 14 : 21; },
-            [](RoutineContext& c) { nop(c,0); c.finish_core(1); });
-        cc.add({0,4},segment(0,{{R,5}}),cost(14),[](RoutineContext& c) { nop(c,4); c.finish_return(5); });
-        m.step(cc);
-        check(m.cpu().pc.uint16_value==(taken ? 0x100 : 4),"conditional call taken and untaken on the core");
-        until_return(m,&cc); until_return(native);
-        check(m.equivalent(native) && cc.find({0,4})->counters.cpp_calls==1,"conditional call resumes at the next segment");
-    }
-    Machine jump(image({{0,{0x00,0xc3,0x00,0x01}},{0x100,{0x00,0xc9}}})); stack(jump); native=jump;
-    RoutineRegistry tail;
-    tail.add({0,0},segment(0,{{F,1}}),cost(14),[](RoutineContext& c) { nop(c,0); c.finish_core(1); });
-    jump.step(tail);
-    check(jump.cpu().pc.uint16_value==0x100 && jump.cpu().sp.uint16_value==0xc100,"tail jump keeps the caller's stack");
-    until_return(jump,&tail); until_return(native); check(jump.equivalent(native),"tail jump equals the original program");
-
-    // A declared slot-2 mapper write goes through the bus like the original's.
-    Machine mapper(program({0x3e,0x05,0x32,0xff,0xff,0x00})); stack(mapper); native=mapper;
-    RoutineRegistry slot;
-    slot.add({0,0},SegmentSpec{{0,0},{{F,5}},true},cost(24),[](RoutineContext& c) {
-        auto& z=c.cpu();
-        c.fetch_opcode(0); z.af.uint8_values.at_1=c.read(1); c.advance(7);
-        c.fetch_opcode(2); const auto lo=c.read(3), hi=c.read(4);
-        c.write(static_cast<std::uint16_t>(lo|(hi<<8)),z.af.uint8_values.at_1);
-        z.memptr.uint16_value=static_cast<std::uint16_t>((z.af.uint8_values.at_1<<8)|((lo+1)&0xff)); c.advance(13);
-        c.finish_core(5);
-    });
-    mapper.step(slot); for (unsigned i=0;i<3;++i) native.step();
-    check(mapper.equivalent(native) && mapper.memory().mapping(0x8000).bank==5,"declared slot-2 mapper write");
-
-    // Scratch stack traffic through the bus: a ROM stack reads back ROM bytes,
-    // a cartridge-RAM stack its own writes.
-    for (std::uint16_t top:{0x0100,0x8100}) {
-        Machine s(program({0xe5,0xe1,0x3c})); s.cpu().sp.uint16_value=top; s.cpu().hl.uint16_value=0x1234;
-        if (top==0x8100) s.memory().write(0xfffc,8);
-        native=s;
-        RoutineRegistry scratch;
-        scratch.add({0,0},SegmentSpec{{0,0},{{F,2}},false,2},cost(25),[](RoutineContext& c) {
-            auto& z=c.cpu(); const auto sp=z.sp.uint16_value;
-            c.fetch_opcode(0); c.write(static_cast<std::uint16_t>(sp-1),z.hl.uint8_values.at_1);
-            c.write(static_cast<std::uint16_t>(sp-2),z.hl.uint8_values.at_0); c.advance(11);
-            c.fetch_opcode(1); z.hl.uint8_values.at_0=c.read(static_cast<std::uint16_t>(sp-2));
-            z.hl.uint8_values.at_1=c.read(static_cast<std::uint16_t>(sp-1)); c.advance(10);
-            c.finish_core(2);
-        });
-        s.step(scratch); for (unsigned i=0;i<3;++i) native.step();
-        check(s.equivalent(native) && s.cpu().hl.uint16_value==(top==0x0100 ? 0 : 0x1234) &&
-              scratch.find({0,0})->counters.cpp_calls==1,"scratch stack in ROM and cartridge RAM through the bus");
-    }
-    // Scratch bytes reaching the mapper registers fall back; a normal stack does not.
-    for (std::uint16_t top:{0xfffe,0x0000,0x0001,0xc102}) {
-        Machine s(program({0xe5,0xe1,0x3c})); s.cpu().sp.uint16_value=top; native=s;
-        RoutineRegistry scratch;
-        scratch.add({0,0},SegmentSpec{{0,0},{{F,2}},false,2},cost(25),[](RoutineContext&) {
-            throw std::runtime_error("unexpected scratch body");
-        });
-        const bool fallback=top!=0xc102;
-        if (fallback) { s.step(scratch); native.step(); check(s.equivalent(native),"scratch fallback is native"); }
-        else rejects([&]{s.step(scratch);},"unexpected scratch body");
-        check(scratch.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack)==fallback,"scratch stack range checked");
-    }
+    r.add({0,0},segment(0,{{R,2}}),cost(18),body);
+    rejects([&]{r.add({0,0},segment(0,{{R,2}}),cost(18),body);},"Duplicate");
+    rejects([&]{r.add({0,0xc000},segment(0,{{R,2}}),cost(18),body);},"Invalid");
+    auto refused=[&](RoutineEntry entry, SegmentSpec spec) {
+        RoutineRegistry other;
+        rejects([&]{other.add(entry,std::move(spec),cost(4),body);},"Invalid registered");
+    };
+    refused({0,0},{{0,0},{}});                           // no exit declared
+    refused({0,0},{{0,0},{{F,1},{F,1}}});                // an exit declared twice
+    refused({0,0},{{0,0},{{F,0}}});                      // the whole segment, not declared single-instruction
+    refused({0,0},{{0,0},{{R,2},{F,0}}});
+    refused({0,0},{{0,0},{{R,2}},false,max_scratch_stack+1});
+    refused({0,0},{{0,0},{{F,0xc000}}});
+    refused({0,0},{{32,0},{{F,1}}});
+    refused({0,0},{{0,0},{{F,1}},false,0,true});          // single instruction with its exit elsewhere
+    SegmentSpec single{{0,0x10},{{F,0x10}}}; single.single_instruction=true;
+    r.add({0,0x10},single,cost(4),[](RoutineContext& c){ nop(c,0x10); c.finish({F,0x10},0x11); });
+    check(r.find({0,0x10})->exact,"a single-instruction segment is exact");
+    // A registered body runs and ends at its declared exit, nothing else.
+    Machine m(program({0,0,0xc9})); stack(m);
+    m.step(r);
+    check(m.cpu().pc.uint16_value==0x200 && m.cpu().sp.uint16_value==0xc102 && m.cycles()==18,"a rendered body returns");
+    check(r.find({0,0})->counters.cpp_calls==1 && r.find({0,0})->rendered[0]==1,"the call and its exit are counted");
+    std::cout<<"registry: validation and one rendered call\n";
 }
-void segment_faults() {
-    auto guard=[](std::shared_ptr<const Memory::Rom> rom, SegmentSpec spec, std::uint64_t bound,
-                  RegisteredRoutine::Body body, std::string_view diagnostic) {
-        Machine m(std::move(rom)); stack(m);
+
+// No rendered code: the engine stops with a message naming the place.
+void unrendered() {
+    Machine empty(program({0})); stack(empty);
+    stops([&]{empty.step();},"00:0000: no rewritten code begins at this address");
+    RoutineRegistry r;
+    r.add({0,0},segment(0,{{R,2}}),cost(18),[](RoutineContext& c){ two_nops_and_return(c); });
+    // After the call the caller at 00:0200 has no segment.
+    Machine m(program({0,0,0xc9})); stack(m);
+    m.step(r);
+    stops([&]{m.step(r);},"00:0200: no rewritten code");
+    // The same address in another bank, in RAM or in unmapped memory is not the segment.
+    for (unsigned mode=0;mode<4;++mode) {
+        Machine other(program({0})); stack(other);
+        RoutineRegistry banked; unsigned calls=0;
+        banked.add({2,0x8000},{{2,0x8000},{{R,0x8000}}},cost(10),[&](RoutineContext& c){ ++calls; c.finish({R,0x8000},0); });
+        other.cpu().pc.uint16_value=0x8000;
+        if (mode==0) other.memory().write(0xffff,3);
+        if (mode==1) other.memory().write(0xfffc,8);
+        if (mode==2) other.cpu().pc.uint16_value=0xc000;
+        if (mode==3) other.memory().set_memory_control(0x40);
+        stops([&]{other.step(banked);},mode==1 || mode==2 ? "RAM" : mode==3 ? "unmapped" : std::string("03")+":8000");
+        check(calls==0,"a segment of another bank or of RAM never runs");
+    }
+    // The run_frame of the program stops too.
+    Machine frame(program({0})); stack(frame);
+    stops([&]{frame.run_frame({},r);},"no rewritten code");
+    // An interrupt response other than IM 1.
+    Machine im2(program({0})); stack(im2);
+    im2.cpu().im=2; im2.cpu().iff1=im2.cpu().iff2=1;
+    check(im2.vdp().irq(),"the power-on frame interrupt is pending");
+    im2.advance(1);
+    stops([&]{im2.step(r);},"other than IM 1");
+    std::cout<<"unrendered: the engine stops with a message\n";
+}
+
+// A state a segment refuses at its entry stops the run with the reason, counted;
+// nothing runs in its place and the machine is unchanged.
+void refusals() {
+    auto refused=[](RoutineRegistry& r, Machine& m, RoutineFallback reason, std::string_view message) {
+        const auto pc=m.cpu().pc.uint16_value; const auto cycle=m.cycles();
+        stops([&]{m.step(r);},message);
+        const auto& counters=r.find({0,0})->counters;
+        check(counters.fallback(reason)==1 && counters.fallback_calls==1 && counters.cpp_calls==0,"the refusal is counted");
+        check(m.cpu().pc.uint16_value==pc && m.cycles()==cycle,"a refused call changed the machine");
+    };
+    {
+        RoutineRegistry r;
+        r.add_exact({0,0},segment(0,{{R,2}}),EntryGuard{"A is zero",[](const Machine& m){ return m.cpu().af.uint8_values.at_1==0; }},
+                    cost(18),[](RoutineContext& c){ two_nops_and_return(c); });
+        Machine m(program({0,0,0xc9})); stack(m); m.cpu().af.uint8_values.at_1=1;
+        refused(r,m,RoutineFallback::guard,"refused (guard): A is zero");
+    }
+    {
+        RoutineRegistry r;
+        SegmentSpec spec=segment(0,{{R,2}}); spec.scratch_stack=2;
+        r.add({0,0},spec,cost(18),[](RoutineContext& c){ two_nops_and_return(c); });
+        Machine m(program({0,0,0xc9})); stack(m); m.cpu().sp.uint16_value=0xfffe;
+        refused(r,m,RoutineFallback::unmapped_stack,"refused (unmapped_stack)");
+    }
+    {
+        RoutineRegistry r;
+        r.add_exact({0,0},segment(0,{{R,2}}),cost(2*Machine::frame_cycles),[](RoutineContext& c){ two_nops_and_return(c); });
+        Machine m(program({0,0,0xc9})); stack(m);
+        refused(r,m,RoutineFallback::frame,"refused (frame)");
+    }
+    {
+        RoutineRegistry r;
+        r.add({0,0},segment(0,{{R,2}}),cost(18),[](RoutineContext& c){ two_nops_and_return(c); });
+        Machine m(program({0,0,0xc9})); stack(m); m.cpu().halt_line=1;
+        refused(r,m,RoutineFallback::halted,"refused (halted)");
+    }
+    {
+        // A body without register sync refuses a call an event falls inside.
+        RoutineRegistry r;
+        r.add({0,0},segment(0,{{R,2}}),cost(18),[](RoutineContext& c){ two_nops_and_return(c); });
+        Machine m(program({0,0,0xc9})); stack(m);
+        m.advance(Machine::frame_cycles-m.cycles()%Machine::frame_cycles-10);
+        refused(r,m,RoutineFallback::frame,"refused (frame)");
+    }
+    std::cout<<"refusals: guard, stack, uncertain bound, halt and window stop the run\n";
+}
+
+// An exact body that writes a mapper register or the memory control port
+// must not go on rendering instructions from memory it remapped: the original
+// fetches its next instruction from the new mapping, which a rendered body
+// cannot follow, so the run stops at that fetch. Remapping another slot,
+// writing the same bank again, or remapping in the body's last instruction
+// (the engine then dispatches the next address in the new mapping) is fine.
+// The body works on the register file directly: nothing to store or load.
+struct Direct final : RoutineContext::RegisterSync {
+    void store(Z80&) const override {}
+    void load(const Z80&) override {}
+};
+void self_remap() {
+    auto image=std::make_shared<Memory::Rom>(512*1024,0);
+    auto run=[&](std::uint16_t address, std::uint8_t value, bool port, bool last=false) {
+        Machine m(image); stack(m); m.cpu().pc.uint16_value=0x4000;
+        RoutineRegistry r;
+        SegmentSpec spec{{1,0x4000},{{F,0x4003},{F,0x4004}}};
+        r.add_exact({1,0x4000},spec,cost(17),[=](RoutineContext& c) {
+            Direct sync; RoutineContext::SyncScope scope(c,sync);
+            (void)c.fetch_opcode(0x4000);
+            if (port) c.write_port(0x3e,value,10); else { c.advance(10); c.write(address,value); }
+            c.advance(3);
+            if (last) { c.finish({F,0x4003},0x4003); return; }
+            (void)c.fetch_opcode(0x4003); c.advance(4); c.finish({F,0x4004},0x4004);
+        });
+        try { m.step(r); } catch (const UnhandledState& e) {
+            return std::string(e.what()).find("remapped the memory holding its own code")!=std::string::npos;
+        }
+        return false;
+    };
+    check(run(0xfffe,5,false),"remapping the slot of the body's code stops the run");
+    check(!run(0xfffe,1,false),"writing the slot's own bank again is fine");
+    check(!run(0xffff,5,false) && !run(0xfffd,5,false),"remapping another slot is fine");
+    check(run(0x3e,0x40,true),"disabling the cartridge under the body stops the run");
+    check(!run(0xfffe,5,false,true) && !run(0x3e,0x40,true,true),"a remapping final instruction leaves the next fetch to the engine");
+    std::cout<<"self remap: a body remapping its own code stops the run\n";
+}
+
+// The declaration rules of the special exits (ported from the milestone 7-13
+// cases whose run-time half compared a core-executed final with the native
+// step): every wrong declaration is refused at registration, and every special
+// field takes part in the declaration identity lockstep compares.
+void declarations() {
+    auto invalid=[](RoutineEntry at, const SegmentSpec& bad, const char* what) {
+        RoutineRegistry x;
+        if (failure([&]{x.add(at,bad,cost(80),[](RoutineContext&){});}).find("Invalid")==std::string::npos)
+            throw std::runtime_error(std::string("accepted a wrong declaration: ")+what);
+    };
+    auto valid=[](RoutineEntry at, const SegmentSpec& spec) { RoutineRegistry x; x.add(at,spec,cost(80),[](RoutineContext&){}); };
+    {   // Reset stack (00:0000 LD SP,nn).
+        SegmentExit reset{F,0}; reset.reset_stack=true;
+        SegmentSpec spec{{0,0},{reset}}; spec.single_instruction=true; spec.observe_entry=true; valid({0,0},spec);
+        auto a=spec; a.observe_entry=false; invalid({0,0},a,"reset without observed entry");
+        auto b=spec; b.scratch_stack=2; invalid({0,0},b,"reset with scratch stack");
+        auto c=spec; c.exits[0].conditional=true; invalid({0,0},c,"conditional reset");
+    }
+    {   // NMI return (POP AF; RETN).
+        SegmentExit exit{F,1,2}; exit.return_from_nmi=true;
+        SegmentSpec spec{{0,0},{exit}}; spec.inherited_stack=2; valid({0,0},spec);
+        auto a=spec; a.exits[0].conditional=true; invalid({0,0},a,"conditional NMI return");
+        auto b=spec; b.exits[0].reset_stack=true; invalid({0,0},b,"NMI return with reset stack");
+        auto c=spec; c.exits[0].interrupt_mask=InterruptMask::enable; invalid({0,0},c,"NMI return with mask");
+    }
+    {   // Seeds: cartridge RAM, work RAM, sprite shadow.
+        SegmentExit exit{F,0}; exit.wram_seed=0x8000; exit.seed_target=SeedTarget::cartridge_ram;
+        SegmentSpec spec{{0,0},{exit}}; spec.single_instruction=true; valid({0,0},spec);
+        auto a=spec; a.exits[0].wram_seed=0x8001; invalid({0,0},a,"cartridge seed address");
+        auto b=spec; b.exits[0].wram_seed.reset(); invalid({0,0},b,"seed target without seed");
+        auto different=exit; different.seed_target=SeedTarget::work_ram;
+        check(!exit.same_declaration(different),"seed target kind participates in declaration identity");
+        SegmentExit work{F,0}; work.wram_seed=0xc300;
+        SegmentSpec ws{{0,0},{work}}; ws.single_instruction=true; valid({0,0},ws);
+        auto c=ws; c.slot2_mapper=true; invalid({0,0},c,"seed with slot 2 mapper");
+        auto d=ws; d.exits[0].cartridge_control=true; invalid({0,0},d,"seed with cartridge control");
+        auto e=ws; e.exits[0].interrupt_mask=InterruptMask::disable; invalid({0,0},e,"seed with mask");
+        auto undeclared=work; undeclared.wram_seed.reset();
+        check(!work.same_declaration(undeclared),"seed declaration is compared by lockstep");
+        const RoutineEntry clear{0,0x0FF3};
+        SegmentExit zero{F,0x0FFC}; zero.wram_seed=0xC800; zero.seed_target=SeedTarget::sprite_shadow_zero;
+        SegmentSpec zs{clear,{zero}}; valid(clear,zs);
+        for (unsigned variant=0;variant<6;++variant) {
+            auto bad=zs; auto pc=clear;
+            if (variant==0) bad.unit.address++;
+            if (variant==1) pc.address++;
+            if (variant==2) bad.exits.front().wram_seed=0xC900;
+            if (variant==3) bad.exits.front().address++;
+            if (variant==4) bad.slot2_mapper=true;
+            if (variant==5) bad.exits.front().cartridge_control=true;
+            invalid(pc,bad,"sprite clear seed");
+        }
+    }
+    {   // The interrupt handler's mapper pair (00:0143-014B).
+        SegmentExit exit{F,0x014c,4}; exit.cartridge_control=true;
+        SegmentSpec spec{{0,0x0143},{exit}}; spec.inherited_stack=4; spec.slot2_mapper=true; valid({0,0x0147},spec);
+        for (unsigned mode=0;mode<5;++mode) {
+            auto bad=spec; RoutineEntry entry{0,0x0147};
+            if(mode==0) entry.address=0x0148;
+            if(mode==1) bad.unit.address=0x0147;
+            if(mode==2) bad.exits[0].address=0x014b;
+            if(mode==3) bad.inherited_stack=2;
+            if(mode==4) bad.exits[0].return_from_nmi=true;
+            invalid(entry,bad,"interrupt mapper pair");
+        }
+    }
+    {   // The interrupt handler's long stack (00:014F).
+        SegmentExit exit{F,0x0157,12}; exit.interrupt_mask=InterruptMask::enable;
+        SegmentSpec spec{{0,0x014f},{exit}}; spec.inherited_stack=12; valid({0,0x014f},spec);
+        for (unsigned mode=0;mode<7;++mode) {
+            auto bad=spec; RoutineEntry entry{0,0x014f};
+            if(mode==0) entry.address=0x014e;
+            if(mode==1) bad.unit.address=0x014e;
+            if(mode==2) bad.exits[0].address=0x0158;
+            if(mode==3) bad.exits[0].interrupt_mask=InterruptMask::disable;
+            if(mode==4) bad.scratch_stack=2;
+            if(mode==5) bad.slot2_mapper=true;
+            if(mode==6) bad.inherited_stack=10;
+            invalid(entry,bad,"interrupt long stack");
+        }
+    }
+    {   // The window bank store (00:3A89).
+        const RoutineEntry entry{0,0x3A89};
+        SegmentExit exit{F,entry.address}; exit.window_bank_store=true;
+        SegmentSpec spec{{0,0x3A83},{exit}}; spec.single_instruction=true; valid(entry,spec);
+        for (unsigned variant=0;variant<4;++variant) {
+            auto bad=spec; auto at=entry;
+            if(variant==0) bad.exits[0].conditional=true;
+            if(variant==1) bad.unit.address=0x3A84;
+            if(variant==2) at.address=0x3A88;
+            if(variant==3) bad.exits[0].interrupt_mask=InterruptMask::disable;
+            invalid(at,bad,"window bank store");
+        }
+        auto unmarked=exit; unmarked.window_bank_store=false;
+        check(!exit.same_declaration(unmarked),"window bank declaration is part of lockstep identity");
+    }
+    {   // The scene copy's frame tail (01:61B9).
+        const RoutineEntry entry{1,0x61B9};
+        SegmentExit exit{RoutineExit::copy_repeat,entry.address}; exit.native_frame_tail=true;
+        SegmentSpec spec{entry,{exit}}; valid(entry,spec);
+        auto ordinary=exit; ordinary.native_frame_tail=false;
+        check(!exit.same_declaration(ordinary),"scene native tail participates in declaration identity");
+        for (unsigned fault=0;fault<15;++fault) {
+            auto bad=spec; auto pc=entry;
+            if (fault==0) pc.address++;
+            if (fault==1) bad.unit.address++;
+            if (fault==2) bad.exits.front().kind=F;
+            if (fault==3) bad.observe_entry=true;
+            if (fault==4) bad.scratch_stack=2;
+            if (fault==5) bad.slot2_mapper=true;
+            if (fault==6) bad.inherited_stack=2;
+            if (fault==7) bad.single_instruction=true;
+            if (fault==8) bad.exits.front().stack=2;
+            if (fault==9) bad.exits.front().conditional=true;
+            if (fault==10) bad.exits.front().after=1;
+            if (fault==11) bad.exits.front().interrupt_mask=InterruptMask::enable;
+            if (fault==12) bad.exits.front().wram_seed=0xC400;
+            if (fault==13) bad.exits.front().cartridge_control=true;
+            if (fault==14) bad.exits.front().sprite_outputs=2;
+            invalid(pc,bad,"scene copy tail");
+        }
+    }
+    {   // The video slices (01:591E sprite outputs, 00:3451 row load tail).
+        const RoutineEntry sprite{1,0x591E},row{0,0x3451};
+        SegmentExit out{F,0x5920}; out.sprite_outputs=2;
+        SegmentExit load{F,0x3454}; load.native_frame_tail=true;
+        for (bool is_sprite:{false,true}) {
+            const auto entry=is_sprite ? sprite : row;
+            SegmentSpec spec{is_sprite ? RoutineEntry{1,0x588B} : RoutineEntry{0,0x3439},{is_sprite ? out : load}};
+            valid(entry,spec);
+            for (unsigned fault=0;fault<8;++fault) {
+                auto bad=spec; auto pc=entry;
+                if (fault==0) bad.unit.address++;
+                if (fault==1) pc.address++;
+                if (fault==2) bad.exits.front().address++;
+                if (fault==3) bad.exits.front().conditional=true;
+                if (fault==4) bad.exits.front().after=1;
+                if (fault==5) bad.observe_entry=true;
+                if (fault==6) bad.exits.front().interrupt_mask=InterruptMask::enable;
+                if (fault==7) bad.scratch_stack=2;
+                invalid(pc,bad,is_sprite ? "sprite outputs" : "row load tail");
+            }
+        }
+    }
+    {   // Cartridge control (LD (FFFC),A).
+        SegmentExit exit{F,0}; exit.cartridge_control=true;
+        SegmentSpec spec{{0,0},{exit}}; spec.single_instruction=true; valid({0,0},spec);
+        auto returning=spec; returning.exits[0].kind=R; invalid({0,0},returning,"returning cartridge control");
+        auto undeclared=exit; undeclared.cartridge_control=false;
+        check(!exit.same_declaration(undeclared),"lockstep distinguishes cartridge control declaration");
+    }
+    std::cout<<"declarations: special exits validated and part of the declaration identity\n";
+}
+
+// Review R3 M2: behaviour of the engine that lost its tests when the core went.
+// (a) The host hook at an observed entry never sees an NMI edge the coming
+// instruction has not sampled yet, and the edge survives the hook, also when
+// the hook throws; it is accepted at the next boundary.
+void hook_late_nmi() {
+    RoutineRegistry r;
+    SegmentSpec spec{{0,0},{{F,0}}}; spec.single_instruction=true; spec.observe_entry=true;
+    r.add_exact({0,0},spec,cost(4),[](RoutineContext& c){ nop(c,0); c.finish({F,0},1); });
+    for (const bool throwing:{false,true}) {
+        Machine m(program({0,0})); stack(m);
+        m.schedule_nmi(m.cycles());
+        bool seen=false, hidden=false;
+        const Machine::Hook hook=[&](std::uint16_t, Memory::Mapping)->std::optional<std::uint16_t> {
+            seen=true; hidden=!(m.cpu().request&Z80::request_nmi);
+            if (throwing) throw std::runtime_error("the host hook failed");
+            return {};
+        };
+        if (throwing) rejects([&]{ m.step(r,hook); },"the host hook failed"); else m.step(r,hook);
+        check(seen && hidden,"the hook saw an NMI edge the instruction has not sampled");
+        check((m.cpu().request&Z80::request_nmi)!=0,"a late NMI edge was lost around the hook");
+        if (!throwing) {
+            m.step(r);
+            check(m.cpu().pc.uint16_value==0x0066,"the late NMI is accepted at the next boundary");
+        }
+    }
+    std::cout<<"hook late NMI: hidden from the hook, kept when it returns or throws\n";
+}
+// (b) A body without register sync: each event refused exactly from the cycle
+// before its end (E-1) and admitted at its end (E), with the reason, the
+// message, and the machine unchanged; (d) the NMI-reject marker refuses it.
+void window_refusals() {
+    constexpr std::uint64_t length=18;
+    auto attempt=[](Machine& m, const char* what, std::optional<RoutineFallback> reason, std::string_view message) {
+        RoutineRegistry r;
+        r.add({0,0},segment(0,{{R,2}}),cost(length),[](RoutineContext& c){ two_nops_and_return(c); });
+        const auto pc=m.cpu().pc.uint16_value; const auto sp=m.cpu().sp.uint16_value; const auto cycle=m.cycles();
+        const auto& counters=r.find({0,0})->counters;
+        if (!reason) {
+            m.step(r);
+            if (counters.cpp_calls!=1 || counters.fallback_calls) throw std::runtime_error(std::string("not admitted: ")+what);
+            return;
+        }
+        stops([&]{m.step(r);},message);
+        if (counters.fallback(*reason)!=1 || counters.fallback_calls!=1 || counters.cpp_calls)
+            throw std::runtime_error(std::string("the refusal is not counted: ")+what);
+        if (m.cpu().pc.uint16_value!=pc || m.cpu().sp.uint16_value!=sp || m.cycles()!=cycle)
+            throw std::runtime_error(std::string("a refused call changed the machine: ")+what);
+    };
+    for (const std::uint64_t distance:{length-1,length}) {
+        const bool inside=distance<length;
+        {   // The frame interrupt.
+            Machine m(program({0,0,0xc9})); stack(m);
+            m.cpu().iff1=m.cpu().iff2=1;
+            (void)m.read_port(0xbf,m.cycles()); m.advance(1);
+            const auto irq=m.next_irq();
+            check(irq && *irq>m.cycles()+distance,"the frame interrupt is ahead");
+            m.advance(*irq-m.cycles()-distance);
+            attempt(m,"irq",inside ? std::optional{RoutineFallback::irq} : std::nullopt,"refused (irq): an interrupt falls inside");
+        }
+        {   // A scheduled NMI.
+            Machine m(program({0,0,0xc9})); stack(m);
+            m.schedule_nmi(m.cycles()+distance);
+            attempt(m,"nmi",inside ? std::optional{RoutineFallback::nmi} : std::nullopt,"refused (nmi): an NMI falls inside");
+        }
+        {   // The frame end.
+            Machine m(program({0,0,0xc9})); stack(m);
+            m.advance(Machine::frame_cycles-m.cycles()%Machine::frame_cycles-distance);
+            attempt(m,"frame",inside ? std::optional{RoutineFallback::frame} : std::nullopt,"refused (frame): a frame end falls inside");
+        }
+    }
+    {   // The instruction before was EI.
+        Machine m(program({0,0,0xc9})); stack(m);
+        m.cpu().data.uint8_array[0]=0xfb;
+        attempt(m,"ei",RoutineFallback::ei_delay,"refused (ei_delay): the call follows EI");
+    }
+    {   // (d) The NMI-reject marker an NMI response leaves for the next boundary.
+        Machine m(program({0,0,0xc9})); stack(m);
+        m.cpu().request|=Z80::request_reject_nmi;
+        attempt(m,"reject marker",RoutineFallback::interrupt_delay,"refused (interrupt_delay): the NMI-reject marker");
+    }
+    std::cout<<"window refusals: IRQ, NMI and frame end refused at E-1 and admitted at E; EI delay; reject marker\n";
+}
+// (c) The register comparator: data[1..3] are dead after an unprefixed
+// instruction and compared after a prefix or in a resumption; data[0] and
+// every named register always; xy never.
+void register_comparator() {
+    Z80 a{}; Z80 b=a;
+    b.data.uint8_array[1]=1; b.data.uint8_array[2]=2; b.data.uint8_array[3]=3; b.xy.uint16_value=0x1234;
+    check(same_registers(a,b),"dead scratch after an unprefixed instruction is not state");
+    for (const std::uint8_t prefix:{0xcb,0xed,0xdd,0xfd}) {
+        auto x=a, y=b; x.data.uint8_array[0]=y.data.uint8_array[0]=prefix;
+        check(!same_registers(x,y),"the scratch after a prefix is state");
+    }
+    auto resumed=b; resumed.resume=Z80::resume_xy;
+    auto resumed_a=a; resumed_a.resume=Z80::resume_xy;
+    check(!same_registers(resumed_a,resumed),"the scratch in a resumption is state");
+    auto opcode=a; opcode.data.uint8_array[0]=0xfb;
+    check(!same_registers(a,opcode),"data[0] (the EI delay, RETN and LD A,I/R rules) is state");
+    auto memptr=a; memptr.memptr.uint16_value=1;
+    auto q=a; q.q=1;
+    check(!same_registers(a,memptr) && !same_registers(a,q),"MEMPTR and Q are state");
+    std::cout<<"register comparator: dead scratch rule\n";
+}
+// (e) The fixed-bank interrupt epilogue restores the slot-2 mapper once.
+void interrupt_mapper_once() {
+    SegmentExit exit{F,0x014c,4}; exit.cartridge_control=true;
+    SegmentSpec spec{{0,0x0143},{exit}}; spec.inherited_stack=4; spec.slot2_mapper=true;
+    RoutineRegistry r;
+    unsigned writes=0;
+    r.add_exact({0,0x0147},spec,cost(40),[&](RoutineContext& c){
+        nop(c,0x0147); c.write(0xffff,2); ++writes; c.write(0xffff,3); ++writes;
+    });
+    Machine m(program({0})); stack(m); m.cpu().pc.uint16_value=0x0147;
+    rejects([&]{m.step(r);},"Interrupt mapper may be restored only once");
+    check(writes==1,"the first restore is allowed");
+    std::cout<<"interrupt mapper: restored only once\n";
+}
+// (f) Held and inherited stack words and loop thresholds in declarations.
+void stack_declarations() {
+    auto accepted=[](RoutineEntry at, const SegmentSpec& spec) {
+        RoutineRegistry x; return failure([&]{ x.add(at,spec,cost(80),[](RoutineContext&){}); throw std::runtime_error("accepted"); });
+    };
+    auto valid=[&](const SegmentSpec& spec, const char* what) {
+        if (accepted({0,0},spec)!="accepted") throw std::runtime_error(std::string("refused a right declaration: ")+what);
+    };
+    auto invalid=[&](const SegmentSpec& spec, const char* what) {
+        if (accepted({0,0},spec).find("Invalid")==std::string::npos) throw std::runtime_error(std::string("accepted a wrong declaration: ")+what);
+    };
+    SegmentSpec base{{0,0},{{F,1}}};
+    { auto s=base; s.inherited_stack=max_inherited_stack; s.exits[0].stack=static_cast<std::int8_t>(max_inherited_stack); valid(s,"inherited at the limit"); }
+    { auto s=base; s.inherited_stack=max_inherited_stack+2; invalid(s,"inherited above the limit"); }
+    { auto s=base; s.inherited_stack=3; invalid(s,"odd inherited stack"); }
+    { auto s=base; s.scratch_stack=4; s.exits[0].stack=-4; valid(s,"held words within the scratch stack"); }
+    { auto s=base; s.scratch_stack=4; s.exits[0].stack=-6; invalid(s,"held words beyond the scratch stack"); }
+    { auto s=base; s.scratch_stack=4; s.exits[0].stack=-3; invalid(s,"odd stack offset"); }
+    { auto s=base; s.inherited_stack=2; s.exits[0].stack=4; invalid(s,"popped beyond the inherited words"); }
+    { SegmentSpec s{{0,0},{{R,1}}}; s.scratch_stack=2; s.exits[0].stack=-2; invalid(s,"a return popping no held word"); }
+    { SegmentSpec s{{0,0},{{R,1}}}; s.exits[0].conditional=true; invalid(s,"a conditional return exit"); }
+    { SegmentSpec s{{0,0},{{R,1}}}; s.exits[0].after=1; invalid(s,"a return with a loop threshold"); }
+    { auto s=base; s.exits[0].after=max_exit_after; valid(s,"a loop threshold at the limit"); }
+    { auto s=base; s.exits[0].after=static_cast<std::uint16_t>(max_exit_after+1); invalid(s,"a loop threshold above the limit"); }
+    { SegmentSpec s{{0,0},{{F,0}}}; s.single_instruction=true; s.inherited_stack=2; invalid(s,"a single instruction inheriting words"); }
+    { SegmentSpec s{{0,0},{{F,0}}}; s.single_instruction=true; s.exits[0].after=1; invalid(s,"a single instruction with a loop"); }
+    // Interrupt masks: an EI or DI final, never conditional, looping, returning or with the slot-2 mapper.
+    { auto s=base; s.exits[0].interrupt_mask=InterruptMask::enable; valid(s,"an EI final"); }
+    { auto s=base; s.exits[0].interrupt_mask=InterruptMask::disable; valid(s,"a DI final"); }
+    { auto s=base; s.exits[0].interrupt_mask=InterruptMask::enable; s.exits[0].conditional=true; invalid(s,"a conditional mask"); }
+    { auto s=base; s.exits[0].interrupt_mask=InterruptMask::enable; s.exits[0].after=1; invalid(s,"a looping mask"); }
+    { auto s=base; s.exits[0].interrupt_mask=InterruptMask::enable; s.slot2_mapper=true; invalid(s,"a mask with the slot-2 mapper"); }
+    { SegmentSpec s{{0,0},{{R,1}}}; s.exits[0].interrupt_mask=InterruptMask::disable; invalid(s,"a returning mask"); }
+    std::cout<<"stack declarations: held, inherited, loop and mask rules\n";
+}
+
+// What a body is held to.
+void body_rules() {
+    auto guard=[](SegmentSpec spec, std::uint64_t bound, RegisteredRoutine::Body body, std::string_view diagnostic) {
+        Machine m(program({0,0,0xc9})); stack(m);
         RoutineRegistry r; r.add({0,0},std::move(spec),cost(bound),std::move(body));
         rejects([&]{m.step(r);},diagnostic);
     };
-    const auto nops=program({0,0,0xc9});
-    guard(nops,segment(0,{{F,1}}),18,[](RoutineContext& c){nop(c,0);nop(c,1);c.finish_return(2);},"not declared");
-    guard(nops,segment(0,{{R,2}}),8,[](RoutineContext& c){nop(c,0);c.finish_core(1);},"not declared");
-    Machine legacy(nops); stack(legacy); RoutineRegistry old;
-    old.add({0,0},cost(8),[](RoutineContext& c){nop(c,0);c.finish_core(1);});
-    rejects([&]{legacy.step(old);},"not declared");
-    guard(program({0,0xe9}),segment(0,{{F,1,0,true}}),8,
-          [](RoutineContext& c){nop(c,0);c.finish_core(1);},"not allowed");
-    {
-        Machine m(program({0xe9}));
-        stack(m);
-        m.cpu().hl.uint16_value=0x2345;
-        RoutineRegistry r;
-        r.add({0,0},forced_spec(0),cost(4),[](RoutineContext& c) { c.finish_core(0); });
-        m.step(r);
-        check(r.find({0,0})->counters.forced_failed==1 &&
-              r.find({0,0})->counters.cpp_calls==0 && m.cpu().pc.uint16_value==0x2345,
-              "forced indirect jump must fall back to the original");
-    }
-    for (std::uint8_t op:{0xc9,0xc0,0xc2,0x20,0x10,0xc7,0xff,0xdb,0xd3,0x32,0x22,0x02,0x12,0x34,0x35,
-                          0x36,0x77,0x70,0xe5,0xe3,0x76,0xf3,0xfb,0xcb,0xdd,0xed,0xfd,
-                          // SP-changing plain instructions: POP rr, LD SP,nn, INC SP, DEC SP, LD SP,HL
-                          0xc1,0xd1,0xe1,0xf1,0x31,0x33,0x3b,0xf9})
-        guard(image({{0,{op,0,0,0}}}),SegmentSpec{{0,0},{{F,0}},false,0,true},30,[](RoutineContext& c){c.finish_core(0);},"not allowed");
-    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){nop(c,0);--c.cpu().sp.uint16_value;c.finish_core(1);},"entry stack");
-    guard(nops,segment(0,{{R,2}}),18,[](RoutineContext& c){nop(c,0);nop(c,1);++c.cpu().sp.uint16_value;c.finish_return(2);},"entry stack");
-    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){nop(c,0);},"omitted");
-    guard(program({0,0xcd,0,1}),segment(0,{{F,1}}),20,[](RoutineContext& c){nop(c,0);c.finish_core(1);},"exceeded");
-    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){c.write(0xffff,3);},"mapper");
-    for (std::uint16_t address=0xfffc;address<0xffff;++address)
-        guard(nops,SegmentSpec{{0,0},{{F,1}},true},8,[=](RoutineContext& c){c.write(address,3);},"mapper");
-    // The power-on frame interrupt line is asserted; enabling it in C++ would
-    // make the core respond to it instead of executing the final instruction.
-    guard(nops,segment(0,{{F,1}}),8,[](RoutineContext& c){
-        nop(c,0); c.cpu().iff1=c.cpu().iff2=1; c.finish_core(1);
-    },"accepted interrupt");
-
-    const std::vector<std::function<void(RoutineContext&)>> uses{
-        [](RoutineContext& c){(void)c.read(0);}, [](RoutineContext& c){c.write(0xc000,1);},
-        [](RoutineContext& c){(void)c.fetch_opcode(0);}, [](RoutineContext& c){c.account_fetches(1);},
-        [](RoutineContext& c){c.advance(1);}, [](RoutineContext& c){(void)c.read_port(0xdc,0);},
-        [](RoutineContext& c){c.write_port(0x7f,0,0);}};
-    for (const auto& use:uses)
-        guard(nops,SegmentSpec{{0,0},{{F,0}},false,0,true},4,[=](RoutineContext& c){use(c);c.finish_core(0);},"single-instruction");
-    // A forced body that the context rejects before its core step falls back
-    // with its register changes undone; so do an undeclared exit and a missing finish.
-    auto failures=uses;
-    failures.push_back([](RoutineContext& c){c.finish_return(0);});
-    failures.push_back([](RoutineContext& c){c.cpu().sp.uint16_value^=2;});
-    for (const auto& use:failures) {
-        Machine m(nops); stack(m); Machine native=m;
-        RoutineRegistry r;
-        r.add({0,0},forced_spec(0),cost(4),[=](RoutineContext& c){
-            c.cpu().bc.uint16_value^=0x5a5a; use(c); c.finish_core(0);
+    guard(segment(0,{{F,1}}),18,[](RoutineContext& c){ nop(c,0); c.finish({R,2},3); },"not declared");
+    guard(segment(0,{{R,2}}),17,[](RoutineContext& c){ two_nops_and_return(c); },"exceeded");
+    guard(segment(0,{{R,2}}),18,[](RoutineContext& c){ nop(c,0); },"omitted");
+    guard(segment(0,{{R,2}}),18,[](RoutineContext& c){ c.advance(2); (void)c.read_port(0x3e,1); },"past");
+    guard(segment(0,{{R,2}}),18,[](RoutineContext& c){ two_nops_and_return(c); c.advance(1); },"already returned");
+    SegmentSpec single{{0,0},{{F,0}}}; single.single_instruction=true;
+    guard(single,8,[](RoutineContext& c){ nop(c,0); nop(c,1); c.finish({F,0},2); },"second instruction");
+    // A body without register sync may not change the mapping or the
+    // interrupt registers of the video chip (an exact body may).
+    for (unsigned address=0xfffc;address<=0xffff;++address)
+        guard(segment(0,{{F,1}}),8,[=](RoutineContext& c){ c.write(address,2); },"mapper");
+    for (unsigned port:{0x00,0x3e}) guard(segment(0,{{F,1}}),8,[=](RoutineContext& c){ c.write_port(port,0,0); },"mapping");
+    for (unsigned reg:{0,1,10})
+        guard(segment(0,{{F,1}}),8,[=](RoutineContext& c){ c.write_port(0xbf,0x55,0); c.write_port(0xbf,0x80|reg,0); },"interrupt control");
+    // Review R3 M2 (g): the mirror port 0x81, and a latch half written before
+    // the entry; the refused write leaves the video chip and the registers as
+    // they were.
+    for (unsigned port:{0xbfu,0x81u}) for (unsigned reg:{0u,1u,10u}) for (bool latched:{false,true}) {
+        Machine m(program({0,0,0xc9})); stack(m);
+        if (latched) m.write_port(0xbf,0x55,m.cycles());
+        RoutineRegistry r; r.add({0,0},segment(0,{{F,1}}),cost(8),[=](RoutineContext& c){
+            if (!latched) c.write_port(port,0x55,0);
+            c.write_port(port,0x80|reg,0);
         });
-        m.step(r); native.step();
-        const auto& n=r.find({0,0})->counters;
-        check(m.equivalent(native) && n.forced_failed==1 && n.fallback_calls==1 && n.cpp_calls==0 && n.forced_calls==0,
-              "a rejected forced body falls back with its registers restored");
-        // Its fallback carries no window reason: the forced failure accounts for it.
-        check(std::all_of(n.reasons.begin(),n.reasons.end(),[](auto count){return count==0;}) &&
-              std::all_of(n.forced_reasons.begin(),n.forced_reasons.end(),[](auto count){return count==0;}),
-              "a forced body rejected before its step leaves no reason counted");
+        const auto before=m;
+        rejects([&]{m.step(r);},"interrupt control");
+        check(same_registers(m.cpu(),before.cpu()) && m.cycles()==before.cycles(),"a refused interrupt-control write changed the registers");
+        // With the first byte latched before the entry the body wrote nothing to the chip.
+        if (latched) check(m.vdp()==before.vdp(),"a refused interrupt-control write changed the video chip");
     }
-
-    auto refused=[](RoutineEntry entry, SegmentSpec spec, std::string_view message) {
-        RoutineRegistry r;
-        rejects([&]{r.add(entry,std::move(spec),cost(4),[](RoutineContext& c){c.finish_core(0);});},message);
-    };
-    refused({0,0},{{0,0},{{F,0}},false,0,false,true},"Invalid registered segment");
-    refused({0,0},{{0,0},{{R,0}},false,0,true,true},"Invalid registered segment");
-    refused({0,0},{{0,0},{{F,1}},false,0,true,true},"Invalid registered segment");
-    refused({0,0},{{0,0},{{F,0},{R,0}},false,0,true,true},"Invalid registered segment");
-    refused({0,0},{{0,0},{{F,1}},false,0,true,false},"Invalid registered segment");
-    refused({0,0},{{0,0},{}},"Invalid registered segment");
-    refused({0,0},{{0,0},{{F,1},{F,1}}},"Invalid registered segment");
-    // A core_final exit at the entry is the whole segment and must be declared single-instruction.
-    refused({0,0},{{0,0},{{F,0}}},"Invalid registered segment");
-    refused({0,0},{{0,0},{{R,2},{F,0}}},"Invalid registered segment");
-    // The scratch stack is bounded.
-    refused({0,0},{{0,0},{{R,2}},false,max_scratch_stack+1},"Invalid registered segment");
-    refused({0,0},{{0,0},{{F,0xc000}}},"Invalid registered segment");
-    refused({0,0},{{32,0},{{F,1}}},"Invalid registered segment");
-    refused({0,0xc000},{{0,0},{{F,1}}},"Invalid registered routine");
-    RoutineRegistry accepted;
-    accepted.add({0,8},{{0,8},{{R,10}},false,max_scratch_stack},cost(4),[](RoutineContext& c){c.finish_return(10);});
-    accepted.add({0,0x10},{{0,0x10},{{F,0x10}},false,0,true},cost(4),[](RoutineContext& c){c.finish_core(0x10);});
-    accepted.add({0,0},forced_spec(0),cost(4),[](RoutineContext& c){c.finish_core(0);});
-    rejects([&]{accepted.add({0,0},segment(0,{{F,1}}),cost(4),[](RoutineContext& c){c.finish_core(1);});},"Duplicate");
+    std::cout<<"body rules: undeclared exit, bound, return, port order, single instruction, restrictions\n";
 }
-enum class Event { irq, nmi, frame };
-Machine windowed(std::shared_ptr<const Memory::Rom> rom, Event event, std::uint64_t distance) {
-    Machine m(std::move(rom)); stack(m);
-    if (event==Event::irq) { m.read_port(0xbf,0); m.cpu().iff1=m.cpu().iff2=1; m.advance(43986-distance); }
-    if (event==Event::nmi) { m.set_pause(true); m.read_port(0xbf,0); m.advance(Machine::pause_sample_offset-distance); }
-    if (event==Event::frame) m.advance(Machine::frame_cycles-distance);
-    return m;
-}
-RoutineFallback reason_of(Event event) {
-    return event==Event::irq ? RoutineFallback::irq : event==Event::nmi ? RoutineFallback::nmi : RoutineFallback::frame;
-}
-void mask_exits() {
-    constexpr auto F=RoutineExit::core_final;
-    auto declaration=[&](InterruptMask mask) {
-        return SegmentSpec{{0,0},{{.kind=F,.address=1,.interrupt_mask=mask}}};
-    };
-    auto body=[](RoutineContext& c) { c.fetch_opcode(0); c.advance(4); c.finish_core(1); };
-    for (auto mask:{InterruptMask::disable,InterruptMask::enable}) {
-        const auto opcode=static_cast<std::uint8_t>(mask);
-        auto spec=declaration(mask);
-        RoutineRegistry r;
-        r.add({0,0},spec,cost(8),body);
-        for (std::uint8_t other:{0x00,0xC9,0xCD,0xDD,0xFD,0xED,0xCB,0xF3,0xFB}) {
-            if (other==opcode) continue;
-            Machine m(program({0,other,0})); stack(m);
-            rejects([&] { m.step(r); },"mask does not match");
-        }
-        for (unsigned fault=0;fault<8;++fault) {
-            auto bad=spec;
-            if (fault==0) bad.exits.front().kind=RoutineExit::returned;
-            if (fault==1) bad.exits.front().conditional=true;
-            if (fault==2) bad.exits.front().after=4;
-            if (fault==3) bad.slot2_mapper=true;
-            if (fault==4) bad.absolute_wram_store=0xC001;
-            if (fault==5) bad.force_admit=true;
-            if (fault==6) bad.exits.push_back(declaration(InterruptMask::none).exits.front());
-            if (fault==7) bad.exits.front().interrupt_mask=static_cast<InterruptMask>(0xDD);
-            RoutineRegistry invalid;
-            rejects([&] { invalid.add({0,0},bad,cost(8),body); },"Invalid registered segment");
-        }
-        check(!spec.exits.front().same_declaration(declaration(InterruptMask::none).exits.front()),
-              "mask permission is part of the verified exit");
-        for (auto next:{0x00,0x76,0xF3,0xFB}) {
-            const auto rom=image({{0,{0,opcode,static_cast<std::uint8_t>(next),0}},
-                                  {0x66,{0xED,0x45}},{0x38,{0xED,0x4D}}});
-            for (auto event:{Event::irq,Event::nmi,Event::frame}) {
-                for (unsigned distance=1;distance<=12;++distance) {
-                    auto m=windowed(rom,event,distance);
-                    auto original=m;
-                    m.step(r);
-                    while (original.cycles()<m.cycles()) original.step();
-                    check(m.equivalent(original),"interrupt mask near a sampled event");
-                    for (unsigned i=0;i<10;++i) {
-                        m.step(); original.step();
-                        check(m.equivalent(original),"interrupt after mask differs");
-                    }
-                }
-            }
-            for (unsigned iff=0;iff<4;++iff) {
-                Machine m(rom); stack(m);
-                m.read_port(0xBF,0); m.advance(1);
-                m.cpu().iff1=iff&1; m.cpu().iff2=iff>>1;
-                Machine original=m;
-                m.step(r); original.step(); original.step();
-                check(m.equivalent(original),"interrupt mask with differing IFFs");
-                bool observed=false;
-                m.step(r,[&](auto pc,auto)->std::optional<std::uint16_t> {
-                    observed=pc==2; return {};
-                });
-                original.step();
-                check(observed && m.equivalent(original),"instruction following mask remains observable");
-            }
-        }
-    }
-}
-void observed_entries() {
-    auto add=[](RoutineRegistry& r,std::uint16_t pc) {
-        SegmentSpec s{{0,pc},{{RoutineExit::core_final,pc}}};
-        s.single_instruction=true; s.observe_entry=true;
-        r.add({0,pc},s,cost(4),[pc](RoutineContext& c){c.finish_core(pc);});
-    };
-    for (unsigned action=0;action<10;++action) {
-        auto rom=program({0x00,0x00,0x00});
-        const auto replacement=Machine::prepare_rom_replacement(program({0x3C,0,0}));
-        Machine m(rom); stack(m);
-        auto reference=m;
-        RoutineRegistry r; add(r,0); add(r,2);
-        unsigned seen=0, expected_seen=0;
-        auto hook=[&](Machine& machine,bool actual,unsigned& visits)->Machine::Hook {
-            return [&,actual](auto pc,auto mapping)->std::optional<std::uint16_t> {
-                check(pc==0 && mapping==Memory::Mapping{Memory::Kind::rom,0},"observed wrong entry");
-                ++visits;
-                machine.cpu().bc.uint16_value=0x7341;
-                if (action==1) return 2;
-                if (action==2) return 0;
-                if (action==3) machine.cpu().pc.uint16_value=2;
-                if (action==4 && actual) r=RoutineRegistry{};
-                if (action==5 && actual) r.enabled=false;
-                if (action==6) { machine.schedule_nmi(machine.cycles()+1); machine.advance(3); }
-                if (action==7) { machine.cpu().iff1=true; machine.cpu().iff2=true; }
-                if (action==8) machine.memory().set_memory_control(0x10);
-                if (action==9) machine.replace_rom(replacement);
-                return {};
-            };
-        };
-        // A ROM swap resumes on the new image's original instruction.
-        auto expected_hook=hook(reference,false,expected_seen), actual_hook=hook(m,true,seen);
-        reference.step(expected_hook);
-        m.step(r,actual_hook);
-        check(seen==1 && expected_seen==1 && m.equivalent(reference),"registered host boundary differs");
-        if (action!=4 && action!=5 && action!=8) {
-            const bool admitted=action==0;
-            check(r.find({0,0})->counters.cpp_calls==unsigned(admitted),"unexpected observed admission");
-        }
-        if (action!=4) check(r.find({0,2})->counters.cpp_calls==0,"redirect must execute first target natively");
-    }
-    for (bool marked:{false,true}) {
-        Machine m(program({0,0,0})); stack(m);
-        m.schedule_nmi(4); m.advance(4);
-        auto original=m;
-        RoutineRegistry r;
-        if (marked) add(r,0);
-        rejects([&] { m.step(r,[&](auto,auto)->std::optional<std::uint16_t> {
-            throw std::runtime_error("host error");
-        }); },"host error");
-        check(m.equivalent(original),"throwing hook lost a late NMI");
-    }
-}
-void forced_body(RoutineContext& c) {
-    // An option-style adjustment around the core step, netting to nothing.
-    auto& z=c.cpu(); z.bc.uint8_values.at_1^=0x5a; c.finish_core(0); z.bc.uint8_values.at_1^=0x5a;
-}
-void segment_windows() {
-    // Two instructions in C++ and a CALL on the core: 25 cycles. Every event
-    // inside [entry,E) falls back; one at E is admitted.
-    const auto multi=image({{0,{0x00,0x00,0xcd,0x00,0x01}},{0x100,{0x00,0xc9}}});
-    const auto single=program({0xc6,0x05});
-    for (auto event:{Event::irq,Event::nmi,Event::frame}) {
-        const unsigned first=event==Event::frame ? 1 : 0;
-        for (unsigned d=first;d<=25;++d) {
-            Machine cpp=windowed(multi,event,d), native=cpp;
-            RoutineRegistry r;
-            r.add({0,0},segment(0,{{F,2}}),cost(25),[](RoutineContext& c){nop(c,0);nop(c,1);c.finish_core(2);});
-            cpp.step(r);
-            const auto& n=r.find({0,0})->counters;
-            const bool fallback=d<25;
-            check(n.cpp_calls==!fallback && n.fallback_calls==fallback && n.fallback(reason_of(event))==fallback,
-                  "multi-instruction segment falls back at every cycle of its window");
-            same_as_native(cpp,native,"segment window outcome equals the original");
-        }
-        // A forced single instruction is admitted at every cycle, with zero delay.
-        for (unsigned d=first;d<=7;++d) {
-            Machine cpp=windowed(single,event,d), native=cpp;
-            RoutineRegistry r; r.add({0,0},forced_spec(0),cost(7),forced_body);
-            cpp.step(r);
-            const auto& n=r.find({0,0})->counters;
-            check(n.cpp_calls==1 && n.forced_calls==1 && n.fallback_calls==0 && n.forced_failed==0 &&
-                  n.forced(reason_of(event))==(d<7) && n.fallback(reason_of(event))==0,"forced admission counted");
-            same_as_native(cpp,native,"forced instruction leaves the machine identical, also afterwards");
-        }
-    }
-    // EI just executed with the line asserted, and an unmapped stack: admitted.
-    Machine ei(image({{0,{0xc6,0x05}},{0x100,{0xfb}}})); stack(ei);
-    ei.cpu().pc.uint16_value=0x100; ei.step(); ei.cpu().pc.uint16_value=0;
-    Machine native=ei;
-    RoutineRegistry r; r.add({0,0},forced_spec(0),cost(7),forced_body);
-    ei.step(r);
-    check(r.find({0,0})->counters.forced(RoutineFallback::ei_delay)==1 && r.find({0,0})->counters.cpp_calls==1,"forced EI delay");
-    same_as_native(ei,native,"forced instruction after EI is accepted at the same boundary");
-    Machine unmapped(single); stack(unmapped); unmapped.memory().set_memory_control(0x10); native=unmapped;
-    unmapped.step(r);
-    check(r.find({0,0})->counters.forced(RoutineFallback::unmapped_stack)==1,"forced unmapped stack");
-    same_as_native(unmapped,native,"forced instruction with an unmapped stack");
-    // The NMI response's acceptance marker at 0066 is a forced failure.
-    Machine delay(image({{0x66,{0xc6,0x05}}})); stack(delay); delay.schedule_nmi(0); delay.advance(1); delay.step();
-    check(delay.cpu().pc.uint16_value==0x66,"NMI response reaches its handler");
-    native=delay;
-    RoutineRegistry handler; handler.add({0,0x66},forced_spec(0x66),cost(7),[](RoutineContext& c){c.finish_core(0x66);});
-    delay.step(handler);
-    const auto& n=handler.find({0,0x66})->counters;
-    check(n.forced_failed==1 && n.fallback_calls==1 && n.fallback(RoutineFallback::interrupt_delay)==1 &&
-          n.cpp_calls==0 && n.forced_calls==0,"interrupt delay at a forced entry is a counted forced failure");
-    same_as_native(delay,native,"forced failure runs natively");
-}
-void absolute_store_segment() {
-    auto spec=forced_spec(0); spec.absolute_wram_store=0xc220;
-    RoutineRegistry registry;
-    registry.add({0,0},spec,cost(16),[](RoutineContext& c) {
-        auto& cpu=c.cpu(); const auto original=cpu.hl.uint16_value;
-        cpu.hl.uint16_value=0x4567; c.finish_core(0); cpu.hl.uint16_value=original;
-    });
-    for (auto event:{Event::irq,Event::nmi,Event::frame}) {
-        const auto first=event==Event::frame ? 1u : 0u;
-        for (unsigned distance=first;distance<=16;++distance) {
-            Machine actual=windowed(program({0x22,0x20,0xc2}),event,distance); actual.cpu().hl.uint16_value=0x1234;
-            Machine expected=actual; expected.cpu().hl.uint16_value=0x4567;
-            expected.step(); expected.cpu().hl.uint16_value=0x1234;
-            actual.step(registry);
-            check(actual.equivalent(expected),"store transform preserves native cycles, registers and bus state");
-        }
-    }
-    Machine delay(image({{0x66,{0x22,0x20,0xc2}}})); stack(delay);
-    delay.schedule_nmi(0); delay.advance(1); delay.step();
-    check(delay.cpu().pc.uint16_value==0x66,"NMI reached handler store");
-    delay.cpu().hl.uint16_value=0x1234; Machine expected=delay;
-    expected.cpu().hl.uint16_value=0x4567; expected.step(); expected.cpu().hl.uint16_value=0x1234;
-    auto at_handler=forced_spec(0x66); at_handler.absolute_wram_store=0xc220;
-    RoutineRegistry handler; handler.add({0,0x66},at_handler,cost(16),[](RoutineContext& c){
-        auto& cpu=c.cpu(); const auto original=cpu.hl.uint16_value;
-        cpu.hl.uint16_value=0x4567; c.finish_core(0x66); cpu.hl.uint16_value=original;
-    });
-    delay.step(handler);
-    check(handler.find({0,0x66})->counters.forced(RoutineFallback::interrupt_delay)==1 && delay.equivalent(expected),
-          "store executes under NMI rejection with the same native result");
-    Machine halted(image({{0,{0x76,0x22,0x20,0xc2}},{0x66,{0xed,0x45}}})); stack(halted);
-    halted.cpu().hl.uint16_value=0x1234; halted.step();
-    auto at_one=forced_spec(1); at_one.absolute_wram_store=0xc220;
-    RoutineRegistry after_halt; after_halt.add({0,1},at_one,cost(16),[](RoutineContext& c){
-        auto& cpu=c.cpu(); const auto original=cpu.hl.uint16_value;
-        cpu.hl.uint16_value=0x4567; c.finish_core(1); cpu.hl.uint16_value=original;
-    });
-    halted.step(after_halt); // A halted core must not execute the store.
-    check(halted.memory().read(0xc220)!=0x67,"HALT did not store the reward");
-    halted.schedule_nmi(halted.cycles()+10);
-    for(unsigned i=0;i<100 && halted.cpu().pc.uint16_value!=4;++i) halted.step(after_halt);
-    check(halted.cpu().pc.uint16_value==4 && halted.memory().read(0xc220)==0x67 &&
-          halted.memory().read(0xc221)==0x45 && halted.cpu().hl.uint16_value==0x1234 &&
-          after_halt.find({0,1})->counters.forced_calls==1,"HALT resumes and transforms the store once");
-    // With work RAM disabled there is no reward destination. Reject the
-    // transformed store before its core step, restore registers and let the
-    // native ignored write drive the ordinary open-bus value.
-    Machine disabled(program({0x22,0x20,0xc2})); stack(disabled);
-    disabled.cpu().hl.uint16_value=0x1234; disabled.memory().set_memory_control(0x10);
-    Machine native_disabled=disabled; native_disabled.step();
-    const auto before=registry.find({0,0})->counters.forced_failed;
-    disabled.step(registry);
-    check(disabled.equivalent(native_disabled) && registry.find({0,0})->counters.forced_failed==before+1,
-          "disabled work RAM falls back to the unmodified native write");
-    auto invalid=forced_spec(0); invalid.absolute_wram_store=0x8000;
-    rejects([&]{RoutineRegistry bad; bad.add({0,0},invalid,cost(16),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-}
-void relative_jump_segment() {
-    for(unsigned displacement:{0u,1u,0x7fu,0x80u,0xfeu,0xffu}) {
-        const auto code=program({0x18,static_cast<std::uint8_t>(displacement)});
-        SegmentSpec spec{{0,0},{{RoutineExit::core_final,0}}}; spec.single_instruction=true;
-        RoutineRegistry r; r.add({0,0},spec,cost(12),[](RoutineContext& c) { c.finish_core(0); });
-        for(auto event:{Event::irq,Event::nmi,Event::frame})
-        for(unsigned distance=event==Event::frame ? 1u : 0u;distance<=13;++distance) {
-            Machine actual=windowed(code,event,distance), expected=actual;
-            expected.step(); actual.step(r);
-            check(actual.equivalent(expected),"relative jump preserves native event windows and state");
-        }
-        auto forced=spec; forced.force_admit=true;
-        RoutineRegistry reject; reject.add({0,0},forced,cost(12),[](RoutineContext& c) { c.finish_core(0); });
-        Machine original(code); stack(original); Machine actual=original;
-        original.step(); actual.step(reject);
-        check(actual.equivalent(original) && reject.find({0,0})->counters.forced_failed==1,"forced relative jump falls back unchanged");
-    }
-    for(unsigned at:{0x3fffu,0x4000u,0xbffeu}) {
-        auto rom=std::make_shared<Memory::Rom>(512*1024,0);
-        (*rom)[at]=0x18; (*rom)[at+1]=0x7f;
-        Machine actual(rom); stack(actual); actual.cpu().pc.uint16_value=static_cast<std::uint16_t>(at);
-        actual.memory().write(0xffff,2);
-        if(at>=0x8000) { (*rom)[0x8000+(at&0x3fff)]=0x18; (*rom)[0x8001+(at&0x3fff)]=0x7f; }
-        Machine native=actual; native.step();
-        const RoutineEntry entry{at>>14,static_cast<std::uint16_t>(at)};
-        SegmentSpec spec{entry,{{RoutineExit::core_final,static_cast<std::uint16_t>(at)}}}; spec.single_instruction=true;
-        RoutineRegistry r; r.add(entry,spec,cost(12),[=](RoutineContext& c) { c.finish_core(static_cast<std::uint16_t>(at)); });
-        actual.step(r); check(actual.equivalent(native),"relative jump crosses bank/address boundaries natively");
-        check(r.find(entry)->counters.cpp_calls==1,"cross-bank jump was admitted");
-    }
-}
-void reset_initialization_segments() {
-    SegmentExit reset{RoutineExit::core_final,0}; reset.reset_stack=true;
-    SegmentSpec spec{{0,0},{reset}}; spec.single_instruction=true; spec.observe_entry=true;
-    RoutineRegistry r; r.add({0,0},spec,cost(10),[](RoutineContext& c){c.finish_core(0);});
-    for (auto event:{Event::irq,Event::nmi,Event::frame})
-    for (unsigned distance=event==Event::frame ? 1u : 0u;distance<=11;++distance) {
-        Machine actual=windowed(program({0x31,0x00,0xcb}),event,distance), expected=actual;
-        unsigned visits=0;
-        auto hook=[&](std::uint16_t,Memory::Mapping)->std::optional<std::uint16_t>{++visits;return {};};
-        expected.step(hook); actual.step(r,hook);
-        check(actual.equivalent(expected),"reset stack matches native at each event boundary");
-    }
-    for (auto bytes:{std::initializer_list<std::uint8_t>{0x31,0x01,0xcb},{0xdd,0x31,0x00,0xcb},{0x21,0x00,0xcb}}) {
-        Machine wrong(program(bytes)); stack(wrong);
-        rejects([&]{wrong.step(r);},"Reset stack");
-    }
-    {
-        auto image=std::make_shared<Memory::Rom>(512*1024,0);
-        (*image)[0xbfff]=0x31;
-        Machine cross(image); stack(cross);
-        cross.cpu().pc.uint16_value=0xbfff;
-        cross.memory().write(0xc000,0x00); cross.memory().write(0xc001,0xcb);
-        SegmentExit final{RoutineExit::core_final,0xbfff}; final.reset_stack=true;
-        SegmentSpec crossing{{2,0xbfff},{final}}; crossing.single_instruction=true; crossing.observe_entry=true;
-        RoutineRegistry cross_registry;
-        cross_registry.add({2,0xbfff},crossing,cost(10),[](RoutineContext& c){c.finish_core(0xbfff);});
-        rejects([&]{cross.step(cross_registry);},"Reset stack");
-    }
-    for (unsigned mode=0;mode<4;++mode) {
-        auto bad=spec;
-        if (mode==0) bad.observe_entry=false;
-        if (mode==1) bad.force_admit=true;
-        if (mode==2) bad.scratch_stack=2;
-        if (mode==3) bad.exits[0].conditional=true;
-        rejects([&]{RoutineRegistry x;x.add({0,0},bad,cost(10),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-    }
-    for (unsigned address=0xfffc;address<=0xffff;++address) {
-        const auto value=static_cast<std::uint8_t>(address);
-        SegmentExit exit{RoutineExit::core_final,0};
-        exit.mapper_immediate=SegmentExit::MapperImmediate{static_cast<std::uint16_t>(address),value};
-        SegmentSpec store{{0,0},{exit}}; store.single_instruction=true;
-        RoutineRegistry writes; writes.add({0,0},store,cost(10),[](RoutineContext& c){c.finish_core(0);});
-        for (auto event:{Event::irq,Event::nmi,Event::frame})
-        for (unsigned distance=event==Event::frame ? 1u : 0u;distance<=11;++distance) {
-            Machine actual=windowed(program({0x36,value}),event,distance); actual.cpu().hl.uint16_value=static_cast<std::uint16_t>(address);
-            Machine expected=actual; expected.step(); actual.step(writes);
-            check(actual.equivalent(expected),"mapper immediate matches native at event boundaries");
-        }
-        Machine wrong(program({0x36,value})); stack(wrong); wrong.cpu().hl.uint16_value=static_cast<std::uint16_t>(address-1);
-        rejects([&]{wrong.step(writes);},"Mapper immediate");
-        Machine bad_value(program({0x36,static_cast<std::uint8_t>(value^1)})); stack(bad_value); bad_value.cpu().hl.uint16_value=static_cast<std::uint16_t>(address);
-        rejects([&]{bad_value.step(writes);},"Mapper immediate");
-    }
-}
-void nmi_return_segment() {
-    SegmentExit exit{RoutineExit::core_final,1,2}; exit.return_from_nmi=true;
-    SegmentSpec spec{{0,0},{exit}}; spec.inherited_stack=2;
-    auto body=[](RoutineContext& c) {
-        auto& cpu=c.cpu();
-        c.fetch_opcode(0);
-        const auto low=c.read(cpu.sp.uint16_value++);
-        const auto high=c.read(cpu.sp.uint16_value++);
-        cpu.af.uint16_value=static_cast<std::uint16_t>(low|(high<<8));
-        c.advance(10); c.finish_core(1);
-    };
-    RoutineRegistry r; r.add({0,0},spec,cost(24),body);
-    for (auto event:{Event::irq,Event::nmi,Event::frame})
-    for (unsigned distance=event==Event::frame ? 1u : 0u;distance<=25;++distance)
-    for (unsigned iff2:{0u,1u}) {
-        Machine actual=windowed(program({0xf1,0xed,0x45}),event,distance);
-        actual.cpu().iff2=static_cast<decltype(actual.cpu().iff2)>(iff2);
-        actual.memory().write(0xc102,0x08); actual.memory().write(0xc103,0);
-        Machine native=actual;
-        const auto before=r.find({0,0})->counters.cpp_calls;
-        actual.step(r);
-        const bool admitted=r.find({0,0})->counters.cpp_calls!=before;
-        native.step(); if (admitted) native.step();
-        check(actual.equivalent(native),"RETN segment differs at event boundary");
-        // The following instruction and any pending interrupt are still native.
-        actual.step(); native.step();
-        check(actual.equivalent(native),"RETN changed the next boundary or interrupt request");
-    }
-    for (auto code:{std::initializer_list<std::uint8_t>{0xf1,0xed,0x4d},{0xf1,0xdd,0xed,0x45},{0xf1,0xed,0x55}}) {
-        Machine wrong(program(code)); stack(wrong);
-        rejects([&]{wrong.step(r);},"NMI return");
-    }
-    {
-        Machine mapper(program({0xf1,0xed,0x45}));
-        mapper.cpu().sp.uint16_value=0xfffa;
-        Machine native=mapper; native.step();
-        const auto before=r.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack);
-        mapper.step(r);
-        check(mapper.equivalent(native) && r.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack)==before+1,
-              "RETN mapper stack must fall back");
-    }
-    for (unsigned mode=0;mode<4;++mode) {
-        auto bad=spec;
-        if (mode==0) bad.force_admit=true;
-        if (mode==1) bad.exits[0].conditional=true;
-        if (mode==2) bad.exits[0].reset_stack=true;
-        if (mode==3) bad.exits[0].interrupt_mask=InterruptMask::enable;
-        rejects([&]{RoutineRegistry x;x.add({0,0},bad,cost(24),body);},"Invalid");
-    }
-}
-void cartridge_seed_segment() {
-    SegmentExit exit{RoutineExit::core_final,0}; exit.wram_seed=0x8000;
-    exit.seed_target=SeedTarget::cartridge_ram;
-    SegmentSpec spec{{0,0},{exit}}; spec.single_instruction=true;
-    RoutineRegistry registry;
-    registry.add({0,0},spec,cost(7),[](RoutineContext& c) { c.finish_core(0); });
-    for(unsigned control:{8u,12u})
-    for(auto event:{Event::irq,Event::nmi,Event::frame})
-    for(unsigned distance=event==Event::frame ? 1u : 0u;distance<=8;++distance) {
-        Machine actual=windowed(program({0x75}),event,distance);
-        actual.cpu().hl.uint16_value=0x8000;
-        actual.memory().write(0xfffc,static_cast<std::uint8_t>(control));
-        actual.memory().write(0x8000,0x47); Machine native=actual;
-        native.step(); actual.step(registry);
-        check(actual.equivalent(native),"cartridge seed matches native in both control banks at every event boundary");
-    }
-    for(unsigned control:{0u,0x80u}) {
-        Machine wrong(program({0x75})); stack(wrong);
-        wrong.cpu().hl.uint16_value=0x8000; wrong.memory().write(0xfffc,static_cast<std::uint8_t>(control));
-        rejects([&]{wrong.step(registry);},"seed exit");
-    }
-    for(unsigned hl:{0x8001u,0x8201u,0xa000u,0xc300u}) {
-        Machine wrong(program({0x75})); stack(wrong);
-        wrong.memory().write(0xfffc,8); wrong.cpu().hl.uint16_value=static_cast<std::uint16_t>(hl);
-        rejects([&]{wrong.step(registry);},"seed exit");
-    }
-    for(unsigned opcode:{0x74u,0x77u,0xddu,0x36u}) {
-        Machine wrong(program({static_cast<std::uint8_t>(opcode)})); stack(wrong);
-        wrong.memory().write(0xfffc,8); wrong.cpu().hl.uint16_value=0x8000;
-        rejects([&]{wrong.step(registry);},"seed exit");
-    }
-    auto wrong_target=spec; wrong_target.exits[0].wram_seed=0x8001;
-    rejects([&]{RoutineRegistry r;r.add({0,0},wrong_target,cost(7),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-    auto no_address=spec; no_address.exits[0].wram_seed.reset();
-    rejects([&]{RoutineRegistry r;r.add({0,0},no_address,cost(7),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-    auto different=exit; different.seed_target=SeedTarget::work_ram;
-    check(!exit.same_declaration(different),"seed target kind participates in declaration identity");
-}
-void interrupt_mapper_pair() {
-    auto image=std::make_shared<Memory::Rom>(512*1024,0);
-    const std::uint8_t code[]{0xf1,0x32,0xff,0xff,0xf1,0x32,0xfc,0xff};
-    std::copy(std::begin(code),std::end(code),image->begin()+0x0147);
-    (*image)[0x8000]=0x46; (*image)[0x8001]=3;
-    (*image)[0x8002]=0x11; (*image)[0x8003]=0x11;
-    (*image)[0xc002]=0xa5; (*image)[0xc003]=8;
-    SegmentExit exit{RoutineExit::core_final,0x014c,4}; exit.cartridge_control=true;
-    SegmentSpec spec{{0,0x0143},{exit}}; spec.inherited_stack=4; spec.slot2_mapper=true;
-    auto body=[](RoutineContext& c) {
-        auto& cpu=c.cpu();
-        auto pop=[&](std::uint16_t pc) {
-            c.fetch_opcode(pc); const auto lo=c.read(cpu.sp.uint16_value++), hi=c.read(cpu.sp.uint16_value++);
-            cpu.af.uint16_value=static_cast<std::uint16_t>(lo|(hi<<8)); c.advance(10);
-        };
-        pop(0x0147);
-        c.fetch_opcode(0x0148); (void)c.read(0x0149); (void)c.read(0x014a);
-        c.write(0xffff,cpu.af.uint8_values.at_1); c.advance(13);
-        pop(0x014b); c.finish_core(0x014c);
-    };
-    RoutineRegistry r; r.add({0,0x0147},spec,cost(46),body);
-    Machine actual(image); actual.cpu().pc.uint16_value=0x0147; actual.cpu().sp.uint16_value=0x8000;
-    (void)actual.read_port(0xbf,actual.cycles()); actual.advance(1);
-    Machine native=actual; for (unsigned i=0;i<4;++i) native.step();
-    actual.step(r);
-    check(actual.equivalent(native) && actual.cpu().af.uint16_value==0x08a5,
-          "interrupt mapper restore must read the second stack word from the new bank");
-    {
-        RoutineRegistry repeated;
-        repeated.add({0,0x0147},spec,cost(46),[](RoutineContext& c){c.write(0xffff,3);c.write(0xffff,3);});
-        Machine duplicate(image); stack(duplicate); duplicate.cpu().pc.uint16_value=0x0147;
-        rejects([&]{duplicate.step(repeated);},"only once");
-        RoutineRegistry omitted;
-        omitted.add({0,0x0147},spec,cost(46),[](RoutineContext& c){c.cpu().sp.uint16_value+=4;c.finish_core(0x014c);});
-        Machine missing(image); stack(missing); missing.cpu().pc.uint16_value=0x0147;
-        rejects([&]{missing.step(omitted);},"must be restored");
-    }
-    {
-        auto ordinary_image=std::make_shared<Memory::Rom>(512*1024,0);
-        (*ordinary_image)[0x0147]=0xc9;
-        SegmentSpec ordinary{{0,0x0143},{{RoutineExit::returned,0x0147}}}; ordinary.slot2_mapper=true;
-        RoutineRegistry other;
-        other.add({0,0x0147},ordinary,cost(10),[](RoutineContext& c){c.write(0xffff,2);c.write(0xffff,3);c.finish_return(0x0147);});
-        Machine machine(ordinary_image); stack(machine); machine.cpu().pc.uint16_value=0x0147;
-        machine.step(other);
-        check(other.find({0,0x0147})->counters.cpp_calls==1,"unrelated slot mapper writes must retain prior contract");
-    }
-    for (unsigned mode=0;mode<6;++mode) {
-        auto bad=spec; RoutineEntry entry{0,0x0147};
-        if(mode==0) entry.address=0x0148;
-        if(mode==1) bad.unit.address=0x0147;
-        if(mode==2) bad.exits[0].address=0x014b;
-        if(mode==3) bad.inherited_stack=2;
-        if(mode==4) bad.force_admit=true;
-        if(mode==5) bad.exits[0].return_from_nmi=true;
-        rejects([&]{RoutineRegistry x;x.add(entry,bad,cost(46),body);},"Invalid");
-    }
-}
-void interrupt_long_stack_declaration() {
-    SegmentExit exit{RoutineExit::core_final,0x0157,12}; exit.interrupt_mask=InterruptMask::enable;
-    SegmentSpec spec{{0,0x014f},{exit}}; spec.inherited_stack=12;
-    auto body=[](RoutineContext& c){c.finish_core(0x0157);};
-    RoutineRegistry valid; valid.add({0,0x014f},spec,cost(80),body);
-    for (unsigned mode=0;mode<8;++mode) {
-        auto bad=spec; RoutineEntry entry{0,0x014f};
-        if(mode==0) entry.address=0x014e;
-        if(mode==1) bad.unit.address=0x014e;
-        if(mode==2) bad.exits[0].address=0x0158;
-        if(mode==3) bad.exits[0].interrupt_mask=InterruptMask::disable;
-        if(mode==4) bad.scratch_stack=2;
-        if(mode==5) bad.slot2_mapper=true;
-        if(mode==6) bad.force_admit=true;
-        if(mode==7) bad.inherited_stack=10;
-        rejects([&]{RoutineRegistry x;x.add(entry,bad,cost(80),body);},"Invalid");
-    }
-}
-void window_bank_store_segment() {
-    const RoutineEntry entry{0,0x3A89};
-    SegmentExit exit{RoutineExit::core_final,entry.address}; exit.window_bank_store=true;
-    SegmentSpec spec{{0,0x3A83},{exit}}; spec.single_instruction=true;
-    RoutineRegistry registry;
-    registry.add(entry,spec,cost(13),[](RoutineContext& c) { c.finish_core(0x3A89); });
-    const auto rom=image({{0x3A89,{0x32,0xFF,0xFF}}});
-    for(unsigned a:{0u,1u,3u,16u,31u,255u})
-    for(auto event:{Event::irq,Event::nmi,Event::frame})
-    for(unsigned distance=event==Event::frame ? 1u : 0u;distance<=14;++distance) {
-        Machine actual=windowed(rom,event,distance);
-        actual.cpu().pc.uint16_value=entry.address;
-        actual.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(a);
-        Machine native=actual; native.step(); actual.step(registry);
-        check(actual.equivalent(native),"window bank store preserves mapping, state and every event offset");
-    }
-    for(const auto code:{std::initializer_list<std::uint8_t>{0x32,0xFC,0xFF},{0x22,0xFF,0xFF},{0xDD,0x32,0xFF,0xFF}}) {
-        Machine wrong(image({{0x3A89,code}})); stack(wrong); wrong.cpu().pc.uint16_value=entry.address;
-        rejects([&]{wrong.step(registry);},"window bank store");
-    }
-    for(unsigned variant=0;variant<5;++variant) {
-        auto bad=spec; auto at=entry;
-        if(variant==0) bad.force_admit=true;
-        if(variant==1) bad.exits[0].conditional=true;
-        if(variant==2) bad.unit.address=0x3A84;
-        if(variant==3) at.address=0x3A88;
-        if(variant==4) bad.exits[0].interrupt_mask=InterruptMask::disable;
-        rejects([&]{RoutineRegistry r;r.add(at,bad,cost(13),[](RoutineContext& c){c.finish_core(0x3A89);});},"Invalid");
-    }
-    Machine remapped(rom); stack(remapped); remapped.memory().write(0xFFFD,1);
-    remapped.cpu().pc.uint16_value=entry.address;
-    Machine native_remapped=remapped;
-    const auto before=registry.find(entry)->counters.cpp_calls;
-    native_remapped.step();
-    remapped.step(registry);
-    check(remapped.equivalent(native_remapped) && registry.find(entry)->counters.cpp_calls==before,
-        "window store is not admitted from another mapped code bank");
-    auto unmarked=exit; unmarked.window_bank_store=false;
-    check(!exit.same_declaration(unmarked),"window bank declaration is part of lockstep identity");
-}
-void scene_copy_tail_guards() {
-    const RoutineEntry entry{1,0x61B9};
-    SegmentExit exit{RoutineExit::copy_repeat,entry.address};
-    exit.native_frame_tail=true;
-    SegmentSpec spec{entry,{exit}};
-    auto ordinary=exit;
-    ordinary.native_frame_tail=false;
-    check(!exit.same_declaration(ordinary),"scene native tail participates in declaration identity");
-    for (unsigned fault=0;fault<17;++fault) {
-        auto bad=spec;
-        auto pc=entry;
-        if (fault==0) pc.address++;
-        if (fault==1) bad.unit.address++;
-        if (fault==2) bad.exits.front().kind=RoutineExit::core_final;
-        if (fault==3) bad.force_admit=true;
-        if (fault==4) bad.observe_entry=true;
-        if (fault==5) bad.scratch_stack=2;
-        if (fault==6) bad.slot2_mapper=true;
-        if (fault==7) bad.inherited_stack=2;
-        if (fault==8) bad.single_instruction=true;
-        if (fault==9) bad.exits.front().stack=2;
-        if (fault==10) bad.exits.front().conditional=true;
-        if (fault==11) bad.exits.front().after=1;
-        if (fault==12) bad.exits.front().interrupt_mask=InterruptMask::enable;
-        if (fault==13) bad.exits.front().wram_seed=0xC400;
-        if (fault==14) bad.exits.front().cartridge_control=true;
-        if (fault==15) bad.exits.front().sprite_outputs=2;
-        if (fault==16) bad.absolute_wram_store=0xC400;
-        rejects([&]{RoutineRegistry registry;registry.add(pc,bad,cost(42),[](RoutineContext&){});},"Invalid");
-    }
-    for (unsigned byte=0;byte<2;++byte) {
-        std::vector<std::uint8_t> code{0xED,0xB0};
-        code[byte]=0;
-        Machine machine(image({{entry.address,code}}));
-        stack(machine);
-        machine.cpu().pc.uint16_value=entry.address;
-        machine.cpu().bc.uint16_value=8;
-        machine.cpu().hl.uint16_value=0xC400;
-        machine.cpu().de.uint16_value=0xC500;
-        RoutineRegistry registry;
-        registry.add(entry,spec,[](const Machine& m){return m.block_copy_frame_cycles();},[](RoutineContext&){});
-        rejects([&]{machine.step(registry);},"ROM LDIR");
-    }
-}
-
-void video_slice_guards() {
-    const RoutineEntry sprite{1,0x591E},row{0,0x3451};
-    SegmentExit out{RoutineExit::core_final,0x5920};
-    out.sprite_outputs=2;
-    SegmentExit load{RoutineExit::core_final,0x3454};
-    load.native_frame_tail=true;
-    for (bool is_sprite:{false,true}) {
-        const auto entry=is_sprite ? sprite : row;
-        SegmentSpec spec{is_sprite ? RoutineEntry{1,0x588B} : RoutineEntry{0,0x3439},{is_sprite ? out : load}};
-        for (unsigned fault=0;fault<8;++fault) {
-            auto bad=spec;
-            auto pc=entry;
-            if (fault==0) bad.unit.address++;
-            if (fault==1) pc.address++;
-            if (fault==2) bad.exits.front().address++;
-            if (fault==3) bad.exits.front().conditional=true;
-            if (fault==4) bad.exits.front().after=1;
-            if (fault==5) bad.observe_entry=true;
-            if (fault==6) bad.exits.front().interrupt_mask=InterruptMask::enable;
-            if (fault==7) bad.scratch_stack=2;
-            RoutineRegistry registry;
-            rejects([&]{registry.add(pc,bad,cost(32),[](RoutineContext&){});},"Invalid");
-        }
-        const std::vector<std::uint8_t> expected=is_sprite ? std::vector<std::uint8_t>{0xED,0xA3,0xED,0xA3}
-                                                          : std::vector<std::uint8_t>{0x21,1,2,0x01,3,4};
-        for (unsigned bad_byte : is_sprite ? std::vector<unsigned>{0,1,2,3} : std::vector<unsigned>{0,3}) {
-            auto opcodes=expected;
-            opcodes[bad_byte]=0x00;
-            Machine m(image({{entry.address,opcodes}}));
-            stack(m);
-            m.cpu().pc.uint16_value=entry.address;
-            m.cpu().bc.uint16_value=0x23BE;
-            RoutineRegistry registry;
-            registry.add(entry,spec,cost(is_sprite ? 32 : 20),[](RoutineContext&){});
-            rejects([&]{m.step(registry);},is_sprite ? "only OUTI" : "load HL and BC");
-        }
-        Machine m(image({{entry.address,expected}}));
-        stack(m);
-        m.cpu().pc.uint16_value=entry.address;
-        m.cpu().bc.uint16_value=0x23BE;
-        RoutineRegistry registry;
-        registry.add(entry,spec,cost(is_sprite ? 31 : 19),[](RoutineContext&){});
-        rejects([&]{m.step(registry);},is_sprite ? "cycle bound" : "load HL and BC");
-    }
-}
-void sprite_clear_seed_guards() {
-    const RoutineEntry entry{0,0x0FF3};
-    SegmentExit exit{RoutineExit::core_final,0x0FFC};
-    exit.wram_seed=0xC800;
-    exit.seed_target=SeedTarget::sprite_shadow_zero;
-    SegmentSpec spec{entry,{exit}};
-    for (auto wrong:{std::initializer_list<std::uint8_t>{0x36,1},{0x75,0},{0xDD,0x36}}) {
-        Machine m(image({{0x0FFC,wrong}}));
-        stack(m);
-        m.cpu().pc.uint16_value=entry.address;
-        m.cpu().hl.uint16_value=0xC800;
-        RoutineRegistry registry;
-        registry.add(entry,spec,cost(40),[](RoutineContext& c){c.advance(30); c.finish_core(0x0FFC);});
-        rejects([&]{m.step(registry);},"seed exit");
-    }
-    Machine m(image({{0x0FFC,{0x36,0}}}));
-    stack(m);
-    m.cpu().pc.uint16_value=entry.address;
-    m.cpu().hl.uint16_value=0xC801;
-    RoutineRegistry registry;
-    registry.add(entry,spec,cost(40),[](RoutineContext& c){c.advance(30); c.finish_core(0x0FFC);});
-    rejects([&]{m.step(registry);},"seed exit");
-    for (unsigned variant=0;variant<6;++variant) {
-        auto bad=spec;
-        auto pc=entry;
-        if (variant==0) bad.unit.address++;
-        if (variant==1) pc.address++;
-        if (variant==2) bad.exits.front().wram_seed=0xC900;
-        if (variant==3) bad.exits.front().address++;
-        if (variant==4) bad.slot2_mapper=true;
-        if (variant==5) bad.exits.front().cartridge_control=true;
-        rejects([&]{RoutineRegistry r;r.add(pc,bad,cost(40),[](RoutineContext& c){c.finish_core(0x0FFC);});},"Invalid");
-    }
-}
-void wram_seed_segment() {
-    SegmentExit exit{RoutineExit::core_final,0}; exit.wram_seed=0xc300;
-    SegmentSpec spec{{0,0},{exit}}; spec.single_instruction=true;
-    RoutineRegistry registry;
-    registry.add({0,0},spec,cost(7),[](RoutineContext& c) { c.finish_core(0); });
-    for(auto event:{Event::irq,Event::nmi,Event::frame})
-    for(unsigned distance=event==Event::frame ? 1u : 0u;distance<=8;++distance) {
-        Machine actual=windowed(program({0x75}),event,distance); actual.cpu().hl.uint16_value=0xc300;
-        actual.memory().write(0xc300,0x47); Machine expected=actual;
-        expected.step(); actual.step(registry);
-        check(actual.equivalent(expected),"seed store matches native at every event boundary");
-    }
-    for(auto code:{0x74,0x77,0x36,0xdd}) {
-        Machine wrong(program({static_cast<std::uint8_t>(code)})); stack(wrong); wrong.cpu().hl.uint16_value=0xc300;
-        rejects([&]{wrong.step(registry);},"seed exit");
-    }
-    for(auto hl:{0xc301,0xe300,0xffff,0x8300}) {
-        Machine wrong(program({0x75})); stack(wrong); wrong.cpu().hl.uint16_value=hl;
-        rejects([&]{wrong.step(registry);},"seed exit");
-    }
-    Machine disabled(program({0x75})); stack(disabled); disabled.cpu().hl.uint16_value=0xc300;
-    disabled.memory().set_memory_control(0x10);
-    // Admission refuses the unmapped stack; the native ignored write remains authoritative.
-    Machine native=disabled; native.step(); disabled.step(registry);
-    check(disabled.equivalent(native),"seed with disabled work RAM falls back unchanged");
-    for(unsigned mode=0;mode<4;++mode) {
-        auto bad=spec;
-        if(mode==0) bad.force_admit=true;
-        if(mode==1) bad.slot2_mapper=true;
-        if(mode==2) bad.exits[0].cartridge_control=true;
-        if(mode==3) bad.exits[0].interrupt_mask=InterruptMask::disable;
-        rejects([&]{RoutineRegistry r;r.add({0,0},bad,cost(7),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-    }
-    auto undeclared=exit; undeclared.wram_seed.reset();
-    check(!exit.same_declaration(undeclared),"seed declaration is compared by lockstep");
-}
-void cartridge_control_segment() {
-    SegmentExit exit{RoutineExit::core_final,0}; exit.cartridge_control=true;
-    SegmentSpec spec{{0,0},{exit}}; spec.single_instruction=true;
-    RoutineRegistry registry;
-    registry.add({0,0},spec,cost(13),[](RoutineContext& c) { c.finish_core(0); });
-    for (auto event:{Event::irq,Event::nmi,Event::frame})
-    for (unsigned distance=event==Event::frame ? 1u : 0u;distance<=14;++distance)
-    for (unsigned a:{0,8,12,0x80,0xff}) {
-        Machine actual=windowed(program({0x32,0xfc,0xff}),event,distance);
-        actual.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(a);
-        actual.memory().write(0xfffc,8); actual.memory().write(0x8123,0x47);
-        Machine expected=actual; expected.step(); actual.step(registry);
-        check(actual.equivalent(expected),"cartridge control keeps native state at every event offset");
-    }
-    for (const auto code:{std::initializer_list<std::uint8_t>{0x32,0xfd,0xff}, {0x32,0xfb,0xff}, {0xdd,0x32,0xfc,0xff}, {0x22,0xfc,0xff}}) {
-        Machine wrong(program(code)); stack(wrong);
-        rejects([&]{wrong.step(registry);},"cartridge control");
-    }
-    auto forced=spec; forced.force_admit=true;
-    rejects([&]{RoutineRegistry bad; bad.add({0,0},forced,cost(13),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-    auto returning=spec; returning.exits[0].kind=RoutineExit::returned;
-    rejects([&]{RoutineRegistry bad; bad.add({0,0},returning,cost(13),[](RoutineContext& c){c.finish_core(0);});},"Invalid");
-    auto undeclared=exit; undeclared.cartridge_control=false;
-    check(!exit.same_declaration(undeclared),"lockstep distinguishes cartridge control declaration");
-}
-// Milestone 7 mechanism: held stack words, conditional final jumps and loop exits.
-SegmentSpec spec_of(std::uint16_t unit, std::initializer_list<SegmentExit> exits, unsigned scratch=0, unsigned inherited=0) {
-    SegmentSpec spec{{0,unit},exits}; spec.scratch_stack=scratch; spec.inherited_stack=inherited; return spec;
-}
-void push_word(RoutineContext& c, std::uint16_t pc, std::uint16_t value) {
-    auto& z=c.cpu(); const auto sp=z.sp.uint16_value;
-    c.fetch_opcode(pc);
-    c.write(static_cast<std::uint16_t>(sp-1),static_cast<std::uint8_t>(value>>8));
-    c.write(static_cast<std::uint16_t>(sp-2),static_cast<std::uint8_t>(value));
-    z.sp.uint16_value=static_cast<std::uint16_t>(sp-2); c.advance(11);
-}
-std::uint16_t pop_word(RoutineContext& c, std::uint16_t pc) {
-    auto& z=c.cpu(); const auto sp=z.sp.uint16_value;
-    c.fetch_opcode(pc);
-    const auto lo=c.read(sp), hi=c.read(static_cast<std::uint16_t>(sp+1));
-    z.sp.uint16_value=static_cast<std::uint16_t>(sp+2); c.advance(10);
-    return static_cast<std::uint16_t>(lo|(hi<<8));
-}
-// PUSH HL [PUSH DE], then a core CALL into native code (or a plain LD A,n held
-// over), then a segment inheriting the words: [POP DE] POP HL, RET.
-struct Held { std::shared_ptr<const Memory::Rom> rom; std::uint16_t final, next; };
-Held held_program(unsigned words, bool plain) {
-    std::vector<std::uint8_t> code{0xe5};
-    if (words==2) code.push_back(0xd5);
-    const auto final=static_cast<std::uint16_t>(code.size());
-    if (plain) code.insert(code.end(),{0x3e,0x42}); else code.insert(code.end(),{0xcd,0x00,0x01});
-    const auto next=static_cast<std::uint16_t>(code.size());
-    if (words==2) code.push_back(0xd1);
-    code.insert(code.end(),{0xe1,0xc9});
-    // The native callee clobbers HL and DE before returning.
-    return {image({{0,code},{0x100,{0x21,0,0,0x11,0,0,0xc9}}}),final,next};
-}
-void add_held(RoutineRegistry& r, const Held& p, unsigned words, bool plain) {
-    const auto offset=static_cast<std::int8_t>(2*words);
-    r.add({0,0},spec_of(0,{{F,p.final,static_cast<std::int8_t>(-offset)}},2*words),cost(11*words+(plain ? 7 : 17)),
-        [=](RoutineContext& c) {
-            push_word(c,0,c.cpu().hl.uint16_value);
-            if (words==2) push_word(c,1,c.cpu().de.uint16_value);
-            c.finish_core(p.final);
-        });
-    r.add({0,p.next},spec_of(0,{{R,static_cast<std::uint16_t>(p.next+words),offset}},0,2*words),cost(10*words+10),
-        [=](RoutineContext& c) {
-            if (words==2) c.cpu().de.uint16_value=pop_word(c,p.next);
-            c.cpu().hl.uint16_value=pop_word(c,static_cast<std::uint16_t>(p.next+words-1));
-            c.finish_return(static_cast<std::uint16_t>(p.next+words));
-        });
-}
-void held_words() {
-    for (unsigned words:{1u,2u}) for (bool plain:{false,true}) {
-        const auto p=held_program(words,plain);
-        Machine cpp(p.rom); stack(cpp); cpp.cpu().hl.uint16_value=0x1234; cpp.cpu().de.uint16_value=0x5678;
-        Machine native=cpp;
-        RoutineRegistry r; add_held(r,p,words,plain);
-        cpp.step(r);
-        check(cpp.cpu().sp.uint16_value==static_cast<std::uint16_t>(0xc100-2*words-(plain ? 0 : 2)),"held words stay on the stack across the core step");
-        until_return(cpp,&r); until_return(native);
-        check(cpp.equivalent(native) && cpp.cpu().hl.uint16_value==0x1234 && cpp.cpu().de.uint16_value==(words==2 || plain ? 0x5678 : 0),
-              "held and inherited words equal the original program");
-        check(r.find({0,0})->counters.cpp_calls==1 && r.find({0,p.next})->counters.cpp_calls==1 &&
-              r.find({0,p.next})->counters.fallback_calls==0,"both held-word segments ran in C++");
-    }
-    // A finish at an SP other than the declared offset is refused, for both finishes.
-    const auto p=held_program(1,false);
-    Machine m(p.rom); stack(m);
-    RoutineRegistry pushed;
-    pushed.add({0,0},spec_of(0,{{F,1,-2}},2),cost(28),[](RoutineContext& c) {
-        auto& z=c.cpu(); c.fetch_opcode(0); c.write(0xc0ff,z.hl.uint8_values.at_1); c.write(0xc0fe,z.hl.uint8_values.at_0);
-        c.advance(11); c.finish_core(1); // SP was not lowered
-    });
-    rejects([&]{m.step(pushed);},"declared stack offset");
-    Machine pop(p.rom); stack(pop); pop.cpu().sp.uint16_value=0xc0fe; pop.cpu().pc.uint16_value=4;
-    RoutineRegistry popped;
-    popped.add({0,4},spec_of(0,{{R,5,2}},0,2),cost(20),[](RoutineContext& c) {
-        c.fetch_opcode(4); c.advance(10); c.finish_return(5); // SP was not raised
-    });
-    rejects([&]{pop.step(popped);},"declared stack offset");
-    // A stack-0 finish keeps its existing message at a held-word segment too.
-    Machine zero(p.rom); stack(zero);
-    RoutineRegistry entry_stack;
-    entry_stack.add({0,0},spec_of(0,{{F,1}},2),cost(28),[](RoutineContext& c) {
-        push_word(c,0,c.cpu().hl.uint16_value); c.finish_core(1);
-    });
-    rejects([&]{zero.step(entry_stack);},"entry stack");
-
-    // Admission: every inherited byte mapped and below the mapper registers.
-    struct Case { std::uint16_t sp; unsigned inherited; bool ram_off, fallback; };
-    for (const auto& k:{Case{0xbffe,2,true,true},Case{0xbffe,0,true,false},Case{0xbffc,2,true,false},
-                        Case{0xfff8,4,false,true},Case{0xfff8,2,false,false},Case{0xfffa,2,false,true},
-                        Case{0xdffc,8,false,false},Case{0xfff2,8,false,false},Case{0xfff4,8,false,true}}) {
-        Machine s(program({0xe1,0xc9})); s.cpu().sp.uint16_value=k.sp;
-        if (k.ram_off) s.memory().set_memory_control(0x10);
-        Machine n=s;
-        RoutineRegistry r;
-        r.add({0,0},spec_of(0,{{R,1,static_cast<std::int8_t>(k.inherited ? 2 : 0)}},0,k.inherited),cost(20),[](RoutineContext&) {
-            throw std::runtime_error("unexpected inherited body");
-        });
-        if (k.fallback) { s.step(r); n.step(); check(s.equivalent(n),"inherited-stack fallback is native"); }
-        else rejects([&]{s.step(r);},"unexpected inherited body");
-        check(r.find({0,0})->counters.fallback(RoutineFallback::unmapped_stack)==k.fallback,"inherited stack range checked");
-    }
-    // Inherited words in ROM and in cartridge RAM are read through the bus;
-    // held words pushed into ROM are written through it like the original's.
-    for (bool rom_stack:{true,false}) {
-        auto rom=std::make_shared<Memory::Rom>(512*1024,0);
-        (*rom)[0]=0xe1; (*rom)[1]=0xc9;
-        const std::uint8_t words[]{0x34,0x12,0x00,0x02};
-        std::copy(std::begin(words),std::end(words),rom->begin()+0x2000);
-        Machine s(rom); s.cpu().sp.uint16_value=rom_stack ? 0x2000 : 0x8100;
-        if (!rom_stack) { s.memory().write(0xfffc,8); for (unsigned i=0;i<4;++i) s.memory().write(0x8100+i,words[i]^(i<2 ? 0x44 : 0)); }
-        Machine n=s;
-        RoutineRegistry r;
-        r.add({0,0},spec_of(0,{{R,1,2}},0,2),cost(20),[](RoutineContext& c) {
-            c.cpu().hl.uint16_value=pop_word(c,0); c.finish_return(1);
-        });
-        s.step(r); n.step(); n.step();
-        check(s.equivalent(n) && s.cpu().pc.uint16_value==0x200 && s.cpu().hl.uint16_value==(rom_stack ? 0x1234 : 0x5670),
-              "inherited words in ROM and cartridge RAM through the bus");
-    }
-    for (bool rom_stack:{true,false}) {
-        Machine s(p.rom); s.cpu().sp.uint16_value=rom_stack ? 0x3000 : 0x8100; s.cpu().hl.uint16_value=0x1234;
-        if (!rom_stack) s.memory().write(0xfffc,8);
-        Machine n=s;
-        RoutineRegistry r; add_held(r,p,1,false);
-        s.step(r); n.step(); n.step();
-        check(s.equivalent(n) && s.cpu().pc.uint16_value==0x100,"held words pushed into ROM and cartridge RAM through the bus");
-    }
-
-    // Declaration refusals.
-    auto refused=[](SegmentSpec spec) {
-        RoutineRegistry r;
-        rejects([&]{r.add({0,0},std::move(spec),cost(4),[](RoutineContext& c){c.finish_core(1);});},"Invalid registered segment");
-    };
-    refused(spec_of(0,{{F,1,-1}},2));                 // odd offset
-    refused(spec_of(0,{{F,1,1}},0,2));                // odd offset above
-    refused(spec_of(0,{{F,1,-4}},2));                 // below the scratch stack
-    refused(spec_of(0,{{F,1,2}},0,0));                // above the inherited bytes
-    refused(spec_of(0,{{F,1,4}},0,2));
-    refused(spec_of(0,{{R,1,-2}},2));                 // a return cannot hold a pushed word
-    refused(spec_of(0,{{F,1},{F,1,-2}},2));           // one declaration per kind and address
-    refused(spec_of(0,{{F,1,0,true},{F,1}}));
-    refused(spec_of(0,{{R,1}},0,3));                  // odd inherited bytes
-    refused(spec_of(0,{{R,1}},0,10));                 // more than eight
-    {   auto single=spec_of(0,{{F,0,-2}},2); single.single_instruction=true; refused(single); }
-    {   auto single=spec_of(0,{{F,0}},0,2); single.single_instruction=true; refused(single); }
-    {   auto forced=forced_spec(0); forced.inherited_stack=2; refused(forced); }
-    {   auto forced=forced_spec(0); forced.exits[0].stack=2; forced.inherited_stack=2; refused(forced); }
-    refused(spec_of(0,{{R,1,0,false,1}}));            // a loop threshold on a return
-    refused(spec_of(0,{{F,1,0,false,max_exit_after+1}}));
-    refused(spec_of(0,{{R,1,0,true}}));               // a conditional return
-    {   auto single=spec_of(0,{{F,0,0,true}}); single.single_instruction=true; refused(single); }
-    {   auto single=spec_of(0,{{F,0,0,false,4}}); single.single_instruction=true; refused(single); }
-    {   auto forced=forced_spec(0); forced.exits[0].conditional=true; refused(forced); }
-    {   auto forced=forced_spec(0); forced.exits[0].after=4; refused(forced); }
-    RoutineRegistry accepted;
-    accepted.add({0,0},spec_of(0,{{F,1,-16},{R,2,8},{F,3,0,true,max_exit_after}},max_scratch_stack,max_inherited_stack),
-        cost(4),[](RoutineContext& c){c.finish_core(1);});
-}
-// JP cc,nn (8), JR cc,e (4) and DJNZ at an exit declared conditional. The
-// target is 0x10 in every form; the untaken path is the next instruction.
-struct Conditional { std::vector<std::uint8_t> code; unsigned length; bool taken; std::uint8_t flags, b; std::uint64_t cycles; };
-std::vector<Conditional> conditional_cases() {
-    constexpr unsigned bits[]{6,0,2,7};
-    std::vector<Conditional> cases;
-    for (bool taken:{true,false}) {
-        for (unsigned condition=0;condition<8;++condition) {
-            const auto flag=static_cast<std::uint8_t>(((condition&1)==static_cast<unsigned>(taken))<<bits[condition/2]);
-            cases.push_back({{static_cast<std::uint8_t>(0xc2+8*condition),0x10,0x00},3,taken,flag,0,10});
-            if (condition<4) cases.push_back({{static_cast<std::uint8_t>(0x20+8*condition),0x0d},2,taken,flag,0,taken ? 12u : 7u});
-        }
-        cases.push_back({{0x10,0x0d},2,taken,0,static_cast<std::uint8_t>(taken ? 5 : 1),taken ? 13u : 8u});
-    }
-    cases.push_back({{0x10,0x0d},2,true,0,0,13}); // DJNZ with B=0 wraps to 255 and is taken
-    return cases;
-}
-std::shared_ptr<const Memory::Rom> conditional_program(const Conditional& k) {
-    std::vector<std::uint8_t> code{0x00};
-    code.insert(code.end(),k.code.begin(),k.code.end()); code.push_back(0xc9);
-    return image({{0,code},{0x10,{0x00,0xc9}}});
-}
-void conditional_exits() {
-    for (const auto& k:conditional_cases()) {
-        Machine cpp(conditional_program(k)); stack(cpp);
-        cpp.cpu().af.uint8_values.at_0=k.flags; cpp.cpu().bc.uint8_values.at_1=k.b;
-        Machine native=cpp;
-        RoutineRegistry r;
-        r.add({0,0},segment(0,{{F,1,0,true}}),cost(4+k.cycles),[](RoutineContext& c){nop(c,0);c.finish_core(1);});
-        cpp.step(r);
-        check(r.find({0,0})->counters.cpp_calls==1 && cpp.cpu().pc.uint16_value==(k.taken ? 0x10 : 1+k.length),
-              "conditional final jump taken or untaken by the core");
-        same_as_native(cpp,native,"conditional final jump equals the original");
-    }
-    auto refused=[](std::vector<std::uint8_t> code, bool conditional) {
-        Machine m(image({{0,code}})); stack(m);
-        RoutineRegistry r; r.add({0,0},segment(0,{{F,1,0,conditional}}),cost(30),[](RoutineContext& c){nop(c,0);c.finish_core(1);});
-        rejects([&]{m.step(r);},"not allowed");
-    };
-    // Conditional opcodes need the declaration...
-    for (std::uint8_t op:{0xc2,0xca,0xd2,0xda,0xe2,0xea,0xf2,0xfa,0x20,0x28,0x30,0x38,0x10})
-        refused({0x00,op,0x10,0x00},false);
-    // ...and a conditional exit takes nothing else: plain, calls, unconditional
-    // and indirect jumps, returns and prefixes.
-    for (std::uint8_t op:{0x00,0x3e,0x23,0xcd,0xc4,0xc3,0x18,0xe9,0xc9,0xc0,0xc7,0xdd,0xfd,0xed,0xcb,0x76})
-        refused({0x00,op,0xe9,0x00},true);
-}
-// Authored table scans, split by loop exits.
-//   plain at base: LD A,(HL); CP C; JR Z,+3; INC HL; JR -7; RET
-//   push  at base: PUSH BC; LD A,(HL); CP C; JR Z,+4; INC HL; JR -7; NOP; POP BC; RET
-// The plain scan re-enters its own entry through the native JR. The push scan
-// holds BC: its first segment ends at INC HL with stack -2, and the
-// continuation at the JR inherits the word, ending at INC HL or at the RET [+2].
-std::vector<std::uint8_t> scan_code(bool push) {
-    if (push) return {0xc5,0x7e,0xb9,0x28,0x04,0x23,0x18,0xf9,0x00,0xc1,0xc9};
-    return {0x7e,0xb9,0x28,0x03,0x23,0x18,0xf9,0xc9};
-}
-std::uint8_t compare_flags(std::uint8_t a, std::uint8_t v) {
-    const auto result=static_cast<std::uint8_t>(a-v);
-    return static_cast<std::uint8_t>((result&0x80) | (result ? 0 : 0x40) | (v&0x28) | ((a^v^result)&0x10) |
-        (((a^v)&(a^result)&0x80) ? 0x04 : 0) | 0x02 | (a<v ? 0x01 : 0));
-}
-enum class Start { plain, push, resume };
-std::uint16_t loop_of(std::uint16_t base, Start start) { return start==Start::plain ? base : static_cast<std::uint16_t>(base+1); }
-// The exact cost of the chunk this state takes, read with peek.
-std::uint64_t scan_cost(const Machine& m, Start start, std::uint16_t after) {
-    std::uint64_t cycles=start==Start::push ? 11 : start==Start::resume ? 12 : 0;
-    auto hl=m.cpu().hl.uint16_value; const auto c=m.cpu().bc.uint8_values.at_0;
-    for (;;) {
-        cycles+=11;
-        if (m.peek(hl)==c) return cycles+12+(start==Start::plain ? 0 : 10)+10;
-        cycles+=7;
-        if (cycles>=after) return cycles+6;
-        cycles+=18; ++hl;
-    }
-}
-// late: stop one qualifying arrival later; early: one arrival before the first qualifying.
-enum class Stop { first, late, early };
-void scan_body(RoutineContext& c, std::uint16_t base, Start start, std::uint16_t after, Stop stop=Stop::first) {
-    auto& z=c.cpu();
-    const auto loop=loop_of(base,start);
-    if (start==Start::push) push_word(c,base,z.bc.uint16_value);
-    if (start==Start::resume) {
-        const auto jr=static_cast<std::uint16_t>(base+6);
-        c.fetch_opcode(jr); (void)c.read(static_cast<std::uint16_t>(jr+1)); z.memptr.uint16_value=loop; c.advance(12);
-    }
-    bool skipped=false;
-    for (;;) {
-        c.fetch_opcode(loop); z.af.uint8_values.at_1=c.read(z.hl.uint16_value); c.advance(7);
-        c.fetch_opcode(static_cast<std::uint16_t>(loop+1));
-        z.af.uint8_values.at_0=compare_flags(z.af.uint8_values.at_1,z.bc.uint8_values.at_0); c.advance(4);
-        const auto jz=static_cast<std::uint16_t>(loop+2);
-        c.fetch_opcode(jz); const auto offset=static_cast<std::int8_t>(c.read(static_cast<std::uint16_t>(jz+1)));
-        if (z.af.uint8_values.at_0&0x40) {
-            z.memptr.uint16_value=static_cast<std::uint16_t>(jz+2+offset); c.advance(12);
-            if (start==Start::plain) { c.finish_return(static_cast<std::uint16_t>(base+7)); return; }
-            z.bc.uint16_value=pop_word(c,static_cast<std::uint16_t>(base+9));
-            c.finish_return(static_cast<std::uint16_t>(base+10)); return;
-        }
-        c.advance(7);
-        const auto exit=static_cast<std::uint16_t>(loop+4);
-        const bool qualifies=c.elapsed()>=after;
-        if ((stop==Stop::first && qualifies) || (stop==Stop::late && qualifies && skipped) ||
-            (stop==Stop::early && c.elapsed()+36>=after)) { c.finish_core(exit); return; }
-        skipped=skipped || qualifies;
-        c.fetch_opcode(exit); ++z.hl.uint16_value; c.advance(6);
-        c.fetch_opcode(static_cast<std::uint16_t>(exit+1)); (void)c.read(static_cast<std::uint16_t>(exit+2));
-        z.memptr.uint16_value=loop; c.advance(12);
-    }
-}
-void add_scan(RoutineRegistry& r, std::uint16_t base, bool push, std::uint16_t after, Stop stop=Stop::first) {
-    const auto exit=static_cast<std::uint16_t>(loop_of(base,push ? Start::push : Start::plain)+4);
-    const std::uint64_t extra=stop==Stop::late ? 36 : 0;
-    if (!push) {
-        r.add({0,base},spec_of(base,{{F,exit,0,false,after},{R,static_cast<std::uint16_t>(base+7)}}),
-            [=](const Machine& m){return scan_cost(m,Start::plain,after)+extra;},
-            [=](RoutineContext& c){scan_body(c,base,Start::plain,after,stop);});
-        return;
-    }
-    r.add({0,base},spec_of(base,{{F,exit,-2,false,after},{R,static_cast<std::uint16_t>(base+10)}},2),
-        [=](const Machine& m){return scan_cost(m,Start::push,after)+extra;},
-        [=](RoutineContext& c){scan_body(c,base,Start::push,after,stop);});
-    r.add({0,static_cast<std::uint16_t>(base+6)},spec_of(base,{{F,exit,0,false,after},{R,static_cast<std::uint16_t>(base+10),2}},0,2),
-        [=](const Machine& m){return scan_cost(m,Start::resume,after)+extra;},
-        [=](RoutineContext& c){scan_body(c,base,Start::resume,after,stop);});
-}
-Machine scan_machine(bool push, unsigned records) {
-    Machine m(image({{0x40,scan_code(push)}})); stack(m); m.cpu().pc.uint16_value=0x40;
-    for (unsigned i=0;i<records;++i) m.memory().write(static_cast<std::uint16_t>(0xc200+i),static_cast<std::uint8_t>(0x10+i%7));
-    m.memory().write(static_cast<std::uint16_t>(0xc200+records),0x99);
-    m.cpu().hl.uint16_value=0xc200; m.cpu().bc.uint16_value=0x7799;
-    return m;
-}
-void loop_exits() {
-    for (bool push:{false,true}) for (std::uint16_t after:{0,1,40,100,128,1000}) for (unsigned records:{0u,1u,5u,12u}) {
-        Machine cpp=scan_machine(push,records), native=cpp;
-        RoutineRegistry r; add_scan(r,0x40,push,after);
-        until_return(cpp,&r); until_return(native);
-        check(cpp.equivalent(native),"split scan equals the original program");
-        std::uint64_t calls=0;
-        for (const auto& [entry,routine]:r.entries()) {
-            check(routine.counters.fallback_calls==0,"split scan never falls back away from a boundary");
-            calls+=routine.counters.cpp_calls;
-        }
-        check(calls>=1 && (records<2 || after>=1000 || calls>1),"the scan is split into chunks");
-    }
-    // A body taking the loop exit before its declared cycles is refused.
-    Machine early=scan_machine(false,12);
-    RoutineRegistry r; add_scan(r,0x40,false,128,Stop::early);
-    rejects([&]{early.step(r);},"loop exit before its declared cycles");
 }
 void irq_query() {
     unsigned count=0, future=0, absent=0;
@@ -1599,67 +597,13 @@ void irq_query() {
     }
     std::cout<<"IRQ query states: "<<count+500<<'\n';
 }
-void observed_hook_late_nmi_callbacks() {
-    auto image=std::make_shared<Memory::Rom>(512*1024,0);
-    unsigned cases=0;
-    for (bool late:{false,true}) for (unsigned action=0;action<4;++action)
-        for (bool iff1:{false,true}) for (bool iff2:{false,true})
-        for (bool reject:{false,true}) for (bool enabled:{false,true})
-        for (unsigned redirect=0;redirect<3;++redirect) {
-            Machine native(image),actual(image);
-            for (auto* m:{&native,&actual}) {
-                (void)m->read_port(0xBF,m->cycles());
-                m->advance(1);
-                m->cpu().sp.uint16_value=0xD000;
-                m->cpu().iff1=iff1;m->cpu().iff2=iff2;
-                if (reject) m->cpu().request|=Z80_REQUEST_REJECT_NMI;
-                if (late) m->schedule_nmi(m->cycles());
-            }
-            RoutineRegistry registry;
-            SegmentSpec spec{{0,0},{{RoutineExit::core_final,0}}};
-            spec.single_instruction=true;spec.observe_entry=true;
-            registry.enabled=enabled;
-            registry.add({0,0},spec,cost(4),[](RoutineContext& c){c.finish_core(0);});
-            using Seen=std::tuple<std::uint64_t,unsigned,unsigned,unsigned,unsigned>;
-            std::vector<Seen> expected,seen;
-            auto hook=[&](Machine& m,std::vector<Seen>& calls) {
-                return [&,machine=&m,events=&calls](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
-                    events->emplace_back(machine->cycles(),pc,+machine->cpu().request,
-                                         +machine->cpu().iff1,+machine->cpu().iff2);
-                    if (action==1) z80_nmi(&machine->cpu());
-                    if (action==3) machine->schedule_nmi(machine->cycles()+1);
-                    if (action>=2) machine->advance(3);
-                    if (redirect) return redirect==1 ? 0 : 0x10;
-                    return {};
-                };
-            };
-            native.step(hook(native,expected));
-            actual.step(hook(actual,seen),&registry);
-            const auto context=" late="+std::to_string(late)+" action="+std::to_string(action)+
-                " iff="+std::to_string(iff1)+std::to_string(iff2)+" reject="+std::to_string(reject)+
-                " enabled="+std::to_string(enabled)+" redirect="+std::to_string(redirect);
-            check(expected==seen && seen.size()==1,("late NMI callback visibility differs"+context).c_str());
-            check(actual.equivalent(native),("late NMI callback native step differs"+context).c_str());
-            // A fresh edge may be consumed by that step. The pre-existing late
-            // edge must still be restored afterward, exactly as without registry.
-            for (unsigned i=0;i<3;++i) {
-                native.step();actual.step();
-                check(actual.equivalent(native),("late NMI callback continuation differs"+context).c_str());
-            }
-            ++cases;
-        }
-    std::cout<<"Observed late-NMI callback states: "<<cases<<'\n';
-}
-
-}
 int main(int argc,char** argv) {
     try {
-        if(argc==2 && std::string_view(argv[1])=="cartridge_control") cartridge_control_segment();
-        else if(argc==2 && std::string_view(argv[1])=="irq_query") irq_query();
-        else if(argc==2 && std::string_view(argv[1])=="observed_late_nmi") observed_hook_late_nmi_callbacks();
-        else {results(); vdp_results(); windows(); registry_and_guards(); scratch_overwrite();
-            interrupt_long_stack_declaration(); interrupt_mapper_pair(); nmi_return_segment(); reset_initialization_segments(); segments(); segment_faults(); segment_windows(); absolute_store_segment(); wram_seed_segment(); sprite_clear_seed_guards(); video_slice_guards(); window_bank_store_segment(); scene_copy_tail_guards(); cartridge_seed_segment(); cartridge_control_segment(); relative_jump_segment();
-            held_words(); conditional_exits(); loop_exits(); mask_exits(); observed_entries(); observed_hook_late_nmi_callbacks();}
+        if(argc==2 && std::string_view(argv[1])=="irq_query") irq_query();
+        else {
+            registry(); unrendered(); refusals(); body_rules(); self_remap(); declarations();
+            hook_late_nmi(); window_refusals(); register_comparator(); interrupt_mapper_once(); stack_declarations();
+        }
         std::cout<<"Registered routine tests passed.\n"; return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n'; return 1;}
 }

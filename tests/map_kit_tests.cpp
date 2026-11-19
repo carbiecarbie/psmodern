@@ -11,14 +11,16 @@
 //      every PSG write with its exact cycle, on the live bus;
 //   3. the estimating bus: each segment's bound equals the cycles the live
 //      call took, and an inline return that does not come back (a stack in
-//      ROM) makes the estimate uncertain, so the call falls back.
+//      ROM) makes the estimate uncertain, so the call is refused (the run stops).
 #include "game/map_kit.h"
+#include "scaffold.h"
 #include "probe.h"
 #include "replay/verification.h"
 #include <functional>
 #include <iostream>
 #include <random>
 #include <tuple>
+#include <type_traits>
 
 using namespace psmodern;
 using probe::check;
@@ -35,6 +37,7 @@ struct CountingBus {
     void write(std::uint16_t address, std::uint8_t value) { machine.memory().write(address,value); }
     void advance(std::uint64_t count) { cycles+=count; }
     std::uint64_t elapsed() const { return cycles; }
+    void expect(std::uint16_t, OpcodePattern) {} void interrupts(bool) {} void return_from_nmi() {} bool guard(bool holds, std::string_view) { return holds; }
 };
 using Z=mk::Instructions<CountingBus>;
 constexpr std::uint16_t code_at=0x1000;
@@ -52,9 +55,9 @@ void kit_case(const KitCase& c, unsigned states) {
         const auto code=c.code(n);
         std::copy(code.begin(),code.end(),rom->begin()+code_at);
         if (code.size()==4 && code[1]==0xCB) (*rom)[code_at+4]=0xDD;
-        Machine native(rom);
-        (void)native.read_port(0xbf,native.cycles()); native.advance(1);
-        auto& cpu=native.cpu();
+        Machine rendered(rom);
+        (void)rendered.read_port(0xbf,rendered.cycles()); rendered.advance(1);
+        auto& cpu=rendered.cpu();
         probe::randomize(cpu,seed+1);
         std::mt19937_64 random(seed*977+5);
         cpu.hl.uint16_value=static_cast<std::uint16_t>(0xC000+random()%0x0F00);
@@ -66,12 +69,12 @@ void kit_case(const KitCase& c, unsigned states) {
         cpu.ix_iy[1].uint16_value=static_cast<std::uint16_t>(0xC100+random()%0x1D00);
         if (seed%5==0) cpu.bc.uint16_value=1;                       // LDI to zero
         cpu.pc.uint16_value=code_at; cpu.iff1=cpu.iff2=0;
-        for (std::uint16_t a=0xC000;a<0xE000;a+=3) native.memory().write(a,static_cast<std::uint8_t>(random()));
-        Machine rendered=native;
+        for (std::uint16_t a=0xC000;a<0xE000;a+=3) rendered.memory().write(a,static_cast<std::uint8_t>(random()));
+        oracle::NativeMachine native(rendered);   // the original: the pinned core, one instruction
         const auto cycles=native.cycles(), fetches=native.opcode_fetches();
         const auto r_before=native.cpu().r;
         // An index prefix is its own core step (resume XY) before the instruction.
-        do native.step(); while (native.cpu().resume==Z80_RESUME_XY);
+        do native.step(); while (native.cpu().resume==Z80::resume_xy);
         CountingBus bus{rendered};
         auto registers=mk::load(rendered.cpu());
         Z z(bus,registers);
@@ -85,19 +88,17 @@ void kit_case(const KitCase& c, unsigned states) {
         compare("IX",a.ix_iy[0].uint16_value,b.ix_iy[0].uint16_value); compare("IY",a.ix_iy[1].uint16_value,b.ix_iy[1].uint16_value);
         compare("SP",a.sp.uint16_value,b.sp.uint16_value); compare("MEMPTR",a.memptr.uint16_value,b.memptr.uint16_value);
         compare("PC",a.pc.uint16_value,pc);
-        if (code.size()==4 && code[1]==0xCB) compare("indexed opcode",a.data.uint8_array[3],b.data.uint8_array[3]);
+        // (data[3] is the core's scratch byte, not compared since milestone 14.)
         compare("cycles",static_cast<unsigned>(native.cycles()-cycles),static_cast<unsigned>(bus.cycles));
         compare("fetches",static_cast<unsigned>(native.opcode_fetches()-fetches),static_cast<unsigned>(bus.fetches));
         // R counts M1 fetches only (7 bits).
         compare("R",static_cast<unsigned>((native.cpu().r-r_before)&0x7f),static_cast<unsigned>(bus.fetches&0x7f));
         if (native.memory().ram()!=rendered.memory().ram()) fields+=" RAM";
         check(fields.empty(),std::string("map kit rendering of ")+c.name+" differs from the core (state "+std::to_string(seed)+"):"+fields);
-        if (code.size()==4 && code[1]==0xCB) {
-            native.step(); // The next prefix makes the saved opcode byte observable.
-            check(native.cpu().resume==Z80_RESUME_XY &&
-                  native.cpu().data.uint8_array[3]==rendered.cpu().data.uint8_array[3],
-                  "indexed operation byte differs at the next prefix");
-        }
+        // Milestone 14: the core's saved indexed operation byte (data[3]) is
+        // scratch the core rewrites before any later use (a kit renders both
+        // prefix fetches of an instruction together), so the kits no longer
+        // write it and the lockstep equality excludes it.
     }
 }
 std::vector<std::uint8_t> bytes(std::initializer_list<std::uint8_t> list) { return list; }
@@ -183,8 +184,10 @@ Machine started(const std::shared_ptr<const Memory::Rom>& rom, std::uint16_t pc,
     arrange(m,random);
     return m;
 }
-void until_return(Machine& m, RoutineRegistry* registry, std::vector<std::uint64_t>* bounds=nullptr) {
+template<class M> void until_return(M& m, RoutineRegistry* registry, std::vector<std::uint64_t>* bounds=nullptr) {
     for (unsigned i=0;i<1000000 && m.cpu().pc.uint16_value!=0x0180;++i) {
+        if constexpr (!std::is_same_v<M,Machine>) { (void)registry; (void)bounds; (void)m.step(); continue; }
+        else {
         if (!registry) { (void)m.step(); continue; }
         // The estimate of every C++ call equals the cycles the call takes.
         const auto* routine=registry->find({0,m.cpu().pc.uint16_value});
@@ -195,6 +198,7 @@ void until_return(Machine& m, RoutineRegistry* registry, std::vector<std::uint64
             check(bound==elapsed,"estimated bound "+std::to_string(bound)+" differs from the live call's "+std::to_string(elapsed)+" cycles");
             if (bounds) bounds->push_back(bound);
         }
+        }
     }
     check(m.cpu().pc.uint16_value==0x0180,"authored program returned");
 }
@@ -202,11 +206,15 @@ struct Calls { std::uint64_t cpp=0, fallbacks=0; };
 // Runs the program with the registry (every call verified) and without, and
 // requires equal machines and equal PSG write logs (byte and cycle).
 Calls same_as_native(Machine cpp, RoutineRegistry& registry, const std::string& what) {
-    replay::CallVerifier verifier("map kit");
-    registry.verifier=&verifier;
-    Machine native=cpp;
+    {
+        // Every call is also compared with the oracle at each of its
+        // instruction boundaries (milestone 14), on copies of both.
+        Machine checked=cpp; RoutineRegistry copy=registry;
+        oracle::Lockstep lockstep(checked,what,oracle::Mode::instructions);
+        for (unsigned i=0;i<1000000 && checked.cpu().pc.uint16_value!=0x0180;++i) lockstep.step(checked,&copy);
+    }
+    oracle::NativeMachine native(cpp);
     until_return(cpp,&registry); until_return(native,nullptr);
-    registry.verifier=nullptr;
     std::string fields;
     for (const auto& difference:native.differences(cpp)) fields+=" "+difference.field;
     check(fields.empty(),what+" differs from the original program:"+fields);
@@ -236,26 +244,26 @@ void ports_and_inline() {
         z.output_increment_run(0x0102,3);
         (void)z.restart_vdp_address(0x0108);
         z.nop(0x0109);
-        return returns(0x010A,return_cycles);
+        return scaffold::returns(0x010A,return_cycles);
     };
     constexpr std::uint16_t after=200;
     auto loop=[](auto& z, std::uint16_t at) {
         for (;;) {
             z.output_increment(at);
-            if (z.loop_exit(after)) return continues(0x0206,jump_cycles);
-            if (!z.jump_if(0x0206,!z.zero())) return returns(0x0209,return_cycles);
+            if (z.loop_exit(after)) return scaffold::continues(0x0206,jump_cycles);
+            if (!z.jump_if(0x0206,!z.zero())) return scaffold::returns(0x0209,return_cycles);
             at=0x0204;
         }
     };
     auto program_c=[](auto& z) {
         (void)z.inline_call(0x0300,0x0318,[](auto& callee) { callee.output_increment_run(0x0310,4); });
-        return returns(0x0303,return_cycles);
+        return scaffold::returns(0x0303,return_cycles);
     };
     auto program_d=[](auto& z) {
         (void)z.restart_vdp_address(0x0400);
         z.load_immediate(0x0401,z.r.c);
         z.output_increment_run(0x0403,2);
-        return returns(0x0407,return_cycles);
+        return scaffold::returns(0x0407,return_cycles);
     };
     for (std::uint64_t seed=1;seed<=60;++seed) {
         RoutineRegistry ra;
@@ -298,7 +306,8 @@ void ports_and_inline() {
 
     // A stack in ROM: the RST pushes nothing and the helper returns to the
     // word it reads there. The estimate becomes uncertain, the bound is the
-    // maximum (two frames), and dispatch falls back; the original runs.
+    // maximum (two frames), and dispatch refuses the call: the run stops
+    // (milestone 14: there is no core to run the original), unchanged.
     {
         RoutineRegistry ra;
         add_segment(ra,{0,0x0100},segment({0,0x0100},{returned_at(0x010A)},{.scratch_stack=2}),program_a);
@@ -308,21 +317,23 @@ void ports_and_inline() {
         });
         check(ra.find({0,0x0100})->bound(m)==uncertain_maximum,"a ROM stack makes the RST 08 estimate uncertain");
         const auto before=m.cycles();
-        m.step(ra);
+        bool stopped=false;
+        try { m.step(ra); } catch (const UnhandledState&) { stopped=true; }
         const auto& counters=ra.find({0,0x0100})->counters;
-        check(counters.cpp_calls==0 && counters.fallback_calls==1 && counters.fallback(RoutineFallback::frame)==1,
-              "a ROM stack falls back (reason frame)");
-        check(m.cycles()-before==11,"the fallback ran the original OUT instruction");
+        check(stopped && counters.cpp_calls==0 && counters.fallback_calls==1 && counters.fallback(RoutineFallback::frame)==1,
+              "a ROM stack refuses the call (reason frame) and stops the run");
+        check(m.cycles()==before && m.cpu().pc.uint16_value==0x0100,"the refusal runs nothing");
     }
-    // The VDP guard is unchanged: a body whose RST 08 helper writes register 1
-    // through the control port is refused (the second byte 81h selects it).
+    // Milestone 14 lifted the VDP guard for exact bodies: a body whose RST 08
+    // helper writes register 1 through the control port (the second byte 81h
+    // selects it) runs in C++ and matches the original at every boundary.
     {
         RoutineRegistry rd;
         add_segment(rd,{0,0x0400},segment({0,0x0400},{returned_at(0x0407)},{.scratch_stack=2}),program_d);
         Machine m=started(d,0x0400,4,[](Machine& machine, std::mt19937_64&) { machine.cpu().de.uint16_value=0x8160; });
-        bool refused=false;
-        try { m.step(rd); } catch (const std::runtime_error&) { refused=true; }
-        check(refused,"a register 1 write from a rendered body is refused by the mechanism");
+        oracle::Lockstep lockstep(m,"register 1 write",oracle::Mode::instructions);
+        lockstep.step(m,&rd);
+        check(rd.find({0,0x0400})->counters.cpp_calls==1,"a register 1 write from a rendered body runs in C++");
     }
     std::cout<<"Port output, RST 08 and inline calls match the original through the mechanism; bounds are exact.\n";
 }
@@ -338,7 +349,7 @@ void restart_write_observers() {
             z.restart_vdp_address(0x0400);
             z.load_immediate(0x0401,z.r.c);
             z.output_increment_run(0x0403,2);
-            return mk::returns(0x0407,mk::return_cycles);
+            return scaffold::returns(0x0407,mk::return_cycles);
         }
         const bool called=variant==1 ? (z.call(entry),true) : z.call_if(entry,!z.zero());
         if(called) {
@@ -348,7 +359,7 @@ void restart_write_observers() {
             z.output(0x000C);
             check(z.return_from(0x000E)==entry+3,"inline CALL returns to its exact continuation");
         }
-        return mk::returns(static_cast<std::uint16_t>(entry+3),mk::return_cycles);
+        return scaffold::returns(static_cast<std::uint16_t>(entry+3),mk::return_cycles);
     };
     for(unsigned sp:{0xC100u,0xDF00u,0xE100u,0x8100u})
     for(unsigned event=0;event<3;++event)
@@ -431,7 +442,7 @@ void index_push_write_observers() {
             {.scratch_stack=2}),[=](auto& z) {
                 z.push_index(0x0500,which);
                 z.pop_index(0x0502,which);
-                return mk::returns(0x0504,mk::return_cycles);
+                return scaffold::returns(0x0504,mk::return_cycles);
             });
         auto actual=started(rom,0x0500,sp+remaining,[&](Machine& m,auto&) {
             if(sp==0x8100) m.memory().write(0xFFFC,8);
@@ -483,6 +494,7 @@ void indexed_write_observers() {
         void write(std::uint16_t a,std::uint8_t v) {writes.emplace_back(a,v,cycles);machine.memory().write(a,v);}
         void advance(std::uint64_t n) {cycles+=n;}
         std::uint64_t elapsed() const {return cycles;}
+        void expect(std::uint16_t,OpcodePattern) {}
     };
     unsigned differences=0;
     for(unsigned mode=0;mode<9;++mode)
@@ -543,6 +555,8 @@ void indexed_write_observers() {
 }
 
 int main() {
+    // The authored programs' code that no test renders runs on the oracle's core.
+    oracle::Scaffold scaffold;
     try {
         instructions();
         ports_and_inline(); restart_write_observers(); index_push_write_observers(); indexed_write_observers();

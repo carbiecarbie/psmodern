@@ -52,7 +52,7 @@ int main() {try {
     keys[SDL_SCANCODE_ESCAPE]=keys[SDL_SCANCODE_RIGHT]=1;
     auto input=sample_menu_input(window,controller);
     check(input.toggle&&input.right&&input.focused,"actual menu sampler keyboard mapping");
-    menu.open({},false,false);release.consume();menu.update(input,now++);
+    menu.open({},false);release.consume();menu.update(input,now++);
     focused=nullptr;input=sample_menu_input(window,controller);
     check(!input.any()&&!input.focused,"focus loss suppresses held keyboard menu inputs");
     menu.update(input,now++);release.filter(sample_input(window,controller,enter),input.any(),input.focused);
@@ -171,7 +171,7 @@ int main() {try {
         check(input.toggle&&input.right,"real controller Y and d-pad reach menu sampler");
         game=sample_input(window,real_controller,enter);
         check(game.pads[0].right&&!game.pause&&!game.reset,"controller Y opens options without sending Pause or Reset");
-        menu.open({},false,false);release.consume();menu.update(input,now++);
+        menu.open({},false);release.consume();menu.update(input,now++);
         button(SDL_CONTROLLER_BUTTON_Y,false);button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);
         menu.update(sample_menu_input(window,real_controller),now++);
         button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,true);menu.update(sample_menu_input(window,real_controller),now++);

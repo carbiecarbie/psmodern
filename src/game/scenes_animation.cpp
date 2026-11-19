@@ -43,12 +43,10 @@ namespace mk=menu_kit;
 namespace {
 using mk::Exit;
 
-// The ways a segment ends. Each names the original's final instruction and
-// charges its cycles; the core runs that instruction.
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit return_taken_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
-Exit restart_at(std::uint16_t at) { return mk::continues(at,mk::restart_cycles); }
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
+template<class Z> Exit restart_at(Z& z, std::uint16_t at) { return z.final_restart(at,0x08); }
 
 // ---- The dispatcher: 01:63A5 ---------------------------------------------------------------------
 // Three early returns: the animation is not armed (C2D6 zero), there is no
@@ -57,24 +55,21 @@ Exit restart_at(std::uint16_t at) { return mk::continues(at,mk::restart_cycles);
 template<class Z> Exit animation_dispatch(Z& z) {
     z.load_a_direct(0x63A5);                                          // C2D6, the "animation armed" byte
     z.or_a(0x63A8);
-    if(z.zero()) return return_taken_at(0x63A9);
-    z.return_not_taken(0x63A9);
+    if (auto exit=z.final_return_if(0x63A9,mk::Condition::z)) return *exit;
     z.load_a_direct(0x63AA);                                          // the interaction kind
     z.or_a(0x63AD);
-    if(z.zero()) return return_taken_at(0x63AE);
-    z.return_not_taken(0x63AE);
+    if (auto exit=z.final_return_if(0x63AE,mk::Condition::z)) return *exit;
     z.compare_immediate(0x63AF);                                      // kinds 0Ch and up have no handler
-    if(!z.carry()) return return_taken_at(0x63B1);
-    z.return_not_taken(0x63B1);
+    if (auto exit=z.final_return_if(0x63B1,mk::Condition::nc)) return *exit;
     z.load_hl(0x63B2);                                                // the handler table, one entry early (kind 1 is first)
-    return jump_at(0x63B5);                                           // the table jump
+    return jump_at(z,0x63B5);                                           // the table jump
 }
 // 01:63CE: the table's "no animation" entry is a lone return.
-template<class Z> Exit no_animation(Z&) { return return_at(0x63CE); }
+template<class Z> Exit no_animation(Z& z) { return return_at(z,0x63CE); }
 
 // ---- Tile sequences A and B: 01:63CF and 01:63F6 ------------------------------------------------
-// Both first call colour cycle A (the core runs that call; these entries
-// start after it), then count down C2BC and step the frame C2BD.
+// Both first call colour cycle A (the call is a one-instruction segment of its
+// own; these entries start after it), then count down C2BC and step the frame C2BD.
 
 // 01:63D2: sequence A. A new frame every twelve frames (the countdown reloads
 // with 0Bh), nine frames. Bank 16 goes into slot 2 (a mapper store), the
@@ -83,8 +78,7 @@ template<class Z> Exit no_animation(Z&) { return return_at(0x63CE); }
 template<class Z> Exit tile_sequence_a(Z& z) {
     z.load_hl(0x63D2);                                                // C2BC, the countdown
     z.decrement_at_hl(0x63D5);
-    if(!z.sign()) return return_taken_at(0x63D6);                     // not yet: nothing to draw this frame
-    z.return_not_taken(0x63D6);
+    if (auto exit=z.final_return_if(0x63D6,mk::Condition::p)) return *exit;                     // not yet: nothing to draw this frame
     z.store_to_hl(0x63D7);                                            // reload the countdown
     z.increment_hl(0x63D9);                                           // C2BD, the frame index
     z.load_from_hl(0x63DA,z.r.a);
@@ -102,7 +96,7 @@ template<class Z> Exit tile_sequence_a(Z& z) {
     z.load_immediate(0x63EE,z.r.d);
     z.add_to_hl(0x63F0,z.de());
     z.load_immediate(0x63F1,z.r.b);                                   // four strips
-    return jump_at(0x63F3);                                           // into the strip uploader, 01:641B
+    return jump_at(z,0x63F3);                                           // into the strip uploader, 01:641B
 }
 
 // ---- The strip uploader: 01:641B ----------------------------------------------------------------
@@ -121,14 +115,14 @@ template<class Z> Exit strip_start(Z& z) {
     z.add_to_hl(0x6423,z.hl());
     z.add_to_hl(0x6424,z.hl());
     z.exchange_de_hl(0x6425);
-    return restart_at(0x6426);                                        // the VDP address (00:0008)
+    return restart_at(z,0x6426);                                        // the VDP address (00:0008)
 }
 // The end of a strip: the frame pointer and the strip counter come back from
 // the stack and the djnz decides whether another strip follows.
 template<class Z> Exit strip_end(Z& z) {
     z.pop(0x643D,z.r.h,z.r.l);
     z.pop(0x643E,z.r.b,z.r.c);
-    return mk::decrement_jump_exit(z,0x643F);
+    return z.final_decrement_jump(0x643F);
 }
 // The 128 bytes of a strip go to the VDP data port one by one. A long stream
 // is cut at the loop's own jump once 128 cycles have passed, so a frame edge
@@ -137,7 +131,7 @@ template<class Z> Exit strip_end(Z& z) {
 template<class Z> Exit strip_stream(Z& z) {
     for(;;) {
         z.output_increment(0x6438);
-        if(z.loop_exit(128)) return jump_at(0x643A);
+        if(z.loop_exit(128)) return z.final_jump_if(0x643A,mk::Condition::nz);
         if(!z.jump_if(0x643A,!z.zero())) return strip_end(z);
     }
 }
@@ -166,8 +160,7 @@ template<class Z> Exit strip_source(Z& z) {
 template<class Z> Exit tile_sequence_b(Z& z) {
     z.load_hl(0x63F9);                                                // C2BC, the countdown
     z.decrement_at_hl(0x63FC);
-    if(!z.sign()) return return_taken_at(0x63FD);
-    z.return_not_taken(0x63FD);
+    if (auto exit=z.final_return_if(0x63FD,mk::Condition::p)) return *exit;
     z.store_to_hl(0x63FE);                                            // reload the countdown
     z.increment_hl(0x6400);                                           // C2BD, the frame index
     z.load_from_hl(0x6401,z.r.a);
@@ -198,8 +191,7 @@ template<class Z> Exit tile_sequence_b(Z& z) {
 template<class Z> Exit tile_sequence_c(Z& z) {
     z.load_hl(0x6442);                                                // C2BC, the countdown
     z.decrement_at_hl(0x6445);
-    if(!z.sign()) return return_taken_at(0x6446);
-    z.return_not_taken(0x6446);
+    if (auto exit=z.final_return_if(0x6446,mk::Condition::p)) return *exit;
     z.store_to_hl(0x6447);                                            // reload the countdown
     z.increment_hl(0x6449);                                           // C2BD, the frame index
     z.load_from_hl(0x644A,z.r.a);
@@ -253,7 +245,7 @@ template<class Z> Exit tile_sequence_c(Z& z) {
         z.pop(0x649E,z.r.b,z.r.c);
         z.exchange_de_hl(0x649F);
     } while(z.decrement_jump(0x64A0));
-    return return_at(0x64A2);
+    return return_at(z,0x64A2);
 }
 
 // ---- Colour cycles A and B: 01:64A3 and 01:64CF --------------------------------------------------
@@ -266,16 +258,13 @@ template<class Z> Exit tile_sequence_c(Z& z) {
 template<class Z> Exit colour_cycle_a(Z& z) {
     z.load_a_direct(0x64A3);                                          // the fade timer
     z.or_a(0x64A6);
-    if(!z.zero()) return return_taken_at(0x64A7);
-    z.return_not_taken(0x64A7);
+    if (auto exit=z.final_return_if(0x64A7,mk::Condition::nz)) return *exit;
     z.load_a_direct(0x64A8);                                          // the game mode
     z.compare_immediate(0x64AB);
-    if(!z.zero()) return return_taken_at(0x64AD);
-    z.return_not_taken(0x64AD);
+    if (auto exit=z.final_return_if(0x64AD,mk::Condition::nz)) return *exit;
     z.load_hl(0x64AE);                                                // C213, the countdown
     z.decrement_at_hl(0x64B1);
-    if(!z.sign()) return return_taken_at(0x64B2);
-    z.return_not_taken(0x64B2);
+    if (auto exit=z.final_return_if(0x64B2,mk::Condition::p)) return *exit;
     z.store_to_hl(0x64B3);                                            // reload the countdown
     z.load_de(0x64B5);                                                // CRAM colour 13
     z.restart_vdp_address(0x64B8);
@@ -290,7 +279,7 @@ template<class Z> Exit colour_cycle_a(Z& z) {
     z.add_to_hl(0x64C5,z.de());
     z.load_bc(0x64C6);                                                // three colours to the data port
     do { z.output_increment(0x64C9); } while(z.jump_if(0x64CB,!z.zero()));
-    return return_at(0x64CE);
+    return return_at(z,0x64CE);
 }
 // 01:64CF: colour cycle B. Every eighth frame (reload 07h) the position steps
 // back and wraps at sixteen; colours 8-11 come from the first run and 12-15
@@ -298,16 +287,13 @@ template<class Z> Exit colour_cycle_a(Z& z) {
 template<class Z> Exit colour_cycle_b(Z& z) {
     z.load_a_direct(0x64CF);                                          // the fade timer
     z.or_a(0x64D2);
-    if(!z.zero()) return return_taken_at(0x64D3);
-    z.return_not_taken(0x64D3);
+    if (auto exit=z.final_return_if(0x64D3,mk::Condition::nz)) return *exit;
     z.load_a_direct(0x64D4);                                          // the game mode
     z.compare_immediate(0x64D7);
-    if(!z.zero()) return return_taken_at(0x64D9);
-    z.return_not_taken(0x64D9);
+    if (auto exit=z.final_return_if(0x64D9,mk::Condition::nz)) return *exit;
     z.load_hl(0x64DA);                                                // C213, the countdown
     z.decrement_at_hl(0x64DD);
-    if(!z.sign()) return return_taken_at(0x64DE);
-    z.return_not_taken(0x64DE);
+    if (auto exit=z.final_return_if(0x64DE,mk::Condition::p)) return *exit;
     z.store_to_hl(0x64DF);                                            // reload the countdown
     z.load_de(0x64E1);                                                // CRAM colour 8
     z.restart_vdp_address(0x64E4);
@@ -326,7 +312,7 @@ template<class Z> Exit colour_cycle_b(Z& z) {
     z.add_to_hl(0x64FD,z.de());
     z.load_immediate(0x64FE,z.r.b);                                   // four more
     do { z.output_increment(0x6500); } while(z.jump_if(0x6502,!z.zero()));
-    return return_at(0x6505);
+    return return_at(z,0x6505);
 }
 }
 
@@ -347,7 +333,11 @@ void register_scene_animation(RoutineRegistry& registry) {
     const RoutineEntry strips{1,0x641B}, sequence_a{1,0x63D2}, sequence_b{1,0x63F9}, sequence_c{1,0x6442};
 
     add(0x63A5,dispatch,{R(0x63A9),R(0x63AE),R(0x63B1),F(0x63B5)},{},[](auto& z) -> Exit { return animation_dispatch(z); });
-    add(0x63CE,none,{R(0x63CE)},{},[](auto& z) -> Exit { return no_animation(z); });
+    {   // a lone RET: the entry is also its final
+        auto spec=mk::segment(none,{R(0x63CE)},{});
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,0x63CE},std::move(spec),[](auto& z) -> Exit { return no_animation(z); });
+    }
     add(0x64A3,colour_a,{R(0x64A7),R(0x64AD),R(0x64B2),R(0x64CE)},{.scratch_stack=2},[](auto& z) -> Exit { return colour_cycle_a(z); });
     add(0x64CF,colour_b,{R(0x64D3),R(0x64D9),R(0x64DE),R(0x6505)},{.scratch_stack=2},[](auto& z) -> Exit { return colour_cycle_b(z); });
     add(0x641B,strips,{F(0x6426,-2)},{.scratch_stack=4},[](auto& z) -> Exit { return strip_start(z); });
@@ -359,5 +349,16 @@ void register_scene_animation(RoutineRegistry& registry) {
         [](auto& z) -> Exit { return strip_source(z); });                                                                   // after the VDP address restart
     add(0x6438,strips,{L(0x643A,128),C(0x643F,4)},{.inherited_stack=4},[](auto& z) -> Exit { return strip_stream(z); });     // a stream cut at its jump
     add(0x643D,strips,{C(0x643F,4)},{.inherited_stack=4},[](auto& z) -> Exit { return strip_end(z); });                      // the stream's last byte was sent
+
+    // The joining stretches (milestone 14): the calls of colour cycle A after
+    // a sequence's table jump, and the return that follows the last strip.
+    for (const std::uint16_t at:{0x63CF,0x63F6}) {
+        auto spec=mk::segment(RoutineEntry{1,at},{F(at)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,at},std::move(spec),[at](auto& z) -> Exit { return z.final_call(at); });
+    }
+    auto leave=mk::segment(RoutineEntry{1,0x6441},{R(0x6441)});
+    leave.single_instruction=true;
+    mk::add_segment(registry,RoutineEntry{1,0x6441},std::move(leave),[](auto& z) -> Exit { return z.final_return(0x6441); });
 }
 }

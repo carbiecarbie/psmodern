@@ -11,8 +11,8 @@
 // Almost all of this code talks to the video chip with interrupts off: a DI,
 // the VDP address set through RST 08 (rendered inline), a run of data-port
 // writes (OUT, OUTI) or reads (INI), and an EI. The DI and EI, the instruction
-// after each EI and the pushes and pops right before them stay native
-// (menu::native_instructions); each segment starts after the DI and ends on
+// after each EI and the pushes and pops right before them were left out of
+// these segments in milestone 12 (menu::native_instructions; milestone 14 renders them as segments of their own); each segment starts after the DI and ends on
 // the last plain instruction before the EI (an `ex de,hl` in every printer,
 // `ld a,n` at 00:3A87). Every port access happens at the T-state of the
 // original instruction (the kit times them), so the VDP sees the same reads
@@ -21,12 +21,12 @@
 // The two whole-window loops (00:3A83 drawing at once, 00:3AA6 saving under a
 // window) are cut into short chunks inside each row (one byte, three bytes),
 // because a big window takes longer than a frame and a chunk that does not
-// fit before the frame boundary runs natively up to the next entry; 00:3A68
+// fit before the frame boundary ends its segment at the next entry; 00:3A68
 // draws one row per call and frame. The enemy-name printer's
-// character loop is cut on its DJNZ. The calls between units stay native
-// (bare calls are core-executed exits); the digit helper 00:3645 is rendered
-// inline inside the printers and also registered on its own for the native
-// paths a fallback takes.
+// character loop is cut on its DJNZ. The calls between units end a segment
+// (bare calls are exits to the callee's own segment); the digit helper 00:3645 is rendered
+// inline inside the printers and also registered on its own for the calls
+// that reach it directly.
 #include "game/menu.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
@@ -38,10 +38,8 @@ namespace {
 namespace mk=game::menu_kit;
 using mk::Exit;
 using mk::call_cycles;
-using mk::continues;
 using mk::jump_cycles;
 using mk::return_cycles;
-using mk::returns;
 constexpr unsigned ex_de_hl_cycles=4, load_immediate_cycles=7;
 constexpr RoutineEntry at0(std::uint16_t address) { return {0,address}; }
 
@@ -86,9 +84,8 @@ template<class Z> void call_digit(Z& z, std::uint16_t at) {
 // live side never meets such a state.
 template<class Z> bool counting(Z& z, std::uint16_t at) {
     if (!z.relative_if(at,!z.carry())) return false;
-    if (z.elapsed()<=mk::uncertain_maximum) return true;
-    if constexpr (std::is_base_of_v<kit::Estimate,std::remove_reference_t<decltype(z.bus())>>) { z.bus().uncertain=true; return false; }
-    else throw std::logic_error("a registered engine segment counted a digit past one frame");
+    // In-body guard: valid across a delivery (it reads the segment's own elapsed time).
+    return z.guard(z.elapsed()<=mk::uncertain_maximum,"a digit count ran past one frame");
 }
 
 // `ld a,(hl); out (n),a; inc hl; djnz` at `at`: B label tiles from HL.
@@ -128,7 +125,7 @@ template<class Z> void name(Z& z, std::uint16_t at) {
 
 // The end of every printer at `at`: two delayed writes (the right border tile
 // and its attribute), `pop de; ld hl,0040h; add hl,de`, and the
-// `ex de,hl` (DE one name-table row further down) executed by the core.
+// `ex de,hl` (DE one name-table row further down), left to the next segment.
 template<class Z> Exit printer_end(Z& z, std::uint16_t at) {
     auto& r=z.r;
     delayed_out(z,at);
@@ -136,7 +133,8 @@ template<class Z> Exit printer_end(Z& z, std::uint16_t at) {
     z.pop(static_cast<std::uint16_t>(at+12),r.d,r.e);
     z.load_hl(static_cast<std::uint16_t>(at+13));
     z.add_to_hl(static_cast<std::uint16_t>(at+16),z.de());
-    return continues(static_cast<std::uint16_t>(at+17),ex_de_hl_cycles);
+    z.exchange_de_hl(static_cast<std::uint16_t>(at+17));
+    return mk::fall_through(static_cast<std::uint16_t>(at+17),static_cast<std::uint16_t>(at+18));
 }
 
 // Tens and units of L (`ld d,FFh; ld a,l; sub n; inc d; jr nc` blocks at
@@ -336,9 +334,9 @@ template<class Z> Exit item_name_line(Z& z) {         // 00:356C
 // two resumes are entries 00:316F (taken) and 00:3188 (not taken). A
 // character costs 128 cycles: 00:315D always ends after the first one (its
 // end at 00:3199 is never reached from there), 00:316F after two. Short
-// chunks matter beyond the bound: a chunk that falls back near the frame
-// boundary runs natively only up to the next entry, which is again this loop,
-// so a long chunk falls back once per character until the boundary is passed
+// chunks matter beyond the bound: a chunk that is refused near the frame
+// boundary can only end at the next entry, which is again this loop,
+// so a long chunk is refused once per character until the boundary is passed
 // (segments.md planned 512 cycles; the census had 316F at 55-84%).
 constexpr std::uint16_t name_after=128;
 enum class Name { start, character, end };
@@ -356,7 +354,7 @@ template<class Z> Exit enemy_name_line(Z& z, Name from) {
     if (from!=Name::end)
         for (;;) {
             character(z,0x316F);
-            if (z.loop_exit(name_after)) return mk::decrement_jump_exit(z,0x3186);
+            if (z.loop_exit(name_after)) return z.final_decrement_jump(0x3186);
             if (!z.decrement_jump(0x3186)) break;
         }
     return printer_end(z,0x3188);
@@ -364,50 +362,45 @@ template<class Z> Exit enemy_name_line(Z& z, Name from) {
 
 // ---- 00:3439 / 00:342C: the dialogue scroll ----------------------------------------------------
 // Save the lower three text rows (3AA6), draw them back one row higher
-// (3A83), draw a blank row at the bottom (3A83, native loads 3451/3454), wait
+// (3A83), draw a blank row at the bottom (3A83, loads 3451/3454), wait
 // four frames. 342C scrolls twice, keeping BC, DE and HL.
 template<class Z> Exit three_loads(Z& z, std::uint16_t at) {
     z.load_hl(at);
     z.load_de(static_cast<std::uint16_t>(at+3));
     z.load_bc(static_cast<std::uint16_t>(at+6));
-    return continues(static_cast<std::uint16_t>(at+9),call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+9));
 }
 template<class Z> Exit scroll_wait(Z& z, bool after_wait) {
     auto& r=z.r;
     if (after_wait) {
-        if (!z.decrement_jump(0x3461)) return returns(0x3463,return_cycles);
+        if (!z.decrement_jump(0x3461)) return z.final_return(0x3463);
     } else z.load_immediate(0x345A,r.b);
     z.load_immediate(0x345C,r.a);
-    return continues(0x345E,call_cycles);
+    return z.final_call(0x345E);
 }
 
 // ---- 00:3A57 / 00:3A68: draw a window one row per frame ---------------------------------------
 // 3A57 switches slot 2 to the window bank (the `ld a,n` operand) around the
-// native call of 3A68 and restores it. 3A68: per row, interrupts off, the row
+// call of 3A68 and restores it. 3A68: per row, interrupts off, the row
 // (C bytes from HL) to VRAM DE with OUTI, DE one row down, interrupts on and
-// a frame wait (native), B rows.
+// a frame wait (another segment), B rows.
 template<class Z> Exit draw_window(Z& z) {            // 00:3A57
     auto& r=z.r;
     z.load_a_direct(0x3A57);
     z.push(0x3A5A,r.a,r.f);
     z.load_immediate(0x3A5B,r.a);
     z.store_a_direct(0x3A5D);
-    return continues(0x3A60,call_cycles);
+    return z.final_call(0x3A60);
 }
 // The slot-2 store at `store_at` followed by the RET (00:3A64, 00:3AA2). The
 // store also lands in the work-RAM byte under $FFFF; with the stack at FFFEh
 // the return word is read back changed and the original returns elsewhere,
-// which the core-executed RET cannot be declared for: the estimate gives up
-// (the dispatch falls back) and the live side never meets such a state.
+// which the rendered RET follows exactly (it pops what the store left).
 template<class Z> Exit restore_bank(Z& z, std::uint16_t pop_at, std::uint16_t store_at) {
     auto& r=z.r;
     if (pop_at) z.pop(pop_at,r.a,r.f);
     z.store_a_direct(store_at);
-    if (r.sp==0xFFFE || r.sp==0xFFFF) {
-        if constexpr (std::is_base_of_v<kit::Estimate,std::remove_reference_t<decltype(z.bus())>>) z.bus().uncertain=true;
-        else throw std::logic_error("a registered engine segment returned through the slot-2 register");
-    }
-    return returns(static_cast<std::uint16_t>(store_at+3),return_cycles);
+    return z.final_return(static_cast<std::uint16_t>(store_at+3));
 }
 template<class Z> Exit row(Z& z) {                    // 00:3A6A
     auto& r=z.r;
@@ -418,27 +411,28 @@ template<class Z> Exit row(Z& z) {                    // 00:3A6A
     z.exchange_de_hl(0x3A73);
     z.load_bc(0x3A74);
     z.add_to_hl(0x3A77,z.bc());
-    return continues(0x3A78,ex_de_hl_cycles);
+    z.exchange_de_hl(0x3A78);
+    return mk::fall_through(0x3A78,0x3A79);
 }
 template<class Z> Exit next_row(Z& z) {               // 00:3A7F
     z.pop(0x3A7F,z.r.b,z.r.c);
-    return mk::decrement_jump_exit(z,0x3A80);
+    return z.final_decrement_jump(0x3A80);
 }
 
 // ---- 00:3A83: draw a window at once -------------------------------------------------------------
 // The same rows without frame waits, interrupts off for the whole window.
 // One byte per segment: the row start 00:3A8D (push bc, the VDP address, the
 // first OUTI) and each further OUTI 00:3A92 end on the loop's JP NZ
-// (00:3A94), decided by the core. The row end 00:3A97-00:3A9E stays native
-// (not registered, segments.md section 7): the dialogue scroll is locked to
+// (00:3A94), decided by the next segment. The row end 00:3A97-00:3A9E was left out
+// of this catalog in milestone 12 (segments.md section 7): the dialogue scroll is locked to
 // its frame wait, so the frame boundary keeps falling on it, and with any
-// longer chunk a fallback's native byte runs into it with little of the frame
-// left. A one-byte chunk (26 cycles) that falls back crosses the boundary
-// within its own native byte, so the next entry always has a whole frame.
+// longer chunk the byte before it runs into it with little of the frame
+// left. A one-byte chunk is 26 cycles, so the next entry always has a whole frame.
 template<class Z> Exit at_once_start(Z& z) {          // 00:3A83
     z.load_a_direct(0x3A83);
     z.push(0x3A86,z.r.a,z.r.f);
-    return continues(0x3A87,load_immediate_cycles);
+    z.load_immediate(0x3A87,z.r.a);
+    return mk::fall_through(0x3A87,0x3A89);
 }
 template<class Z> Exit at_once_byte(Z& z, bool row_start) {
     auto& r=z.r;
@@ -449,7 +443,7 @@ template<class Z> Exit at_once_byte(Z& z, bool row_start) {
         z.load_immediate(0x3A90,r.c);
     }
     z.output_increment(0x3A92);
-    return mk::jump_if_exit(0x3A94);
+    return z.final_jump_if(0x3A94,mk::Condition::nz);
 }
 
 // ---- 00:3AA6: save what lies under a window --------------------------------------------------------
@@ -460,7 +454,7 @@ template<class Z> Exit at_once_byte(Z& z, bool row_start) {
 // bytes (37 cycles each) per chunk from 00:3AB0, one from the row starts
 // 00:3AA7 and 00:3AAB (whose row end is then never reached). The plan's 768
 // cycles left 3AB0 at 70-85% in the census for the reason given at 00:315C:
-// a fallback repeats on every byte until the frame boundary is passed.
+// a refused chunk repeats on every byte until the frame boundary is passed.
 constexpr std::uint16_t save_after=96;
 enum class Save { start, row, inside, end };
 template<class Z> Exit save_under(Z& z, Save from) {
@@ -481,7 +475,7 @@ template<class Z> Exit save_under(Z& z, Save from) {
             z.input_increment(0x3AB0);
             z.push(0x3AB2,r.a,r.f);
             z.pop(0x3AB3,r.a,r.f);
-            if (z.loop_exit(save_after)) return continues(0x3AB4,jump_cycles);
+            if (z.loop_exit(save_after)) return z.final_jump_if(0x3AB4,mk::Condition::nz);
             if (!z.jump_if(0x3AB4,!z.zero())) break;
         }
     z.exchange_de_hl(0x3AB7);
@@ -489,7 +483,7 @@ template<class Z> Exit save_under(Z& z, Save from) {
     z.add_to_hl(0x3ABB,z.bc());
     z.exchange_de_hl(0x3ABC);
     z.pop(0x3ABD,r.b,r.c);
-    return mk::decrement_jump_exit(z,0x3ABE);
+    return z.final_decrement_jump(0x3ABE);
 }
 
 // ---- Exit lists -----------------------------------------------------------------------------------
@@ -527,14 +521,14 @@ void register_menu_engine(RoutineRegistry& registry) {
         [](auto& z) {
             auto& r=z.r;
             z.push(0x342C,r.b,r.c); z.push(0x342D,r.d,r.e); z.push(0x342E,r.h,r.l);
-            return continues(0x342F,call_cycles);
+            return z.final_call(0x342F);
         });
     mk::add_segment(registry,at0(0x3435),
         mk::segment(menu::dialogue_scroll_two_unit,{mk::returned_at(0x3438,+6)},{.inherited_stack=6}),
         [](auto& z) {
             auto& r=z.r;
             z.pop(0x3435,r.h,r.l); z.pop(0x3436,r.d,r.e); z.pop(0x3437,r.b,r.c);
-            return returns(0x3438,return_cycles);
+            return z.final_return(0x3438);
         });
     mk::add_segment(registry,at0(0x3439),mk::segment(menu::dialogue_scroll_unit,{mk::core_final_at(0x3442)}),
         [](auto& z) { return three_loads(z,0x3439); });
@@ -558,7 +552,7 @@ void register_menu_engine(RoutineRegistry& registry) {
         [](auto& z) { return money(z); });
     mk::add_segment(registry,at0(0x3645),
         mk::segment(menu::digit_unit,{mk::returned_at(digit_return)},{.scratch_stack=2}),
-        [](auto& z) { digit_body(z); return returns(digit_return,return_cycles); });
+        [](auto& z) { digit_body(z); return z.final_return(digit_return); });
     mk::add_segment(registry,at0(0x393B),
         mk::segment(menu::shop_line_unit,{mk::core_final_at(0x3631)},{.scratch_stack=6}),
         [](auto& z) { return shop_line(z); });
@@ -612,24 +606,91 @@ void register_window_rows(RoutineRegistry& registry) {
     mk::add_segment(registry,window_row_entries[0],mk::segment(menu::dialogue_scroll_unit,
         {last_load}),[](auto& z) {
             z.load_hl(0x3451);
-            return mk::continues(0x3454,10);
+            z.load_bc(0x3454);
+            return mk::fall_through(0x3454,0x3457);
         });
     mk::add_segment(registry,window_row_entries[1],mk::segment(menu::dialogue_scroll_unit,
         {mk::core_final_at(0x3457)},{.scratch_stack=2}),[](auto& z) {
             z.load_bc(0x3454);
-            return mk::continues(0x3457,mk::call_cycles);
+            return z.final_call(0x3457);
         });
     mk::add_segment(registry,window_row_entries[2],mk::segment(menu::draw_window_at_once_unit,
         {mk::core_final_at(0x3A9B)}),[](auto& z) {
             z.exchange_de_hl(0x3A97);
             z.load_bc(0x3A98);
-            return mk::continues(0x3A9B,11);
+            z.add_to_hl(0x3A9B,z.bc());
+            return mk::fall_through(0x3A9B,0x3A9C);
         });
     mk::add_segment(registry,window_row_entries[3],mk::segment(menu::draw_window_at_once_unit,
         {mk::conditional_at(0x3A9E,2)},{.inherited_stack=2}),[](auto& z) {
             z.exchange_de_hl(0x3A9C);
             z.pop(0x3A9D,z.r.b,z.r.c);
-            return mk::decrement_jump_exit(z,0x3A9E);
+            return z.final_decrement_jump(0x3A9E);
+        });
+}
+
+
+// ---- The joining segments between the segments above (milestone 14) -----------------------------
+// The instructions a segment's final leads to, each now a segment of its own, without another segment
+// there: the second call of the dialogue scroll, the setup and the row end of
+// the one-row window draw, the call that follows the last tile loads of the
+// scroll, the delay writes before the enemy-name loop, and the instructions
+// that set the port in front of an OUTI loop. Registered with the menu
+// continuations (register_menu_remainder).
+void register_menu_engine_joins(RoutineRegistry& registry) {
+    // One instruction: a call or a return that follows a segment's final.
+    auto single_call=[&](std::uint16_t at,RoutineEntry unit) {
+        auto spec=mk::segment(unit,{mk::core_final_at(at)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,at0(at),std::move(spec),[](const Machine&) { return 17; },
+                        [at](auto& z) -> Exit { return z.final_call(at); });
+    };
+    single_call(0x3432,menu::dialogue_scroll_two_unit);   // the scroll's second call, after the first returned
+    single_call(0x3457,menu::dialogue_scroll_unit);       // the last strip of the scroll after its tile loads
+    auto row_return=mk::segment(menu::row_drawer_unit,{mk::returned_at(0x3A82)});
+    row_return.single_instruction=true;
+    mk::add_segment(registry,at0(0x3A82),std::move(row_return),[](const Machine&) { return 10; },
+                    [](auto& z) -> Exit { return z.final_return(0x3A82); });   // the window's last row is drawn
+    // The enemy name line: two delayed border writes, then the character counter.
+    mk::add_segment(registry,at0(0x3161),mk::segment(menu::enemy_name_line_unit,{mk::core_final_at(0x316D)},{.scratch_stack=2}),
+        [](auto& z) -> Exit {
+            delayed_out(z,0x3161);
+            delayed_out(z,0x3167);
+            z.load_immediate(0x316D,z.r.b);
+            return mk::fall_through(0x316D,0x316F);
+        });
+    // The one-row draw: the port set-up before the row's OUTI loop, the loop, and the step to the next row.
+    mk::add_segment(registry,at0(0x3A6B),mk::segment(menu::row_drawer_unit,{mk::core_final_at(0x3A6C)}),
+        [](auto& z) -> Exit {
+            z.copy(0x3A6B,z.r.b,z.r.c);
+            z.load_immediate(0x3A6C,z.r.c);
+            return mk::fall_through(0x3A6C,0x3A6E);
+        });
+    mk::add_segment(registry,at0(0x3A6E),mk::segment(menu::row_drawer_unit,{mk::conditional_at(0x3A70)}),
+        [](auto& z) -> Exit {
+            z.output_increment(0x3A6E);
+            return z.final_jump_if(0x3A70,mk::Condition::nz);
+        });
+    mk::add_segment(registry,at0(0x3A73),mk::segment(menu::row_drawer_unit,{mk::core_final_at(0x3A78)}),
+        [](auto& z) -> Exit {
+            z.exchange_de_hl(0x3A73);
+            z.load_bc(0x3A74);
+            z.add_to_hl(0x3A77,z.bc());
+            z.exchange_de_hl(0x3A78);
+            return mk::fall_through(0x3A78,0x3A79);
+        });
+    // The port set-up (B = the byte count, C = the data port) in front of an OUTI or INI byte.
+    mk::add_segment(registry,at0(0x3A8F),mk::segment(menu::draw_window_at_once_unit,{mk::core_final_at(0x3A90)}),
+        [](auto& z) -> Exit {
+            z.copy(0x3A8F,z.r.b,z.r.c);
+            z.load_immediate(0x3A90,z.r.c);
+            return mk::fall_through(0x3A90,0x3A92);
+        });
+    mk::add_segment(registry,at0(0x3AAD),mk::segment(menu::save_under_unit,{mk::core_final_at(0x3AAE)}),
+        [](auto& z) -> Exit {
+            z.copy(0x3AAD,z.r.b,z.r.c);
+            z.load_immediate(0x3AAE,z.r.c);
+            return mk::fall_through(0x3AAE,0x3AB0);
         });
 }
 

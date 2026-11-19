@@ -33,14 +33,18 @@
 //
 // How the code is cut. A segment ends where the original calls or jumps into
 // a routine of another part (a dialogue, the cursor loop, a frame wait, a
-// graphics loader); the core runs that instruction and the instruction after
-// a call is the next entry. Every store to the cartridge control register
-// ($FFFC), every DI or EI and every long copy (LDIR, block_transfer.cpp) is
-// also left to the core, so that memory is remapped, interrupts change and
-// copies can pause at their original instruction boundaries. The addresses
-// passed to the kit are the original's, because the kit reads each
+// graphics loader); that call is rendered as the segment's last instruction
+// and the instruction after a call is the next entry. Every store to the
+// cartridge control register ($FFFC), every DI or EI and every long copy
+// (LDIR, block_transfer.cpp) also ends a segment, so that memory is remapped,
+// interrupts change and copies can pause at their original instruction
+// boundaries; since milestone 14 every such final instruction is rendered
+// and the instructions that used to run between two segments are one-
+// instruction segments of their own (the last block of register_scenes). The
+// addresses passed to the kit are the original's, because the kit reads each
 // instruction's operands and cycle cost from the player's ROM; no ROM value
 // is written here.
+#include "game/joins.h"
 #include "game/scenes.h"
 #include "game/routines.h"
 #include "game/menu_kit.h"
@@ -56,25 +60,31 @@ namespace {
 namespace mk=menu_kit;
 using mk::Exit;
 
-// The ways a segment ends: the core runs the named instruction, which costs
-// the cycles given here on the path the segment found.
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit call_if_at(std::uint16_t at, bool taken) { return mk::continues(at,taken ? mk::call_cycles : mk::untaken_call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit return_taken_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
-Exit cartridge_store_at(std::uint16_t at) { return mk::continues(at,13); }   // `ld ($FFFC),a`
-Exit seed_store_at(std::uint16_t at) { return mk::continues(at,7); }         // `ld (hl),l`
-Exit word_load_at(std::uint16_t at) { return mk::continues(at,10); }         // `ld bc,nn` / `ld de,nn` before a copy
-Exit video_address_at(std::uint16_t at) { return mk::continues(at,11); }     // `rst 08h`
-Exit disable_interrupts_at(std::uint16_t at) { return mk::continues(at,4); } // `di`
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
+template<class Z> Exit cartridge_store_at(Z& z, std::uint16_t at) {   // `ld ($FFFC),a`
+    z.store_a_direct(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+3));
+}
+template<class Z> Exit seed_store_at(Z& z, std::uint16_t at) {   // `ld (hl),l`
+    z.store_register_to_hl(at,z.r.l);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+1));
+}
+template<class Z> Exit word_load_at(Z& z, std::uint16_t at) {            // `ld bc,nn` before a copy
+    z.load_bc(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+3));
+}
+template<class Z> Exit video_address_at(Z& z, std::uint16_t at) { return z.final_restart(at,0x08); }   // `rst 08h`
+template<class Z> Exit disable_interrupts_at(Z& z, std::uint16_t at) { return z.final_disable_interrupts(at); }
 
 // ---- Title: 00:05D0-0633 ---------------------------------------------------------------------------
 // 00:05D0: game mode 2, the title screen; return.
 template<class Z> Exit title_setup(Z& z) {
     z.load_hl(0x05D0);                                               // the game mode (C202)
     z.store_to_hl(0x05D3);
-    return return_at(0x05D5);
+    return return_at(z,0x05D5);
 }
 // 00:05D6: the title screen's cursor: its position (C269) and two choices
 // (the count minus one at C26E), then the cursor loop 00:2D51.
@@ -83,16 +93,16 @@ template<class Z> Exit title_menu(Z& z) {
     z.store_hl_direct(0x05D9);
     z.load_immediate(0x05DC,z.r.a);
     z.store_a_direct(0x05DE);
-    return call_at(0x05E1);
+    return call_at(z,0x05E1);
 }
-// 00:05E8: a new game. Work RAM from C300 is cleared (1,024 bytes): the core
-// stores the zero seed at 05F1 (L of C300h) and the LDIR at 05F2 copies it
-// forward; the copy is a separate resumable entry.
+// 00:05E8: a new game. Work RAM from C300 is cleared (1,024 bytes): the zero
+// seed is stored at 05F1 (L of C300h) and the LDIR at 05F2 copies it forward;
+// the copy is a separate resumable entry.
 template<class Z> Exit new_game_clear(Z& z) {
     z.load_hl(0x05E8);
     z.load_de(0x05EB);
     z.load_bc(0x05EE);
-    return seed_store_at(0x05F1);
+    return seed_store_at(z,0x05F1);
 }
 // 00:05E4: after the cursor loop, A holds the choice. Continue (nonzero) takes
 // the JP NZ to 00:0634, rendered here up to its cartridge-RAM switch;
@@ -101,7 +111,7 @@ template<class Z> Exit title_choice(Z& z) {
     z.or_a(0x05E4);
     if (z.jump_if(0x05E5,!z.zero())) {
         z.load_immediate(0x0634,z.r.a);                              // 08h: cartridge RAM on
-        return cartridge_store_at(0x0636);
+        return cartridge_store_at(z,0x0636);
     }
     return new_game_clear(z);
 }
@@ -111,7 +121,7 @@ template<class Z> Exit new_game_first_character(Z& z) {
     z.load_index(0x05F4,mk::Index::iy);
     z.store_immediate_indexed(0x05F8,mk::Index::iy);                 // weapon
     z.store_immediate_indexed(0x05FC,mk::Index::iy);                 // armour
-    return call_at(0x0600);
+    return call_at(z,0x0600);
 }
 // 00:0603: the world's starting values: two dungeon-object flags (C600, C604)
 // set to done, the starting area word (C308), the camera X (C301 and its
@@ -132,22 +142,22 @@ template<class Z> Exit new_game_world(Z& z) {
     z.store_hl_direct(0x0622);                                       // C311
     z.load_hl(0x0625);
     z.store_hl_direct(0x0628);                                       // the money
-    return call_at(0x062B);
+    return call_at(z,0x062B);
 }
 // 00:062E: game mode 8, then return.
 template<class Z> Exit new_game_mode(Z& z) {
     z.load_hl(0x062E);
     z.store_to_hl(0x0631);
-    return return_at(0x0633);
+    return return_at(z,0x0633);
 }
 
 // ---- Continue: the slot scan and the window graphics, 00:0634-0678 ---------------------------------
 // 00:0634 (also 00:0645, 00:064D, 00:069D, 00:06B4, 00:06F5, 00:073A): one
-// load of the cartridge control value (08h on, 80h off) that the core stores
-// right after it.
+// load of the cartridge control value (08h on, 80h off) and the store that
+// ends the segment.
 template<class Z> Exit cartridge_switch(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
-    return cartridge_store_at(static_cast<std::uint16_t>(at+2));
+    return cartridge_store_at(z,static_cast<std::uint16_t>(at+2));
 }
 // 00:0639: look for an occupied slot among the five flags at 8201h-8205h.
 // The first nonzero flag goes on to the conversation (cartridge RAM off at
@@ -161,17 +171,17 @@ template<class Z> Exit find_occupied_slot(Z& z) {
         z.or_a(0x063F);
         if (z.relative_if(0x0640,!z.zero())) {
             z.load_immediate(0x064D,z.r.a);                          // 80h
-            return cartridge_store_at(0x064F);
+            return cartridge_store_at(z,0x064F);
         }
         z.increment_hl(0x0642);
         if (!z.decrement_jump(0x0643)) {
             z.load_immediate(0x0645,z.r.a);                          // 80h
-            return cartridge_store_at(0x0647);
+            return cartridge_store_at(z,0x0647);
         }
     }
 }
-// 00:065D: after the EI at 0659 and the game-mode load the core runs at 065A
-// (the one-instruction interrupt delay), game mode 8; bank 16 into slot 2; the
+// 00:065D: after the EI at 0659 and the game-mode load at 065A (its own
+// segment: the one-instruction interrupt delay), game mode 8; bank 16 into slot 2; the
 // first block of window graphics to video address 1800h through the loader
 // 00:03FA.
 template<class Z> Exit continue_window_graphics(Z& z) {
@@ -180,14 +190,14 @@ template<class Z> Exit continue_window_graphics(Z& z) {
     z.store_to_hl(0x0662);                                           // slot-2 bank ($FFFF)
     z.load_hl(0x0664);
     z.load_de(0x0667);
-    return call_at(0x066A);
+    return call_at(z,0x066A);
 }
 // 00:0664, 00:066D, 00:08BA: the source and video address of one graphics
 // block, then the loader 00:03FA. 0664 is also an entry of its own.
 template<class Z> Exit graphics_block(Z& z, std::uint16_t at) {
     z.load_hl(at);
     z.load_de(static_cast<std::uint16_t>(at+3));
-    return call_at(static_cast<std::uint16_t>(at+6));
+    return call_at(z,static_cast<std::uint16_t>(at+6));
 }
 
 // ---- Continue: the conversation, 00:0679-0729 ------------------------------------------------------
@@ -196,11 +206,11 @@ template<class Z> Exit graphics_block(Z& z, std::uint16_t at) {
 // 00:0679 and the other text sites: the text's address, then 00:31CF.
 template<class Z> Exit show_text(Z& z, std::uint16_t at) {
     z.load_hl(at);
-    return call_at(static_cast<std::uint16_t>(at+3));
+    return call_at(z,static_cast<std::uint16_t>(at+3));
 }
 // 00:0682, 00:06CE, 00:06ED: after a yes/no. No (NZ) takes the JR NZ to the
 // text at `no_text`, yes falls through to the text at `yes_text`; either
-// text's address is loaded here and the core runs its call.
+// text's address is loaded here and its call ends the segment.
 //   0682, the load question: no goes to the erase question (06C5), yes to the slot choice (0684).
 //   06CE, the erase question: no goes back to the load question (0679), yes to the slot choice (06D0).
 //   06ED, the erase confirmation: no chooses again (06D0), yes erases (06EF).
@@ -212,12 +222,12 @@ template<class Z> Exit answer_branch(Z& z, std::uint16_t at, std::uint16_t no_te
 // window 00:39B1, which leaves the slot number in the dialogue number C2C5.
 template<class Z> Exit load_choose_slot(Z& z) {
     z.push(0x068A,z.r.b,z.r.c);
-    return call_at(0x068B);
+    return call_at(z,0x068B);
 }
 // 00:068E: BC back, then the slot-flag check 00:073A.
 template<class Z> Exit load_slot_chosen(Z& z) {
     z.pop(0x068E,z.r.b,z.r.c);
-    return call_at(0x068F);
+    return call_at(z,0x068F);
 }
 // 00:0692: an empty slot (Z) chooses again; an occupied one shows the text
 // before loading.
@@ -227,8 +237,8 @@ template<class Z> Exit load_slot_checked(Z& z) {
 }
 // 00:06A2: after cartridge RAM is switched on (069D): the saved game of slot
 // n (1-5) is the 1,024 bytes at 8000h + n x 400h. HL = n x 100h x 4 with bit
-// 15 set, DE = C300; the core loads the count at 06AF and the LDIR at 06B2 is
-// a separate resumable entry.
+// 15 set, DE = C300; the count is loaded at 06AF and the LDIR at 06B2 is a
+// separate resumable entry.
 template<class Z> Exit load_slot_address(Z& z) {
     z.load_a_direct(0x06A2);                                         // the slot number (C2C5)
     z.copy(0x06A5,z.r.h,z.r.a);
@@ -237,7 +247,7 @@ template<class Z> Exit load_slot_address(Z& z) {
     z.add_to_hl(0x06A9,z.hl());
     z.set_bit(0x06AA,7,z.r.h);
     z.load_de(0x06AC);
-    return word_load_at(0x06AF);
+    return word_load_at(z,0x06AF);
 }
 // 00:06B9: after the copy and cartridge RAM off (06B4): a game saved in a
 // dungeon (saved mode C316 = 0Bh) resumes in mode 0Ah, which reloads the floor;
@@ -245,16 +255,15 @@ template<class Z> Exit load_slot_address(Z& z) {
 template<class Z> Exit load_resume_mode(Z& z) {
     z.load_a_direct(0x06B9);
     z.compare_immediate(0x06BC);                                     // 0Bh
-    if (!z.zero()) return return_taken_at(0x06BE);
-    z.return_not_taken(0x06BE);
+    if (auto exit=z.final_return_if(0x06BE,mk::Condition::nz)) return *exit;
     z.load_hl(0x06BF);
     z.store_to_hl(0x06C2);                                           // game mode 0Ah
-    return return_at(0x06C4);
+    return return_at(z,0x06C4);
 }
 // 00:06D6: choose the slot to erase, as for loading.
 template<class Z> Exit erase_choose_slot(Z& z) {
     z.push(0x06D6,z.r.b,z.r.c);
-    return call_at(0x06D7);
+    return call_at(z,0x06D7);
 }
 // 00:06DA: button 1 (bit 4 of the pressed buttons in C) cancels back to the
 // erase question (06C5); otherwise BC back and the slot-flag check 00:073A.
@@ -262,7 +271,7 @@ template<class Z> Exit erase_slot_chosen(Z& z) {
     z.test_bit(0x06DA,4,z.r.c);
     z.pop(0x06DC,z.r.b,z.r.c);
     if (z.relative_if(0x06DD,!z.zero())) return show_text(z,0x06C5);
-    return call_at(0x06DF);
+    return call_at(z,0x06DF);
 }
 // 00:06E2: an empty slot chooses again; an occupied one asks for confirmation.
 template<class Z> Exit erase_slot_checked(Z& z) {
@@ -304,13 +313,13 @@ template<class Z> Exit erase_slot(Z& z) {
     z.load_bc(0x0720);
     z.block_copy(0x0723);                                            // the second name row
     z.load_immediate(0x0725,z.r.a);                                  // 80h
-    return cartridge_store_at(0x0727);
+    return cartridge_store_at(z,0x0727);
 }
 // 00:072A: back to the title screen (game mode 2), then return.
 template<class Z> Exit erase_done(Z& z) {
     z.load_hl(0x072A);
     z.store_to_hl(0x072D);
-    return return_at(0x072F);
+    return return_at(z,0x072F);
 }
 
 // ---- The slot-flag check: 00:073A-074C -------------------------------------------------------------
@@ -325,18 +334,18 @@ template<class Z> Exit slot_flag_test(Z& z) {
     z.load_from_hl(0x0745,z.r.a);
     z.or_a(0x0746);
     z.load_immediate(0x0747,z.r.a);
-    return cartridge_store_at(0x0749);
+    return cartridge_store_at(z,0x0749);
 }
 // 00:074C: the return itself, an entry after the cartridge store.
-template<class Z> Exit slot_flag_return(Z&) { return return_at(0x074C); }
+template<class Z> Exit slot_flag_return(Z& z) { return return_at(z,0x074C); }
 
 // ---- The opening loader: 00:074D-07B7 --------------------------------------------------------------
 // 00:075A: after the DI at 0750 and its three calls (00:003E, the sound
 // initialization, the name-table clear 00:035A): the next game mode, the word
 // C20E (258h), and
 // the opening palette (20h bytes from the ROM at 07BAh) to the target
-// palette C240; the core loads the count at 076A and the LDIR at 076D is an
-// entry of its own.
+// palette C240; the count is loaded at 076A and the LDIR at 076D is an entry
+// of its own.
 template<class Z> Exit opening_palette(Z& z) {
     z.load_hl(0x075A);
     z.increment_at_hl(0x075D);                                       // game mode + 1
@@ -344,15 +353,16 @@ template<class Z> Exit opening_palette(Z& z) {
     z.store_hl_direct(0x0761);
     z.load_hl(0x0764);
     z.load_de(0x0767);
-    return word_load_at(0x076A);
+    return word_load_at(z,0x076A);
 }
 // 00:076F and 00:077C: the pointers of a fill (C260-C2FF, then the eight
-// object slots C800-C8FF); the core loads the count, the zero seed (0778,
-// 0785) stays native and the LDIR (077A, 0786) is an entry of its own.
+// object slots C800-C8FF); the count is loaded at the end of the segment, the
+// zero seed (0778, 0785) is a one-instruction segment of its own and the LDIR
+// (077A, 0786) is an entry of its own.
 template<class Z> Exit opening_fill_pointers(Z& z, std::uint16_t at) {
     z.load_hl(at);
     z.load_de(static_cast<std::uint16_t>(at+3));
-    return word_load_at(static_cast<std::uint16_t>(at+6));
+    return word_load_at(z,static_cast<std::uint16_t>(at+6));
 }
 // 00:0788: bank 31 into slot 2, then its graphics to video address 0 through
 // the four-plane loader 00:03CD.
@@ -361,18 +371,18 @@ template<class Z> Exit opening_graphics(Z& z) {
     z.store_to_hl(0x078B);                                           // slot-2 bank ($FFFF)
     z.load_hl(0x078D);
     z.load_de(0x0790);
-    return call_at(0x0793);
+    return call_at(z,0x0793);
 }
 // 00:0796: bank 14 into slot 2, then its layout through 01:6B62.
 template<class Z> Exit opening_layout(Z& z) {
     z.load_hl(0x0796);
     z.store_to_hl(0x0799);                                           // slot-2 bank ($FFFF)
     z.load_hl(0x079B);
-    return call_at(0x079E);
+    return call_at(z,0x079E);
 }
 // 00:07A1: both scroll shadows (C304, C300) to zero, the sound request C004
-// (81h), and DE = 8006h for the video register write the core runs at 07B0
-// (RST 08h); the EI at 07B1 follows.
+// (81h), and DE = 8006h for the video register write at 07B0 (RST 08h); the
+// EI at 07B1 follows.
 template<class Z> Exit opening_scroll_and_sound(Z& z) {
     z.xor_a(0x07A1);
     z.store_a_direct(0x07A2);
@@ -380,7 +390,7 @@ template<class Z> Exit opening_scroll_and_sound(Z& z) {
     z.load_immediate(0x07A8,z.r.a);
     z.store_a_direct(0x07AA);
     z.load_de(0x07AD);
-    return video_address_at(0x07B0);
+    return video_address_at(z,0x07B0);
 }
 
 // ---- The spaceship flight: take-off, 00:086F-08A5 ---------------------------------------------------
@@ -396,26 +406,26 @@ template<class Z> Exit takeoff_start(Z& z) {
     z.store_hl_direct(0x0872);
     z.load_a_direct(0x0875);                                         // the pause flag (C212)
     z.or_a(0x0878);
-    return call_at(0x0879);
+    return z.final_call_if(0x0879,mk::Condition::nz);
 }
 // 00:0875, 00:091A, 00:0944: the top of a loop: CALL NZ to the pause loop.
 template<class Z> Exit flight_pause_test(Z& z, std::uint16_t at) {
     z.load_a_direct(at);
     z.or_a(static_cast<std::uint16_t>(at+3));
-    return call_if_at(static_cast<std::uint16_t>(at+4),!z.zero());
+    return z.final_call_if(static_cast<std::uint16_t>(at+4),mk::Condition::nz);
 }
 // 00:087C and the other frame waits: the frame handler's number in A, then
 // the frame wait 00:0052.
 template<class Z> Exit frame_wait(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
-    return call_at(static_cast<std::uint16_t>(at+2));
+    return call_at(z,static_cast<std::uint16_t>(at+2));
 }
 // 00:0881, 00:0926, 00:0950: button 1 or 2 just pressed takes the loop's exit
 // (the JR NZ).
 template<class Z> Exit flight_skip_test(Z& z, std::uint16_t at) {
     z.load_a_direct(at);                                             // the pressed buttons (C205)
     z.and_immediate(static_cast<std::uint16_t>(at+3));
-    return mk::relative_if_exit(static_cast<std::uint16_t>(at+5),!z.zero());
+    return z.final_relative_if(static_cast<std::uint16_t>(at+5),mk::Condition::nz);
 }
 // 00:088B: after the scroll step, the take-off speeds up by 8/256 of a line
 // per frame; the loop goes on (JR C) until the speed reaches eight lines.
@@ -426,13 +436,13 @@ template<class Z> Exit takeoff_accelerate(Z& z) {
     z.store_hl_direct(0x0892);
     z.copy(0x0895,z.r.a,z.r.h);
     z.compare_immediate(0x0896);
-    return mk::relative_if_exit(0x0898,z.carry());
+    return z.final_relative_if(0x0898,mk::Condition::c);
 }
 // 00:089F: wait (frame by frame, from 089A) until the fade timer runs out.
 template<class Z> Exit takeoff_fade_wait(Z& z) {
     z.load_a_direct(0x089F);                                         // the fade timer (C21B)
     z.or_a(0x08A2);
-    return mk::relative_if_exit(0x08A3,!z.zero());
+    return z.final_relative_if(0x08A3,mk::Condition::nz);
 }
 
 // ---- The spaceship flight: space, 00:08A7-0935 -----------------------------------------------------
@@ -445,36 +455,36 @@ template<class Z> Exit space_palette(Z& z) {
     z.load_de(0x08AF);
     z.load_bc(0x08B2);
     z.block_copy(0x08B5);
-    return call_at(0x08B7);
+    return call_at(z,0x08B7);
 }
 // 00:08C3: bank 28 into slot 2, then the space layout through 01:6B62.
 template<class Z> Exit space_layout(Z& z) {
     z.load_hl(0x08C3);
     z.store_to_hl(0x08C6);                                           // slot-2 bank ($FFFF)
     z.load_hl(0x08C8);
-    return call_at(0x08CB);
+    return call_at(z,0x08CB);
 }
 // 00:08CE: the screen copy D000 (the decoded layout) is repeated below
 // itself: 300h bytes to D300 (LDIR at 08D7), then 100h more to D600 (08D9,
-// LDIR at 08DF), the copy continuing where the first one ended. The core
-// loads each count.
+// LDIR at 08DF), the copy continuing where the first one ended. Each count is
+// loaded at the end of its segment.
 template<class Z> Exit space_screen_first_copy(Z& z) {
     z.load_hl(0x08CE);
     z.load_de(0x08D1);
-    return word_load_at(0x08D4);
+    return word_load_at(z,0x08D4);
 }
 template<class Z> Exit space_screen_second_copy(Z& z) {
     z.load_hl(0x08D9);
-    return word_load_at(0x08DC);
+    return word_load_at(z,0x08DC);
 }
 // 00:08E1: a second layout over it (01:6B62).
 template<class Z> Exit space_overlay(Z& z) {
     z.load_hl(0x08E1);
-    return call_at(0x08E4);
+    return call_at(z,0x08E4);
 }
 // 00:08E7: both scroll shadows to zero, then the pointers of the 700h-byte
 // transfer of the screen copy to the name table (video address 3800h); the
-// core runs the DI at 08F7 before the transfer 00:0346.
+// DI at 08F7 ends the segment before the transfer 00:0346.
 template<class Z> Exit space_screen_upload(Z& z) {
     z.xor_a(0x08E7);
     z.store_a_direct(0x08E8);
@@ -482,20 +492,20 @@ template<class Z> Exit space_screen_upload(Z& z) {
     z.load_hl(0x08EE);
     z.load_de(0x08F1);
     z.load_bc(0x08F4);
-    return disable_interrupts_at(0x08F7);
+    return disable_interrupts_at(z,0x08F7);
 }
-// 00:08FF: after the EI at 08FB and the load the core runs at 08FC: the 300h
-// bytes of D000 to D300 again (the core loads the count at 0902, the LDIR at
+// 00:08FF: after the EI at 08FB and the load at 08FC (its own segment): the
+// 300h bytes of D000 to D300 again (the count is loaded at 0902, the LDIR at
 // 0905 is an entry of its own).
 template<class Z> Exit space_screen_refresh(Z& z) {
     z.load_de(0x08FF);
-    return word_load_at(0x0902);
+    return word_load_at(z,0x0902);
 }
 // 00:0907: the sound request C004 (8Fh), then the fade-in 01:7B20.
 template<class Z> Exit space_sound(Z& z) {
     z.load_immediate(0x0907,z.r.a);
     z.store_a_direct(0x0909);
-    return call_at(0x090C);
+    return call_at(z,0x090C);
 }
 // 00:090F: speed zero; C307 now counts the screens left to cross (8); then
 // the pause test of the space loop.
@@ -506,14 +516,14 @@ template<class Z> Exit space_start(Z& z) {
     z.store_a_direct(0x0917);
     z.load_a_direct(0x091A);                                         // the pause flag (C212)
     z.or_a(0x091D);
-    return call_at(0x091E);
+    return z.final_call_if(0x091E,mk::Condition::nz);
 }
 // 00:0930: after the descent step 00:09E9, the loop goes on while screens are
 // left (C307 not zero).
 template<class Z> Exit space_loop_test(Z& z) {
     z.load_a_direct(0x0930);
     z.or_a(0x0933);
-    return mk::relative_if_exit(0x0934,!z.zero());
+    return z.final_relative_if(0x0934,mk::Condition::nz);
 }
 
 // ---- The spaceship flight: landing, 00:0936-0997 ---------------------------------------------------
@@ -521,7 +531,7 @@ template<class Z> Exit space_loop_test(Z& z) {
 template<class Z> Exit landing_mode(Z& z) {
     z.load_hl(0x0936);
     z.store_to_hl(0x0939);
-    return call_at(0x093B);
+    return call_at(z,0x093B);
 }
 // 00:093E: the landing starts at eight lines per frame; then the pause test
 // of the landing loop.
@@ -530,7 +540,7 @@ template<class Z> Exit landing_start(Z& z) {
     z.store_hl_direct(0x0941);
     z.load_a_direct(0x0944);                                         // the pause flag (C212)
     z.or_a(0x0947);
-    return call_at(0x0948);
+    return z.final_call_if(0x0948,mk::Condition::nz);
 }
 // 00:095A: after the scroll step, the landing slows down by 8/256 of a line
 // per frame; the loop goes on (JR NC) until the speed would drop below zero.
@@ -540,7 +550,7 @@ template<class Z> Exit landing_decelerate(Z& z) {
     z.or_a(0x0960);
     z.subtract_hl_with_carry(0x0961,z.de());
     z.store_hl_direct(0x0963);
-    return mk::relative_if_exit(0x0966,!z.carry());
+    return z.final_relative_if(0x0966,mk::Condition::nc);
 }
 // 00:0968: arrived. Speed zero, game mode 8, and the route's arrival record:
 // the route C2E9 (low seven bits, from 1) chooses a 9-byte record of the table
@@ -569,7 +579,7 @@ template<class Z> Exit landing_arrival(Z& z) {
     z.store_a_direct(0x098B);                                        // C2E9
     z.store_a_direct(0x098E);                                        // C30E
     z.store_a_direct(0x0991);                                        // C307
-    return call_at(0x0994);
+    return call_at(z,0x0994);
 }
 
 // ---- The scroll step: 00:0998-09E8 ----------------------------------------------------------------
@@ -584,8 +594,8 @@ template<class Z> Exit landing_arrival(Z& z) {
 //     lines of a screen (0-BFh), so a result of C0h or more has wrapped, loses
 //     40h and moves the screen row C306 (0-7) up by one.
 //  4. A new screen row needs the screen window loaded again: CALL NZ
-//     01:723D at 09D5. Then the core calls the row-strip builder 01:733A at
-//     09D8 and the next entry is 09DB.
+//     01:723D at 09D5. Then the call of the row-strip builder 01:733A at
+//     09D8 (a segment of its own) and the next entry is 09DB.
 template<class Z> Exit scroll_step(Z& z) {
     z.load_pair_direct(0x0998,z.r.d,z.r.e);                          // DE = the speed (C2F2)
     z.load_a_direct(0x099C);
@@ -605,8 +615,7 @@ template<class Z> Exit scroll_step(Z& z) {
     z.copy(0x09B7,z.r.a,z.r.b);
     z.subtract_register(0x09B8,z.r.h);
     z.and_immediate(0x09B9);                                         // the lines moved
-    if (z.zero()) return return_taken_at(0x09BB);
-    z.return_not_taken(0x09BB);
+    if (auto exit=z.final_return_if(0x09BB,mk::Condition::z)) return *exit;
     z.copy(0x09BC,z.r.e,z.r.a);
     z.load_immediate(0x09BD,z.r.d);
     z.load_hl_direct(0x09BF);                                        // the camera Y (C305-C306)
@@ -624,21 +633,20 @@ template<class Z> Exit scroll_step(Z& z) {
     z.copy(0x09D0,z.r.h,z.r.a);
     z.store_hl_direct(0x09D1);
     z.compare_register(0x09D4,z.r.b);
-    return call_if_at(0x09D5,!z.zero());
+    return z.final_call_if(0x09D5,mk::Condition::nz);
 }
 // 00:09DB: while the speed's whole lines are 7 and the fade timer runs, one
 // fade step (CALL NZ 01:7B40 at 09E5); at any other speed, return.
 template<class Z> Exit scroll_fade(Z& z) {
     z.load_a_direct(0x09DB);                                         // C2F3
     z.compare_immediate(0x09DE);
-    if (!z.zero()) return return_taken_at(0x09E0);
-    z.return_not_taken(0x09E0);
+    if (auto exit=z.final_return_if(0x09E0,mk::Condition::nz)) return *exit;
     z.load_a_direct(0x09E1);                                         // the fade timer (C21B)
     z.or_a(0x09E4);
-    return call_if_at(0x09E5,!z.zero());
+    return z.final_call_if(0x09E5,mk::Condition::nz);
 }
 // 00:09E8: the return after the fade step.
-template<class Z> Exit scroll_return(Z&) { return return_at(0x09E8); }
+template<class Z> Exit scroll_return(Z& z) { return return_at(z,0x09E8); }
 
 // ---- The descent step: 00:09E9-0A49 ---------------------------------------------------------------
 // 00:09E9: one frame of the space flight. The picture moves two lines (D
@@ -661,12 +669,10 @@ template<class Z> Exit descent_step(Z& z) {
     z.subtract_register(0x09FE,z.r.d);
     z.store_a_direct(0x09FF);
     z.compare_immediate(0x0A02);                                     // 1
-    if (!z.zero()) return return_taken_at(0x0A04);
-    z.return_not_taken(0x0A04);
+    if (auto exit=z.final_return_if(0x0A04,mk::Condition::nz)) return *exit;
     z.copy(0x0A05,z.r.a,z.r.d);
     z.or_a(0x0A06);                                                  // not on a wrap: already done
-    if (z.zero()) return return_taken_at(0x0A07);
-    z.return_not_taken(0x0A07);
+    if (auto exit=z.final_return_if(0x0A07,mk::Condition::z)) return *exit;
     z.load_a_direct(0x0A08);                                         // the route (C2E9)
     z.and_immediate(0x0A0B);
     z.copy(0x0A0D,z.r.l,z.r.a);                                      // A x 9
@@ -680,7 +686,7 @@ template<class Z> Exit descent_step(Z& z) {
     z.add_to_hl(0x0A18,z.de());
     z.load_from_hl(0x0A19,z.r.a);
     z.store_a_direct(0x0A1A);                                        // C308
-    return call_at(0x0A1D);
+    return call_at(z,0x0A1D);
 }
 // 00:0A20: the new colours are shown at once (the target palette C240 copied
 // over the working palette C220, 20h bytes), then the destination's layout:
@@ -691,7 +697,7 @@ template<class Z> Exit descent_destination(Z& z) {
     z.load_bc(0x0A26);
     z.block_copy(0x0A29);
     z.load_hl(0x0A2B);
-    return jump_at(0x0A2E);
+    return jump_at(z,0x0A2E);
 }
 // 00:0A31: the route colours: C308's low two bits choose one of four 6-byte
 // entries of the table at 0A4Ah, copied to the target palette from C242.
@@ -709,7 +715,7 @@ template<class Z> Exit route_colours(Z& z) {
     z.load_de(0x0A41);
     z.load_bc(0x0A44);
     z.block_copy(0x0A47);
-    return return_at(0x0A49);
+    return return_at(z,0x0A49);
 }
 
 // ---- The flight's map loader: 00:0A5C-0ABE --------------------------------------------------------
@@ -732,7 +738,7 @@ template<class Z> Exit flight_map_record(Z& z, std::uint16_t at) {
     z.add_to_hl(static_cast<std::uint16_t>(at+16),z.de());
     z.load_de(static_cast<std::uint16_t>(at+17));
     z.push(static_cast<std::uint16_t>(at+20),z.r.d,z.r.e);           // 00:0A8C
-    return call_at(static_cast<std::uint16_t>(at+21));
+    return call_at(z,static_cast<std::uint16_t>(at+21));
 }
 // 00:0A8C: the held buttons C204 and the step direction C264 cleared; the
 // transport C30E is the ship (10h), or 11h for a route of 83h or above; speed
@@ -748,7 +754,7 @@ template<class Z> Exit flight_map_transport(Z& z) {
     z.store_a_direct(0x0A9D);
     z.load_hl(0x0AA0);
     z.store_hl_direct(0x0AA3);
-    return call_at(0x0AA6);
+    return call_at(z,0x0AA6);
 }
 // 00:0AA9: the six tile animators C26F-C286 cleared (a zero byte copied
 // forward), then the object engine 01:576A.
@@ -758,13 +764,13 @@ template<class Z> Exit flight_map_animators(Z& z) {
     z.load_bc(0x0AAF);
     z.store_to_hl(0x0AB2);
     z.block_copy(0x0AB4);
-    return call_at(0x0AB6);
+    return call_at(z,0x0AB6);
 }
 // 00:0AB9: the step direction C264 = 1 (up), then return.
 template<class Z> Exit flight_map_direction(Z& z) {
     z.load_immediate(0x0AB9,z.r.a);
     z.store_a_direct(0x0ABB);
-    return return_at(0x0ABE);
+    return return_at(z,0x0ABE);
 }
 }
 
@@ -784,7 +790,7 @@ void register_scenes(RoutineRegistry& registry) {
     auto F=[](std::uint16_t at, std::int8_t stack=0) { return mk::core_final_at(at,stack); };
     auto R=[](std::uint16_t at) { return mk::returned_at(at); };
     auto C=[](std::uint16_t at) { return mk::conditional_at(at); };
-    // A final `ld ($FFFC),a`: the core remaps cartridge RAM at that moment.
+    // A final `ld ($FFFC),a`: cartridge RAM is remapped at that moment.
     auto cartridge=[](std::uint16_t at) { auto exit=mk::core_final_at(at); exit.cartridge_control=true; return exit; };
     // A final `ld (hl),l` that seeds the 1,024-byte clear of C300.
     auto seed=[](std::uint16_t at) { auto exit=mk::core_final_at(at); exit.wram_seed=0xC300; return exit; };
@@ -797,16 +803,29 @@ void register_scenes(RoutineRegistry& registry) {
         spec.observe_entry=observed;
         mk::add_segment(registry,RoutineEntry{0,at},std::move(spec),logic);
     };
-    // A lone DI or EI, run by the core (four cycles).
+    // A lone DI or EI (four cycles).
     auto interrupt_switch=[&](std::uint16_t at, InterruptMask mask) {
         const RoutineEntry entry{0,at};
         auto spec=mk::segment(entry,{masked(at,mask)});
         spec.single_instruction=true;
-        registry.add(entry,spec,[](const Machine&) { return 4; },[=](RoutineContext& c) { c.finish_core(at); });
+        mk::add_segment(registry,entry,std::move(spec),[at,mask](auto& z) -> Exit {
+            return mask==InterruptMask::enable ? z.final_enable_interrupts(at) : z.final_disable_interrupts(at);
+        });
     };
     auto copy=[&](std::uint16_t at) { register_block_transfer(registry,{0,at}); };
     constexpr mk::Permissions none{}, calls{.scratch_stack=2};
     constexpr mk::Permissions mapper_calls{.slot2_mapper=true,.scratch_stack=2};
+    // The joining stretches of milestone 14: the instructions between
+    // two segments, each a one-instruction segment of its own.
+    auto single=[&](std::uint16_t at, SegmentExit exit, mk::Permissions permissions, auto logic) {
+        const RoutineEntry entry{0,at};
+        auto spec=mk::segment(entry,{exit},permissions);
+        spec.single_instruction=true;
+        mk::add_segment(registry,entry,std::move(spec),logic);
+    };
+    auto call_single=[&](std::uint16_t at) {
+        single(at,F(at),calls,[at](auto& z) -> Exit { return z.final_call(at); });
+    };
 
     // ---- title and new game ----
     add(0x05D0,0x05D0,{R(0x05D5)},none,[](auto& z) -> Exit { return title_setup(z); });
@@ -862,7 +881,7 @@ void register_scenes(RoutineRegistry& registry) {
     // ---- the slot-flag check ----
     add(0x073A,0x073A,{cartridge(0x073C)},none,[](auto& z) -> Exit { return cartridge_switch(z,0x073A); });
     add(0x073F,0x073F,{cartridge(0x0749)},none,[](auto& z) -> Exit { return slot_flag_test(z); });
-    add(0x074C,0x074C,{R(0x074C)},none,[](auto& z) -> Exit { return slot_flag_return(z); });
+    single(0x074C,R(0x074C),none,[](auto& z) -> Exit { return slot_flag_return(z); });
 
     // ---- the opening loader ----
     interrupt_switch(0x0750,InterruptMask::disable);
@@ -918,7 +937,7 @@ void register_scenes(RoutineRegistry& registry) {
     // ---- the scroll and descent steps ----
     add(0x0998,0x0998,{R(0x09BB),F(0x09D5)},calls,[](auto& z) -> Exit { return scroll_step(z); });
     add(0x09DB,0x09DB,{R(0x09E0),F(0x09E5)},calls,[](auto& z) -> Exit { return scroll_fade(z); });            // after 01:733A
-    add(0x09E8,0x09E8,{R(0x09E8)},none,[](auto& z) -> Exit { return scroll_return(z); });                     // after the fade step
+    single(0x09E8,R(0x09E8),none,[](auto& z) -> Exit { return scroll_return(z); });                     // after the fade step
     add(0x09E9,0x09E9,{R(0x0A04),R(0x0A07),F(0x0A1D)},calls,[](auto& z) -> Exit { return descent_step(z); });
     add(0x0A20,0x0A20,{F(0x0A2E)},calls,[](auto& z) -> Exit { return descent_destination(z); });              // after the route colours
     add(0x0A31,0x0A31,{R(0x0A49)},none,[](auto& z) -> Exit { return route_colours(z); });
@@ -929,5 +948,41 @@ void register_scenes(RoutineRegistry& registry) {
     add(0x0A8C,0x0A8C,{F(0x0AA6)},calls,[](auto& z) -> Exit { return flight_map_transport(z); });             // the return of 01:787B
     add(0x0AA9,0x0AA9,{F(0x0AB6)},calls,[](auto& z) -> Exit { return flight_map_animators(z); });             // after 00:0B6A
     add(0x0AB9,0x0AB9,{R(0x0ABE)},none,[](auto& z) -> Exit { return flight_map_direction(z); });              // after 01:576A
+
+    // ---- joining stretches (milestone 14) ----
+    // Calls that follow a cartridge-RAM switch, an interrupt switch or another
+    // call, each a segment of its own: the pause loop (00:00F1), the fade
+    // helper (01:7B05), the sound and screen set-up of the opening, the yes/no
+    // window, the window close, the scroll step and the frame waits.
+    for (std::uint16_t at:{0x00F1,0x0652,0x0656,0x0676,0x067F,0x069A,0x0751,0x0754,0x0757,0x07B4,0x0888,0x08F8,0x092D,0x0957,0x09D8})
+        call_single(at);
+    // The instruction after an EI, which the interrupt delay keeps in front
+    // of any interrupt: the game-mode pointer of the Continue graphics, the
+    // frame-wait count of the opening, the ship's VDP pointer.
+    single(0x065A,F(0x065A),none,[](auto& z) -> Exit { z.load_hl(0x065A); return mk::fall_through(0x065A,0x065D); });
+    single(0x07B2,F(0x07B2),none,[](auto& z) -> Exit { z.load_immediate(0x07B2,z.r.a); return mk::fall_through(0x07B2,0x07B4); });
+    single(0x08FC,F(0x08FC),none,[](auto& z) -> Exit { z.load_hl(0x08FC); return mk::fall_through(0x08FC,0x08FF); });
+    // The two seed bytes of the opening loader's fills (a zero and L), which
+    // the fill's copy then spreads.
+    single(0x0778,F(0x0778),none,[](auto& z) -> Exit { z.store_to_hl(0x0778); return mk::fall_through(0x0778,0x077A); });
+    single(0x0785,F(0x0785),none,[](auto& z) -> Exit { z.store_register_to_hl(0x0785,z.r.l); return mk::fall_through(0x0785,0x0786); });
+    // The jump that ends the opening loader after its frame wait, and the
+    // short jump inside the take-off's fade wait.
+    single(0x07B7,F(0x07B7),none,[](auto& z) -> Exit { return z.final_jump(0x07B7); });
+    single(0x08A5,F(0x08A5),none,[](auto& z) -> Exit { return z.final_relative(0x08A5); });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_scenes_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x064A},{0,0x0639},{kit::core_final_at(0x064A)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x064A); });
+    kit::add_joining(registry,{0,0x06CB},{0,0x0682},{kit::core_final_at(0x06CB)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x06CB); });
+    kit::add_joining(registry,{0,0x06EA},{0,0x06E2},{kit::core_final_at(0x06EA)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x06EA); });
+    kit::add_joining(registry,{0,0x0997},{0,0x0968},{kit::returned_at(0x0997)},kit::return_cycles,0,[](auto& z) { return z.final_return(0x0997); });
+    kit::add_joining(registry,{0,0x0B07},{0,0x0B07},{kit::returned_at(0x0B07)},kit::return_cycles,0,[](auto& z) { return z.final_return(0x0B07); });
 }
 }

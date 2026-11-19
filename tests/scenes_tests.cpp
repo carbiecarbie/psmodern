@@ -1,15 +1,66 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "game/scenes.h"
 #include "probe.h"
+#include "game/menu_kit.h"
 #include <iostream>
 #include <algorithm>
 #include <tuple>
 #include <set>
 #include <vector>
+#include <random>
+#include <string_view>
 using namespace psmodern;
 namespace {
 struct Stopped {};
 using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t,Memory::Kind>;
+// The equality of these tests (milestone 14): the machines are compared with
+// the documented oracle equality (the whole state, without the pinned core's
+// per-step scratch, which rendered finals no longer produce), plus the two
+// things that equality leaves out and these tests covered: the PSG writes
+// the frame has made and the cartridge RAM's dirty flag.
+bool same(const Console& engine,const Console& original) {
+    const bool state=oracle::equal(engine,original,oracle::Scope::whole);
+    const bool psg=engine.psg().writes()==original.psg().writes();
+    const bool dirty=engine.memory().cartridge_ram_dirty()==original.memory().cartridge_ram_dirty();
+    if(!state) {
+        unsigned shown=0;
+        for(const auto& difference:oracle::differences(engine,original,oracle::Scope::whole)) if(shown++<12) std::cerr<<"  "<<difference<<"\n";
+    }
+    if(!psg) std::cerr<<"  PSG writes differ\n";
+    if(!dirty) std::cerr<<"  cartridge RAM dirty flag differs\n";
+    return state && psg && dirty;
+}
+// A copy of a registered segment into another registry, keeping what makes it
+// an exact segment (its entry guard included): the tests that drop one entry
+// to stop a chain where the original continues build their registry with it.
+void copy_routine(RoutineRegistry& to,const RoutineEntry& at,const RegisteredRoutine& routine) {
+    if(routine.exact) {
+        if(routine.guard) to.add_exact(at,routine.spec,*routine.guard,routine.bound,routine.body);
+        else to.add_exact(at,routine.spec,routine.bound,routine.body);
+    } else to.add(at,routine.spec,routine.bound,routine.body);
+}
+// Work RAM filled from a seed with a third of the bytes zero, so that the tests
+// of a byte (`or a`, `cp n`) take both of their branches across the seeds.
+// `last` bounds the filled area: the sweeps use C300-C600 only (random bytes in
+// the sound queue make the interrupt handler overflow the PSG queue).
+void random_ram(Machine& machine,unsigned seed,unsigned first=0xC000,unsigned last=0xDF00) {
+    std::mt19937_64 random(seed*7919u+13u);
+    for(unsigned address=first;address<last;++address) {
+        const auto value=random();
+        machine.memory().write(static_cast<std::uint16_t>(address),(value%3==0) ? 0 : static_cast<std::uint8_t>(value>>8));
+    }
+}
+bool is_scene_file(std::string_view origin) {
+    return origin.find("scenes")!=std::string_view::npos || origin.find("scene_objects")!=std::string_view::npos;
+}
+// The entries whose body is more than one instruction: what the interrupt
+// sweep covers (a one-instruction segment has no boundary inside).
+bool has_boundary_inside(const RegisteredRoutine& routine) {
+    if(routine.spec.single_instruction) return false;
+    for(const auto& exit:routine.spec.exits)
+        if(exit.kind==RoutineExit::copy_repeat || exit.kind==RoutineExit::output_repeat) return false;
+    return true;
+}
 void persistence_observers(probe::Harness& h) {
     for(bool resume:{false,true})
     for(bool include_prefix:{false,true})
@@ -48,18 +99,22 @@ void persistence_observers(probe::Harness& h) {
             try {
                 for(unsigned frames=0;frames<4;++frames) m.run_frame({},registry,hook,observer);
             } catch(const Stopped&) { return; }
+            // The resume chain has no segment at the stop: the engine stops there
+            // before running anything, as the hook does on the original.
+            catch(const UnhandledState&) {
+                if(!registry || m.cpu().pc.uint16_value!=stop || m.memory().mapping(stop)!=Memory::Mapping{Memory::Kind::rom,0}) throw;
+                return;
+            }
             throw std::runtime_error("persistence observer chain did not reach its completion boundary: resume="+std::to_string(resume)+" remaining="+std::to_string(remaining)+" native="+std::to_string(registry==nullptr)+" pc="+std::to_string(m.cpu().pc.uint16_value));
         };
         RoutineRegistry chain;
         for(const auto& [at,routine]:h.registry().entries()) {
             if(resume && at==RoutineEntry{0,stop}) continue;
-            if(routine.spec.exits.empty()) chain.add(at,routine.bound,routine.body);
-            else chain.add(at,routine.spec,routine.bound,routine.body);
+            copy_routine(chain,at,routine);
         }
-        chain.verifier=h.registry().verifier;
         run(native,nullptr,expected_writes,expected_hooks);
         run(actual,&chain,actual_writes,actual_hooks);
-        probe::check(native.equivalent(actual),"initialization/Continue observer chain state");
+        probe::check(same(native,actual),"initialization/Continue observer chain state");
         probe::check(expected_writes==actual_writes,"initialization/Continue write order, cycle, payload and mapping");
         probe::check(expected_hooks==actual_hooks && actual_hooks.size()==1,"initialization/Continue completion observed once at original cycle/mapping");
         if(resume && include_prefix) {
@@ -72,6 +127,7 @@ void persistence_observers(probe::Harness& h) {
     }
 }
 void cartridge_initialization_observers(probe::Harness& h) {
+    struct Reached {};
     for(unsigned control:{8u,12u})
     for(unsigned remaining:{1u,100u,1000u,30000u,59000u})
     for(bool power_loss:{false,true}) {
@@ -81,31 +137,77 @@ void cartridge_initialization_observers(probe::Harness& h) {
         for(unsigned i=0;i<8192;++i) actual.memory().write(static_cast<std::uint16_t>(0x8000+i),static_cast<std::uint8_t>(i+37));
         const auto phase=actual.cycles()%Machine::frame_cycles;
         actual.advance((Machine::frame_cycles-remaining+Machine::frame_cycles-phase)%Machine::frame_cycles);
+        // Milestone 14: the run with routines is compared with the oracle at
+        // every instruction boundary and frame (the lockstep), and, as before
+        // the port, with an independent run of the original instructions
+        // (no registry): every write with its observer cycle and the mapping
+        // of slot 2 at that moment, and the whole final state. The power loss
+        // is injected in both at the same cycle: where the engine's run_frame
+        // returned (after the segment crossing the frame end); the original
+        // is run to that cycle and the comparison of the writes starts there.
         Machine native=actual;
         std::vector<Write> expected,observed;
-        auto run=[&](Machine& m,RoutineRegistry* registry,std::vector<Write>& writes) {
-            Machine::WriteObserver observer=[&](std::uint16_t address,std::uint8_t value) {
-                writes.emplace_back(address,value,m.cycles(),m.memory().mapping(0x8000).kind);
-            };
-            Machine::Hook hook=[](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
-                if(map.kind==Memory::Kind::rom && map.bank==0 && pc==0x086E) throw Stopped{};
-                return {};
-            };
-            try {
-                if(power_loss) {
-                    m.run_frame({},registry,hook,observer);
-                    // Re-enter initialization with the partially written SRAM,
-                    // as after losing power before the header is restored.
-                    m.cpu().pc.uint16_value=0x0847;
-                }
-                for(unsigned frame=0;frame<6;++frame) m.run_frame({},registry,hook,observer);
-            } catch(const Stopped&) { return; }
-            throw std::runtime_error("cartridge initialization did not finish");
+        Machine::WriteObserver observer=[&](std::uint16_t address,std::uint8_t value) {
+            observed.emplace_back(address,value,actual.cycles(),actual.memory().mapping(0x8000).kind);
         };
-        run(native,nullptr,expected);
-        run(actual,&h.registry(),observed);
-        probe::check(actual.equivalent(native),"cartridge initialization/re-entry whole state");
-        probe::check(expected==observed,"cartridge initialization/re-entry ordered byte writes, observer cycles and mapping");
+        Machine::WriteObserver native_observer=[&](std::uint16_t address,std::uint8_t value) {
+            expected.emplace_back(address,value,native.cycles(),native.memory().mapping(0x8000).kind);
+        };
+        Machine::Hook hook=[](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
+            if(map.kind==Memory::Kind::rom && map.bank==0 && pc==0x086E) throw Stopped{};
+            return {};
+        };
+        // The hook sees only the steps no routine takes: the erase's return
+        // (00:086E, a registered segment) is left out of this chain so that
+        // the stop hook fires there, as at the original continuation.
+        RoutineRegistry chain;
+        for(const auto& [at,routine]:h.registry().entries())
+            if(at!=RoutineEntry{0,0x086E}) copy_routine(chain,at,routine);
+        oracle::Lockstep lockstep(actual,"cartridge initialization",oracle::Mode::instructions);
+        std::size_t first_expected=0,first_observed=0;
+        bool stopped=false;
+        try {
+            if(power_loss) {
+                lockstep.run_frame(actual,{},&chain,{},hook,observer);
+                // Re-enter initialization with the partially written SRAM,
+                // as after losing power before the header is restored.
+                lockstep.synchronize(actual);
+                const auto target=actual.cycles();
+                Machine::Hook until=[&](std::uint16_t,Memory::Mapping)->std::optional<std::uint16_t> {
+                    if(native.cycles()>=target) throw Reached{};
+                    return {};
+                };
+                // The original's frames, observed, to the engine's boundary: past its frame end too, where
+                // the engine's run_frame went on to the end of the segment crossing it (review R3 L6).
+                while(native.cycles()<target) { try { native.run_frame({},nullptr,until,native_observer); } catch(const Reached&) {} }
+                probe::check(native.cycles()==target,"the original reaches the engine's power-loss boundary exactly");
+                actual.cpu().pc.uint16_value=0x0847; lockstep.oracle().cpu().pc.uint16_value=0x0847;
+                native.cpu().pc.uint16_value=0x0847;
+                first_expected=expected.size(); first_observed=observed.size();
+            }
+            for(unsigned frame=0;frame<6;++frame) lockstep.run_frame(actual,{},&chain,{},hook,observer);
+        } catch(const Stopped&) { stopped=true; }
+        // No segment begins at 00:086E in the chain: the engine stops there
+        // before running anything, as the hook does on the original.
+        catch(const UnhandledState&) {
+            if(actual.cpu().pc.uint16_value!=0x086E || actual.memory().mapping(0x086E)!=Memory::Mapping{Memory::Kind::rom,0}) throw;
+            stopped=true;
+        }
+        probe::check(stopped,"cartridge initialization did not finish");
+        lockstep.synchronize(actual);
+        bool native_stopped=false;
+        try {
+            for(unsigned frame=0;frame<6;++frame) native.run_frame({},nullptr,hook,native_observer);
+        } catch(const Stopped&) { native_stopped=true; }
+        probe::check(native_stopped,"the original's cartridge initialization did not finish");
+        // The writes before the power loss, then those after it (review R3 L6: both parts).
+        probe::check(std::vector<Write>(expected.begin(),expected.begin()+static_cast<std::ptrdiff_t>(first_expected))==
+                     std::vector<Write>(observed.begin(),observed.begin()+static_cast<std::ptrdiff_t>(first_observed)),
+            "cartridge initialization writes before the power loss");
+        probe::check(std::vector<Write>(expected.begin()+static_cast<std::ptrdiff_t>(first_expected),expected.end())==
+                     std::vector<Write>(observed.begin()+static_cast<std::ptrdiff_t>(first_observed),observed.end()),
+            "cartridge initialization/re-entry ordered byte writes, observer cycles and slot-2 mapping");
+        probe::check(same(actual,native),"cartridge initialization/re-entry whole state");
         const auto first=std::find_if(observed.begin(),observed.end(),[](const Write& w) { return std::get<0>(w)==0x8000; });
         probe::check(first!=observed.end() && std::get<1>(*first)==0 && std::get<3>(*first)==Memory::Kind::cartridge_ram,"first initialization write seeds mapped SRAM with zero");
         probe::check(actual.memory().mapping(0x8000).kind==Memory::Kind::rom,"initialization restores ROM mapping");
@@ -113,7 +215,7 @@ void cartridge_initialization_observers(probe::Harness& h) {
             probe::check(actual.memory().cartridge_ram()[i]==static_cast<std::uint8_t>(i+37),"initialization preserves the final four SRAM bytes");
     }
     auto disabled=h.prepare({0,0x0847},{});
-    h.run_fallback(disabled,{0,0x0847},RoutineFallback::frame);
+    h.run_fallback(disabled,{0,0x0847},RoutineFallback::guard);   // the entry guard: cartridge RAM is not mapped
 }
 
 void scene_copy_native_tails(probe::Harness& h) {
@@ -153,18 +255,25 @@ void scene_copy_native_tails(probe::Harness& h) {
             probe::check(machine.cpu().bc.uint16_value==static_cast<std::uint16_t>(remaining-expected),"scene copy retains exact BC including zero wrap");
             if (result.cycles>left) probe::check(expected>=2 && 21*(expected-1)<left && start+21*(expected-1)<start+left,"scene copy crosses frame only in a real native tail after C++ work");
         } else {
-            Machine native=machine;
+            oracle::NativeMachine native(machine);
             native.step();
+            const auto exact_before=h.exact_instead();
             h.run_fallback(machine,entry,event && deadline<duration(1) ? RoutineFallback::nmi : RoutineFallback::frame);
-            probe::check(machine.equivalent(native),"scene copy refusal preserves the original instruction and late NMI");
+            // A refusal leaves the machine unchanged (run_fallback checks it); the exact copy
+            // that runs instead takes one transfer, the original instruction (review R3 L6).
+            if(h.exact_instead()!=exact_before)
+                probe::check(same(machine,native),"scene copy slice preserves the original instruction and late NMI");
         }
         unchecked.step(plain);
-        probe::check(unchecked.equivalent(machine),"scene copy admission and full state are identical with verifier disabled");
+        probe::check(same(unchecked,machine),"scene copy admission and full state are identical with verifier disabled");
         const auto* unverified=plain.find(entry);
-        probe::check(unverified && unverified->counters.cpp_calls==(expected ? 1u : 0u) && !unverified->counters.forced_calls,"scene copy does not force admission with verifier disabled");
+        // Milestone 14: the copy is exact, so a slice that does not fit before
+        // the frame end or an NMI is admitted too (the event is taken at its
+        // boundaries); the reference above is the original instruction.
+        probe::check(unverified && unverified->counters.cpp_calls==1u && !unverified->counters.fallback_calls,"scene copy does not force admission with verifier disabled");
         machine.step();
         original.step();
-        probe::check(machine.equivalent(original),"scene copy preserves late NMI acceptance on the following instruction");
+        probe::check(same(machine,original),"scene copy preserves late NMI acceptance on the following instruction");
         ++cases;
     }
     std::cout<<"Scene native copy tails, final/repeat/zero BC and NMI boundaries: "<<cases<<"\n";
@@ -196,10 +305,10 @@ void scene_copy_irq_windows(probe::Harness& h) {
             const auto result=h.run_cpp(machine,entry);
             probe::check(result.cycles==21*expected-(expected==total ? 5u : 0u),"scene copy IRQ window retains complete bound");
         } else h.run_fallback(machine,entry,RoutineFallback::irq);
-        probe::check(machine.equivalent(native),"scene copy matches at IRQ boundary including late sampling");
+        probe::check(same(machine,native),"scene copy matches at IRQ boundary including late sampling");
         machine.step();
         native.step();
-        probe::check(machine.equivalent(native),"scene copy preserves IRQ acceptance on the following instruction");
+        probe::check(same(machine,native),"scene copy preserves IRQ acceptance on the following instruction");
         ++cases;
     }
     for (const auto address:{0x61B9,0x61C2})
@@ -218,10 +327,8 @@ void visual_scene_copy_windows(probe::Harness& h) {
     RoutineRegistry chain;
     for (const auto& [entry,routine]:h.registry().entries()) {
         if (entry==RoutineEntry{1,0x61D9}) continue;
-        if (routine.spec.exits.empty()) chain.add(entry,routine.bound,routine.body);
-        else chain.add(entry,routine.spec,routine.bound,routine.body);
+        copy_routine(chain,entry,routine);
     }
-    chain.verifier=h.registry().verifier;
     unsigned cases=0;
     for (unsigned event=0;event<3;++event)
     for (unsigned remaining=1;remaining<=128;++remaining) {
@@ -252,18 +359,25 @@ void visual_scene_copy_windows(probe::Harness& h) {
             try {
                 for (unsigned frame=0;frame<8;++frame) machine.run_frame(input,registry,hook,observer);
             } catch (const Stopped&) { return; }
+            // The chain has no segment at 01:61D9: the engine stops there before
+            // running anything, as the hook does on the original.
+            catch (const UnhandledState&) {
+                const auto map=machine.memory().mapping(0x61D9);
+                if (!registry || machine.cpu().pc.uint16_value!=0x61D9 || map.kind!=Memory::Kind::rom || map.bank!=1) throw;
+                return;
+            }
             throw std::runtime_error("scene copies did not reach their continuation");
         };
         run(native,nullptr,expected);
         run(verified,&chain,verified_writes);
         // A nested per-call trace owns the ports during verification. A
         // separate identical run lets the outer trace capture the whole chain.
-        chain.verifier=nullptr;
         run(actual,&chain,observed);
-        chain.verifier=h.registry().verifier;
-        probe::check(verified.equivalent(native) && verified_writes==expected,
+        // The documented equality (milestone 14): the core's per-step scratch
+        // is not machine state, and the rendered chain runs fewer core steps.
+        probe::check(same(verified,native) && verified_writes==expected,
             "verified scene chains preserve full state and every callback");
-        probe::check(actual.equivalent(native),"scene adaptive copies preserve whole state across frame windows");
+        probe::check(same(actual,native),"scene adaptive copies preserve whole state across frame windows");
         probe::check(expected==observed,"scene adaptive copies preserve every seed/copy write and callback cycle");
         if (expected_ports.accesses()!=actual_ports.accesses()) {
             std::string detail="scene chain ports event="+std::to_string(event)+" left="+std::to_string(remaining)+" expected="+std::to_string(expected_ports.accesses().size())+" actual="+std::to_string(actual_ports.accesses().size());
@@ -282,10 +396,32 @@ void visual_scene_copy_windows(probe::Harness& h) {
 }
 
 void scene_copy_windows(probe::Harness& harness,const probe::Rom& rom) {
+    // Minimal interrupt handlers patched into the image (PUSH AF; IN A,(BF);
+    // POP AF; EI; RET and NOP; RETN, a segment's final at its own entry being
+    // a single instruction, which an NMI return is not): the original runs them on the oracle, the
+    // chain runs the test's own rendered segments for them (milestone 14).
+    // RET, not RETI: in this IM 1 handler EI has set IFF1=IFF2 already, so
+    // RETI's only other effect (IFF1 from IFF2) is the same machine state.
     auto image=std::make_shared<Memory::Rom>(*rom.image);
-    const std::array<std::uint8_t,7> irq{0xF5,0xDB,0xBF,0xF1,0xFB,0xED,0x4D};
+    const std::array<std::uint8_t,6> irq{0xF5,0xDB,0xBF,0xF1,0xFB,0xC9};
     std::copy(irq.begin(),irq.end(),image->begin()+0x0038);
-    image->at(0x0066)=0xED;image->at(0x0067)=0x45;
+    image->at(0x0066)=0x00;image->at(0x0067)=0xED;image->at(0x0068)=0x45;
+    RoutineRegistry handlers;
+    {
+        namespace k=game::menu_kit;
+        k::add_segment(handlers,{0,0x0038},k::segment({0,0x0038},{k::core_final_at(0x003C)},{.scratch_stack=2}),[](auto& z) {
+            z.push(0x0038,z.r.a,z.r.f);
+            z.bus().fetch(0x0039);                                    // in a,(n)
+            const auto port=k::pair(z.r.a,z.bus().read(0x003A));
+            z.r.a=z.bus().in(port,10); z.r.wz=static_cast<std::uint16_t>(port+1); z.bus().advance(1);
+            z.pop(0x003B,z.r.a,z.r.f);
+            return z.final_enable_interrupts(0x003C);
+        });
+        k::add_segment(handlers,{0,0x003D},k::segment({0,0x0038},{k::returned_at(0x003D)}),[](auto& z) { return z.final_return(0x003D); });
+        SegmentExit retn{RoutineExit::core_final,0x0067};
+        retn.return_from_nmi=true;
+        k::add_segment(handlers,{0,0x0066},SegmentSpec{{0,0x0066},{retn}},[](auto& z) { z.nop(0x0066); return z.final_return_from_nmi(0x0067); });
+    }
     struct Case {RoutineEntry entry;std::uint16_t final;unsigned kind;};
     const std::array cases{Case{{0,0x075A},0x0793,0},Case{{0,0x08CE},0x08E4,0},
         Case{{0,0x08FF},0x090C,0},Case{{0,0x3D4E},0x0180,1},
@@ -326,24 +462,22 @@ void scene_copy_windows(probe::Harness& harness,const probe::Rom& rom) {
             actual.advance(*next-actual.cycles()-distance);actual.cpu().iff1=actual.cpu().iff2=1;
         } else actual.schedule_nmi(actual.cycles()+distance);
         Machine native=actual;
-        RoutineRegistry declared,chain;game::register_scenes(declared);
-        for(const auto& [entry,routine]:declared.entries()) if(entry!=stop)
-            chain.add(entry,routine.spec,routine.bound,routine.body);
+        // The whole game registry but the stop (milestone 14: the code after the
+        // scene files, such as the slot copy of 01:61D9, is rendered elsewhere
+        // and no core runs it any more).
+        RoutineRegistry chain;
+        for(const auto& [entry,routine]:harness.registry().entries())
+            if(entry!=stop && entry!=RoutineEntry{0,0x0038} && entry!=RoutineEntry{0,0x0066}) copy_routine(chain,entry,routine);
+        for(const auto& [entry,routine]:handlers.entries()) copy_routine(chain,entry,routine);
         using Event=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t,Memory::Mapping,Memory::Mapping>;
         std::vector<Event> expected,observed;
+        std::vector<PsgWrite> expected_psg,observed_psg;
         Machine::PortTrace expected_ports(native),actual_ports(actual);
-        auto run=[&](Machine& machine,RoutineRegistry* registry,std::vector<Event>& writes) {
+        auto run=[&](Machine& machine,RoutineRegistry* registry,std::vector<Event>& writes,std::vector<PsgWrite>& psg) {
             bool image_arm=false;
             std::uint16_t pc=0;unsigned bank=0;std::uint64_t instruction_start=0,instruction_fetches=0;
             Machine::WriteObserver observer=[&](std::uint16_t a,std::uint8_t value) {
                 writes.emplace_back(a,value,machine.cycles(),machine.memory().mapping(a),machine.memory().mapping(0x8000));
-                const RoutineEntry at{bank,pc};
-                if(registry && machine.opcode_fetches()==instruction_fetches+1 && std::find(game::scenes::startup_native_seeds.begin(),game::scenes::startup_native_seeds.end(),at)!=game::scenes::startup_native_seeds.end() && a==machine.cpu().hl.uint16_value) {
-                    probe::check(machine.cycles()==instruction_start,"scene seed callback pc="+std::to_string(pc)+" start="+std::to_string(instruction_start)+" actual="+std::to_string(machine.cycles())+" event="+std::to_string(event)+" distance="+std::to_string(distance));
-                    const auto wanted=machine.peek(pc)==0x75 ? static_cast<std::uint8_t>(machine.cpu().hl.uint16_value) : machine.peek(static_cast<std::uint16_t>(pc+1));
-                    probe::check(value==wanted,"isolated scene fill seed keeps its authenticated payload");
-                    seen_seeds.insert(at);
-                }
             };
             Machine::Hook hook=[&](std::uint16_t address,Memory::Mapping mapping)->std::optional<std::uint16_t> {
                 pc=address;bank=mapping.bank;instruction_start=machine.cycles();instruction_fetches=machine.opcode_fetches();
@@ -354,17 +488,31 @@ void scene_copy_windows(probe::Harness& harness,const probe::Rom& rom) {
                 }
                 return {};
             };
-            try {for(unsigned frame=0;frame<16;++frame) {machine.run_frame({},registry,hook,observer);machine.take_samples();machine.take_psg_writes();}}
+            try {for(unsigned frame=0;frame<16;++frame) {machine.run_frame({},registry,hook,observer);machine.take_samples();const auto drained=machine.take_psg_writes();psg.insert(psg.end(),drained.begin(),drained.end());}}
             catch(const Stopped&) {return;}
+            // The chain has no segment at the stop: the engine stops there before
+            // running anything, as the hook does on the original.
+            catch(const UnhandledState&) {
+                const auto at=machine.cpu().pc.uint16_value;const auto mapping=machine.memory().mapping(at);
+                if(!registry || mapping.kind!=Memory::Kind::rom || RoutineEntry{mapping.bank,at}!=stop) throw;
+                return;
+            }
             throw std::runtime_error("scene copy chain did not reach its original continuation: "+std::to_string(test.entry.address));
         };
-        run(native,nullptr,expected);run(actual,&chain,observed);
-        probe::check(actual.equivalent(native),"split scene copy preserves CPU/WZ/R, buffers, mapping, peripherals and events");
+        run(native,nullptr,expected,expected_psg);run(actual,&chain,observed,observed_psg);
+        // The fill seeds are one-instruction segments now: the comparison of
+        // every write with its cycle and mapping below is their payload and
+        // observer-cycle proof; here it is noted which of them this chain ran.
+        for(const auto seed:game::scenes::startup_native_seeds)
+            if(const auto* routine=chain.find(seed); routine && routine->counters.cpp_calls) seen_seeds.insert(seed);
+        probe::check(same(actual,native),"split scene copy preserves CPU/WZ/R, buffers, mapping, peripherals and events");
         probe::check(expected==observed,"split scene copy preserves every write address, byte, order, cycle and mapping");
+        probe::check(expected_psg==observed_psg,"split scene copy preserves every PSG write and its cycle");
         probe::check(expected_ports.accesses()==actual_ports.accesses(),"split scene copy preserves every port operation and cycle");
     }
     for(const auto seed:game::scenes::startup_native_seeds) {
-        probe::check(harness.registry().find(seed)==nullptr,"declared scene fill seed remains one isolated native instruction");
+        const auto* routine=harness.registry().find(seed);
+        probe::check(routine && routine->spec.single_instruction,"declared scene fill seed is a one-instruction segment");
         probe::check(seen_seeds.contains(seed),"every declared scene fill seed has a payload/cycle observer proof");
     }
 }
@@ -382,25 +530,33 @@ void hapsby_lookup_routes(probe::Harness& h,const probe::Rom& rom) {
         Machine native=actual;
         RoutineRegistry chain;
         for(const auto& [entry,routine]:h.registry().entries()) if(entry.address!=dialogue && entry.address!=cleanup) {
-            if(routine.spec.exits.empty()) chain.add(entry,routine.bound,routine.body);
-            else chain.add(entry,routine.spec,routine.bound,routine.body);
+            copy_routine(chain,entry,routine);
         }
         using Write=std::tuple<std::uint16_t,std::uint8_t,std::uint64_t>;
         std::vector<Write> expected,observed;
         Machine::PortTrace expected_ports(native),actual_ports(actual);
         std::uint16_t reached=0;
+        Memory::Mapping reached_mapping{};
         auto run=[&](Machine& m,RoutineRegistry* registry,std::vector<Write>& writes) {
             Machine::WriteObserver observer=[&](std::uint16_t a,std::uint8_t v) {writes.emplace_back(a,v,m.cycles());};
-            Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping)->std::optional<std::uint16_t> {
-                if(pc==dialogue || pc==cleanup) {reached=pc;throw Stopped{};}
+            Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t> {
+                if(pc==dialogue || pc==cleanup) {reached=pc;reached_mapping=map;throw Stopped{};}
                 return {};
             };
             try {m.run_frame({},registry,hook,observer);} catch(const Stopped&) {return;}
+            // The chain has no segment at either continuation: the engine stops
+            // there before running anything, as the hook does on the original.
+            catch(const UnhandledState&) {
+                const auto pc=m.cpu().pc.uint16_value;
+                // The stop is at the continuation the original reached, in the same bank (review R3 L6).
+                if(!registry || (pc!=dialogue && pc!=cleanup) || m.memory().mapping(pc)!=reached_mapping) throw;
+                reached=pc; return;
+            }
             throw std::runtime_error("Hapsby lookup did not reach its selected continuation");
         };
         run(native,nullptr,expected);const auto expected_target=reached;
         run(actual,&chain,observed);
-        probe::check(actual.equivalent(native) && expected==observed,"Hapsby lookup routes preserve full state and all write callbacks");
+        probe::check(same(actual,native) && expected==observed,"Hapsby lookup routes preserve full state and all write callbacks");
         probe::check(expected_ports.accesses()==actual_ports.accesses(),"Hapsby lookup routes preserve every port operation");
         probe::check(reached==expected_target && reached==(scenario ? dialogue : cleanup),"Hapsby chooses already-present dialogue or new-item continuation");
         probe::check(actual.peek(current_item)==item,"Hapsby leaves the cartridge item request for the grant continuation");
@@ -420,6 +576,8 @@ void regional_name_literal(probe::Harness& h,const probe::Rom& rom,std::uint8_t 
 
 }
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
  try {
   probe::check(argc==3,"Expected ROM and region");
   const auto rom=probe::load(argv[1],argv[2]); if(!rom) return 77;
@@ -431,66 +589,75 @@ int main(int argc,char** argv) {
   hapsby_lookup_routes(h,*rom);
   regional_name_literal(h,*rom,std::string_view(argv[2])=="us" ? 0xC0 : 0x20);
   unsigned calls=0;
+  // The entry state of one segment's probes: the registers and memory the segment
+  // reads, set so that its interesting path runs (shared by the probes and the
+  // interrupt sweeps below).
+  auto special=[&](Machine& machine,RoutineEntry entry,unsigned seed) {
+  if(entry.address==0x05F2 || entry.address==0x06B2 || entry.address==0x3F47 || entry.address==0x3F53 || entry.address==0x0851 || (entry.bank==1 && (entry.address==0x618F || entry.address==0x619C || entry.address==0x61B9 || entry.address==0x61C2 || entry.address==0x61D7))) {
+   machine.cpu().hl.uint16_value=0xC300;
+   machine.cpu().de.uint16_value=0xC301;
+   machine.cpu().bc.uint16_value=seed+1;
+  }
+  if(entry.bank==1 && entry.address==0x413A) {
+   machine.cpu().hl.uint16_value=0xD146;
+   machine.cpu().de.uint16_value=0xC721;
+  }
+  if(entry.bank==1 && (entry.address==0x41C8 || entry.address==0x41D5 || entry.address==0x41B2 || entry.address==0x41AB)) {
+   machine.cpu().hl.uint16_value=0xD146;
+   machine.cpu().de.uint16_value=0xF303;
+   machine.cpu().bc.uint16_value=0x1805;
+  }
+  if(entry.address==0x3FF2 || entry.address==0x4006) {
+   machine.cpu().ix_iy[0].uint16_value=0xC784;
+   machine.cpu().ix_iy[1].uint16_value=0xC784;
+   machine.cpu().bc.uint16_value=0xC808;
+   machine.cpu().de.uint16_value=2;
+   machine.memory().write(0xC786,0x0A);
+   machine.memory().write(0xC787,0xD3);
+  }
+  if(entry.address==0x641B) {
+   machine.cpu().hl.uint16_value=0x6506;
+   machine.cpu().bc.uint16_value=static_cast<std::uint16_t>(((seed%4)+1)<<8);
+   machine.memory().write(0xFFFF,16);
+  }
+  if(entry.address==0x0847) machine.memory().write(0xFFFC,8);
+  if(entry.address==0x07E2) machine.cpu().bc.uint16_value=0x1000;
+  if(entry.bank==1 && entry.address==0x4107) machine.cpu().hl.uint16_value=0xC781;
+  if(entry.address==0x615A || entry.address==0x615E) {
+   machine.cpu().hl.uint16_value=0xC100;
+   machine.cpu().de.uint16_value=0xD100;
+   machine.cpu().bc.uint16_value=0x08FF;
+   for(unsigned i=0;i<32;++i) machine.memory().write(static_cast<std::uint16_t>(0xC100+i),static_cast<std::uint8_t>((i+seed)%3 ? i+1 : 0));
+  }
+  if(entry.address==0x6427 || entry.address==0x6438 || entry.address==0x643D) {
+   const auto sp=machine.cpu().sp.uint16_value;
+   machine.memory().write(sp,entry.address==0x6427 ? 0 : 8);
+   machine.memory().write(static_cast<std::uint16_t>(sp+1),entry.address==0x6427 ? 4 : 0x65);
+   machine.memory().write(static_cast<std::uint16_t>(sp+2),0);
+   machine.memory().write(static_cast<std::uint16_t>(sp+3),4);
+   machine.cpu().hl.uint16_value=entry.address==0x6427 ? 0x6507 : 0x8000;
+   machine.cpu().bc.uint16_value=static_cast<std::uint16_t>(((seed%128)+1)*256+0xBE);
+   machine.memory().write(0xFFFF,16);
+  }
+  for(const auto& load:game::scenes::ei_delay_scaffolding) if(load.suffix==entry) {
+   // The load's effect, from the instruction in the player's ROM.
+   const auto opcode=rom->byte(load.instruction.bank,load.instruction.address);
+   const auto word=static_cast<std::uint16_t>(rom->byte(load.instruction.bank,static_cast<std::uint16_t>(load.instruction.address+1))|
+       (rom->byte(load.instruction.bank,static_cast<std::uint16_t>(load.instruction.address+2))<<8));
+   if(opcode==0x21) machine.cpu().hl.uint16_value=word;
+   if(opcode==0x11) machine.cpu().de.uint16_value=word;
+   if(opcode==0x3A) machine.cpu().af.uint8_values.at_1=machine.peek(word);
+   if(opcode==0x3E) machine.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(word);
+  }
+  };
   probe::check(catalog.entries().size()==game::scenes::segments.size(),"scene catalog size");
   for(const auto& [entry,unit]:game::scenes::segments) {
    probe::check(catalog.find(entry) && catalog.find(entry)->spec.unit==unit,"declared scene segment registration");
    for(unsigned seed=0;seed<32;++seed) {
     probe::Setup setup; setup.seed=seed; setup.r=static_cast<std::uint8_t>(seed*9);
+    setup.cartridge_ram=entry==RoutineEntry{0,0x0847};   // the erase's entry guard needs cartridge RAM
     auto machine=h.prepare(entry,setup);
-    if(entry.address==0x05F2 || entry.address==0x06B2 || entry.address==0x3F47 || entry.address==0x3F53 || entry.address==0x0851 || (entry.bank==1 && (entry.address==0x618F || entry.address==0x619C || entry.address==0x61B9 || entry.address==0x61C2 || entry.address==0x61D7))) {
-     machine.cpu().hl.uint16_value=0xC300;
-     machine.cpu().de.uint16_value=0xC301;
-     machine.cpu().bc.uint16_value=seed+1;
-    }
-    if(entry.bank==1 && entry.address==0x413A) {
-     machine.cpu().hl.uint16_value=0xD146;
-     machine.cpu().de.uint16_value=0xC721;
-    }
-    if(entry.bank==1 && (entry.address==0x41C8 || entry.address==0x41D5 || entry.address==0x41B2 || entry.address==0x41AB)) {
-     machine.cpu().hl.uint16_value=0xD146;
-     machine.cpu().de.uint16_value=0xF303;
-     machine.cpu().bc.uint16_value=0x1805;
-    }
-    if(entry.address==0x3FF2 || entry.address==0x4006) {
-     machine.cpu().ix_iy[0].uint16_value=0xC784;
-     machine.cpu().ix_iy[1].uint16_value=0xC784;
-     machine.cpu().bc.uint16_value=0xC808;
-     machine.cpu().de.uint16_value=2;
-     machine.memory().write(0xC786,0x0A);
-     machine.memory().write(0xC787,0xD3);
-    }
-    if(entry.address==0x641B) {
-     machine.cpu().hl.uint16_value=0x6506;
-     machine.cpu().bc.uint16_value=static_cast<std::uint16_t>(((seed%4)+1)<<8);
-     machine.memory().write(0xFFFF,16);
-    }
-    if(entry.address==0x0847) machine.memory().write(0xFFFC,8);
-    if(entry.address==0x07E2) machine.cpu().bc.uint16_value=0x1000;
-    if(entry.bank==1 && entry.address==0x4107) machine.cpu().hl.uint16_value=0xC781;
-    if(entry.address==0x615A || entry.address==0x615E) {
-     machine.cpu().hl.uint16_value=0xC100;
-     machine.cpu().de.uint16_value=0xD100;
-     machine.cpu().bc.uint16_value=0x08FF;
-     for(unsigned i=0;i<32;++i) machine.memory().write(static_cast<std::uint16_t>(0xC100+i),static_cast<std::uint8_t>((i+seed)%3 ? i+1 : 0));
-    }
-    if(entry.address==0x6427 || entry.address==0x6438 || entry.address==0x643D) {
-     const auto sp=machine.cpu().sp.uint16_value;
-     machine.memory().write(sp,entry.address==0x6427 ? 0 : 8);
-     machine.memory().write(static_cast<std::uint16_t>(sp+1),entry.address==0x6427 ? 4 : 0x65);
-     machine.memory().write(static_cast<std::uint16_t>(sp+2),0);
-     machine.memory().write(static_cast<std::uint16_t>(sp+3),4);
-     machine.cpu().hl.uint16_value=entry.address==0x6427 ? 0x6507 : 0x8000;
-     machine.cpu().bc.uint16_value=static_cast<std::uint16_t>(((seed%128)+1)*256+0xBE);
-     machine.memory().write(0xFFFF,16);
-    }
-    for(const auto& load:game::scenes::ei_delay_scaffolding) if(load.suffix==entry) {
-     const auto word=static_cast<std::uint16_t>(rom->byte(load.instruction.bank,static_cast<std::uint16_t>(load.instruction.address+1))|
-         (rom->byte(load.instruction.bank,static_cast<std::uint16_t>(load.instruction.address+2))<<8));
-     if(load.opcode==0x21) machine.cpu().hl.uint16_value=word;
-     if(load.opcode==0x11) machine.cpu().de.uint16_value=word;
-     if(load.opcode==0x3A) machine.cpu().af.uint8_values.at_1=machine.peek(word);
-     if(load.opcode==0x3E) machine.cpu().af.uint8_values.at_1=static_cast<std::uint8_t>(word);
-    }
+    special(machine,entry,seed);
     h.run_cpp(machine,entry); ++calls;
    }
   }
@@ -521,6 +688,7 @@ int main(int argc,char** argv) {
   }
   for(const auto& [entry,unit]:game::scenes::segments) {
    probe::Setup setup;
+   setup.cartridge_ram=entry==RoutineEntry{0,0x0847};   // the erase's entry guard
    auto machine=h.prepare(entry,setup);
    if(entry.address==0x05F2 || entry.address==0x06B2 || entry.address==0x3F47 || entry.address==0x3F53 || entry.address==0x0851 || (entry.bank==1 && (entry.address==0x618F || entry.address==0x619C || entry.address==0x61B9 || entry.address==0x61C2 || entry.address==0x61D7))) {
     machine.cpu().hl.uint16_value=0xC300;
@@ -529,10 +697,10 @@ int main(int argc,char** argv) {
    }
    const auto phase=machine.cycles()%Machine::frame_cycles;
    machine.advance(Machine::frame_cycles-phase-1);
-   Machine native=machine;
-   native.step();
+   // Milestone 14: an exact segment runs in C++ across the frame end instead
+   // (compared with the oracle by the harness); a refused one stops with the
+   // machine unchanged (checked by run_fallback). Nothing runs in its place.
    h.run_fallback(machine,entry,RoutineFallback::frame);
-   probe::check(machine.equivalent(native),"scene frame-edge fallback preserves original partial state");
   }
   for(unsigned buttons=0;buttons<256;++buttons) {
    for(unsigned held=0;held<16;++held) {
@@ -583,7 +751,7 @@ int main(int argc,char** argv) {
    auto machine=h.prepare({0,0x3FF2},setup);
    machine.cpu().ix_iy[1].uint16_value=0xC784;
    machine.memory().write(0xC784,0x20);
-   h.run_fallback(machine,{0,0x3FF2},RoutineFallback::frame);
+   h.run_fallback(machine,{0,0x3FF2},RoutineFallback::guard);   // the entry guard: bank 1 is not at 4000h
    probe::check(machine.peek(0xC784)==0x20,"cross-bank cursor admission refuses a remapped second fixed bank before mutation");
   }
   for(unsigned pose=0;pose<9;++pose) {
@@ -644,7 +812,7 @@ int main(int argc,char** argv) {
    };
    run(native,nullptr);
    run(actual,&h.registry());
-   probe::check(actual.equivalent(native),"transparent multi-row overlay complete chain");
+   probe::check(same(actual,native),"transparent multi-row overlay complete chain");
    for(unsigned row=0;row<height;++row)
    for(unsigned column=0;column<width;++column) {
     const auto source=static_cast<std::uint16_t>(0xC100+2*(row*width+column));
@@ -731,6 +899,179 @@ int main(int argc,char** argv) {
        "destination confirmation reads the cartridge request table; refusal preserves the pending request");
    if(confirm) probe::check(machine.cpu().pc.uint16_value==0x0180,"confirmed destination restores the caller stack");
   }
+  // Every segment again with work RAM randomized (a third of the bytes zero),
+  // so that the branches that read memory run both ways.
+  for(const auto& [entry,unit]:game::scenes::segments) {
+   for(unsigned seed=0;seed<32;++seed) {
+    probe::Setup setup; setup.seed=seed*3+1; setup.r=static_cast<std::uint8_t>(seed*9);
+    setup.cartridge_ram=entry==RoutineEntry{0,0x0847};   // the erase's entry guard
+    auto machine=h.prepare(entry,setup);
+    random_ram(machine,seed);
+    special(machine,entry,seed);
+    h.run_cpp(machine,entry); ++calls;
+   }
+  }
+  // The instruction after an EI, with the frame interrupt due at every
+  // distance around it: the EI and its load run as two segments, each step
+  // compared with the oracle (the interrupt delay keeps the load in front of
+  // the interrupt).
+  for(const auto& load:game::scenes::ei_delay_scaffolding) {
+   const RoutineEntry ei{load.instruction.bank,static_cast<std::uint16_t>(load.instruction.address-1)};
+   probe::check(h.registry().find(ei) && h.registry().find(load.instruction) && h.registry().find(load.instruction)->spec.single_instruction,
+       "the EI and the load after it are one-instruction segments");
+   for(unsigned remaining=1;remaining<=14;++remaining) {
+    probe::Setup setup; setup.iff1=true; setup.iff2=true; setup.seed=remaining;
+    auto machine=h.prepare(ei,setup);
+    special(machine,load.suffix,remaining);
+    const auto phase=machine.cycles()%Machine::frame_cycles;
+    machine.advance((Machine::frame_cycles-remaining+Machine::frame_cycles-phase)%Machine::frame_cycles);
+    oracle::Lockstep lockstep(machine,"EI and its load",oracle::Mode::instructions);
+    lockstep.step(machine,&h.registry());
+    lockstep.step(machine,&h.registry());
+    ++calls;
+   }
+  }
+  // The interrupt sweep (recipe step 5): an IRQ and an NMI at every cycle of
+  // every segment that has an instruction boundary inside its body, each run
+  // under strict lockstep (every cycle with PSMODERN_FULL_SWEEPS set; by
+  // default about 64 positions per kind spread over each body: probe::auto_stride). The state is the probes' (seeded registers, random
+  // work RAM, the segment's own set-up above).
+  unsigned swept=0;
+  for(const auto& [entry,unit]:game::scenes::segments) {
+   const auto* routine=h.registry().find(entry);
+   if(!routine || !has_boundary_inside(*routine)) continue;
+   probe::Setup setup; setup.seed=entry.address%29+1;
+   setup.cartridge_ram=entry==RoutineEntry{0,0x0847};   // the erase's entry guard
+   // A conditional return at the entry (RET Z, RET NZ, RET C) ends the run
+   // at once on one side of its flag: the flags are varied until the run
+   // has a body to interrupt (the first variant that delivers inside it).
+   bool delivered=false;
+   for(unsigned variant=0;variant<5 && !delivered;++variant) {
+    try {
+     probe::sweep(h,entry,setup,[&](Machine& machine) {
+      random_ram(machine,entry.address%31,0xC300,0xC600);
+      special(machine,entry,entry.address%31);
+      auto& flags=machine.cpu().af.uint8_values.at_0;
+      if(variant==1) flags|=0x40;
+      if(variant==2) flags&=static_cast<std::uint8_t>(~0x40);
+      if(variant==3) flags|=0x01;
+      if(variant==4) flags&=static_cast<std::uint8_t>(~0x01);
+     },probe::auto_stride);
+     delivered=true;
+    } catch(const std::runtime_error& error) {
+     if(std::string_view(error.what()).find("nothing was delivered")==std::string_view::npos || variant==4) throw;
+    }
+   }
+   ++swept;
+  }
+  // The cartridge-RAM header check (00:07DF, 00:07E2) with the header mapped and
+  // equal to its ROM copy, different at its first byte, or at its last: the
+  // hand-rendered CPI loop (32 comparisons, about 1,500 cycles) with the
+  // interrupts landing at every fifth cycle.
+  for(const RoutineEntry entry:{RoutineEntry{0,0x07DF},RoutineEntry{0,0x07E2}})
+  for(unsigned mismatch:{99u,0u,31u}) {
+   probe::Setup setup; setup.cartridge_ram=true; setup.seed=mismatch+5;
+   probe::sweep(h,entry,setup,[&](Machine& machine) {
+    machine.cpu().bc.uint16_value=0x1000;
+    for(unsigned i=0;i<32;++i) machine.memory().write(static_cast<std::uint16_t>(0x8001+i),rom->byte(0,static_cast<std::uint16_t>(0x0808+i)));
+    if(mismatch<32) machine.memory().write(static_cast<std::uint16_t>(0x8001+mismatch),static_cast<std::uint8_t>(machine.peek(static_cast<std::uint16_t>(0x8001+mismatch))^0x80));
+   },5);
+  }
+  // The erase (00:0847) with cartridge RAM mapped, swept: the zero seed and
+  // the setup before it.
+  {
+   probe::Setup setup; setup.cartridge_ram=true;
+   probe::sweep(h,{0,0x0847},setup);
+  }
+  // The exits that depend on one particular value, each with a probe that
+  // sets it (the others are found by the search below).
+  {
+   struct Target {RoutineEntry entry;std::function<void(Machine&)> prepare;};
+   const std::array<Target,8> targets{
+    Target{{0,0x3FF2},[](Machine& m) {m.memory().write(0xC784,0xC8);}},                    // the cursor is at its stop coordinate
+    Target{{1,0x5438},[](Machine& m) {m.memory().write(0xC43B,0x18);}},                    // Noah already wears the prize armour
+    Target{{1,0x56B5},[](Machine& m) {m.memory().write(m.cpu().sp.uint16_value,3);}},      // the fourth member's turn is done
+    Target{{1,0x5CAA},[](Machine& m) {m.memory().write(0xC82E,0);m.memory().write(0xC821,0x3C);}},  // the last frame of the chest
+    Target{{1,0x5D0D},[](Machine& m) {m.memory().write(static_cast<std::uint16_t>(m.cpu().sp.uint16_value+1),0x50);}}, // the last frame
+    Target{{1,0x5D7E},[](Machine& m) {m.memory().write(0xC824,0x91);}},                    // the fixed column
+    Target{{1,0x5D8F},[](Machine& m) {m.memory().write(0xC822,0x77);}},                    // the fixed row
+    Target{{1,0x6427},[](Machine& m) {m.memory().write(static_cast<std::uint16_t>(m.cpu().sp.uint16_value+3),1);}}}; // the last strip
+   for(const auto& target:targets) {
+    probe::Setup setup; setup.seed=3;
+    auto machine=h.prepare(target.entry,setup);
+    machine.cpu().ix_iy[0].uint16_value=0xC820;machine.cpu().ix_iy[1].uint16_value=0xC820;
+    special(machine,target.entry,3);
+    target.prepare(machine);
+    h.run_cpp(machine,target.entry); ++calls;
+   }
+  }
+  // The exit search: a segment with an exit no probe above took is run again
+  // with the flags (all 256 values) and a few seeds of random work RAM until
+  // each of its exits has been taken, every run compared with the oracle at
+  // every instruction boundary like any probe.
+  auto untaken_exits=[&](const RegisteredRoutine& routine) {
+   for(std::size_t i=0;i<routine.spec.exits.size() && i<routine.rendered.size();++i)
+    if(!routine.rendered[i] && routine.spec.exits[i].kind!=RoutineExit::copy_repeat) return true;
+   return false;
+  };
+  for(const auto& [entry,routine]:h.registry().entries()) {
+   if(!is_scene_file(routine.origin) || !untaken_exits(routine)) continue;
+   for(unsigned seed=0;seed<6 && untaken_exits(*h.registry().find(entry));++seed)
+   for(unsigned flags=0;flags<256 && untaken_exits(*h.registry().find(entry));++flags) {
+    probe::Setup setup; setup.seed=seed*5+flags; setup.r=static_cast<std::uint8_t>(flags*9);
+    setup.cartridge_ram=entry==RoutineEntry{0,0x0847};
+    auto machine=h.prepare(entry,setup);
+    if(seed) random_ram(machine,seed,0xC300,0xC600);
+    special(machine,entry,seed);
+    machine.cpu().af.uint8_values.at_0=static_cast<std::uint8_t>(flags);
+    h.run_cpp(machine,entry); ++calls;
+   }
+  }
+  // Then, for what is left, work RAM filled with small values (the compared
+  // bytes are mostly small numbers or one of a few usual limits), many seeds.
+  for(const auto& [entry,routine]:h.registry().entries()) {
+   if(!is_scene_file(routine.origin) || !untaken_exits(routine)) continue;
+   for(unsigned seed=1;seed<=600 && untaken_exits(*h.registry().find(entry));++seed) {
+    probe::Setup setup; setup.seed=seed; setup.r=static_cast<std::uint8_t>(seed*9);
+    setup.cartridge_ram=entry==RoutineEntry{0,0x0847};
+    auto machine=h.prepare(entry,setup);
+    std::mt19937_64 random(seed*104729u+entry.address);
+    static constexpr std::uint8_t usual[]={0,1,2,3,4,5,6,7,8,9,10,11,12,0x25,0x38,0x5C,0x80,0xE0,0xFF};
+    for(unsigned address=0xC000;address<0xC900;++address)
+     machine.memory().write(static_cast<std::uint16_t>(address),usual[random()%std::size(usual)]);
+    special(machine,entry,seed);
+    // The pointers stay in work RAM (the game's pointers do; one into the
+    // mapper registers would change the code under the segment).
+    auto clamp=[](std::uint16_t value) { return static_cast<std::uint16_t>(value<0xC000 || value>=0xDF00 ? 0xC000+(value&0x7FF) : value); };
+    machine.cpu().hl.uint16_value=clamp(machine.cpu().hl.uint16_value);
+    machine.cpu().de.uint16_value=clamp(machine.cpu().de.uint16_value);
+    machine.cpu().ix_iy[0].uint16_value=clamp(machine.cpu().ix_iy[0].uint16_value);
+    machine.cpu().ix_iy[1].uint16_value=clamp(machine.cpu().ix_iy[1].uint16_value);
+    machine.cpu().af.uint8_values.at_0=static_cast<std::uint8_t>(random());
+    machine.cpu().af.uint8_values.at_1=usual[random()%std::size(usual)];
+    try { h.run_cpp(machine,entry); } catch(const std::exception& e) { throw std::runtime_error("exit search "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+" seed "+std::to_string(seed)+": "+e.what()); }
+    ++calls;
+   }
+  }
+  // Every exit of every scene segment was taken by some probe (the
+  // transitions no recording reaches are verified only by them).
+  unsigned untaken=0;
+  for(const auto& [entry,routine]:h.registry().entries()) {
+   if(!is_scene_file(routine.origin)) continue;
+   for(std::size_t i=0;i<routine.spec.exits.size() && i<routine.rendered.size();++i)
+    // 01:4100 stores 38h and decrements it before its RET M: that exit
+    // cannot be taken from this entry (the sheet lists it as the instruction's
+    // other branch; the loop at 01:4107 takes it). 01:6427 runs the first
+    // 128 cycles of a 128-byte strip: the strip's end (01:643F) is the
+    // resumed entry's (01:6438), which takes it.
+    if(!routine.rendered[i] && routine.spec.exits[i].kind!=RoutineExit::copy_repeat && !(entry==RoutineEntry{1,0x4100} && routine.spec.exits[i].address==0x4108) &&
+        !(entry==RoutineEntry{1,0x6427} && routine.spec.exits[i].address==0x643F)) {
+     std::cout<<"exit not taken: "<<entry.bank<<":"<<std::hex<<entry.address<<" exit "<<routine.spec.exits[i].address<<std::dec<<"\n";
+     ++untaken;
+    }
+  }
+  probe::check(untaken==0,"every exit of every scene segment is taken by a probe");
+  std::cout<<swept<<" scene segments swept\n";
   std::cout<<calls<<" verified scene segments\n";
  } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

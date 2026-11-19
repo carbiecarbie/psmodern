@@ -6,13 +6,13 @@ namespace psmodern::game {
 namespace {
 // The table holds little-endian addresses. Both the low byte and HL remain
 // visible to the chosen handler. The dispatcher tail-calls it on the
-// original caller's stack.
+// original caller's stack (a jump to HL, rendered here: milestone 14).
 template<class Z> kit::Exit select_handler(Z& z,std::uint16_t at) {
     z.load_from_hl(at,z.r.a);
     z.increment_hl(at+1);
     z.load_from_hl(at+2,z.r.h);
     z.copy(at+3,z.r.l,z.r.a);
-    return kit::continues(at+4,4);
+    return z.final_jump_hl(at+4);
 }
 
 // The two fixed-bank dispatchers add a byte offset to HL. Carry from

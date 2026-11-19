@@ -9,38 +9,42 @@ namespace k=menu_kit;
 constexpr auto ix=k::Index::ix;
 constexpr RoutineEntry unit{12,0x846D};
 
-// The voice record keeps the current score pointer; the core owns the first
-// command/note branch so the command dispatcher sees its original entry.
+// The voice record keeps the current score pointer; each of the next
+// instructions (read the byte, advance, compare with the command base, branch
+// to the command dispatcher) is also an entry of its own.
 template<class Z> k::Exit read_note_position(Z& z) {
     z.load_from_indexed(0x846D,ix,z.r.e);
     z.load_from_indexed(0x8470,ix,z.r.d);
-    return k::continues(0x8473,7);
+    z.load_a_from_pair(0x8473,z.de());
+    return k::fall_through(0x8473,0x8474);
 }
 template<class Z> k::Exit read_next_note(Z& z) {
     z.load_a_from_pair(0x8473,z.de());
-    return k::continues(0x8474,6);
+    z.increment_pair(0x8474,z.r.d,z.r.e);
+    return k::fall_through(0x8474,0x8475);
 }
 template<class Z> k::Exit advance_score_position(Z& z) {
     z.increment_pair(0x8474,z.r.d,z.r.e);
-    return k::continues(0x8475,7);
+    z.compare_immediate(0x8475);
+    return k::fall_through(0x8475,0x8477);
 }
 template<class Z> k::Exit classify_score_byte(Z& z) {
     z.compare_immediate(0x8475);
-    return k::jump_if_exit(0x8477);
+    return z.final_jump_if(0x8477,k::Condition::nc);
 }
 template<class Z> k::Exit note_has_explicit_pitch(Z& z) {
     z.test_bit_indexed(0x847A,ix,3);
-    return k::continues(0x847E,k::jump_cycles);
+    return z.final_jump_if(0x847E,k::Condition::nz);
 }
 template<class Z> k::Exit note_uses_period_table(Z& z) {
     z.compare_immediate(0x8481);
-    return k::continues(0x8483,k::jump_cycles);
+    return z.final_jump_if(0x8483,k::Condition::c);
 }
 // The branch has a zero displacement, but it still has conditional timing.
-// The following CALL to the period table remains a native boundary.
+// The following CALL enters the period table.
 template<class Z> k::Exit enter_period_lookup(Z& z) {
-    z.relative_if(0x8486,!z.zero());
-    return k::continues(0x8488,k::call_cycles);
+    z.relative_if(0x8486,k::Condition::nz);
+    return z.final_call(0x8488);
 }
 // Once the period lookup returns, store both bytes into the voice and test
 // whether the score supplies a pitch-drift parameter.
@@ -51,11 +55,11 @@ template<class Z> k::Exit save_note_period(Z& z) {
     z.load_from_hl(0x8490,z.r.a);
     z.store_to_indexed(0x8491,ix,z.r.a);
     z.test_bit_indexed(0x8494,ix,5);
-    return k::continues(0x8498,k::jump_cycles);
+    return z.final_jump_if(0x8498,k::Condition::z);
 }
 template<class Z> k::Exit note_has_drift(Z& z) {
     z.test_bit_indexed(0x8494,ix,5);
-    return k::continues(0x8498,k::jump_cycles);
+    return z.final_jump_if(0x8498,k::Condition::z);
 }
 // Clear per-note progress and preserve the score pointer for the next tick.
 template<class Z> k::Exit clear_note_progress(Z& z) {
@@ -67,7 +71,7 @@ template<class Z> k::Exit clear_note_progress(Z& z) {
     z.store_to_indexed(0x84DF,ix,z.r.e);
     z.store_to_indexed(0x84E2,ix,z.r.d);
     z.load_immediate(0x84E5,z.r.a);
-    return k::returns(0x84E7,k::return_cycles);
+    return z.final_return(0x84E7);
 }
 template<class Z> k::Exit reset_note_progress(Z& z) {
     z.xor_a(0x84CF);
@@ -76,17 +80,18 @@ template<class Z> k::Exit reset_note_progress(Z& z) {
 template<class Z> k::Exit save_note_duration(Z& z) {
     z.store_to_indexed(0x84C9,ix,z.r.a);
     z.store_to_indexed(0x84CC,ix,z.r.a);
-    return k::continues(0x84CF,4);
+    z.xor_a(0x84CF);
+    return k::fall_through(0x84CF,0x84D0);
 }
 // Select the multiplier; the original branch and loop remain interruptible.
 template<class Z> k::Exit calculate_note_duration(Z& z) {
     z.load_from_indexed(0x84BF,ix,z.r.b);
     z.decrement(0x84C2,z.r.b);
-    return k::relative_if_exit(0x84C3,z.zero());
+    return z.final_relative_if(0x84C3,k::Condition::z);
 }
 template<class Z> k::Exit add_note_duration(Z& z) {
     z.add_register(0x84C6,z.r.c);
-    return k::decrement_jump_exit(z,0x84C7);
+    return z.final_decrement_jump(0x84C7);
 }
 // An explicit pitch is shifted by the voice's signed offset before it is
 // stored; the original jump then joins the shared note setup.
@@ -112,7 +117,7 @@ template<class Z> k::Exit set_explicit_pitch(Z& z) {
     }
     z.store_to_indexed(0x8500,ix,z.r.l);
     z.store_to_indexed(0x8503,ix,z.r.h);
-    return k::continues(0x8506,k::jump_cycles);
+    return z.final_jump(0x8506);
 }
 // Read the drift parameters and decide whether the following byte belongs to
 // the duration or to the explicit pitch-shift state.
@@ -123,35 +128,39 @@ template<class Z> k::Exit read_note_drift(Z& z) {
     z.store_to_indexed(0x84A0,ix,z.r.a);
     z.test_bit_indexed(0x84A3,ix,3);
     z.load_a_from_pair(0x84A7,z.de());
-    return k::relative_if_exit(0x84A8,!z.zero());
+    return z.final_relative_if(0x84A8,k::Condition::nz);
 }
 // The duration reader is shared after an explicit drift operand.
 template<class Z> k::Exit read_duration_after_drift(Z& z) {
     z.store_to_indexed(0x84AA,ix,z.r.a);
     z.increment_pair(0x84AD,z.r.d,z.r.e);
     z.load_a_from_pair(0x84AE,z.de());
-    return k::continues(0x84AF,12);
+    return z.final_relative(0x84AF);
 }
 template<class Z> k::Exit choose_note_duration(Z& z) {
     z.load_a_from_pair(0x84B1,z.de());
     z.or_a(0x84B2);
-    return k::continues(0x84B3,k::jump_cycles);
+    return z.final_jump_if(0x84B3,k::Condition::p);
 }
 // A negative duration operand reuses the previous note duration.
 template<class Z> k::Exit reuse_note_duration(Z& z) {
     z.load_from_indexed(0x84B6,ix,z.r.a);
     z.store_to_indexed(0x84B9,ix,z.r.a);
-    return k::continues(0x84BC,12);
+    return z.final_relative(0x84BC);
 }
 template<class Z> k::Exit advance_to_note_duration(Z& z) {
     z.increment_pair(0x84BE,z.r.d,z.r.e);
     return calculate_note_duration(z);
 }
+// A voice write needs IX inside the voice records in work RAM (other values
+// reach the mapper). The guard reads registers only: it holds at entry and
+// stays valid after a delivery, since handlers restore the registers.
 template<class Logic> void add_voice_note(RoutineRegistry& registry,RoutineEntry entry,SegmentSpec spec,Logic logic) {
-    registry.add(entry,std::move(spec),[logic](const Machine& machine) {
-        const auto address=machine.cpu().ix_iy[0].uint16_value;
-        return address>=0xc000 && address<=0xdfe8 ? k::cost(machine,logic,k::uncertain_maximum) : k::uncertain_maximum;
-    },[logic](RoutineContext& context) { k::run(context,logic); });
+    k::add_segment(registry,entry,std::move(spec),
+        k::Guard{"IX points into the voice records in work RAM",[](const Machine& machine) {
+            const auto address=machine.cpu().ix_iy[0].uint16_value;
+            return address>=0xc000 && address<=0xdfe8;
+        }},logic);
 }
 }
 void register_sound_notes(RoutineRegistry& registry) {
@@ -177,5 +186,9 @@ void register_sound_notes(RoutineRegistry& registry) {
     add_voice_note(registry,{12,0x84D0},k::segment(unit,{k::returned_at(0x84E7)}),[](auto& z) { return clear_note_progress(z); });
     add_voice_note(registry,{12,0x84CF},k::segment(unit,{k::returned_at(0x84E7)}),[](auto& z) { return reset_note_progress(z); });
     add_voice_note(registry,{12,0x84E8},k::segment(unit,{k::core_final_at(0x8506)}),[](auto& z) { return set_explicit_pitch(z); });
+    // The jump to the command dispatcher when the score byte is a command.
+    auto command_jump=k::segment(unit,{k::conditional_at(0x8477)});
+    command_jump.single_instruction=true;
+    k::add_segment(registry,{12,0x8477},std::move(command_jump),[](auto& z) { return z.final_jump_if(0x8477,k::Condition::nc); });
 }
 }

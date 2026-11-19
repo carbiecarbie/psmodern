@@ -28,10 +28,13 @@ public:
     const CartridgeRam& cartridge_ram() const { return cartridge_ram_; }
     bool cartridge_ram_dirty() const { return cartridge_ram_dirty_; }
     void clear_cartridge_ram_dirty() { cartridge_ram_dirty_ = false; }
+    // The cartridge image (tests: the opcode check compares game images).
+    const std::shared_ptr<const Rom>& image() const { return rom_; }
     bool operator==(const Memory&) const = default;
 
 private:
     friend class Machine;
+    friend class Console;
     std::shared_ptr<const Rom> rom_;
     std::array<std::uint8_t, 8192> ram_=initial_state::work_ram();
     CartridgeRam cartridge_ram_{};

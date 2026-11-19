@@ -47,22 +47,16 @@ namespace psmodern::game {
 namespace {
 namespace mk=map_kit;
 using mk::Exit;
-using mk::continues;
-using mk::returns;
-using mk::call_cycles;
-using mk::return_cycles;
-using mk::taken_conditional_return_cycles;
 
 constexpr std::uint16_t scan_after=512;     // cycles before a chunk of the record scan may end at 01:7844
 constexpr std::uint16_t scan_head=0x7844;
-constexpr unsigned load_a_hl_cycles=7;      // the plain `ld a,(hl)` the core runs at a scan exit
 
 // ---- The reset after a transfer: 01:7908-7929 --------------------------------------------------
 // Remembers the transfer mark, clears the 24-byte step block and the 256-byte
 // object table, then `pop hl; ret`. The second clearing (255 bytes copied, about
-// 5,400 cycles) stays native: a call that included it always held a frame
+// 5,400 cycles) is not part of this segment: a call that included it always held a frame
 // boundary on the recordings. The segment ends before it, at 01:7921 (`ld
-// bc,nn`, which the core runs: a memory store is not allowed as a final
+// bc,nn`, which the next segment renders: a memory store is not allowed as a final
 // instruction), and 01:7928 resumes after the copy.
 constexpr std::uint16_t reset_fill=0x7921;
 template<class Z> Exit reset_after_transfer(Z& z) {
@@ -75,13 +69,14 @@ template<class Z> Exit reset_after_transfer(Z& z) {
     z.block_copy(0x7919);
     z.load_hl(0x791B);
     z.load_de(0x791E);
-    return mk::continues(reset_fill,10);         // ld bc,nn; the fill and the copy follow natively
+    z.load_bc(reset_fill);
+    return mk::fall_through(reset_fill,0x7924);  // the fill and the copy follow
 }
 // 01:7928: after the copy, the caller's return address is discarded and the
 // return goes one level higher.
 template<class Z> Exit reset_return(Z& z) {
     z.pop(0x7928,z.r.h,z.r.l);
-    return returns(0x7929,return_cycles);
+    return z.final_return(0x7929);
 }
 
 // ---- The transfers: 01:7877-78BA, 78BD-78E5, 78E5-7905 ------------------------------------------
@@ -140,8 +135,7 @@ template<class Z> Exit mark_and_transfer(Z& z) {
 template<class Z> Exit scene_record(Z& z) {
     auto& r=z.r;
     z.compare_immediate(0x78E5);
-    if (!z.zero()) return returns(0x78E7,taken_conditional_return_cycles);
-    z.return_not_taken(0x78E7);
+    if (auto exit=z.final_return_if(0x78E7,mk::Condition::nz)) return *exit;
     z.store_a_direct(0x78E8);
     z.increment_hl(0x78EB);
     z.load_from_hl(0x78EC,r.a);
@@ -196,20 +190,20 @@ template<class Z> Exit record_found(Z& z) {
     if (z.jump_if(0x7874,!z.zero())) return dungeon_record(z);
     return mark_and_transfer(z);
 }
-// The loop of 01:7844-786B. `resumed` is true at the entry 01:7845: the core
-// has just run the `ld a,(hl)` at the loop head. Every arrival at the head with
+// The loop of 01:7844-786B. `resumed` is true at the entry 01:7845: the segment
+// before has just rendered the `ld a,(hl)` at the loop head. Every arrival at the head with
 // scan_after cycles elapsed ends the chunk there (a loop exit on that plain load).
 template<class Z> Exit scan_records(Z& z, bool resumed) {
     auto& r=z.r;
     for (;;) {
         if (!resumed) {
-            if (z.loop_exit(scan_after)) return continues(scan_head,load_a_hl_cycles);
+            const bool chunk_end=z.loop_exit(scan_after);
             z.load_from_hl(0x7844,r.a);
+            if (chunk_end) return mk::fall_through(scan_head,0x7845);
         }
         resumed=false;
         z.compare_immediate(0x7845);
-        if (z.zero()) return returns(0x7847,taken_conditional_return_cycles);   // the FFh terminator
-        z.return_not_taken(0x7847);
+        if (auto exit=z.final_return_if(0x7847,mk::Condition::z)) return *exit;   // the FFh terminator
         z.push(0x7848,r.h,r.l);
         z.load_from_hl(0x7849,r.a);
         z.compare_register(0x784A,r.d);
@@ -290,7 +284,7 @@ template<class Z> Exit remember_camera(Z& z) {
     z.store_hl_direct(0x7806);
     z.load_hl_direct(0x7809);
     z.store_hl_direct(0x780C);
-    return returns(0x780F,return_cycles);
+    return z.final_return(0x780F);
 }
 template<class Z> Exit tile_interaction(Z& z) {      // 01:77AC
     auto& r=z.r;
@@ -299,16 +293,15 @@ template<class Z> Exit tile_interaction(Z& z) {      // 01:77AC
     z.or_a(0x77B2);
     if (!z.jump_if(0x77B3,z.zero())) {
         z.store_to_hl(0x77B6);
-        return returns(0x77B8,return_cycles);
+        return z.final_return(0x77B8);
     }
     z.load_from_hl(0x77B9,r.a);
     z.or_a(0x77BA);
-    if (!z.zero()) return returns(0x77BB,taken_conditional_return_cycles);
-    z.return_not_taken(0x77BB);
+    if (auto exit=z.final_return_if(0x77BB,mk::Condition::nz)) return *exit;
     z.store_to_hl(0x77BC);
     z.load_immediate(0x77BE,r.a);
     z.copy(0x77C0,r.e,r.a);
-    return continues(0x77C1,call_cycles);        // call 7764: the attributes of the tile ahead
+    return z.final_call(0x77C1);                 // the attributes of the tile ahead
 }
 template<class Z> Exit after_first_probe(Z& z) {     // 01:77C4
     auto& r=z.r;
@@ -321,7 +314,7 @@ template<class Z> Exit after_first_probe(Z& z) {     // 01:77C4
     if (z.relative_if(0x77D1,!z.zero())) return scan_entrances(z);
     z.copy(0x77D3,r.a,r.b);
     z.and_immediate(0x77D4);
-    return mk::jump_if_exit(0x77D6);             // jp nz,792A: the core decides
+    return z.final_jump_if(0x77D6,mk::Condition::nz);   // to the special ground, else on
 }
 template<class Z> Exit vehicle_probes(Z& z) {        // 01:77D9
     auto& r=z.r;
@@ -330,7 +323,7 @@ template<class Z> Exit vehicle_probes(Z& z) {        // 01:77D9
     if (z.relative_if(0x77DD,z.zero())) return remember_camera(z);
     z.load_immediate(0x77DF,r.a);
     z.copy(0x77E1,r.e,r.a);
-    return continues(0x77E2,call_cycles);
+    return z.final_call(0x77E2);
 }
 // 01:77E5, 77EF, 77F9: the result of a vehicle probe; an entrance bit goes to
 // the scan, else the next probe tile is asked for (`value`).
@@ -340,7 +333,7 @@ template<class Z> Exit next_probe(Z& z, std::uint16_t at) {
     if (z.relative_if(static_cast<std::uint16_t>(at+2),!z.zero())) return scan_entrances(z);
     z.load_immediate(static_cast<std::uint16_t>(at+4),r.a);
     z.copy(static_cast<std::uint16_t>(at+6),r.e,r.a);
-    return continues(static_cast<std::uint16_t>(at+7),call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+7));
 }
 
 // ---- The special ground: 01:792A-7A20 ----------------------------------------------------------
@@ -355,23 +348,22 @@ template<class Z> Exit scene_tail(Z& z) {            // 01:7972
     (void)z.jump(0x7983);
     return reset_after_transfer(z);
 }
-// 01:79E2: the damage step for the four party slots; the work is in 01:7A0C (called, native).
+// 01:79E2: the damage step for the four party slots; the work is in 01:7A0C (a separate segment, called).
 template<class Z> Exit damage_first(Z& z) {          // 01:79E2
     auto& r=z.r;
     z.load_immediate(0x79E2,r.b);
     z.load_immediate(0x79E4,r.a);
-    return continues(0x79E6,call_cycles);
+    return z.final_call(0x79E6);
 }
 template<class Z> Exit damage_next(Z& z, std::uint16_t at) {   // 01:79E9, 79EE, 79F3
     z.load_immediate(at,z.r.a);
-    return continues(static_cast<std::uint16_t>(at+2),call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+2));
 }
 template<class Z> Exit damage_end(Z& z) {            // 01:79F8
     auto& r=z.r;
     z.copy(0x79F8,r.a,r.b);
     z.or_a(0x79F9);
-    if (z.zero()) return returns(0x79FA,taken_conditional_return_cycles);
-    z.return_not_taken(0x79FA);
+    if (auto exit=z.final_return_if(0x79FA,mk::Condition::z)) return *exit;
     z.store_a_direct(0x79FB);
     z.load_hl(0x79FE);
     z.store_hl_direct(0x7A01);
@@ -383,25 +375,21 @@ template<class Z> Exit damage_end(Z& z) {            // 01:79F8
 template<class Z> Exit tile_79D1(Z& z) {            // C7h-D1h
     auto& r=z.r;
     z.compare_immediate(0x79D1);
-    if (z.carry()) return returns(0x79D3,taken_conditional_return_cycles);
-    z.return_not_taken(0x79D3);
+    if (auto exit=z.final_return_if(0x79D3,mk::Condition::c)) return *exit;
     z.compare_immediate(0x79D4);
-    if (!z.carry()) return returns(0x79D6,taken_conditional_return_cycles);
-    z.return_not_taken(0x79D6);
+    if (auto exit=z.final_return_if(0x79D6,mk::Condition::nc)) return *exit;
     z.load_immediate(0x79D7,r.a);
-    return continues(0x79D9,call_cycles);        // call Inventory_FindFreeSlot
+    return z.final_call(0x79D9);                 // the inventory slot search
 }
 template<class Z> Exit tile_79B7(Z& z) {            // C3h-C6h
     auto& r=z.r;
     z.compare_immediate(0x79B7);
-    if (z.carry()) return returns(0x79B9,taken_conditional_return_cycles);
-    z.return_not_taken(0x79B9);
+    if (auto exit=z.final_return_if(0x79B9,mk::Condition::c)) return *exit;
     z.compare_immediate(0x79BA);
     if (z.jump_if(0x79BC,!z.carry())) return tile_79D1(z);
     z.load_a_direct(0x79BF);
     z.or_a(0x79C2);
-    if (!z.zero()) return returns(0x79C3,taken_conditional_return_cycles);
-    z.return_not_taken(0x79C3);
+    if (auto exit=z.final_return_if(0x79C3,mk::Condition::nz)) return *exit;
     z.load_immediate(0x79C4,r.a);
     z.store_a_direct(0x79C6);
     z.load_immediate(0x79C9,r.a);
@@ -415,8 +403,7 @@ template<class Z> Exit tile_799C(Z& z) {            // ADh
     if (z.jump_if(0x799E,!z.zero())) return tile_79B7(z);
     z.load_a_direct(0x79A1);
     z.subtract_immediate(0x79A4);
-    if (z.carry()) return returns(0x79A6,taken_conditional_return_cycles);
-    z.return_not_taken(0x79A6);
+    if (auto exit=z.final_return_if(0x79A6,mk::Condition::c)) return *exit;
     z.copy(0x79A7,r.l,r.a);
     z.load_immediate(0x79A8,r.h);
     z.copy(0x79AA,r.e,r.l);
@@ -431,15 +418,13 @@ template<class Z> Exit tile_799C(Z& z) {            // ADh
 }
 template<class Z> Exit tile_7986(Z& z) {            // 5Fh-63h
     z.compare_immediate(0x7986);
-    if (z.carry()) return returns(0x7988,taken_conditional_return_cycles);
-    z.return_not_taken(0x7988);
+    if (auto exit=z.final_return_if(0x7988,mk::Condition::c)) return *exit;
     z.compare_immediate(0x7989);
     if (z.jump_if(0x798B,!z.carry())) return tile_799C(z);
     z.load_a_direct(0x798E);
     z.compare_immediate(0x7991);
-    if (z.zero()) return returns(0x7993,taken_conditional_return_cycles);
-    z.return_not_taken(0x7993);
-    return continues(0x7994,call_cycles);        // call 7BC4
+    if (auto exit=z.final_return_if(0x7993,mk::Condition::z)) return *exit;
+    return z.final_call(0x7994);                 // the magic flash
 }
 template<class Z> Exit tile_795C(Z& z) {            // 5Eh
     auto& r=z.r;
@@ -447,10 +432,9 @@ template<class Z> Exit tile_795C(Z& z) {            // 5Eh
     if (z.jump_if(0x795E,!z.zero())) return tile_7986(z);
     z.load_a_direct(0x7961);
     z.or_a(0x7964);
-    if (!z.zero()) return returns(0x7965,taken_conditional_return_cycles);
-    z.return_not_taken(0x7965);
+    if (auto exit=z.final_return_if(0x7965,mk::Condition::nz)) return *exit;
     z.load_immediate(0x7966,r.a);
-    return continues(0x7968,call_cycles);        // call Inventory_FindFreeSlot
+    return z.final_call(0x7968);                 // the inventory slot search
 }
 template<class Z> Exit special_ground(Z& z) {        // 01:792A
     auto& r=z.r;
@@ -459,12 +443,10 @@ template<class Z> Exit special_ground(Z& z) {        // 01:792A
     if (z.jump_if(0x792F,!z.zero())) return tile_795C(z);
     z.load_a_direct(0x7932);
     z.compare_immediate(0x7935);
-    if (!z.zero()) return returns(0x7937,taken_conditional_return_cycles);
-    z.return_not_taken(0x7937);
+    if (auto exit=z.final_return_if(0x7937,mk::Condition::nz)) return *exit;
     z.load_a_direct(0x7938);
     z.or_a(0x793B);
-    if (z.zero()) return returns(0x793C,taken_conditional_return_cycles);
-    z.return_not_taken(0x793C);
+    if (auto exit=z.final_return_if(0x793C,mk::Condition::z)) return *exit;
     z.load_immediate(0x793D,r.a);
     z.store_a_direct(0x793F);
     z.load_hl(0x7942);
@@ -479,20 +461,18 @@ template<class Z> Exit special_ground(Z& z) {        // 01:792A
     return reset_after_transfer(z);
 }
 template<class Z> Exit after_chest_slot(Z& z) {      // 01:796B
-    if (z.zero()) return returns(0x796B,taken_conditional_return_cycles);
-    z.return_not_taken(0x796B);
+    if (auto exit=z.final_return_if(0x796B,mk::Condition::z)) return *exit;
     z.load_hl(0x796C);
     z.store_hl_direct(0x796F);
     return scene_tail(z);
 }
 template<class Z> Exit after_damage_tile_probe(Z& z) {   // 01:79DC
-    if (z.zero()) return returns(0x79DC,taken_conditional_return_cycles);
-    z.return_not_taken(0x79DC);
-    return continues(0x79DD,call_cycles);        // call 7BC4
+    if (auto exit=z.final_return_if(0x79DC,mk::Condition::z)) return *exit;
+    return z.final_call(0x79DD);                 // the magic flash
 }
 
 // ---- The damage step: 01:7A0C-7A20 -------------------------------------------------------------
-// After `call IsCharacterAlive` (native) HL points at the character's hit
+// After `call IsCharacterAlive` (a separate segment) HL points at the character's hit
 // points: unless the character is dead, C is taken off the low byte (never
 // below zero); a character brought to zero also has the high byte cleared; B
 // collects one bit per character, shifted in from the carry (set when the
@@ -512,7 +492,7 @@ template<class Z> Exit damage_step(Z& z) {          // 01:7A0F
         }
     }
     z.rotate_left_through_carry(0x7A1E,r.b);
-    return returns(0x7A20,return_cycles);
+    return z.final_return(0x7A20);
 }
 
 // ---- Registration -------------------------------------------------------------------------------
@@ -589,5 +569,20 @@ void register_map_entrances(RoutineRegistry& registry) {
         [](auto& z) -> Exit { return damage_end(z); });
     add(registry,m::at1(0x7A0F),m::ground_damage_unit,{returned_at(0x7A20)},{},
         [](auto& z) -> Exit { return damage_step(z); });
+
+    // Joining stretches: the fill of the object table starts with its seed
+    // store after the copy count is loaded, and the damage step's first
+    // instruction asks whether the character is alive.
+    {
+        auto spec=mk::segment(m::reset_after_transfer_unit,{core_final_at(0x7924)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,m::at1(0x7924),std::move(spec),[](auto& z) -> Exit {
+            z.store_to_hl(0x7924);
+            return mk::fall_through(0x7924,0x7926);
+        });
+        auto alive=mk::segment(m::ground_damage_unit,{core_final_at(0x7A0C)},{.scratch_stack=2});
+        alive.single_instruction=true;
+        mk::add_segment(registry,m::at1(0x7A0C),std::move(alive),[](auto& z) -> Exit { return z.final_call(0x7A0C); });
+    }
 }
 }

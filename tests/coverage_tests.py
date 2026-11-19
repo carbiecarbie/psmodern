@@ -3,7 +3,14 @@ from pathlib import Path
 import sys
 import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from generate_coverage import ALL, COLUMNS, COUNTERS, checkpoints, generate
+from generate_coverage import ALL, COLUMNS, COUNTERS, checkpoints, generate as strict_generate
+
+
+def generate(root, **options):
+    """The fixtures below exercise the counters with refused calls; the real rule (no refusal at all)
+    is tested at the end with strict_generate."""
+    options.setdefault('allow_refusals', True)
+    return strict_generate(root, **options)
 
 # All shared and release-specific checkpoint censuses.
 N = len(checkpoints('us')) + len(checkpoints('br'))
@@ -180,4 +187,60 @@ with tempfile.TemporaryDirectory() as directory:
     generate(root)
     (root/'us'/'dungeon-continue.tsv').unlink()
     rejects(root, 'dungeon-continue.tsv')
+# The reasons come from the census header: a census without some of today's
+# reasons (milestone 14 retires them) is read, and mixed headers are refused.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    short = ('disabled', 'frame', 'guard')
+    columns = ('entry', 'unit', 'cpp', 'fallback', 'forced', 'forced_failed', *short, *(f'forced_{reason}' for reason in short))
+    line = '\t'.join([CTRL, CTRL, '99', '1', '0', '0', '0', '1', '0', '0', '0', '0']) + '\n'
+    for version in ('us', 'br'):
+        (root/version).mkdir()
+        for name in checkpoints(version):
+            (root/version/f'{name}.tsv').write_text('\t'.join(columns)+'\n'+line, encoding='ascii')
+    output = generate(root)
+    check('| ROM | Recording | disabled | frame | guard |' in output and 'ei_delay' not in output, 'Reasons not taken from the header')
+    (root/'us'/'boss.tsv').write_text(HEADER+row(CTRL, CTRL, 99, 1, reasons={'irq': 1}), encoding='ascii')
+    rejects(root, 'different fallback reason columns')
+    (root/'us'/'boss.tsv').write_text('\t'.join(columns[:-1])+'\n'+line[:line.rindex('\t')]+'\n', encoding='ascii')
+    rejects(root, 'Invalid census header')
+
+# The transition census beside each checkpoint census: all or none, a section when present.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    write_all(root, row(CTRL, CTRL, 99, 1, reasons={'irq': 1}))
+    check('Transition to rendered code' not in generate(root), 'Transition section without transition censuses')
+    text = ('section\tkey\tdetail\tcount\n'
+            f'final\t{CTRL}\treturned 0042\t7\n'
+            f'rendered\t{CTRL}\tcore_final 0042\t5\n'
+            f'origin\t{CTRL}\tcommon.cpp\t12\n'
+            'native\t00:0059\trom\t3\n'
+            'summary\tbody_irq\t-\t2\n'
+            'summary\tbody_nmi\t-\t1\n')
+    for version in ('us', 'br'):
+        for name in checkpoints(version):
+            (root/version/f'{name}.transition.tsv').write_text(text, encoding='ascii')
+    output = generate(root)
+    check(f'- {7*N:,} segment finals executed by the core and {5*N:,} rendered' in output and
+          f'- {3*N:,} native core steps' in output and f'| common.cpp | {7*N:,} | {5*N:,} |' in output,
+          'Transition totals wrong')
+    (root/'br'/'boss.transition.tsv').unlink()
+    rejects(root, 'Transition census missing')
+    (root/'br'/'boss.transition.tsv').write_text('section\tkey\tcount\n', encoding='ascii')
+    rejects(root, 'Invalid transition census header')
+    (root/'br'/'boss.transition.tsv').write_text(text.replace('\t7\n', '\t-7\n'), encoding='ascii')
+    rejects(root, 'Invalid transition census row')
 print('Coverage fixtures passed')
+
+# Milestone 14 (review R3 L5): the real censuses may hold no refused call.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    write_all(root, row(CTRL, CTRL, 99, 0))
+    check('| Total |' in strict_generate(root), 'A census with no refusal is accepted')
+    write_all(root, row(CTRL, CTRL, 99, 1, reasons={'irq': 1}))
+    try:
+        strict_generate(root)
+    except ValueError as error:
+        check(f'Refused calls in the recordings: {CTRL}' in str(error), f'Wrong refusal: {error}')
+    else:
+        raise RuntimeError('A census with a refused call was accepted')

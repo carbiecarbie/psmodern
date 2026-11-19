@@ -19,6 +19,7 @@ inline constexpr std::array segments{
     Segment{{0, 0x2115}, {0, 0x2102}}, Segment{{0, 0x2120}, {0, 0x2102}},
     Segment{{0, 0x2138}, {0, 0x2102}}, Segment{{0, 0x2140}, {0, 0x2140}},
     Segment{{0, 0x2144}, {0, 0x2140}}, Segment{{0, 0x2159}, {0, 0x2159}},
-    Segment{{0, 0x2162}, {0, 0x2159}}};
+    Segment{{0, 0x2162}, {0, 0x2159}},
+    Segment{{0, 0x2156}, {0, 0x2140}}, Segment{{0, 0x215F}, {0, 0x2159}}};
 } // namespace field_magic
 } // namespace psmodern::game

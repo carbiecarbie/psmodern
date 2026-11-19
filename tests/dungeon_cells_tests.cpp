@@ -10,6 +10,7 @@
 //                             (counts only), and equality with the other version
 // A ROM run exits 77 without the ROM.
 #include "game/dungeon_kit.h"
+#include "scaffold.h"
 #include "game/dungeon_tables.h"
 #include "probe.h"
 #include <algorithm>
@@ -33,7 +34,7 @@ void registration() {
         const auto* routine=cells.find(entry);
         check(routine!=nullptr && routine->spec.unit==unit && routine->spec.exits.size()==1 &&
               routine->spec.exits[0].kind==RoutineExit::returned && !routine->spec.slot2_mapper &&
-              !routine->spec.single_instruction && !routine->spec.force_admit,"cell reader declares one return and no permission");
+              !routine->spec.single_instruction,"cell reader declares one return and no permission");
     }
     check(cells.find(dungeon::cell_type_unit)->spec.exits[0].address==0x6BE8 && cells.find(dungeon::cell_type_unit)->spec.scratch_stack==2,
           "01:6BCA returns at 01:6BE8 with two scratch bytes (its pushed HL)");
@@ -55,7 +56,7 @@ void registration() {
                   std::string("a unit of ")+name+" is not its own entry");
     };
     list(dungeon::cell_segments,"cells"); list(dungeon::movement_segments,"movement"); list(dungeon::object_segments,"objects");
-    check(all.size()==2+26+25,"53 planned dungeon segments");
+    check(all.size()==2+36+26,"64 planned dungeon segments");
     auto registers_only=[](void (*registration)(RoutineRegistry&), const auto& segments) {
         RoutineRegistry registry;
         registration(registry);
@@ -79,6 +80,7 @@ struct CountingBus {
     void write(std::uint16_t address, std::uint8_t value) { machine.memory().write(address,value); }
     void advance(std::uint64_t count) { cycles+=count; }
     std::uint64_t elapsed() const { return cycles; }
+    void expect(std::uint16_t, OpcodePattern) {} void interrupts(bool) {} void return_from_nmi() {} bool guard(bool holds, std::string_view) { return holds; }
 };
 using Z=kit::Instructions<CountingBus>;
 constexpr std::uint16_t code_at=0x1000;
@@ -242,13 +244,21 @@ void until_return(Machine& m, RoutineRegistry* registry) {
 // Runs the program with the registry (every call verified) and without, and
 // requires equal machines; returns the C++ and fallback calls.
 std::pair<std::uint64_t,std::uint64_t> same_as_native(Machine cpp, RoutineRegistry& registry, const char* what) {
-    replay::CallVerifier verifier("kit");
-    registry.verifier=&verifier;
+    {
+        // Every call is also compared with the oracle at each of its
+        // instruction boundaries (milestone 14), on copies of both.
+        Machine checked=cpp; RoutineRegistry copy=registry;
+        oracle::Lockstep lockstep(checked,what,oracle::Mode::instructions);
+        for (unsigned i=0;i<1000000 && checked.cpu().pc.uint16_value!=0x0180;++i) lockstep.step(checked,&copy);
+    }
     Machine native=cpp;
     until_return(cpp,&registry); until_return(native,nullptr);
-    registry.verifier=nullptr;
     std::string fields;
-    for (const auto& difference:native.differences(cpp)) fields+=" "+difference.field;
+    // Milestone 14: the oracle's documented whole-machine equality (the core's per-step
+    // bookkeeping is left out), plus the PSG writes and the cartridge RAM dirty flag.
+    for (const auto& difference:oracle::differences(cpp,native,oracle::Scope::whole)) fields+=" "+difference;
+    if (cpp.take_psg_writes()!=native.take_psg_writes()) fields+=" psg_writes";
+    if (cpp.memory().cartridge_ram_dirty()!=native.memory().cartridge_ram_dirty()) fields+=" cartridge_ram_dirty";
     check(fields.empty(),std::string(what)+" differs from the original program:"+fields);
     std::uint64_t cpp_calls=0, fallbacks=0;
     for (const auto& [entry,routine]:registry.entries()) { cpp_calls+=routine.counters.cpp_calls; fallbacks+=routine.counters.fallback_calls; }
@@ -262,8 +272,8 @@ template<class Instr> kit::Exit scan_records(Instr& z, std::uint16_t after) {
     for (;;) {
         z.load_from_hl(scan_loop,z.r.a);
         z.compare_register(scan_loop+1,z.r.c);
-        if (z.relative_if(scan_loop+2,z.zero())) return kit::returns(scan_found,kit::return_cycles);
-        if (z.loop_exit(after)) return kit::continues(scan_exit,11);
+        if (z.relative_if(scan_loop+2,z.zero())) return scaffold::returns(scan_found,kit::return_cycles);
+        if (z.loop_exit(after)) return scaffold::continues(scan_exit,11);
         z.add_to_hl(scan_exit,z.de());
         (void)z.jump(scan_jump);
     }
@@ -287,14 +297,18 @@ struct ScanRecord {
     static ScanRecord next(unsigned to_exit) { return {false,to_exit}; }
     static ScanRecord stop(unsigned to_end) { return {true,to_end}; }
 };
+// The final instruction (the loop exit's, or the one ending the scan) is left
+// to the test scaffolding as a step of its own (milestone 14): `final_cycles`
+// of it count in the chunk (0 here).
 template<class Record>
-std::uint64_t scan_chunk_cost(std::uint64_t start, std::uint16_t after, unsigned exit_cycles, unsigned loop_cycles, Record record) {
+std::uint64_t scan_chunk_cost(std::uint64_t start, std::uint16_t after, unsigned exit_cycles, unsigned loop_cycles, Record record,
+                              unsigned final_exit_cycles) {
     std::uint64_t elapsed=start;
     for (unsigned i=0;;++i) {
         const ScanRecord step=record(i);
         if (step.stops) return elapsed+step.cycles;
         elapsed+=step.cycles;
-        if (elapsed>=after) return elapsed+exit_cycles;
+        if (elapsed>=after) return elapsed+final_exit_cycles;
         elapsed+=exit_cycles+loop_cycles;
     }
 }
@@ -302,13 +316,17 @@ std::uint64_t scan_chunk_cost(std::uint64_t start, std::uint16_t after, unsigned
 std::uint64_t scan_bound(const Machine& m, std::uint64_t start, std::uint16_t after) {
     const auto hl=m.cpu().hl.uint16_value, de=m.cpu().de.uint16_value;
     const auto c=m.cpu().bc.uint8_values.at_0;
+    // The scan's RET (10 cycles) and the loop exit's ADD HL,DE (11) are the
+    // finals the scaffolding runs; the chunk is the body alone.
     return scan_chunk_cost(start,after,11,10,[&](unsigned i) {
-        return m.peek(static_cast<std::uint16_t>(hl+i*de))==c ? ScanRecord::stop(23+10) : ScanRecord::next(18);
-    });
+        return m.peek(static_cast<std::uint16_t>(hl+i*de))==c ? ScanRecord::stop(23) : ScanRecord::next(18);
+    },0);
 }
 
 void kit_mechanism() {
     using namespace kit;
+    // The authored programs' code that no segment renders runs on the oracle's core.
+    oracle::Scaffold scaffold;
     // Held words: a segment pushes one or two words and ends with a core CALL
     // into original code holding them; the continuation inherits and pops
     // them and returns.
@@ -317,15 +335,15 @@ void kit_mechanism() {
     for (std::uint64_t seed=1;seed<=50;++seed) {
         RoutineRegistry one;
         add_segment(one,{0,0x40},segment({0,0x40},{core_final_at(0x41,-2)},{.scratch_stack=2}),64,
-            [](auto& z) { z.push(0x40,z.r.b,z.r.c); return continues(0x41,call_cycles); });
+            [](auto& z) { z.push(0x40,z.r.b,z.r.c); return scaffold::continues(0x41,call_cycles); });
         add_segment(one,{0,0x44},segment({0,0x40},{returned_at(0x45,+2)},{.inherited_stack=2}),64,
-            [](auto& z) { z.pop(0x44,z.r.b,z.r.c); return returns(0x45,return_cycles); });
+            [](auto& z) { z.pop(0x44,z.r.b,z.r.c); return scaffold::returns(0x45,return_cycles); });
         check(same_as_native(started(chain,0x40,seed),one,"one held word")==std::pair<std::uint64_t,std::uint64_t>{2,0},"both chain segments ran in C++");
         RoutineRegistry two;
         add_segment(two,{0,0x50},segment({0,0x50},{core_final_at(0x52,-4)},{.scratch_stack=4}),64,
-            [](auto& z) { z.push(0x50,z.r.b,z.r.c); z.push(0x51,z.r.h,z.r.l); return continues(0x52,call_cycles); });
+            [](auto& z) { z.push(0x50,z.r.b,z.r.c); z.push(0x51,z.r.h,z.r.l); return scaffold::continues(0x52,call_cycles); });
         add_segment(two,{0,0x55},segment({0,0x50},{returned_at(0x57,+4)},{.inherited_stack=4}),64,
-            [](auto& z) { z.pop(0x55,z.r.h,z.r.l); z.pop(0x56,z.r.b,z.r.c); return returns(0x57,return_cycles); });
+            [](auto& z) { z.pop(0x55,z.r.h,z.r.l); z.pop(0x56,z.r.b,z.r.c); return scaffold::returns(0x57,return_cycles); });
         check(same_as_native(started(chain,0x50,seed),two,"two held words")==std::pair<std::uint64_t,std::uint64_t>{2,0},"both two-word segments ran in C++");
     }
     // Conditional exits, each outcome: JR Z, JP Z and DJNZ decided by the core.
@@ -334,11 +352,11 @@ void kit_mechanism() {
     for (std::uint64_t seed=1;seed<=40;++seed) {
         RoutineRegistry r;
         add_segment(r,{0,0x60},segment({0,0x60},{conditional_at(0x61)}),64,
-            [](auto& z) { z.or_a(0x60); return relative_if_exit(0x61,z.zero()); });
+            [](auto& z) { z.or_a(0x60); return scaffold::relative_if_exit(0x61,z.zero()); });
         add_segment(r,{0,0x70},segment({0,0x70},{conditional_at(0x71)}),64,
-            [](auto& z) { z.increment(0x70,z.r.c); return decrement_jump_exit(z,0x71); });
+            [](auto& z) { z.increment(0x70,z.r.c); return scaffold::decrement_jump_exit(z,0x71); });
         add_segment(r,{0,0x90},segment({0,0x90},{conditional_at(0x91)}),64,
-            [](auto& z) { z.or_a(0x90); return jump_if_exit(0x91); });
+            [](auto& z) { z.or_a(0x90); return scaffold::jump_if_exit(0x91); });
         for (const std::uint16_t pc:{std::uint16_t{0x60},std::uint16_t{0x90}}) {
             auto m=started(branches,pc,seed);
             m.cpu().af.uint8_values.at_1=seed%2 ? 0 : static_cast<std::uint8_t>(seed);
@@ -380,7 +398,9 @@ void kit_mechanism() {
             check(cpp>1 || after>=1000,"the scan is split into chunks");
         }
     }
-    check(frame_fallbacks>0,"some scans fell back at the frame boundary");
+    // Milestone 14: the scan is exact, so a chunk crossing the frame boundary
+    // runs in C++ too (compared with the oracle at every boundary).
+    check(frame_fallbacks==0,"scans crossing the frame boundary run in C++");
     std::cout<<"Kit exit helpers: held-word chains, conditional exits and split scans equal the original ("<<chunks
              <<" C++ chunks, "<<frame_fallbacks<<" frame fallbacks).\n";
 }
@@ -633,6 +653,8 @@ void table_facts(const probe::Rom& rom, const char* other) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc==1) {
             registration();

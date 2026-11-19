@@ -103,7 +103,7 @@ void registration() {
             check(spec.exits[i].same_declaration(expected.exits[i]),"an exit of a registered entry is declared as expected");
         check(spec.scratch_stack==expected.scratch && spec.inherited_stack==expected.inherited && spec.slot2_mapper==expected.mapper,
               "the permissions of a registered entry");
-        check(!spec.single_instruction && !spec.force_admit,"no places segment is single-instruction or forced");
+        check(!spec.single_instruction,"no places segment is single-instruction or forced");
         bool planned=false;
         for (const auto& segment:menu::places_segments) planned=planned || (segment.entry==entry && segment.unit==spec.unit);
         check(planned,"a catalog entry is planned with its unit");
@@ -262,6 +262,17 @@ void state_probes(const menu_probe::Inputs& inputs) {
     for (const auto& segment:menu::places_segments)
         for (unsigned k=0;k<600;++k) lab.run(segment.entry.address);
     check_exits_taken(stats,inputs.version);
+    // Interrupt sweeps (milestone 14): an IRQ and an NMI at every cycle of every segment (every n-th of the
+    // longest, about 300 runs per kind), each run compared with the oracle at every instruction boundary.
+    for (const auto& segment:menu::places_segments)
+        for (unsigned variant=0;variant<2;++variant) {
+            probe::Setup setup; setup.seed=900+variant;
+            auto pilot=lab.harness.prepare(segment.entry,setup);
+            lab.state(pilot,segment.entry.address);
+            const auto length=lab.harness.routine(segment.entry).bound(pilot);
+            const unsigned stride=static_cast<unsigned>(std::max<std::uint64_t>(1,length/300));
+            probe::sweep(lab.harness,segment.entry,setup,[&](Machine& m) { lab.state(m,segment.entry.address); },stride);
+        }
     std::cout<<"places state probes on "<<inputs.version<<": "<<stats.calls<<" calls in C++, "<<stats.fallbacks
              <<" predicted fallbacks, every declared exit of the "<<menu::places_segments.size()<<" registered entries taken.\n";
     check(stats.calls>menu::places_segments.size()*300,"most state probes ran in C++");
@@ -289,6 +300,8 @@ bool scenario_probes(const menu_probe::Inputs& inputs) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;

@@ -17,6 +17,8 @@
 //     folder), the same entries over the game's own RAM and VRAM.
 #include "game/map_kit.h"
 #include "map_probe.h"
+#include <vector>
+#include <functional>
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -44,6 +46,7 @@ struct Want {
     RoutineEntry entry, unit;
     std::vector<SegmentExit> exits;
     kit::Permissions permissions={};
+    bool single=false;          // a one-instruction joining segment (milestone 14)
 };
 std::vector<Want> wanted() {
     const auto handler=map::frame_handler_unit, loading=map::load_frame_handler_unit, sprites=map::sprite_upload_unit,
@@ -65,6 +68,11 @@ std::vector<Want> wanted() {
         {at1(0x6339),animators,tiles,{.inherited_stack=2}},{at1(0x633F),animators,tiles,{.inherited_stack=2}},{at1(0x6343),animators,{R(0x6344,+2)},{.inherited_stack=2}},
         {map::strip_upload_unit,map::strip_upload_unit,{R(0x73D5),R(0x741B),R(0x744A)},{.slot2_mapper=true,.scratch_stack=4}},
         {map::colour_cycle_unit,map::colour_cycle_unit,{R(0x7C1C),R(0x7C29),R(0x7C38),R(0x7C3D),R(0x7C6C),R(0x599E)},{.scratch_stack=2}},
+        // Joining stretches (milestone 14): the tail's RET, the 512-byte frame after its VDP address, the
+        // animators' RET and tile loop, and the strip's column loop with its RET.
+        {at1(0x599E),sprites,{R(0x599E)},{},true},{at1(0x62AE),party,{R(0x599E)},{.scratch_stack=2}},
+        {at1(0x6309),animators,{R(0x6309)},{},true},{at1(0x6334),animators,tiles,{.inherited_stack=2}},
+        {at1(0x7403),map::strip_upload_unit,{R(0x741B)},{.scratch_stack=4}},{at1(0x741B),map::strip_upload_unit,{R(0x741B)},{},true},
     };
     for (const std::uint16_t call:{0x62CD,0x62D9,0x62E5,0x62F1,0x62FD})
         w.push_back({at1(call),animators,{F(static_cast<std::uint16_t>(call+9))}});
@@ -77,7 +85,7 @@ void registration() {
     const auto want=wanted();
     // The planned list includes the two entries added inside 01:62BC (the
     // resumes of the inner loop exit at 01:633C).
-    check(want.size()==map::video_segments.size() && entries.size()==want.size(),"the 28 planned video segments are registered");
+    check(want.size()==map::video_segments.size() && entries.size()==want.size(),"the 34 planned video segments are registered");
     for (const auto& w:want) {
         const auto listed=std::find_if(map::video_segments.begin(),map::video_segments.end(),[&](const auto& s) { return s.entry==w.entry; });
         check(listed!=map::video_segments.end() && listed->unit==w.unit,"a video entry is planned with its unit");
@@ -85,7 +93,7 @@ void registration() {
         check(routine!=nullptr,"a planned video entry is registered");
         const auto& spec=routine->spec;
         check(spec.unit==w.unit && spec.slot2_mapper==w.permissions.slot2_mapper && spec.scratch_stack==w.permissions.scratch_stack &&
-              spec.inherited_stack==w.permissions.inherited_stack && !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,
+              spec.inherited_stack==w.permissions.inherited_stack && spec.single_instruction==w.single,
               "video entry "+std::to_string(w.entry.address)+" has the unit and permissions of the 4V table");
         check(spec.exits.size()==w.exits.size(),"video entry "+std::to_string(w.entry.address)+" declares the exits of the 4V table");
         for (const auto& exit:w.exits)
@@ -121,14 +129,8 @@ void code_shape(const probe::Rom& rom) {
 
 // ---- State probes -------------------------------------------------------------------------
 // The verifier of the harness, wrapped to learn which exit each call took.
-struct Spy final : RoutineVerifier {
-    replay::CallVerifier inner{"probe"};
-    std::optional<SegmentExit> last;
-    void run(Machine& machine, RoutineEntry entry, const SegmentSpec& spec, bool forced, std::uint64_t bound,
-             std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override {
-        inner.run(machine,entry,spec,forced,bound,call,[&] { last=body(); return last; });
-    }
-};
+// The exit each call of the harness took (milestone 14: from the registry).
+struct Spy { std::optional<SegmentExit> last; };
 
 using Prepare=std::function<void(Machine&,std::mt19937_64&)>;
 struct Rig {
@@ -138,7 +140,7 @@ struct Rig {
     std::uint64_t seed=1, count=0, refusals=0, unmapped=0, rom_stack_probes=0;
     std::map<RoutineEntry,std::set<std::uint16_t>> reached;
     std::map<RoutineEntry,std::uint64_t> per_entry;
-    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.registry().verifier=&spy; }
+    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.exit_sink=&spy.last; }
 
     // Admission of a stack placement: SP, SP+1, the scratch bytes below and
     // the inherited bytes above must be mapped and off the mapper registers.
@@ -197,17 +199,15 @@ struct Rig {
         probe::Harness::Result result{};
         try {
             if (rom_stack) {
-                Machine original=machine;
-                auto& registry=harness.registry();
-                auto* verifier=registry.verifier;
-                registry.verifier=nullptr;
-                try { result=harness.run_cpp(machine,entry); } catch (...) { registry.verifier=verifier; throw; }
-                registry.verifier=verifier;
+                oracle::NativeMachine original(machine);
+                harness.verified=false;
+                try { result=harness.run_cpp(machine,entry); } catch (...) { harness.verified=true; throw; }
+                harness.verified=true;
                 const auto stop=original.cycles()+result.cycles;
                 while (original.cycles()<stop) original.step();
                 check(original.cycles()==stop,"ROM-stack probe: the original does not stop at the C++ call's cycle count");
                 std::string fields;
-                for (const auto& difference:original.differences(machine)) fields+=" "+difference.field;
+                for (const auto& difference:oracle::differences(machine,original,oracle::Scope::whole)) fields+=" "+difference;
                 check(fields.empty(),"ROM-stack probe: C++ differs from the original at equal cycles:"+fields);
                 ++rom_stack_probes;
             } else result=harness.run_cpp(machine,entry);
@@ -318,6 +318,18 @@ std::vector<std::pair<RoutineEntry,Prepare>> entry_inputs(const probe::Rom& rom)
             data_port(m); m.cpu().af.uint8_values.at_1=count(g); m.cpu().bc.uint8_values.at_1=count(g); m.cpu().hl.uint16_value=anywhere(g);
         });
     add(at1(0x6343),{});
+    // Joining stretches (milestone 14): the tail's RET and the animators' RET need nothing; the 512-byte
+    // frame after its VDP address, the animator's tile loop and the strip's column loop read the data port,
+    // a count and a source pointer.
+    for (const std::uint16_t ret:{0x599E,0x6309,0x741B}) add(at1(ret),{});
+    add(at1(0x62AE),[](Machine& m, std::mt19937_64& g) { data_port(m); m.cpu().hl.uint16_value=anywhere(g); });
+    add(at1(0x6334),[](Machine& m, std::mt19937_64& g) {
+        data_port(m); m.cpu().af.uint8_values.at_1=count(g); m.cpu().bc.uint8_values.at_1=count(g); m.cpu().hl.uint16_value=anywhere(g);
+    });
+    add(at1(0x7403),[](Machine& m, std::mt19937_64& g) {
+        data_port(m); m.cpu().bc.uint8_values.at_1=static_cast<std::uint8_t>(1+g()%3);     // a few cells: a long run would
+        m.cpu().hl.uint16_value=anywhere(g); m.cpu().de.uint16_value=anywhere(g);          // take a frame interrupt inside its body
+    });
     // 01:73D0: the pending strip (none, a row or a column), its bank and the
     // scroll the strip position comes from.
     add(map::strip_upload_unit,[](Machine& m, std::mt19937_64& g) {
@@ -342,10 +354,12 @@ std::vector<std::pair<RoutineEntry,Prepare>> entry_inputs(const probe::Rom& rom)
 // that entry: 02B4 passes 128 cycles before the name-table loop can end; from
 // 630A the first arrival at 633C is past 32 cycles; from 6337 (B = 20h) the
 // second arrival at 633C ends the chunk; from 6339 the earliest arrival at
-// 6340 is at 34 cycles; from 633F the arrival at 6340 is at 4 cycles.
+// 6340 is at 34 cycles; from 633F the arrival at 6340 is at 4 cycles; from 6334 (B = 20h after the two loads,
+// like 6337) the second arrival at 633C ends the chunk.
 void exits_reached(const Rig& g) {
     const std::set<std::pair<std::uint16_t,std::uint16_t>> never{{0x02B4,0x02D9},{0x630A,0x6340},{0x630A,0x6344},
-        {0x6337,0x6340},{0x6337,0x6344},{0x6339,0x6344},{0x633F,0x6340}};
+        {0x6337,0x6340},{0x6337,0x6344},{0x6339,0x6344},{0x633F,0x6340},
+        {0x6334,0x6340},{0x6334,0x6344}};
     for (const auto& w:wanted())
         for (const auto& exit:w.exits) {
             if (never.count({w.entry.address,exit.address})) continue;
@@ -440,7 +454,7 @@ bool map_frame_probes(const map_probe::Inputs& inputs) {
             setup.banks={0,1,static_cast<std::uint8_t>(s.machine().memory().mapping(0x8000).bank)};
             // Half the probes keep the frame's RAM untouched; the resume
             // entries still get C = the data port, as the code before them sets.
-            static const std::set<std::uint16_t> resumes{0x02D0,0x02D5,0x589E,0x595E,0x6337,0x6339,0x633F};
+            static const std::set<std::uint16_t> resumes{0x02D0,0x02D5,0x589E,0x595E,0x62AE,0x6334,0x6337,0x6339,0x633F,0x7403};
             const Prepare port=[](Machine& m, std::mt19937_64&) { data_port(m); };
             g.run(entry,setup,&s.machine(),i%2 ? prepare : resumes.count(entry.address) ? port : Prepare{});
         }
@@ -451,12 +465,53 @@ bool map_frame_probes(const map_probe::Inputs& inputs) {
 }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body of this part
+// (sampled: about 40 runs per kind), each run compared with the oracle at every
+// instruction boundary, handler included. One-instruction segments have no
+// boundary inside and are left out. The state is the map's work RAM with
+// recognisable bytes, pointers into RAM and the video data port in C.
+void sweep_state(RoutineEntry entry, Machine& m) {
+    (void)entry;
+    auto& cpu=m.cpu();
+    for (unsigned a=0xC200;a<0xC700;++a) m.memory().write(static_cast<std::uint16_t>(a),static_cast<std::uint8_t>((a*167u+(a>>8)*13u)>>1));
+    cpu.hl.uint16_value=0xC900; cpu.de.uint16_value=0xD000; cpu.bc.uint16_value=0x04BE;
+    cpu.ix_iy[0].uint16_value=0xC800; cpu.ix_iy[1].uint16_value=0xC800;
+}
+void sweeps(const probe::Rom& rom) {
+    probe::Harness h(rom);
+    std::vector<RoutineEntry> entries;
+    for (const auto& s:map::video_segments) entries.push_back(s.entry);
+    for (std::uint16_t from=0x58AE;from<0x599E;from+=16) if (from!=0x595E) entries.push_back(at1(from));   // the eight-write slices
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction) continue;
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            const auto adjust=[&](Machine& m) { sweep_state(entry,m); };
+            auto base=h.prepare(entry,setup);
+            adjust(base);
+            const auto length=h.run_cpp(base,entry).cycles;
+            probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    check(failures.empty(),"map sweeps failed:"+failures);
+    std::cout<<"map video: "<<swept<<" segments swept\n";
+}
+
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        sweeps(inputs->rom);
         const auto start=std::chrono::steady_clock::now();
         auto seconds=[&] { return std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count(); };
         code_shape(inputs->rom);

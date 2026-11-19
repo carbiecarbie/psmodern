@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Refresh level/equipment-derived party stats and activity lookup helpers.
+#include "game/joins.h"
 #include "game/party_helpers.h"
 #include "game/menu_kit.h"
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 template <class Z> Exit refresh_one_member(Z &z) {
     z.test_bit_indexed(0x17E4, k::Index::iy, 0);
-    if (z.zero())
-        return returns(0x17E8, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x17E8);
+    if (auto exit=z.final_return_if(0x17E8,k::Condition::z)) return *exit;
     z.store_immediate_indexed(0x17E9, k::Index::iy);
     z.store_immediate_indexed(0x17ED, k::Index::iy);
     z.load_from_indexed(0x17F1, k::Index::iy, z.r.l);
@@ -48,24 +45,24 @@ template <class Z> Exit refresh_one_member(Z &z) {
     z.store_to_indexed(0x1830, k::Index::iy, z.r.a);
     z.load_from_indexed(0x1833, k::Index::ix, z.r.a);
     z.store_to_indexed(0x1836, k::Index::iy, z.r.a);
-    return returns(0x1839, k::return_cycles);
+    return z.final_return(0x1839);
 }
 template <class Z> Exit refresh_alis(Z &z) {
     z.load_hl(0x17BA);
     z.store_to_hl(0x17BD);
     z.load_index(0x17BF, k::Index::iy);
     z.load_de(0x17C3);
-    return continues(0x17C6, k::call_cycles);
+    return z.final_call(0x17C6);
 }
 template <class Z> Exit refresh_myau(Z &z) {
     z.load_index(0x17C9, k::Index::iy);
     z.load_de(0x17CD);
-    return continues(0x17D0, k::call_cycles);
+    return z.final_call(0x17D0);
 }
 template <class Z> Exit refresh_odin(Z &z) {
     z.load_index(0x17D3, k::Index::iy);
     z.load_de(0x17D7);
-    return continues(0x17DA, k::call_cycles);
+    return z.final_call(0x17DA);
 }
 template <class Z> Exit refresh_noah(Z &z) {
     z.load_index(0x17DD, k::Index::iy);
@@ -86,7 +83,7 @@ template <class Z> Exit find_actor_record(Z &z) {
     z.copy(0x1889, z.r.h, z.r.a);
     z.pop(0x188A, z.r.a, z.r.f);
     z.test_bit_at_hl(0x188B, 0);
-    return returns(0x188D, k::return_cycles);
+    return z.final_return(0x188D);
 }
 template <class Z> Exit find_current_actor_record(Z &z) {
     z.load_a_direct(0x187A);
@@ -94,27 +91,25 @@ template <class Z> Exit find_current_actor_record(Z &z) {
 }
 template <class Z> Exit check_actor_warning(Z &z) {
     z.push(0x188E, z.r.h, z.r.l);
-    return continues(0x188F, k::call_cycles);
+    return z.final_call(0x188F);
 }
 template <class Z> Exit warn_inactive_actor(Z &z) {
     z.pop(0x1892, z.r.h, z.r.l);
-    if (!z.zero())
-        return returns(0x1893, k::taken_conditional_return_cycles);
-    z.return_not_taken(0x1893);
+    if (auto exit=z.final_return_if(0x1893,k::Condition::nz)) return *exit;
     z.push(0x1894, z.r.a, z.r.f);
     z.push(0x1895, z.r.b, z.r.c);
     z.push(0x1896, z.r.d, z.r.e);
     z.push(0x1897, z.r.h, z.r.l);
     z.store_a_direct(0x1898);
     z.load_hl(0x189B);
-    return continues(0x189E, k::call_cycles);
+    return z.final_call(0x189E);
 }
 template <class Z> Exit restore_actor_warning(Z &z) {
     z.pop(0x18A4, z.r.h, z.r.l);
     z.pop(0x18A5, z.r.d, z.r.e);
     z.pop(0x18A6, z.r.b, z.r.c);
     z.pop(0x18A7, z.r.a, z.r.f);
-    return returns(0x18A8, k::return_cycles);
+    return z.final_return(0x18A8);
 }
 } // namespace
 void register_party_helpers(RoutineRegistry &registry) {
@@ -144,5 +139,15 @@ void register_party_helpers(RoutineRegistry &registry) {
         {.scratch_stack = 6, .inherited_stack = 2}, [](auto &z) { return warn_inactive_actor(z); });
     add(0x18A4, 0x188E, {returned_at(0x18A8, 8)}, {.inherited_stack = 8},
         [](auto &z) { return restore_actor_warning(z); });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_party_helpers_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x18A1},{0,0x188E},{kit::core_final_at(0x18A1)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x18A1); });
 }
 } // namespace psmodern::game

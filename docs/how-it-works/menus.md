@@ -7,6 +7,13 @@ church and the shops, and how the screen fades in and out. The game rules
 behind the spells chosen here are described in [battles and magic](battle.md);
 the item selector also hands its effects to separate routines.
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 ## What runs where
 
 **ROM run.** The save transfer at `00:1D1D` can copy part of a slot before

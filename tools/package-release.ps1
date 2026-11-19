@@ -137,13 +137,8 @@ try {
 		$exe = Require-File (Join-Path $buildTree 'psmodern.exe')
 	}
 
-	# Pinned third-party revisions must still be stated in docs/dependencies.md.
-	$deps = Get-Content -LiteralPath (Join-Path $src 'docs/dependencies.md') -Raw
-	$z80Commit = 'dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9'
-	$zetaCommit = '42830b0e735cc3a83c7630e2dcf21949e8441c6d'
-	foreach ($c in @($z80Commit, $zetaCommit)) {
-		if (-not $deps.Contains($c)) { throw "docs/dependencies.md no longer mentions $c; update the script and the notices" }
-	}
+	# Since milestone 14 psmodern.exe contains no vendored library: the Z80
+	# core (redcode/Z80) and the Zeta headers serve only the test oracle.
 
 	$share = Join-Path $ucrtRoot 'share\licenses'
 	$licenseSources = [ordered]@{
@@ -151,8 +146,6 @@ try {
 		'winpthreads.txt'           = Join-Path $share 'winpthreads\COPYING'
 		'GCC-runtime-exception.txt' = Join-Path $share 'gcc-libs\COPYING.RUNTIME'
 		'GCC-GPL-3.0.txt'           = Join-Path $share 'gcc-libs\COPYING3'
-		'redcode-z80-LGPL-3.0.txt'  = Join-Path $src 'third_party\redcode-z80\COPYING.LESSER'
-		'Zeta-LGPL-3.0.txt'         = Join-Path $src 'third_party\zeta\COPYING.LESSER'
 	}
 	foreach ($p in $licenseSources.Values) { Require-File $p | Out-Null }
 	$licenseFile = Require-File (Join-Path $src 'LICENSE')
@@ -209,15 +202,10 @@ Corresponding source:
             commit $head
             (the tag v$version points to this commit)
 
-Vendored libraries (their source is part of the PSModern source above):
-  redcode/Z80  commit $z80Commit
-               Z80 CPU core, LGPL-3.0-or-later (licenses\redcode-z80-LGPL-3.0.txt)
-               https://github.com/redcode/Z80
-  redcode/Zeta commit $zetaCommit
-               header subset, LGPL-3.0 (licenses\Zeta-LGPL-3.0.txt)
-               https://github.com/redcode/Zeta
-Both are linked statically into psmodern.exe. The LGPL-3.0 supplements the
-GNU GPL version 3 (LICENSE.txt, licenses\GCC-GPL-3.0.txt).
+Credit (not shipped):
+  redcode/Z80, a Z80 CPU core (LGPL-3.0-or-later, https://github.com/redcode/Z80),
+  is the reference PSModern's tests compare the C++ code against, instruction
+  by instruction. psmodern.exe contains none of its code.
 
 Bundled runtime libraries, MSYS2 UCRT64 builds (license texts in licenses\):
   SDL2.dll             Simple DirectMedia Layer, zlib license (licenses\SDL2.txt)

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "game/option_flags.h"
 #include "game/routines.h"
 #include "replay/recording.h"
@@ -17,6 +18,8 @@ using namespace psmodern;
 using namespace psmodern::replay;
 void check(bool ok) {if(!ok)throw std::runtime_error("Replay assertion failed");}
 int main() {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     auto folder=std::filesystem::temp_directory_path()/("psmodern-replay-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
         FrameWrites frame_writes;
@@ -66,11 +69,11 @@ int main() {
                   fails({"--experience-rate","0"},"one of 100, 200 or 400"));
             // Refusals name the flag and its value; explicit 100 is original mode and never refused.
             auto refused=[&](std::vector<const char*> words,const std::string& part){
-                try{parsed(words).refuse_with("--lockstep-calls","reason");}catch(const std::runtime_error& e){return std::string(e.what()).find(part)!=std::string::npos;}return false;};
-            check(refused({"--encounter-rate","50"},"--encounter-rate 50 cannot be combined with --lockstep-calls"));
-            check(refused({"--experience-rate","400"},"--experience-rate 400 cannot be combined with --lockstep-calls"));
-            parsed({}).refuse_with("--lockstep-calls","reason");
-            parsed({"--encounter-rate","100","--experience-rate","100"}).refuse_with("--lockstep-calls","reason");
+                try{parsed(words).refuse_with("--lockstep","reason");}catch(const std::runtime_error& e){return std::string(e.what()).find(part)!=std::string::npos;}return false;};
+            check(refused({"--encounter-rate","50"},"--encounter-rate 50 cannot be combined with --lockstep"));
+            check(refused({"--experience-rate","400"},"--experience-rate 400 cannot be combined with --lockstep"));
+            parsed({}).refuse_with("--lockstep","reason");
+            parsed({"--encounter-rate","100","--experience-rate","100"}).refuse_with("--lockstep","reason");
             check(game::original_mode(parsed({"--encounter-rate","100","--experience-rate","100"}).options));
             // Identical registries for explicit 100 and no flags, and options reach registration.
             for(auto digest:{"07fcf297be4f4c9d92cd3f119a7ac48467e06838","fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd"}){
@@ -94,21 +97,21 @@ int main() {
                 return &registry.find({bank,address})->counters;};
             auto* controller=add(0,0x0339,{0,0x0339});
             auto* segment=add(1,0x5FB1,{1,0x5F63});
-            auto* option=add(0,0x05B1,{0,0x05B1});
+            (void)add(0,0x05B1,{0,0x05B1});
             auto* rare=add(0,0x1773,{0,0x1754});
             auto problems=[&]{return checkpoint_problems(registry,std::array{RoutineEntry{0,0x0339}});};
             auto mentions=[&](const std::string& entry){
                 std::size_t n=0;for(const auto& p:problems())if(p.starts_with(entry))++n;return n;};
             controller->cpp_calls=10;segment->cpp_calls=18;segment->fallback_calls=2;
-            segment->forced_reasons[1]=3;segment->reasons[3]=2;
+            segment->reasons[static_cast<unsigned>(RoutineFallback::frame)]=2;
             std::ostringstream out;write_census(out,registry);
             std::istringstream in(out.str());std::string header,line;std::getline(in,header);
-            check(header=="entry	unit	cpp	fallback	forced	forced_failed	disabled	irq	nmi	frame	ei_delay	interrupt_delay	halted	unmapped_stack	mapper_write"
-                  "	forced_disabled	forced_irq	forced_nmi	forced_frame	forced_ei_delay	forced_interrupt_delay	forced_halted	forced_unmapped_stack	forced_mapper_write");
+            check(header=="entry	unit	cpp	fallback	forced	forced_failed	irq	nmi	frame	ei_delay	interrupt_delay	halted	unmapped_stack	mapper_write	guard"
+                  "	forced_irq	forced_nmi	forced_frame	forced_ei_delay	forced_interrupt_delay	forced_halted	forced_unmapped_stack	forced_mapper_write	forced_guard");
             std::getline(in,line);check(line.starts_with("00:0339	00:0339	10	0	0	0	"));
             std::getline(in,line);check(line.starts_with("00:05B1	00:05B1	0	0	"));
             std::getline(in,line);check(line.starts_with("00:1773	00:1754	"));
-            std::getline(in,line);check(line=="01:5FB1	01:5F63	18	2	0	0	0	0	0	2	0	0	0	0	0	0	3	0	0	0	0	0	0	0");
+            std::getline(in,line);check(line=="01:5FB1	01:5F63	18	2	0	0	0	0	2	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0");
             check(!std::getline(in,line));
             // Exactly 90% of 20 passes; one fewer fails; fewer than 20 calls are not gated.
             check(problems().empty());
@@ -117,10 +120,6 @@ int main() {
             segment->fallback_calls=20;check(mentions("01:5FB1")==1);
             segment->cpp_calls=18;segment->fallback_calls=2;
             rare->fallback_calls=5;check(problems().empty());
-            // Forced calls are refused in original mode, forced failures too.
-            option->forced_calls=1;check(mentions("00:05B1")==1);
-            option->forced_calls=0;option->forced_failed=1;check(mentions("00:05B1")==1);
-            option->forced_failed=0;check(problems().empty());
             // The controller must be reached and keeps 90% even with few calls.
             controller->cpp_calls=0;check(mentions("00:0339")==1);
             controller->cpp_calls=9;controller->fallback_calls=1;check(problems().empty());

@@ -26,8 +26,7 @@
 // LDIRs; each one is the shared resumable block transfer, registered at its
 // own address, so a copy can stop between bytes at a frame or interrupt edge
 // and resume with its count and both pointers. The zero byte that seeds each
-// clear (01:618D, 01:619A) stays on the core (game/scenes.h,
-// visual_scene_native_seeds). The segments here are the stretches between
+// clear (01:618D, 01:619A) is a one-instruction segment of its own. The segments here are the stretches between
 // those copies. The addresses passed to the kit are the original's, because
 // the kit reads each instruction's operands and cycle cost from the player's
 // ROM; no ROM value is written here.
@@ -39,16 +38,19 @@ namespace mk=menu_kit;
 namespace {
 using mk::Exit;
 
-// The ways a segment ends. Each names the original's final instruction and
-// charges its cycles; the core runs that instruction.
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit call_if_at(std::uint16_t at, bool taken) { return mk::continues(at,taken ? mk::call_cycles : mk::untaken_call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit return_taken_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
-// The instructions the core runs before a copy, by cost.
-Exit load_pair_at(std::uint16_t at) { return mk::continues(at,10); }       // LD BC,nn (the copy's count)
-Exit increment_pair_at(std::uint16_t at) { return mk::continues(at,6); }   // INC HL
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
+// The instructions that end a segment before a copy.
+template<class Z> Exit load_pair_at(Z& z, std::uint16_t at) {              // LD BC,nn (the copy's count)
+    z.load_bc(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+3));
+}
+template<class Z> Exit increment_pair_at(Z& z, std::uint16_t at) {         // INC HL
+    z.increment_hl(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+1));
+}
 
 // ---- A visual record: 01:60FD-6159 ---------------------------------------------------------------
 // 01:60FD: the record number in A, times 24, into the record table. Three
@@ -102,7 +104,7 @@ template<class Z> Exit visual_record(Z& z) {
     z.or_register(0x613A,z.r.c);                                      // zero: no overlay
     z.load_immediate(0x613B,z.r.a);
     z.store_a_direct(0x613D);                                         // bank 24, into slot 2
-    return call_if_at(0x6140,!z.zero());                              // the overlay, 01:615A
+    return z.final_call_if(0x6140,mk::Condition::nz);                              // the overlay, 01:615A
 }
 // 01:6143: after the overlay. The record pointer comes back past the overlay
 // bytes, bank 3 returns to slot 2, three bytes go to C8A0, one is skipped,
@@ -119,7 +121,7 @@ template<class Z> Exit visual_record_tail(Z& z) {
     z.load_increment(0x6153);
     z.load_from_hl(0x6155,z.r.a);
     z.store_a_direct(0x6156);                                         // C2F1
-    return return_at(0x6159);
+    return return_at(z,0x6159);
 }
 
 // ---- The overlay: 01:615A-617C --------------------------------------------------------------------
@@ -151,7 +153,7 @@ template<class Z> Exit overlay_row(Z& z) {
     z.exchange_de_hl(0x616F);
     z.pop(0x6170,z.r.b,z.r.c);                                        // cells per row, rows left
     z.decrement(0x6171,z.r.c);
-    return mk::jump_if_exit(0x6172);
+    return z.final_jump_if(0x6172,mk::Condition::nz);
 }
 // 01:615A: a row starts. The cell count and row count, then the row start,
 // are saved on the stack, and C = FFh.
@@ -164,24 +166,23 @@ template<class Z> Exit overlay_start(Z& z) {
 
 // ---- The scene object: 01:617D-61F4 --------------------------------------------------------------
 // 01:617D: no object (A zero) returns at once. Otherwise bank 3 goes into
-// slot 2 and the clear of the object slots is set up; the core runs the
-// count's load, the seed and the copy (01:618F).
+// slot 2 and the clear of the object slots is set up; the count's load ends the
+// segment, then the seed (a segment of its own) and the copy (01:618F).
 template<class Z> Exit scene_object_start(Z& z) {
     z.or_a(0x617D);
-    if(z.zero()) return return_taken_at(0x617E);
-    z.return_not_taken(0x617E);
+    if (auto exit=z.final_return_if(0x617E,mk::Condition::z)) return *exit;
     z.load_hl(0x617F);                                                // the slot-2 bank register
     z.store_to_hl(0x6182);                                            // bank 3
     z.load_hl(0x6184);                                                // C800, the object slots
     z.load_de(0x6187);
-    return load_pair_at(0x618A);
+    return load_pair_at(z,0x618A);
 }
 // 01:6191: after that copy, the clear of the enemy work records (C440); the
 // copy is 01:619C.
 template<class Z> Exit scene_object_clear_enemies(Z& z) {
     z.load_hl(0x6191);
     z.load_de(0x6194);
-    return load_pair_at(0x6197);
+    return load_pair_at(z,0x6197);
 }
 // 01:619E: the object number, times 2, selects the object's entry; its first
 // byte, times 8, selects eight colours. Both pointers wait on the stack: the
@@ -204,13 +205,13 @@ template<class Z> Exit scene_object_colours(Z& z) {
     z.add_to_hl(0x61B1,z.de());
     z.push(0x61B2,z.r.h,z.r.l);                                       // the colours, for the second copy
     z.load_de(0x61B3);                                                // C258
-    return load_pair_at(0x61B6);
+    return load_pair_at(z,0x61B6);
 }
 // 01:61BB: the same colours again, to the working copy.
 template<class Z> Exit scene_object_colours_again(Z& z) {
     z.pop(0x61BB,z.r.h,z.r.l);
     z.load_de(0x61BC);                                                // C238
-    return load_pair_at(0x61BF);
+    return load_pair_at(z,0x61BF);
 }
 // 01:61C4: the entry's second byte, times 8, selects the first object
 // slot's record; three bytes go to C800 (the copy 01:61D7).
@@ -226,7 +227,7 @@ template<class Z> Exit scene_object_slot(Z& z) {
     z.load_de(0x61CD);                                                // the slot records
     z.add_to_hl(0x61D0,z.de());
     z.load_de(0x61D1);                                                // C800
-    return load_pair_at(0x61D4);
+    return load_pair_at(z,0x61D4);
 }
 // 01:61D9: one slot byte is skipped and one more copied (LDI). The INC HL at
 // 01:61DC, which steps over the record's next byte, ends the segment; it is
@@ -234,7 +235,7 @@ template<class Z> Exit scene_object_slot(Z& z) {
 template<class Z> Exit scene_object_slot_last(Z& z) {
     z.increment_pair(0x61D9,z.r.d,z.r.e);
     z.load_increment(0x61DA);
-    return increment_pair_at(0x61DC);
+    return increment_pair_at(z,0x61DC);
 }
 // 01:61DD: the graphics: a bank byte (into slot 2, a mapper store, through
 // B and A) and a pointer, loaded to their VRAM address by the graphics
@@ -249,7 +250,7 @@ template<class Z> Exit scene_object_graphics(Z& z) {
     z.copy(0x61E3,z.r.a,z.r.b);
     z.store_a_direct(0x61E4);                                         // into slot 2
     z.load_de(0x61E7);
-    return call_at(0x61EA);
+    return call_at(z,0x61EA);
 }
 // 01:61DC: the same, from the INC HL that steps over the record's byte.
 template<class Z> Exit scene_object_skip_and_graphics(Z& z) {
@@ -260,7 +261,7 @@ template<class Z> Exit scene_object_skip_and_graphics(Z& z) {
 // number in A (a tail jump).
 template<class Z> Exit scene_object_frame_wait(Z& z) {
     z.load_immediate(0x61F0,z.r.a);
-    return jump_at(0x61F2);
+    return jump_at(z,0x61F2);
 }
 }
 
@@ -294,13 +295,27 @@ void register_scene_visuals(RoutineRegistry& registry) {
     add(0x61DD,scene,{F(0x61EA)},{.slot2_mapper=true},[](auto& z) -> Exit { return scene_object_graphics(z); });
     // The five copies of the scene object, each the shared block transfer.
     // The two colour copies (01:61B9, 01:61C2) may hand their last stretch to
-    // a native transfer that finishes across the frame edge, after a C++
-    // part; that is the third argument. The other three are ordinary.
+    // a separate transfer segment that finishes across the frame edge, after a
+    // first part; that is the third argument. The other three are ordinary.
     register_block_transfer(registry,{1,0x618F},false);                                                                      // the object slots
     register_block_transfer(registry,{1,0x619C},false);                                                                      // the enemy work records
     register_block_transfer(registry,{1,0x61B9},true);                                                                       // the target palette
     register_block_transfer(registry,{1,0x61C2},true);                                                                       // the working palette
     register_block_transfer(registry,{1,0x61D7},false);                                                                      // the first object slot
     add(0x61F0,scene,{F(0x61F2)},{},[](auto& z) -> Exit { return scene_object_frame_wait(z); });                            // after the object update
+
+    // The joining stretches (milestone 14), one instruction each: the return
+    // that ends an overlay, the zero seeds of the object slot and enemy clears
+    // (the copies that follow spread them), and the dialogue call after the
+    // object update.
+    auto single=[&](std::uint16_t entry, RoutineEntry unit, SegmentExit exit, mk::Permissions permissions, auto logic) {
+        auto spec=mk::segment(unit,{exit},permissions);
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,entry},std::move(spec),logic);
+    };
+    single(0x6175,overlay,R(0x6175),{},[](auto& z) -> Exit { return z.final_return(0x6175); });
+    single(0x618D,scene,F(0x618D),{},[](auto& z) -> Exit { z.store_to_hl(0x618D); return mk::fall_through(0x618D,0x618F); });
+    single(0x619A,scene,F(0x619A),{},[](auto& z) -> Exit { z.store_to_hl(0x619A); return mk::fall_through(0x619A,0x619C); });
+    single(0x61ED,scene,F(0x61ED),{.scratch_stack=2},[](auto& z) -> Exit { return z.final_call(0x61ED); });
 }
 }

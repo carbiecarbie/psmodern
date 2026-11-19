@@ -17,9 +17,11 @@
 // swept across each segment's window (C++ at the bound, a frame fallback one
 // cycle short). A scenario probe plays recordings with routines on and off.
 #include "menu_probe.h"
+#include <functional>
 #include <iostream>
 #include <map>
 #include <set>
+#include <sstream>
 
 using namespace psmodern;
 using probe::check;
@@ -186,7 +188,7 @@ void catalog() {
                   exit.conditional==expect.exits[i].conditional && exit.after==0,"a windows exit differs from the plan");
         }
         check(spec.slot2_mapper==expect.slot2 && spec.scratch_stack==expect.scratch && spec.inherited_stack==expect.inherited &&
-              !spec.single_instruction && !spec.force_admit,"a windows segment declares other permissions");
+              !spec.single_instruction,"a windows segment declares other permissions");
     }
     // No entry or exit at an instruction that stays native, none inside the save copy.
     for (const auto& [entry,routine]:registry.entries()) {
@@ -207,8 +209,10 @@ void catalog() {
 struct Rig {
     probe::Harness harness;
     std::map<RoutineEntry,unsigned> runs, fallbacks;
+    std::map<RoutineEntry,std::set<std::uint16_t>> taken;   // the exits each entry's C++ calls took
+    std::optional<SegmentExit> last;
     std::uint64_t probes=0, exact=0;
-    explicit Rig(const probe::Rom& rom) : harness(rom) {}
+    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.exit_sink=&last; }
 
     // Work RAM the wrappers read (C200h-C6FFh) from the seed: a third of the
     // bytes zero, a few set to the values the branches compare (the enemy
@@ -238,11 +242,12 @@ struct Rig {
 
     // One probe: C++ when the stack is admitted, else a fallback for the
     // unmapped stack.
-    void probe_state(const menu::Segment& segment, probe::Setup setup, std::uint64_t seed) {
+    void probe_state(const menu::Segment& segment, probe::Setup setup, std::uint64_t seed,
+                     const std::function<void(Machine&)>& extra={}) {
         const auto entry=segment.entry;
         const auto& spec=harness.routine(entry).spec;
         auto m=harness.prepare(entry,setup);
-        if (!setup.work_ram_disabled) { fill(m,seed); stack(m,setup.sp,spec.inherited_stack,seed); }
+        if (!setup.work_ram_disabled) { fill(m,seed); stack(m,setup.sp,spec.inherited_stack,seed); if (extra) extra(m); }
         ++probes;
         if (!menu_probe::admitted(m,spec)) { harness.run_fallback(m,entry,RoutineFallback::unmapped_stack); ++fallbacks[entry]; return; }
         const auto bound=harness.routine(entry).bound(m);
@@ -252,10 +257,12 @@ struct Rig {
             check(setup.work_ram_disabled,"a windows segment fell back for its bound with work RAM present");
             harness.run_fallback(m,entry,RoutineFallback::frame); ++fallbacks[entry]; return;
         }
+        last.reset();
         const auto result=harness.run_cpp(m,entry);
         check(result.cycles<=bound,"a windows segment ran longer than its bound");
         if (result.cycles==bound) ++exact;
         ++runs[entry];
+        if (last) taken[entry].insert(last->address);
     }
 
     void seeds(const menu::Segment& segment) {
@@ -266,6 +273,19 @@ struct Rig {
             setup.sp=static_cast<std::uint16_t>(0xDF00-2*(seed%5));
             probe_state(segment,setup,seed);
         }
+    }
+    // The loops that count on B (a DJNZ at the end of a segment) and the segments that resume a loop of an earlier
+    // one (they pop the counter, B, off the stack): the counts around the loop's end take the exit after it.
+    void counters(const menu::Segment& segment) {
+        const auto inherited=harness.routine(segment.entry).spec.inherited_stack;
+        for (unsigned count:{0u,1u,2u})
+            for (unsigned seed=0;seed<3;++seed) {
+                probe::Setup setup; setup.seed=400+count*3+seed;
+                probe_state(segment,setup,400+count*3+seed,[&](Machine& m) {
+                    m.cpu().bc.uint8_values.at_1=static_cast<std::uint8_t>(count);
+                    for (unsigned word=1;word<inherited+1;word+=2) m.memory().write(static_cast<std::uint16_t>(setup.sp+word),static_cast<std::uint8_t>(count));
+                });
+            }
     }
     void stacks(const menu::Segment& segment) {
         unsigned n=0;
@@ -307,8 +327,31 @@ void state_probes(const probe::Rom& rom, const std::string& version) {
     for (const auto& segment:menu::windows_segments) {
         rig.seeds(segment);
         rig.stacks(segment);
+        rig.counters(segment);
         rig.boundary(segment);
         if (slot2_entries.count(segment.entry.address)) rig.slot2(segment);
+    }
+    // Milestone 14: every exit of every segment is rendered and no recording reaches most of them; the probes
+    // must take each declared exit (the opcode check verifies the rendering at it).
+    {
+        std::string missing;
+        for (const auto& expect:expectations())
+            for (const auto& exit:expect.exits)
+                if (rig.taken[menu::at0(expect.entry)].count(exit.address)!=1) {
+                    std::ostringstream text; text<<std::hex<<" "<<expect.entry<<"->"<<exit.address; missing+=text.str();
+                }
+        check(missing.empty(),"windows entries that never took an exit:"+missing);
+    }
+    // Interrupt sweeps: an IRQ and an NMI at every cycle of every segment, each run compared with the oracle at
+    // every instruction boundary.
+    for (const auto& segment:menu::windows_segments) {
+        const auto& spec=rig.harness.routine(segment.entry).spec;
+        for (unsigned variant=0;variant<2;++variant) {
+            probe::Setup setup; setup.seed=500+variant;
+            probe::sweep(rig.harness,segment.entry,setup,[&](Machine& m) {
+                Rig::fill(m,variant*3+1); Rig::stack(m,setup.sp,spec.inherited_stack,variant);
+            });
+        }
     }
     unsigned never=0;
     for (const auto& segment:menu::windows_segments) if (!rig.runs[segment.entry]) ++never;
@@ -346,6 +389,8 @@ bool scenario(const menu_probe::Inputs& inputs, const std::string& stem, std::ui
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         catalog();
         if (argc==1) return 0;

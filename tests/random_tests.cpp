@@ -63,7 +63,10 @@ struct Probe {
 };
 }
 
-int main(int argc, char** argv) { try {
+int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try {
     if (argc!=3) return 1;
     const auto rom=probe::load(argv[1],argv[2]);
     if (!rom) { std::cout<<"ROM path missing; skipping.\n"; return 77; }
@@ -81,14 +84,13 @@ int main(int argc, char** argv) { try {
     {
         const auto& real=harness.routine(game::random_entry);
         RoutineRegistry sabotaged;
-        replay::CallVerifier verifier("sabotage");
-        sabotaged.verifier=&verifier;
         sabotaged.add(game::random_entry,real.spec,real.bound,[body=real.body](RoutineContext& c) {
             auto& r=c.cpu().r; r=static_cast<std::uint8_t>((r&0x80)|((r+1)&0x7f)); body(c);
         });
         auto machine=harness.prepare(game::random_entry,{});
         bool caught=false;
-        try { machine.step(sabotaged); } catch (const std::runtime_error& e) { caught=std::string(e.what()).find("Divergence")==0; }
+        try { oracle::Lockstep lockstep(machine,"sabotage",oracle::Mode::instructions); lockstep.step(machine,&sabotaged); }
+    catch (const std::runtime_error& e) { caught=std::string(e.what()).find("Lockstep divergence")==0; }
         check(caught,"the verifier did not catch a sabotaged body");
     }
 
@@ -158,6 +160,15 @@ int main(int argc, char** argv) { try {
                 if ((sp&0x1fff)==0x020d) read=static_cast<std::uint16_t>((state&0xff00)|h);
                 p.run(setup,state,read,(sp&0x1fff)==0x020d);
             }
+
+    // The interrupt sweep (milestone 14): an IRQ and an NMI at every cycle of
+    // the exact body, on both paths (a nonzero state and the zero state's
+    // recovery), compared with the oracle at every boundary.
+    for (std::uint16_t state:{std::uint16_t{0x1234},std::uint16_t{0}})
+        probe::sweep(harness,game::random_entry,{.iff1=true,.iff2=true,.seed=state},[&](Machine& m) {
+            m.memory().write(p.state_address,static_cast<std::uint8_t>(state));
+            m.memory().write(static_cast<std::uint16_t>(p.state_address+1),static_cast<std::uint8_t>(state>>8));
+        });
 
     const auto seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
     std::cout<<p.calls<<" random-number probes in C++ ("<<p.recoveries<<" zero-state recoveries), "

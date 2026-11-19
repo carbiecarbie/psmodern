@@ -14,7 +14,8 @@ template<class Z> k::Exit count_selected_voices(Z& z) {
     z.copy(0x83F4,z.r.h,z.r.b);
     z.copy(0x83F5,z.r.l,z.r.c);
     z.load_from_hl(0x83F6,z.r.b);
-    return k::continues(0x83F7,6);
+    z.increment_hl(0x83F7);
+    return k::fall_through(0x83F7,0x83F8);
 }
 // The preceding shared-channel selection leaves HL at the last flag. Mark
 // it before continuing into the selected-voice setup.
@@ -49,32 +50,33 @@ template<class Z> k::Exit initialize_voice_record(Z& z) {
     z.pop(0x8415,z.r.h,z.r.l);
     z.load_bc(0x8416);
     z.push(0x8419,z.r.b,z.r.c);
-    return k::continues(0x841A,k::jump_cycles);
+    return z.final_jump(0x841A);
 }
 // The level writer has returned; restore the count and visit the next voice.
 template<class Z> k::Exit next_selected_voice(Z& z) {
     z.pop(0x841D,z.r.b,z.r.c);
-    return k::decrement_jump_exit(z,0x841E);
+    return z.final_decrement_jump(0x841E);
 }
 }
 void register_sound_setup(RoutineRegistry& registry) {
     k::add_segment(registry,unit,k::segment(unit,{k::core_final_at(0x83F7)}),[](auto& z) { return count_selected_voices(z); });
-    const auto mark=[](auto& z) { return mark_last_shared_voice(z); };
-    // Admitted only while HL points at the voice record at C1AE, the pointer
-    // this entry was verified with; any other HL runs the original
-    // instructions, so the C++ body never writes through an unverified address.
-    registry.add({12,0x83F2},k::segment(unit,{k::core_final_at(0x83F7)}),
-        [mark](const Machine& machine) { return machine.cpu().hl.uint16_value==0xc1ae ? k::cost(machine,mark,k::uncertain_maximum) : k::uncertain_maximum; },
-        [mark](RoutineContext& context) { k::run(context,mark); });
-    const auto setup=[](auto& z) { return initialize_voice_record(z); };
-    registry.add({12,0x83F8},k::segment(unit,{k::core_final_at(0x841A,-4)},{.scratch_stack=4}),
-        [setup](const Machine& machine) {
+    // Entered with HL at the last shared voice record (C1AE), the pointer the
+    // body was verified with. The guard reads registers only, so it holds at
+    // entry and stays valid across a delivery (handlers restore registers).
+    k::add_segment(registry,{12,0x83F2},k::segment(unit,{k::core_final_at(0x83F7)}),
+        k::Guard{"HL points at the shared voice record C1AE",[](const Machine& machine) { return machine.cpu().hl.uint16_value==0xc1ae; }},
+        [](auto& z) { return mark_last_shared_voice(z); });
+    // Entered with DE inside the voice records and SP in work RAM with room
+    // for the two held words. Registers and the fixed work-RAM mapping do not
+    // change when a handler runs, so the guard is also valid after a delivery.
+    k::add_segment(registry,{12,0x83F8},k::segment(unit,{k::core_final_at(0x841A,-4)},{.scratch_stack=4}),
+        k::Guard{"DE in the voice records, SP in work RAM",[](const Machine& machine) {
             const auto destination=machine.cpu().de.uint16_value;
             const auto stack=machine.cpu().sp.uint16_value;
-            if (destination<0xc000 || destination>0xc1f0 || stack<0xc400 || stack>0xdffc ||
-                machine.memory().mapping(stack-4).kind!=Memory::Kind::ram) return k::uncertain_maximum;
-            return k::cost(machine,setup,k::uncertain_maximum);
-        },[setup](RoutineContext& context) { k::run(context,setup); });
+            return destination>=0xc000 && destination<=0xc1f0 && stack>=0xc400 && stack<=0xdffc &&
+                machine.memory().mapping(stack-4).kind==Memory::Kind::ram;
+        }},
+        [](auto& z) { return initialize_voice_record(z); });
     k::add_segment(registry,{12,0x841D},k::segment(unit,{k::conditional_at(0x841E,2)},{.inherited_stack=2}),[](auto& z) { return next_selected_voice(z); });
 }
 }

@@ -4,7 +4,8 @@
 // that cell's value without the opened-door bit. Neither branches, so each has
 // one path and its bound is that path's fixed cost, final return included.
 // The renderings live in dungeon_kit.h, where the other dungeon segments
-// render the same readers inline after a bare call.
+// render the same readers inline after a bare call. Milestone 14 worked
+// example (dungeon kit): the final returns are rendered too.
 #include "game/dungeon_kit.h"
 #include "game/routines.h"
 
@@ -14,10 +15,10 @@ void register_dungeon_cells(RoutineRegistry& registry) {
     kit::add_segment(registry,dungeon::cell_type_unit,
         kit::segment(dungeon::cell_type_unit,{kit::returned_at(kit::cell_type_return)},{.scratch_stack=2}),
         [](const Machine&) -> std::uint64_t { return kit::cell_type_cycles; },
-        [](auto& z) { kit::cell_type(z); return kit::returns(kit::cell_type_return,kit::return_cycles); });
+        [](auto& z) { kit::cell_type(z); return z.final_return(kit::cell_type_return); });
     kit::add_segment(registry,dungeon::cell_value_unit,
         kit::segment(dungeon::cell_value_unit,{kit::returned_at(kit::cell_value_return)}),
         [](const Machine&) -> std::uint64_t { return kit::cell_value_cycles; },
-        [](auto& z) { kit::cell_value(z); return kit::returns(kit::cell_value_return,kit::return_cycles); });
+        [](auto& z) { kit::cell_value(z); return z.final_return(kit::cell_value_return); });
 }
 }

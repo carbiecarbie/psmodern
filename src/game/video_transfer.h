@@ -19,11 +19,13 @@ inline constexpr std::array<Segment,26> segments{{
     {{0,0x034C},{0,0x0346}}
 }};
 void register_transfers(RoutineRegistry& registry);
-inline constexpr std::array<std::uint16_t,10> direct_packet_entries{
-    0x03CD,0x03CF,0x03D4,0x03D9,0x03DA,0x03E5,0x03E6,0x03EC,0x03ED,0x03F6
+// The packet decoders' segments; 03F3, 0418 and 0422 are joining jumps made
+// segments in milestone 14.
+inline constexpr std::array<std::uint16_t,11> direct_packet_entries{
+    0x03CD,0x03CF,0x03D4,0x03D9,0x03DA,0x03E5,0x03E6,0x03EC,0x03ED,0x03F3,0x03F6
 };
-inline constexpr std::array<std::uint16_t,11> masked_packet_entries{
-    0x03FA,0x03FC,0x0401,0x0406,0x0407,0x0412,0x0413,0x0414,0x041B,0x041C,0x0425
+inline constexpr std::array<std::uint16_t,13> masked_packet_entries{
+    0x03FA,0x03FC,0x0401,0x0406,0x0407,0x0412,0x0413,0x0414,0x0418,0x041B,0x041C,0x0422,0x0425
 };
 void register_packets(RoutineRegistry& registry);
 }

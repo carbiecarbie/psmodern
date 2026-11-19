@@ -18,6 +18,8 @@
 //     beside routines off, the seven manifest components compared every frame.
 #include "game/map_kit.h"
 #include "map_probe.h"
+#include <vector>
+#include <functional>
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -40,6 +42,7 @@ struct Want {
     std::uint16_t entry, unit;
     std::vector<SegmentExit> exits;
     mk::Permissions permissions={};
+    bool single=false;          // a one-instruction joining segment (milestone 14)
 };
 std::vector<Want> wanted() {
     return {
@@ -56,6 +59,12 @@ std::vector<Want> wanted() {
         {0x0E97,0x0E8B,{F(0x0EA4),F(0x0ED3)}},             // the button press leaves the road at once
         {0x0EA7,0x0E8B,{R(0x0EAB),R(0x0EB3),F(0x0ED3)}},
         {0x0ED7,0x0ED7,{F(0x0EF2,-2)},{.scratch_stack=2}},{0x0EF8,0x0ED7,{R(0x0F0B)}},
+        // Joining stretches (milestone 14): the instructions after a call or an interrupt-off stretch returned.
+        {0x0B58,0x0B08,{F(0x0B58)},{},true},{0x0B65,0x0B08,{F(0x0B65)},{},true},
+        {0x0B72,0x0B6A,{F(0x0B72)},{},true},{0x0BA6,0x0B6A,{F(0x0BA6)},{.scratch_stack=2},true},
+        {0x0BA9,0x0B6A,{F(0x0BA9)},{.scratch_stack=2},true},{0x0BB9,0x0B6A,{F(0x0BB9)},{},true},
+        {0x0C60,0x0B6A,{F(0x0C60)},{.scratch_stack=2},true},{0x0C94,0x0B6A,{F(0x0C94)},{},true},
+        {0x0CAF,0x0CA6,{F(0x0CAF)},{},true},{0x0EF5,0x0ED7,{F(0x0EF5)},{.scratch_stack=2},true},
     };
 }
 void registration() {
@@ -64,7 +73,7 @@ void registration() {
     RoutineRegistry registry;
     game::register_map_modes(registry);
     const auto want=wanted();
-    check(want.size()==registry.entries().size() && entries.size()==want.size(),"24 modes segments are registered");
+    check(want.size()==registry.entries().size() && entries.size()==want.size(),"34 modes segments are registered");
     // Every planned entry is registered (the sprite tables start at 00:0306, not 00:02FD).
     for (const auto& segment:planned)
         check(registry.find(segment.entry)!=nullptr,"a planned modes entry is registered");
@@ -74,8 +83,7 @@ void registration() {
         check(routine!=nullptr,"the entry is registered");
         const auto& spec=routine->spec;
         check(spec.unit==unit && spec.slot2_mapper==w.permissions.slot2_mapper && spec.scratch_stack==w.permissions.scratch_stack &&
-              spec.inherited_stack==0 && !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,
-              "the entry has the unit and permissions of the table");
+              spec.inherited_stack==w.permissions.inherited_stack && spec.single_instruction==w.single,"the entry has the unit and permissions of the table");
         check(spec.exits.size()==w.exits.size(),"the entry declares the exits of the table");
         for (const auto& exit:w.exits)
             check(std::count_if(spec.exits.begin(),spec.exits.end(),[&](const auto& e) { return e.same_declaration(exit); })==1,
@@ -234,6 +242,13 @@ std::vector<Prepare> paths(Rig& g, RoutineEntry entry, const probe::Rom& rom) {
         add([=](Machine& m) { poke(m,road_index,0xFF); });
         add([=](Machine& m) { poke(m,road_index,0x20); });
         break;
+    // Joining stretches (milestone 14): the instructions after a call or an interrupt-off stretch returned.
+    case 0x0B72: case 0x0BA6: case 0x0BA9: case 0x0BB9: case 0x0C60: case 0x0C94: case 0x0EF5:
+        add({});
+        break;
+    case 0x0B58: case 0x0B65: case 0x0CAF:   // the seed store of a fill: HL in work RAM
+        add([&](Machine& m) { set_hl(m,0xC900); });
+        break;
     default: check(false,"entry without probe paths"); break;
     }
     (void)rom;
@@ -293,7 +308,11 @@ void state_probes(const map_probe::Inputs& inputs) {
             while (native.cycles()<actual.cycles()) native.step();
             check(native.cycles()==actual.cycles(),"button-test continuation cycle boundary");
         }
-        check(native.equivalent(actual),"resumed walking-mode exit agrees with original");
+        // Whole-machine equality (milestone 14: the oracle's documented equality
+        // plus the PSG writes and the cartridge RAM dirty flag it leaves out).
+        check(oracle::equal(actual,native,oracle::Scope::whole) && actual.take_psg_writes()==native.take_psg_writes() &&
+              actual.memory().cartridge_ram_dirty()==native.memory().cartridge_ram_dirty(),
+              "resumed walking-mode exit agrees with original");
         check(actual.peek(0xC202)==(moving ? 9 : 12) && actual.peek(0xC29D)==(moving ? 0xAA : 0),
               "only a stationary party leaves walking mode");
         if (!moving) {
@@ -390,12 +409,53 @@ bool scenario_probes(const map_probe::Inputs& inputs) {
 }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body of this part
+// (sampled: about 40 runs per kind), each run compared with the oracle at every
+// instruction boundary, handler included. One-instruction segments have no
+// boundary inside and are left out. The state is the map's work RAM with
+// recognisable bytes, pointers into RAM and the video data port in C.
+void sweep_state(RoutineEntry entry, Machine& m) {
+    (void)entry;
+    auto& cpu=m.cpu();
+    for (unsigned a=0xC200;a<0xC700;++a) m.memory().write(static_cast<std::uint16_t>(a),static_cast<std::uint8_t>((a*167u+(a>>8)*13u)>>1));
+    cpu.hl.uint16_value=0xC900; cpu.de.uint16_value=0xD000; cpu.bc.uint16_value=0x04BE;
+    cpu.ix_iy[0].uint16_value=0xC800; cpu.ix_iy[1].uint16_value=0xC800;
+}
+void sweeps(const probe::Rom& rom) {
+    probe::Harness h(rom);
+    std::vector<RoutineEntry> entries;
+    for (const auto& s:map::mode_segments) entries.push_back(s.entry);
+    for (const std::uint16_t pc:{0x0B3B,0x0B47,0x0B5C,0x0C8E}) entries.push_back({0,pc});   // the button resume and the video register stretch
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction) continue;
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            const auto adjust=[&](Machine& m) { sweep_state(entry,m); };
+            auto base=h.prepare(entry,setup);
+            adjust(base);
+            const auto length=h.run_cpp(base,entry).cycles;
+            probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    check(failures.empty(),"map sweeps failed:"+failures);
+    std::cout<<"map modes: "<<swept<<" segments swept\n";
+}
+
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        sweeps(inputs->rom);
         state_probes(*inputs);
         return scenario_probes(*inputs) ? 0 : 77;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

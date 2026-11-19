@@ -307,6 +307,8 @@ void floor_stacks(const game::DungeonTables& t) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if (argc!=3 && argc!=4) throw std::runtime_error("Expected <rom> <us|br> [tables|mutation-0|mutation-1].");
         const std::string part=argc==4 ? argv[3] : "";

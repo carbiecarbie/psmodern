@@ -17,6 +17,7 @@
 // entry is taken at least once, and with work RAM on the cost equals the bound.
 #include "game/map_kit.h"
 #include "map_probe.h"
+#include <vector>
 #include <algorithm>
 #include <chrono>
 #include <functional>
@@ -32,7 +33,7 @@ namespace {
 constexpr map::Part part=map::Part::objects;
 
 // ---- Registration catalog --------------------------------------------------------
-struct Expected { std::uint16_t entry, unit; std::vector<SegmentExit> exits; unsigned scratch, inherited; bool mapper; };
+struct Expected { std::uint16_t entry, unit; std::vector<SegmentExit> exits; unsigned scratch, inherited; bool mapper; bool single=false; };
 std::vector<Expected> expected_catalog() {
     using game::map_kit::returned_at; using game::map_kit::core_final_at; using game::map_kit::loop_at;
     return {
@@ -57,6 +58,10 @@ std::vector<Expected> expected_catalog() {
         {0x5A02,0x5A02,{core_final_at(0x59A2,-2)},2,0,false},
         {0x5A07,0x5A07,{core_final_at(0x5A0D)},0,0,false},
         {0x5A10,0x5A07,{returned_at(0x5A12)},0,0,false},
+        // The vehicle types' first instructions (joining segments, milestone 14): one call each.
+        {0x5A4F,0x5A4F,{core_final_at(0x5A4F)},2,0,false,true},
+        {0x5A70,0x5A70,{core_final_at(0x5A70)},2,0,false,true},
+        {0x5A76,0x5A76,{core_final_at(0x5A76)},2,0,false,true},
         {0x5A52,0x5A4F,{returned_at(0x5A6F)},0,0,false},
         {0x5A73,0x5A70,{returned_at(0x5A75)},0,0,false},
         {0x5A79,0x5A76,{returned_at(0x5A7E),returned_at(0x5A93)},0,0,false},
@@ -72,13 +77,13 @@ void registration() {
     const auto entries=map_probe::registered_entries(part,game::register_map_objects);
     // The planned list includes 01:5781 (after the cut prologue of 01:576A),
     // 01:5869 and 01:587C (loop resumes of 01:5853).
-    check(entries.size()==30 && map::object_segments.size()==30,"the 30 planned objects segments are registered, and nothing else");
+    check(entries.size()==33 && map::object_segments.size()==33,"the 33 planned objects segments are registered, and nothing else");
     for (const auto& planned:map::object_segments)
         check(std::find(entries.begin(),entries.end(),planned.entry)!=entries.end(),"a planned objects segment is not registered");
     RoutineRegistry registry;
     game::register_map_objects(registry);
     const auto catalog=expected_catalog();
-    check(catalog.size()==30,"the expected catalog lists 30 entries");
+    check(catalog.size()==33,"the expected catalog lists 33 entries");
     for (const auto& expected:catalog) {
         const RoutineEntry entry=map::at1(expected.entry);
         const auto* routine=registry.find(entry);
@@ -89,7 +94,7 @@ void registration() {
         if (listed!=map::object_segments.end()) check(spec.unit==listed->unit,"an entry belongs to the unit map.h names");
         check(spec.unit==map::at1(expected.unit),"an entry belongs to its unit");
         check(spec.slot2_mapper==expected.mapper && spec.scratch_stack==expected.scratch && spec.inherited_stack==expected.inherited &&
-              !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,"an entry declares the permissions of the design");
+              spec.single_instruction==expected.single,"an entry declares the permissions of the design");
         check(spec.exits.size()==expected.exits.size(),"an entry declares the exits of the design");
         for (const auto& exit:expected.exits)
             check(std::any_of(spec.exits.begin(),spec.exits.end(),[&](const SegmentExit& e) { return e.same_declaration(exit); }),
@@ -309,6 +314,9 @@ public:
             });
         for (const std::uint16_t entry:{0x59D4,0x59E5,0x59F6,0x5A07,0x59DD,0x59EE,0x59FF,0x5A10})
             for (unsigned k=0;k<scaled(100);++k) run(entry,[&](Machine&) {});
+        // The vehicle types' first instructions (joining segments, milestone 14): one call each.
+        for (const std::uint16_t entry:{0x5A4F,0x5A70,0x5A76})
+            for (unsigned k=0;k<scaled(100);++k) run(entry,[&](Machine& m) { variables(m); slots(m,used_mask()); some_slot(m); });
         for (unsigned k=0;k<scaled(400);++k) run(0x5A52,[&](Machine& m) { variables(m); slots(m,used_mask()); some_slot(m); });
         for (unsigned k=0;k<scaled(100);++k) run(0x5A73,[&](Machine&) {});
         for (unsigned k=0;k<scaled(1500);++k) run(0x5A79,[&](Machine& m) { variables(m); slots(m,used_mask()); some_slot(m); });
@@ -503,12 +511,52 @@ void probes(const map_probe::Inputs& inputs) {
 }
 }
 
+// ---- Interrupt sweeps (milestone 14, recipe step 5) ----------------------------------------------
+// An IRQ and an NMI at every cycle of every converted body of this part
+// (sampled: about 40 runs per kind), each run compared with the oracle at every
+// instruction boundary, handler included. One-instruction segments have no
+// boundary inside and are left out. The state is the map's work RAM with
+// recognisable bytes, pointers into RAM and the video data port in C.
+void sweep_state(RoutineEntry entry, Machine& m) {
+    (void)entry;
+    auto& cpu=m.cpu();
+    for (unsigned a=0xC200;a<0xC700;++a) m.memory().write(static_cast<std::uint16_t>(a),static_cast<std::uint8_t>((a*167u+(a>>8)*13u)>>1));
+    cpu.hl.uint16_value=0xC900; cpu.de.uint16_value=0xD000; cpu.bc.uint16_value=0x04BE;
+    cpu.ix_iy[0].uint16_value=0xC800; cpu.ix_iy[1].uint16_value=0xC800;
+}
+void sweeps(const probe::Rom& rom) {
+    probe::Harness h(rom);
+    std::vector<RoutineEntry> entries;
+    for (const auto& s:map::object_segments) entries.push_back(s.entry);
+    unsigned swept=0;
+    std::string failures;     // every failing segment is reported, not only the first
+    for (const auto& entry:entries) {
+        if (h.routine(entry).spec.single_instruction) continue;
+        try {
+            probe::Setup setup; setup.iff1=setup.iff2=true; setup.seed=entry.address;
+            const auto adjust=[&](Machine& m) { sweep_state(entry,m); };
+            auto base=h.prepare(entry,setup);
+            adjust(base);
+            const auto length=h.run_cpp(base,entry).cycles;
+            probe::sweep(h,entry,setup,adjust,std::max<unsigned>(1,static_cast<unsigned>(length/40)));
+            ++swept;
+        } catch (const std::exception& error) {
+            failures+="\n  "+std::to_string(entry.bank)+":"+std::to_string(entry.address)+": "+error.what();
+        }
+    }
+    check(failures.empty(),"map sweeps failed:"+failures);
+    std::cout<<"map objects: "<<swept<<" segments swept\n";
+}
+
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc==1) return 0;
         const auto inputs=map_probe::load(argc,argv);
         if (!inputs) return 77;
+        sweeps(inputs->rom);
         probes(*inputs);
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

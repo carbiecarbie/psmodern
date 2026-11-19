@@ -20,31 +20,34 @@ inline constexpr std::array<std::uint16_t,29> script_dialogue_sites{
 // ... and those where it loads a portrait number.
 inline constexpr std::array<std::uint16_t,18> script_portrait_sites{
     0x4383,0x438E,0x4399,0x459D,0x45A8,0x45B3,0x45BE,0x45C9,0x43E2,0x43ED,0x43F8,0x4403,0x4427,0x4432,0x443D,0x4448,0x4486,0x44BA};
-// Fill seeds left to the core: the `ld (hl),n` between a fill's final setup
-// load and its resumable copy (00:0778 and 00:0785 in the opening loader,
-// 01:405F in the name-entry screen, 01:4604 in the finale). The core keeps
-// each store's byte and its observer cycle.
+// The zero seeds of the fills, each a one-instruction segment since milestone
+// 14 (`ld (hl),n` or `ld (hl),l` between a fill's final setup load and its
+// resumable copy: 00:0778 and 00:0785 in the opening loader, 01:405F in the
+// name-entry screen, 01:4604 in the finale).
 inline constexpr std::array startup_native_seeds{
     RoutineEntry{0,0x0778},RoutineEntry{0,0x0785},RoutineEntry{1,0x405F},RoutineEntry{1,0x4604}};
-// The first instruction after an EI executes on the core to keep the
-// one-instruction interrupt delay; the following entry (suffix) owns the
-// remaining game work. The two frame-wait loads (07B2, 3D15) lead directly
-// to a native CALL. 3EF2 also belongs to the rendered 3ED9 arm
-// (scenes_name.cpp). `opcode` is the protected load's first byte.
-struct EiDelayLoad { RoutineEntry instruction,suffix; std::uint8_t opcode; };
+// The first instruction after an EI is a one-instruction segment of its own
+// (the interrupt delay keeps it in front of any interrupt); the following
+// entry (suffix) owns the remaining game work. 3EF2 also belongs to the
+// rendered 3ED9 arm (scenes_name.cpp).
+struct EiDelayLoad { RoutineEntry instruction,suffix; };
 inline constexpr std::array<EiDelayLoad,9> ei_delay_scaffolding{{
-    {{0,0x065A},{0,0x065D},0x21}, {{0,0x07B2},{0,0x07B4},0x3E},
-    {{0,0x08FC},{0,0x08FF},0x21}, {{0,0x3CF3},{0,0x3CF6},0x3A},
-    {{0,0x3D15},{0,0x3D17},0x3E}, {{0,0x3EF2},{0,0x3EF5},0x21},
-    {{1,0x4045},{1,0x4048},0x21}, {{1,0x40A2},{1,0x40A5},0x11},
-    {{1,0x4302},{1,0x4304},0x3E}
+    {{0,0x065A},{0,0x065D}}, {{0,0x07B2},{0,0x07B4}},
+    {{0,0x08FC},{0,0x08FF}}, {{0,0x3CF3},{0,0x3CF6}},
+    {{0,0x3D15},{0,0x3D17}}, {{0,0x3EF2},{0,0x3EF5}},
+    {{1,0x4045},{1,0x4048}}, {{1,0x40A2},{1,0x40A5}},
+    {{1,0x4302},{1,0x4304}}
 }};
-// The protected loads alone.
-inline constexpr auto ei_delay_loads=[] {
+// The loads alone.
+inline constexpr auto ei_delay_load_segments=[] {
     std::array<RoutineEntry,ei_delay_scaffolding.size()> entries{};
     for(unsigned i=0;i<entries.size();++i) entries[i]=ei_delay_scaffolding[i].instruction;
     return entries;
 }();
+// Before milestone 14 these loads were left out of the registration and
+// tests/menu_remainder_tests.cpp checked that; they are registered now, so the
+// list of loads left out is empty (kept so that test still compiles).
+inline constexpr std::array<RoutineEntry,0> ei_delay_loads{};
 // Every registered scene entry with its unit, grouped by the file that
 // registers it (register_scenes must register exactly these).
 inline constexpr std::array segments{
@@ -153,7 +156,21 @@ inline constexpr std::array segments{
     Segment{{1,0x61F0},{1,0x617D}},
     // ---- scenes_animation.cpp: tile and palette animation, the strip uploader (01:63A5-64CF) ----
     at1(0x63A5), at1(0x63CE), at1(0x63D2), at1(0x63F9), at1(0x641B), Segment{{1,0x6427},{1,0x641B}},
-    Segment{{1,0x6438},{1,0x641B}}, Segment{{1,0x643D},{1,0x641B}}, at1(0x6442), at1(0x64A3), at1(0x64CF)
+    Segment{{1,0x6438},{1,0x641B}}, Segment{{1,0x643D},{1,0x641B}}, at1(0x6442), at1(0x64A3), at1(0x64CF),
+    // ---- joining stretches (milestone 14): the instructions between
+    // two segments, one single-instruction segment each ----
+    at(0x00F1), at(0x0652), at(0x0656), at(0x065A), at(0x0676), at(0x067F), at(0x069A), at(0x0751),
+    at(0x0754), at(0x0757), at(0x0778), at(0x0785), at(0x07B2), at(0x07B4), at(0x07B7), at(0x0888),
+    at(0x08A5), at(0x08F8), at(0x08FC), at(0x092D), at(0x0957), at(0x09D8), at(0x0802), at(0x086E),
+    at(0x3EC9), at(0x3EEE), at(0x3EF2), at(0x3F1F), at(0x3F23), at(0x3C1A), at(0x3C1D), at(0x3C27),
+    at(0x3CEF), at(0x3CF3), at(0x3D15), at(0x3D17), at(0x3D1A),
+    at1(0x4034), at1(0x4041), at1(0x4045), at1(0x405F), at1(0x4082), at1(0x4086), at1(0x409E), at1(0x40A2),
+    at1(0x40BB), at1(0x40BD), at1(0x40C5), at1(0x414F), at1(0x42FE), at1(0x4302), at1(0x4320), at1(0x4369),
+    at1(0x437D), at1(0x4380), at1(0x4568), at1(0x4570), at1(0x4597), at1(0x459A), at1(0x45DA), at1(0x4604),
+    at1(0x4619), at1(0x461C), at1(0x467C), at1(0x46CE), at1(0x470B), at1(0x471B), at1(0x54EF), at1(0x563E),
+    at1(0x5649), at1(0x5654), at1(0x5666), at1(0x5676), at1(0x567E), at1(0x5687), at1(0x53CD), at1(0x5695),
+    at1(0x56EF), Segment{{1,0x6175},{1,0x615A}}, Segment{{1,0x618D},{1,0x617D}}, Segment{{1,0x619A},{1,0x617D}},
+    Segment{{1,0x61ED},{1,0x617D}}, at1(0x63CF), at1(0x63F6), at1(0x6441)
 };
 }
 }

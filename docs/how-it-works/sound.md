@@ -6,6 +6,13 @@ into writes to the sound chip. Its main entries initialize the driver at
 `0C:8000`, silence the chip at `0C:801F`, and advance sound at `0C:8043`.
 For the chip itself, see [the console chapter](master-system.md#the-psg-the-sound-chip).
 
+**Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
+stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls
+back when an interrupt or a frame boundary is near, it describes the milestone the text was
+written for. Today every such instruction is rendered C++, an interrupt is accepted at the exact
+instruction even inside a piece, and a state a piece cannot render stops the game with a message
+([interrupts](interrupts.md), [development](../development.md#registered-routines)).
+
 **ROM static.** The code described here is identical at the same addresses
 in the US Rev-A and Brazilian cartridges, as established by the comparison
 in [design, section 5.5](../design.md#55-languages). The runtime observations

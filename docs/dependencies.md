@@ -90,21 +90,44 @@ from `ucrt64\bin` only, `LICENSE.txt`, `README.txt`, `THIRD-PARTY.txt` and a
 | `SDL2.txt` | MSYS2 `share\licenses\SDL2\LICENSE.txt` |
 | `winpthreads.txt` | MSYS2 `share\licenses\winpthreads\COPYING` |
 | `GCC-runtime-exception.txt`, `GCC-GPL-3.0.txt` | MSYS2 `share\licenses\gcc-libs\COPYING.RUNTIME`, `COPYING3` |
-| `redcode-z80-LGPL-3.0.txt` | `third_party/redcode-z80/COPYING.LESSER` |
-| `Zeta-LGPL-3.0.txt` | `third_party/zeta/COPYING.LESSER` |
 
-`THIRD-PARTY.txt` names the redcode/Z80 and Zeta commits below, the
-`pacman -Q` versions of the shipped packages and the exact source commit and tag. The
-script refuses to run if this file stops naming those two commits.
+`THIRD-PARTY.txt` names the `pacman -Q` versions of the shipped packages and
+the exact source commit and tag. Since milestone 14 `psmodern.exe` contains
+neither the Z80 core nor the Zeta headers (see below), so the release carries
+no license file for them and the script no longer checks this file for their
+commits. `THIRD-PARTY.txt` keeps a short credit to the Z80 core as the
+reference the tests compare against, saying the program contains none of its
+code (maintainer decision, 2026-11-19). The package therefore ships exactly:
+`psmodern.exe` (PSModern's own code, GPL-3.0-or-later, linked statically with
+the C++ runtime of GCC under its runtime exception), the four DLLs above (SDL2,
+winpthreads, the GCC runtime), `LICENSE.txt`, `README.txt`, `THIRD-PARTY.txt`
+and the licenses folder with the four notices in the table.
 
 ## Z80 core
+
+Since milestone 14 the Z80 core is **test-only**. [redcode/Z80](https://github.com/redcode/Z80)
+and the Zeta headers it needs are still vendored in `third_party/`, but CMake
+compiles the core only into the library `psmodern_oracle` (the oracle that
+tests and developer tools such as the replay runner compare the game with).
+`psmodern.exe` and the libraries it links (`psmodern_hw`, `psmodern_rom`,
+`psmodern_game`, `psmodern_app`) contain no code from either; the test
+`program_link_closure` checks the link and that no `z80_` symbol is in an
+unstripped `psmodern.exe`. The program's own register file (`Z80` in
+`src/hw/cpu.h`) keeps the core's member names and encodings so the oracle can
+exchange state with it. The program's C++ re-expression of the core's behaviour
+(interrupt acceptance in `Machine::accept`, the instruction renderers of the
+kits) follows the core's cycles, flags and arbitration and cites it in
+comments.
+
+### The vendored core
 
 [redcode/Z80](https://github.com/redcode/Z80) is vendored at commit
 `dcc3f28d3a344b3080e7ae6f1e7b694b45b370d9`, LGPL-3.0-or-later, compatible
 with this project's GPL-3.0-or-later license. `third_party/redcode-z80`
 contains its API header, C implementation, and GPL and LGPL license texts.
-`Machine::step` mirrors the core's interrupt acceptance checks; re-verify
-that mirror against `Z80.c` whenever the core pin changes.
+`Machine::accept` reproduces the core's interrupt acceptance rules in C++;
+re-verify it against `Z80.c` (lockstep does this on every test run) whenever
+the core pin changes.
 The required headers from [redcode/Zeta](https://github.com/redcode/Zeta)
 are vendored at commit `42830b0e735cc3a83c7630e2dcf21949e8441c6d` under
 `third_party/zeta`, with its GPL and LGPL license texts. Zeta headers are

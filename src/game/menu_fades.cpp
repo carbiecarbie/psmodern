@@ -6,13 +6,14 @@
 // Planned segments: menu::fades_segments in game/menu.h, rendered with
 // game/menu_kit.h.
 //
-// Every wait ends on its bare call of the frame wait (a core final: the wait
-// itself stays native); the stretches between two waits, the two frame
+// Every wait ends on its bare call of the frame wait (a final instruction: the wait
+// itself is its own segment); the stretches between two waits, the two frame
 // interrupt steps and the palette effects' loops are rendered. The per-colour
 // steps 01:7B5F and 01:7B92 are written once (`colour_out`, `colour_in`): a
 // body that names the return it reaches without executing it, so that the
 // same code serves the segment of the step itself (its return is the exit)
 // and the inline call inside 01:7B40 (the return is rendered).
+#include "game/joins.h"
 #include "game/menu.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
@@ -22,13 +23,9 @@ namespace {
 namespace mk=menu_kit;
 namespace menu=game::menu;
 using mk::Exit;
-using mk::continues;
-using mk::returns;
-
-constexpr unsigned wait_call=mk::call_cycles;
 
 // The return a per-colour step reached: its address and whether it is a
-// `ret cc` (taken: 11 cycles) or a plain `ret` (10).
+// conditional return (taken: 11 cycles) or a plain return (10).
 struct Return { std::uint16_t at; bool conditional; };
 
 // 01:7B5F: one colour of the fade-out: take the first non-zero channel
@@ -92,7 +89,7 @@ template<class Z> Return colour_in(Z& z) {
 template<class Body> auto inline_colour(Body body) {
     return [body](auto& z) -> std::uint16_t {
         const Return done=body(z);
-        if (done.conditional) (void)z.return_if(done.at,true);
+        if (done.conditional) (void)z.return_if(done.at,mk::Condition::z);
         else (void)z.return_from(done.at);
         return z.r.wz;
     };
@@ -100,7 +97,9 @@ template<class Body> auto inline_colour(Body body) {
 template<class Body> auto colour_segment(Body body) {
     return [body](auto& z) -> Exit {
         const Return done=body(z);
-        return returns(done.at,done.conditional ? mk::taken_conditional_return_cycles : mk::return_cycles);
+        if (!done.conditional) return z.final_return(done.at);
+        if (auto exit=z.final_return_if(done.at,mk::Condition::z)) return *exit;   // every conditional return of a colour step returns on zero
+        throw std::logic_error("a colour step reached its conditional return without taking it");
     };
 }
 
@@ -110,16 +109,14 @@ template<class Body> auto colour_segment(Body body) {
 template<class Z> Exit fade_step(Z& z) {
     z.load_hl(0x7B40);
     z.decrement_at_hl(0x7B43);
-    if (!z.sign()) return returns(0x7B44,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x7B44);
+    if (auto exit=z.final_return_if(0x7B44,mk::Condition::p)) return *exit;
     z.store_to_hl(0x7B45);
     z.load_hl(0x7B47);
     z.load_from_hl(0x7B4A,z.r.a);
     z.test_bit(0x7B4B,7,z.r.a);
     if (!z.jump_if(0x7B4D,!z.zero())) {
         z.or_a(0x7B50);
-        if (z.zero()) return returns(0x7B51,mk::taken_conditional_return_cycles);
-        z.return_not_taken(0x7B51);
+        if (auto exit=z.final_return_if(0x7B51,mk::Condition::z)) return *exit;
         z.decrement_at_hl(0x7B52);
         z.increment_hl(0x7B53);
         z.load_from_hl(0x7B54,z.r.b);
@@ -128,12 +125,12 @@ template<class Z> Exit fade_step(Z& z) {
             (void)z.inline_subroutine(0x7B58,inline_colour([](auto& y) { return colour_out(y); }));
             z.increment_hl(0x7B5B);
         } while (z.decrement_jump(0x7B5C));
-        return returns(0x7B5E,mk::return_cycles);
+        return z.final_return(0x7B5E);
     }
     z.compare_immediate(0x7B7A);
     if (!z.relative_if(0x7B7C,!z.zero())) {
         z.store_to_hl(0x7B7E);
-        return returns(0x7B80,mk::return_cycles);
+        return z.final_return(0x7B80);
     }
     z.decrement_at_hl(0x7B81);
     z.increment_hl(0x7B82);
@@ -145,7 +142,7 @@ template<class Z> Exit fade_step(Z& z) {
         z.increment_hl(0x7B8D);
         z.increment_pair(0x7B8E,z.r.d,z.r.e);
     } while (z.decrement_jump(0x7B8F));
-    return returns(0x7B91,mk::return_cycles);
+    return z.final_return(0x7B91);
 }
 
 // 01:7BEE: the flash step of the frame interrupt: counts the flash down and,
@@ -154,8 +151,7 @@ template<class Z> Exit fade_step(Z& z) {
 template<class Z> Exit flash_step(Z& z) {
     z.load_a_direct(0x7BEE);
     z.or_a(0x7BF1);
-    if (z.zero()) return returns(0x7BF2,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x7BF2);
+    if (auto exit=z.final_return_if(0x7BF2,mk::Condition::z)) return *exit;
     z.decrement(0x7BF3,z.r.a);
     z.store_a_direct(0x7BF4);
     z.rotate_right_circular_a(0x7BF7);
@@ -164,7 +160,7 @@ template<class Z> Exit flash_step(Z& z) {
         z.load_de(0x7BFE);
         z.load_bc(0x7C01);
         z.block_copy(0x7C04);
-        return returns(0x7C06,mk::return_cycles);
+        return z.final_return(0x7C06);
     }
     z.load_hl_direct(0x7C07);
     z.copy(0x7C0A,z.r.b,z.r.h);
@@ -177,20 +173,20 @@ template<class Z> Exit flash_step(Z& z) {
         z.store_register_to_hl(0x7C13,z.r.a);
         z.increment_hl(0x7C14);
     } while (z.decrement_jump(0x7C15));
-    return returns(0x7C17,mk::return_cycles);
+    return z.final_return(0x7C17);
 }
 
 // 01:7BB7 and 01:7BE1: the load before the wait of the two flashes.
 template<class Z> Exit flash_wait(Z& z, std::uint16_t load_at) {
     z.load_immediate(load_at,z.r.a);
-    return continues(static_cast<std::uint16_t>(load_at+2),wait_call);
+    return z.final_call(static_cast<std::uint16_t>(load_at+2));
 }
 // 01:7BBC and 01:7BE6: the wait's condition (the flash counter at C2BE).
 template<class Z> Exit flash_again(Z& z, std::uint16_t at, std::uint16_t load_at, std::uint16_t done) {
     z.load_a_direct(at);
     z.or_a(static_cast<std::uint16_t>(at+3));
     if (z.jump_if(static_cast<std::uint16_t>(at+4),!z.zero())) return flash_wait(z,load_at);
-    return returns(done,mk::return_cycles);
+    return z.final_return(done);
 }
 
 // 01:7CF7: one step of a palette sequence: the first byte of the pair goes to
@@ -212,7 +208,7 @@ template<class Z> Exit sequence_step(Z& z) {
     z.increment_hl(0x7D0A);
     z.copy(0x7D0B,z.r.b,z.r.c);
     z.load_immediate(0x7D0C,z.r.a);
-    return continues(0x7D0E,wait_call);
+    return z.final_call(0x7D0E);
 }
 
 // 01:7C8F: one step of the palette cycle (a copy of eight colours every
@@ -224,7 +220,7 @@ template<class Z> Exit cycle_step(Z& z) {
     z.load_bc(0x7C95);
     if (!z.relative_if(0x7C98,!z.zero())) z.block_copy(0x7C9A);
     z.load_immediate(0x7C9C,z.r.a);
-    return continues(0x7C9E,wait_call);
+    return z.final_call(0x7C9E);
 }
 
 // 01:7CCE: one pass of the sequence of 01:7CBB (six colours from C22A, then
@@ -236,7 +232,7 @@ template<class Z> Exit sequence_row(Z& z) {
     z.block_copy(0x7CD5);
     z.load_immediate(0x7CD7,z.r.b);
     z.load_immediate(0x7CD9,z.r.a);
-    return continues(0x7CDB,wait_call);
+    return z.final_call(0x7CDB);
 }
 }
 
@@ -250,7 +246,7 @@ void register_menu_fades(RoutineRegistry& registry) {
             z.store_hl_direct(0x7B00);
             z.relative(0x7B03);
             z.load_immediate(0x7B0B,z.r.a);
-            return continues(0x7B0D,wait_call);
+            return z.final_call(0x7B0D);
         });
     mk::add_segment(registry,menu::at1(0x7B05),
         segment(menu::fade_out_unit,{core_final_at(0x7B0D)}),
@@ -258,7 +254,7 @@ void register_menu_fades(RoutineRegistry& registry) {
             z.load_hl(0x7B05);
             z.store_hl_direct(0x7B08);
             z.load_immediate(0x7B0B,z.r.a);
-            return continues(0x7B0D,wait_call);
+            return z.final_call(0x7B0D);
         });
     mk::add_segment(registry,menu::at1(0x7B10),
         segment(menu::fade_out_unit,{core_final_at(0x7B0D),returned_at(0x7B17)}),
@@ -270,7 +266,7 @@ void register_menu_fades(RoutineRegistry& registry) {
             z.store_hl_direct(0x7B1B);
             z.relative(0x7B1E);
             z.load_immediate(0x7B33,z.r.a);
-            return continues(0x7B35,wait_call);
+            return z.final_call(0x7B35);
         });
     mk::add_segment(registry,menu::at1(0x7B20),
         segment(menu::fade_in_unit,{core_final_at(0x7B35)}),
@@ -283,7 +279,7 @@ void register_menu_fades(RoutineRegistry& registry) {
             z.store_to_hl(0x7B2F);
             z.block_copy(0x7B31);
             z.load_immediate(0x7B33,z.r.a);
-            return continues(0x7B35,wait_call);
+            return z.final_call(0x7B35);
         });
     mk::add_segment(registry,menu::at1(0x7B38),
         segment(menu::fade_in_unit,{core_final_at(0x7B35),returned_at(0x7B3F)}),
@@ -357,7 +353,7 @@ void register_menu_fades(RoutineRegistry& registry) {
             z.pop(0x7CA1,z.r.a,z.r.f);
             z.decrement(0x7CA2,z.r.a);
             if (z.relative_if(0x7CA3,!z.zero())) return cycle_step(z);
-            return returns(0x7CA5,mk::return_cycles);
+            return z.final_return(0x7CA5);
         });
     mk::add_segment(registry,menu::palette_load_unit,
         segment(menu::palette_load_unit,{core_final_at(0x7CB8)},{.slot2_mapper=true}),
@@ -369,14 +365,14 @@ void register_menu_fades(RoutineRegistry& registry) {
             z.load_bc(0x7CB1);
             z.block_copy(0x7CB4);
             z.load_immediate(0x7CB6,z.r.a);
-            return continues(0x7CB8,mk::jump_cycles);
+            return z.final_jump(0x7CB8);
         });
     mk::add_segment(registry,menu::palette_sequence_unit,
         segment(menu::palette_sequence_unit,{core_final_at(0x7CC0)},{.slot2_mapper=true}),
         [](auto& z) -> Exit {
             z.load_hl(0x7CBB);
             z.store_to_hl(0x7CBE);
-            return continues(0x7CC0,wait_call);
+            return z.final_call(0x7CC0);
         });
     mk::add_segment(registry,menu::at1(0x7CC9),
         segment(menu::palette_sequence_unit,{core_final_at(0x7CDB,-2)},{.scratch_stack=2}),
@@ -390,11 +386,11 @@ void register_menu_fades(RoutineRegistry& registry) {
         [](auto& z) -> Exit {
             if (z.decrement_jump(0x7CDE)) {
                 z.load_immediate(0x7CD9,z.r.a);
-                return continues(0x7CDB,wait_call);
+                return z.final_call(0x7CDB);
             }
             z.pop(0x7CE0,z.r.b,z.r.c);
             if (z.decrement_jump(0x7CE1)) return sequence_row(z);
-            return returns(0x7CE3,mk::return_cycles);
+            return z.final_return(0x7CE3);
         });
     mk::add_segment(registry,menu::scene_palette_sequence_unit,
         segment(menu::scene_palette_sequence_unit,{core_final_at(0x7D0E,-2)},{.slot2_mapper=true,.scratch_stack=2}),
@@ -418,11 +414,22 @@ void register_menu_fades(RoutineRegistry& registry) {
         [](auto& z) -> Exit {
             if (z.decrement_jump(0x7D11)) {
                 z.load_immediate(0x7D0C,z.r.a);
-                return continues(0x7D0E,wait_call);
+                return z.final_call(0x7D0E);
             }
             z.pop(0x7D13,z.r.b,z.r.c);
             if (z.decrement_jump(0x7D14)) return sequence_step(z);
-            return returns(0x7D16,mk::return_cycles);
+            return z.final_return(0x7D16);
         });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_menu_fades_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{1,0x7CC3},{1,0x7CBB},{kit::core_final_at(0x7CC3)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x7CC3); });
+    kit::add_joining(registry,{1,0x7CC6},{1,0x7CBB},{kit::core_final_at(0x7CC6)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x7CC6); });
 }
 }

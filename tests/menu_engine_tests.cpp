@@ -31,6 +31,7 @@
 //     edge money values poked (needs the reference folder).
 #include "game/menu_kit.h"
 #include "menu_probe.h"
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <map>
@@ -119,7 +120,7 @@ void catalog() {
         check(routine!=nullptr,"planned engine entry "+hex(w.entry.address)+" is registered");
         const auto& spec=routine->spec;
         check(spec.unit==w.unit && spec.slot2_mapper==w.permissions.slot2_mapper && spec.scratch_stack==w.permissions.scratch_stack &&
-              spec.inherited_stack==w.permissions.inherited_stack && !spec.single_instruction && !spec.force_admit && !spec.absolute_wram_store,
+              spec.inherited_stack==w.permissions.inherited_stack && !spec.single_instruction,
               "engine entry "+hex(w.entry.address)+" has the unit and permissions of table 4W1");
         check(spec.exits.size()==w.exits.size(),"engine entry "+hex(w.entry.address)+" declares the exits of table 4W1");
         for (const auto& exit:w.exits)
@@ -168,14 +169,8 @@ void code_shape(const probe::Rom& rom) {
 }
 
 // ---- State probes -------------------------------------------------------------------------
-struct Spy final : RoutineVerifier {
-    replay::CallVerifier inner{"probe"};
-    std::optional<SegmentExit> last;
-    void run(Machine& machine, RoutineEntry entry, const SegmentSpec& spec, bool forced, std::uint64_t bound,
-             std::uint64_t call, const std::function<std::optional<SegmentExit>()>& body) override {
-        inner.run(machine,entry,spec,forced,bound,call,[&] { last=body(); return last; });
-    }
-};
+// The exit each call of the harness took (milestone 14: from the registry).
+struct Spy { std::optional<SegmentExit> last; };
 using Prepare=std::function<void(Machine&,std::mt19937_64&)>;
 struct Rig {
     probe::Harness harness;
@@ -184,7 +179,7 @@ struct Rig {
     std::uint64_t seed=1, count=0, refusals=0, unmapped=0, rom_stack_probes=0;
     std::map<RoutineEntry,std::set<std::uint16_t>> reached;
     std::map<RoutineEntry,std::uint64_t> per_entry;
-    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.registry().verifier=&spy; }
+    explicit Rig(const probe::Rom& rom) : harness(rom) { harness.exit_sink=&spy.last; }
 
     static bool admitted(const probe::Setup& s, unsigned scratch, unsigned inherited) {
         auto bad=[&](unsigned offset, bool strict) {
@@ -232,30 +227,26 @@ struct Rig {
         const Machine pristine=machine;
         try {
             if (rom_stack) {
-                Machine original=machine;
-                auto& registry=harness.registry();
-                auto* verifier=registry.verifier;
-                registry.verifier=nullptr;
-                try { result=harness.run_cpp(machine,entry); } catch (...) { registry.verifier=verifier; throw; }
-                registry.verifier=verifier;
+                oracle::NativeMachine original(machine);
+                harness.verified=false;
+                try { result=harness.run_cpp(machine,entry); } catch (...) { harness.verified=true; throw; }
+                harness.verified=true;
                 const auto stop=original.cycles()+result.cycles;
                 while (original.cycles()<stop) original.step();
                 check(original.cycles()==stop,"ROM-stack probe: the original does not stop at the C++ call's cycle count");
                 std::string fields;
-                for (const auto& difference:original.differences(machine)) fields+=" "+difference.field;
+                for (const auto& difference:oracle::differences(machine,original,oracle::Scope::whole)) fields+=" "+difference;
                 check(fields.empty(),"ROM-stack probe: C++ differs from the original at equal cycles:"+fields);
                 ++rom_stack_probes;
             } else result=harness.run_cpp(machine,entry);
         } catch (const std::exception& error) {
             std::ostringstream text;
-            // The verifier reports only that the body failed; run it again unverified for the reason.
+            // The lockstep reports only that the body diverged; run it again unverified for the reason.
             auto again=pristine;
-            auto& registry=harness.registry();
-            auto* verifier=registry.verifier;
-            registry.verifier=nullptr;
+            harness.verified=false;
             try { (void)harness.run_cpp(again,entry); text<<"(unverified run passed) "; }
             catch (const std::exception& reason) { text<<"("<<reason.what()<<") "; }
-            registry.verifier=verifier;
+            harness.verified=true;
             text<<error.what()<<" [entry "<<std::hex<<entry.address<<" seed "<<std::dec<<setup.seed<<" sp "<<std::hex<<setup.sp
                 <<" ram_off "<<setup.work_ram_disabled<<" cart "<<setup.cartridge_ram<<" bank2 "<<+setup.banks[2]<<"]";
             throw std::runtime_error(text.str());
@@ -491,6 +482,20 @@ void power_on_probes(const probe::Rom& rom) {
         for (const auto r:probe::r_wrap_values(8)) { probe::Setup setup; setup.r=r; g.run(entry,setup,&base,prepare); }
     }
     exits_reached(g);
+    // Interrupt sweeps (milestone 14): an IRQ and an NMI at every cycle of every segment (all have more than
+    // one instruction); the longest are sampled so that a sweep stays near 300 runs per kind.
+    for (const auto& [entry,prepare]:list) {
+        for (unsigned variant=0;variant<2;++variant) {
+            probe::Setup setup; setup.seed=9000+variant; setup.banks[2]=27;
+            std::mt19937_64 random(0x3AA6u+variant*131u+entry.address);
+            Machine probe_state=g.harness.prepare(entry,setup);
+            if (prepare) prepare(probe_state,random);
+            const auto length=g.harness.routine(entry).bound(probe_state);
+            const unsigned stride=static_cast<unsigned>(std::max<std::uint64_t>(1,length/300));
+            std::mt19937_64 again(0x3AA6u+variant*131u+entry.address);
+            probe::sweep(g.harness,entry,setup,[&](Machine& m) { if (prepare) prepare(m,again); },stride);
+        }
+    }
     check(g.rom_stack_probes>0,"no slot-2 mapper segment was probed with its stack in slot-2 ROM");
     std::cout<<"power-on probes: "<<g.count<<" calls in C++, "<<g.refusals<<" refused states (frame), "<<g.unmapped<<" refused stacks; "
              <<g.rom_stack_probes<<" with the stack in slot-2 ROM (compared with the original at equal cycles).\n";
@@ -594,9 +599,11 @@ std::vector<std::uint8_t> native_print(probe::Harness& h, std::uint16_t unit, st
     auto m=h.prepare(at0(unit),setup);
     m.cpu().de.uint16_value=0x7800;
     set(m);
-    for (unsigned i=0;i<200000 && m.cpu().pc.uint16_value!=ei;++i) m.step();
-    check(m.cpu().pc.uint16_value==ei,"the printer reached its EI");
-    const auto& vram=m.vdp().vram();
+    // The original on the oracle's native machine (the engine has no core).
+    oracle::NativeMachine original(m);
+    for (unsigned i=0;i<200000 && original.cpu().pc.uint16_value!=ei;++i) original.step();
+    check(original.cpu().pc.uint16_value==ei,"the printer reached its EI");
+    const auto& vram=original.vdp().vram();
     return {vram.begin()+0x3800,vram.begin()+0x3800+bytes};
 }
 // The digits of a printed number: tile C0h a blank, C1h-CAh the digits 0-9.
@@ -615,7 +622,6 @@ std::string shown(const std::vector<std::uint8_t>& written, unsigned from, unsig
 // before them always has: observed on the original.
 void number_printers(const probe::Rom& rom) {
     probe::Harness h(rom);
-    h.registry().enabled=false;
     const auto label=word(rom,0x37FD);
     auto print=[&](std::uint16_t value) {
         return shown(native_print(h,0x3036,0x30A0,[&](Machine& m) { m.cpu().hl.uint16_value=label; m.cpu().bc.uint16_value=value; },12+10),12,5);
@@ -640,7 +646,6 @@ void number_printers(const probe::Rom& rom) {
 // an empty shop line shows the top half of the blank name and no price.
 void empty_shop_line(const probe::Rom& rom) {
     probe::Harness h(rom);
-    h.registry().enabled=false;
     auto line=[&](std::uint8_t item, std::uint8_t row) {
         return native_print(h,0x393A,0x3632,[&](Machine& m) {
             m.memory().write(0xC800,item); m.memory().write(0xC801,0x34); m.memory().write(0xC802,0x12);
@@ -723,6 +728,8 @@ bool real_frames(const menu_probe::Inputs& inputs) {
 }
 
 int main(int argc, char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         catalog();
         if (argc==1) return 0;

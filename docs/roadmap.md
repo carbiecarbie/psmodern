@@ -41,8 +41,11 @@ controller support moved ahead of text, as design section 8 allows. On
 state the original keeps, so it came first and the map rewrite followed
 (design 5.3). The maintainer accepted milestone 13 on 2026-11-16.
 
-14. **Removing the Z80.** The game runs on C++ alone, with a per-frame time
-    budget that keeps the original slowdowns (design 5.2).
+14. **Removing the Z80** ([plan](milestone-14-plan.md)). The game runs on C++
+    alone. Timing stays exact, instruction by instruction, so the original
+    slowdowns are kept without the per-frame time budget that design 5.2
+    expected; the Z80 remains only in the tests as the referee. The
+    maintainer accepted milestone 14 on 2026-11-19.
 
 ## Longer-term direction
 
@@ -51,7 +54,7 @@ state the original keeps, so it came first and the map rewrite followed
   patch format applied to the player's ROM at run time, so that mods ship no
   SEGA data; later, tables such as enemy stats or prices could move to
   editable files. Text changes become practical after milestone 9, and
-  changes anywhere in the game once the Z80 is gone (milestone 14).
+  changes anywhere in the game now that the Z80 is gone (milestone 14).
 - **A new look for the game's own menus.** Optional and undecided
   (Maintainer decision, 2026-11-15): the field menu, the shops and the other
   windows of the game keep the cartridge's look, and the maintainer may later

@@ -27,9 +27,9 @@
 //
 // How the code is cut. Most stretches here end at a call into another part
 // (the pause loop, the frame wait, the graphics loader, the table jump); the
-// core runs the call and the instruction after it is the next entry. The
+// call ends the segment and the instruction after it is the next entry. The
 // interrupt switches around the animation's first run and the VDP register
-// write are also left to the core, as their own one-instruction entries, so the
+// write are also entries of their own, one instruction each, so the
 // one-instruction delay of EI is the original's. The addresses passed to the
 // kit are the original's, because the kit reads each instruction's operands
 // and cycle cost from the player's ROM; no ROM value is written here.
@@ -41,42 +41,41 @@ void register_block_transfer(RoutineRegistry&,RoutineEntry);
 namespace {
 using mk::Exit;
 
-// The ways a segment ends. Each names the original's final instruction and
-// charges its cycles; the core runs that instruction. The cost is an upper
-// bound, so a conditional call is charged as taken.
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit return_taken_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
-Exit restart_at(std::uint16_t at) { return mk::continues(at,mk::restart_cycles); }
-// The instructions the core runs at the end of some segments, by cost.
-Exit interrupts_off_at(std::uint16_t at) { return mk::continues(at,4); }    // DI
-Exit decrement_pair_at(std::uint16_t at) { return mk::continues(at,6); }    // DEC HL
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
+template<class Z> Exit restart_at(Z& z, std::uint16_t at) { return z.final_restart(at,0x08); }
+template<class Z> Exit interrupts_off_at(Z& z, std::uint16_t at) { return z.final_disable_interrupts(at); }
+template<class Z> Exit decrement_pair_at(Z& z, std::uint16_t at) {                   // DEC HL
+    z.decrement_hl(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+1));
+}
 
 // ---- The interaction: 00:3B9C-3C29 ----------------------------------------------------------------
 // 00:3B9C: a paused game runs the pause loop first (a conditional call).
 template<class Z> Exit interaction_pause(Z& z) {
     z.load_a_direct(0x3B9C);                                          // the pause flag
     z.or_a(0x3B9F);
-    return call_at(0x3BA0);                                           // the pause loop, if paused
+    return z.final_call_if(0x3BA0,mk::Condition::nz);                  // the pause loop, if paused
 }
 // 00:3BA3: the frame wait, with its request number in A.
 template<class Z> Exit interaction_frame_wait(Z& z) {
     z.load_immediate(0x3BA3,z.r.a);
-    return call_at(0x3BA5);
+    return call_at(z,0x3BA5);
 }
 // 00:3BA8: a pending encounter (C29D nonzero) jumps to the battle path at
-// 00:3C1A; the core runs the jump.
+// 00:3C1A.
 template<class Z> Exit interaction_pending_encounter(Z& z) {
     z.load_a_direct(0x3BA8);                                          // C29D
     z.or_a(0x3BAB);
-    return mk::jump_if_exit(0x3BAC);
+    return z.final_jump_if(0x3BAC,mk::Condition::nz);
 }
 // 00:3BAF: the scene object named by C2DC is installed (01:617D; zero means
 // none).
 template<class Z> Exit interaction_scene_object(Z& z) {
     z.load_a_direct(0x3BAF);                                          // C2DC
-    return call_at(0x3BB2);
+    return call_at(z,0x3BB2);
 }
 // 00:3BB5: the script. The kind minus 10h (zero below 10h), modulo 16,
 // picks the entry of the dispatch table; the table jump runs the script.
@@ -86,7 +85,7 @@ template<class Z> Exit interaction_script(Z& z) {
     if(!z.relative_if(0x3BBA,!z.carry())) z.xor_a(0x3BBC);
     z.and_immediate(0x3BBD);
     z.load_hl(0x3BBF);                                                // the dispatch table
-    return call_at(0x3BC2);
+    return call_at(z,0x3BC2);
 }
 // 00:3BC5: after the script (or the battle path). A scene with its own music
 // (a nonzero entry, indexed by the kind minus 0Fh, in the music table)
@@ -123,27 +122,26 @@ template<class Z> Exit interaction_finish(Z& z) {
     z.block_copy(0x3BFA);
     z.load_a_direct(0x3BFC);                                          // the game mode
     z.compare_immediate(0x3BFF);
-    if(!z.zero()) return return_taken_at(0x3C01);                     // not the interaction mode: keep it
-    z.return_not_taken(0x3C01);
+    if (auto exit=z.final_return_if(0x3C01,mk::Condition::nz)) return *exit;                     // not the interaction mode: keep it
     z.load_a_direct(0x3C02);                                          // C2E9
     z.test_bit(0x3C05,7,z.r.a);
     if(!z.relative_if(0x3C07,z.zero())) {
         z.load_immediate(0x3C09,z.r.a);
         z.store_a_direct(0x3C0B);
-        return return_at(0x3C0E);
+        return return_at(z,0x3C0E);
     }
     z.or_a(0x3C0F);
     z.load_immediate(0x3C10,z.r.a);                                   // the load keeps the flags of the test
     if(!z.relative_if(0x3C12,z.zero())) z.load_immediate(0x3C14,z.r.a);
     z.store_a_direct(0x3C16);
-    return return_at(0x3C19);
+    return return_at(z,0x3C19);
 }
 // 00:3C20: on the battle path, after the battle. A nonzero first object slot
 // opens the field menu (a conditional call), then 00:3BC5 follows.
 template<class Z> Exit interaction_after_battle(Z& z) {
     z.load_a_direct(0x3C20);                                          // C800
     z.or_a(0x3C23);
-    return call_at(0x3C24);
+    return z.final_call_if(0x3C24,mk::Condition::nz);
 }
 
 // ---- Loading an interaction: 00:3C52-3D1C ----------------------------------------------------------
@@ -151,7 +149,7 @@ template<class Z> Exit interaction_after_battle(Z& z) {
 template<class Z> Exit load_interaction_start(Z& z) {
     z.load_immediate(0x3C52,z.r.a);
     z.store_a_direct(0x3C54);                                         // the sound request byte
-    return call_at(0x3C57);
+    return call_at(z,0x3C57);
 }
 // The environment can substitute the requested scene. By the environment
 // byte C308: zero turns kind 5 into 4; 1 and 7 turn kind 1 into 5; 8 makes
@@ -218,12 +216,12 @@ template<class Z> void default_interaction_kind(Z& z) {
 template<class Z> Exit load_interaction_kind(Z& z) {
     substitute_interaction_kind(z);
     default_interaction_kind(z);
-    return call_at(0x3CB7);
+    return call_at(z,0x3CB7);
 }
 // 00:3CAD as an entry: the substitution's jumps land here.
 template<class Z> Exit load_interaction_default(Z& z) {
     default_interaction_kind(z);
-    return call_at(0x3CB7);
+    return call_at(z,0x3CB7);
 }
 // 00:3CBA: after the picture. Bank 16 goes into slot 2 (a mapper store) and
 // the first fixed tile set is loaded to VRAM by the graphics loader.
@@ -232,19 +230,19 @@ template<class Z> Exit load_interaction_tiles(Z& z) {
     z.store_to_hl(0x3CBD);
     z.load_hl(0x3CBF);                                                // the tile set
     z.load_de(0x3CC2);                                                // its VRAM address
-    return call_at(0x3CC5);
+    return call_at(z,0x3CC5);
 }
 // 00:3CC8: the second fixed tile set.
 template<class Z> Exit load_interaction_more_tiles(Z& z) {
     z.load_hl(0x3CC8);
     z.load_de(0x3CCB);
-    return call_at(0x3CCE);
+    return call_at(z,0x3CCE);
 }
 // 00:3CD1: the scene's work bytes. C304, C300, the first object slot and the
 // vehicle byte C2E9 are cleared; C2D6 = FFh arms the animation; the colour
 // countdown word C213 is zeroed; C2BC = FF00h starts the tile animation's
 // countdown at zero and its frame at FFh, so its first step shows frame
-// zero. Interrupts then go off (the core runs the DI) for the animation's
+// zero. Interrupts then go off (the DI ends the segment) for the animation's
 // first run.
 template<class Z> Exit load_interaction_reset(Z& z) {
     z.xor_a(0x3CD1);
@@ -258,7 +256,7 @@ template<class Z> Exit load_interaction_reset(Z& z) {
     z.store_hl_direct(0x3CE5);                                        // C213
     z.load_hl(0x3CE8);
     z.store_hl_direct(0x3CEB);                                        // C2BC
-    return interrupts_off_at(0x3CEE);
+    return interrupts_off_at(z,0x3CEE);
 }
 // 00:3CF6: the scene's music, after the protected load of the kind that
 // follows the EI (game/scenes.h, ei_delay_scaffolding). The kind minus 0Fh
@@ -278,20 +276,20 @@ template<class Z> Exit load_interaction_music(Z& z) {
     if(!z.relative_if(0x3D06,z.zero())) z.store_a_direct(0x3D08);     // the sound request byte
     z.load_hl(0x3D0B);                                                // the game mode
     z.increment_at_hl(0x3D0E);
-    return interrupts_off_at(0x3D0F);
+    return interrupts_off_at(z,0x3D0F);
 }
 // 00:3D10: DE holds a VDP register write (register 0, the first mode
 // register); the restart at 00:0008 sends it.
 template<class Z> Exit load_interaction_mode_register(Z& z) {
     z.load_de(0x3D10);
-    return restart_at(0x3D13);
+    return restart_at(z,0x3D13);
 }
 
 // ---- The picture loader: 00:3D36-3DA5 --------------------------------------------------------------
 // 00:3D36: a background by argument. 20h and up jump to the blank screen.
 template<class Z> Exit background_by_argument(Z& z) {
     z.compare_immediate(0x3D36);
-    return mk::relative_if_exit(0x3D38,!z.carry());
+    return z.final_relative_if(0x3D38,mk::Condition::nc);
 }
 // 00:3D3A: otherwise the argument times 8 indexes the picture table (three
 // bytes into the row, at the layout), and the jump to 00:3D96 draws only the
@@ -304,14 +302,14 @@ template<class Z> Exit background_layout_record(Z& z) {
     z.load_immediate(0x3D3E,z.r.h);
     z.load_de(0x3D40);
     z.add_to_hl(0x3D43,z.de());
-    return jump_at(0x3D44);
+    return jump_at(z,0x3D44);
 }
 // 00:3D47: the current interaction's picture. Kinds below 20h have one;
 // the others fall into the blank screen.
 template<class Z> Exit interaction_picture(Z& z) {
     z.load_a_direct(0x3D47);                                          // the interaction kind
     z.compare_immediate(0x3D4A);
-    return mk::relative_if_exit(0x3D4C,z.carry());
+    return z.final_relative_if(0x3D4C,mk::Condition::c);
 }
 // 00:3D4E: the blank screen. The first two bytes of the screen copy at D000
 // get the blank cell's two bytes; the copy forward of 5FEh bytes, two
@@ -325,14 +323,14 @@ template<class Z> Exit blank_screen(Z& z) {
     z.store_to_hl(0x3D57);
     z.increment_hl(0x3D59);
     z.store_to_hl(0x3D5A);
-    return decrement_pair_at(0x3D5C);
+    return decrement_pair_at(z,0x3D5C);
 }
 // 00:3D5F: after the copy, C2D3 (a dialogue window's saved background) is
 // cleared, since the screen under it is gone.
 template<class Z> Exit blank_screen_done(Z& z) {
     z.xor_a(0x3D5F);
     z.store_a_direct(0x3D60);
-    return return_at(0x3D63);
+    return return_at(z,0x3D63);
 }
 // 00:3D64: a picture. The kind times 8 indexes the picture table. Its row
 // gives the bank for slot 2 (a mapper store), the palette (16 bytes to the
@@ -369,7 +367,7 @@ template<class Z> Exit picture_palette_and_graphics(Z& z) {
     z.load_from_hl(0x3D8C,z.r.h);
     z.copy(0x3D8D,z.r.l,z.r.a);
     z.load_de(0x3D8E);                                                // VRAM 0
-    return call_at(0x3D91);                                           // the graphics loader, 00:03FA
+    return call_at(z,0x3D91);                                           // the graphics loader, 00:03FA
 }
 // 00:3D96: the layout. C2D3 is cleared, the layout's bank goes into slot 2
 // (a mapper store) and its pointer into HL; the jump to the layout decoder
@@ -387,7 +385,7 @@ template<class Z> void picture_layout(Z& z) {
 }
 template<class Z> Exit picture_layout_only(Z& z) {
     picture_layout(z);
-    return jump_at(0x3DA3);
+    return jump_at(z,0x3DA3);
 }
 // 00:3D94: after the graphics loader, the row pointer comes back and steps
 // to the layout bytes.
@@ -395,18 +393,18 @@ template<class Z> Exit picture_layout_after_graphics(Z& z) {
     z.pop(0x3D94,z.r.h,z.r.l);
     z.increment_hl(0x3D95);
     picture_layout(z);
-    return jump_at(0x3DA3);
+    return jump_at(z,0x3DA3);
 }
 
-// 00:3CF2 and 00:3D14: an EI as a one-instruction entry the core runs, so
-// the instruction after it still sees the original's interrupt delay.
+// 00:3CF2 and 00:3D14: an EI as a one-instruction entry, so the instruction
+// after it still sees the original's interrupt delay.
 void register_interrupts_on(RoutineRegistry& registry, std::uint16_t at) {
     const RoutineEntry entry{0,at};
     auto exit=mk::core_final_at(at);
     exit.interrupt_mask=InterruptMask::enable;
     auto spec=mk::segment(entry,{exit});
     spec.single_instruction=true;
-    registry.add(entry,spec,[](const Machine&) {return 4;},[=](RoutineContext& c) {c.finish_core(at);});
+    mk::add_segment(registry,entry,std::move(spec),[at](auto& z) -> Exit { return z.final_enable_interrupts(at); });
 }
 }
 
@@ -456,5 +454,35 @@ void register_scene_interactions(RoutineRegistry& registry) {
     add(at(0x3D10),at(0x3D10),{F(0x3D13)},{.scratch_stack=2},[](auto& z) -> Exit { return load_interaction_mode_register(z); });      // after the DI
     register_interrupts_on(registry,0x3CF2);                                                                               // after the animation's first run (01:63A5)
     register_interrupts_on(registry,0x3D14);                                                                               // after the VDP register write
+
+    // ---- joining stretches (milestone 14) ----
+    // The battle path's two calls and the jump back to the interaction's
+    // frame wait (00:3C1A-3C27), the animation call after the EI, the two
+    // loads that follow the EIs, the frame wait and the jump that ends the
+    // interaction's set-up.
+    for (const std::uint16_t address:{0x3C1A,0x3C1D,0x3CEF,0x3D17}) {
+        auto spec=mk::segment(at(address),{F(address)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,at(address),std::move(spec),[address](auto& z) -> Exit { return z.final_call(address); });
+    }
+    for (const std::uint16_t address:{0x3C27,0x3D1A}) {
+        auto spec=mk::segment(at(address),{F(address)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,at(address),std::move(spec),[address](auto& z) -> Exit { return z.final_jump(address); });
+    }
+    {
+        auto spec=mk::segment(at(0x3CF3),{F(0x3CF3)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,at(0x3CF3),std::move(spec),[](auto& z) -> Exit {
+            z.load_a_direct(0x3CF3);                                                                                         // the interaction kind (C29E)
+            return mk::fall_through(0x3CF3,0x3CF6);
+        });
+        auto frame=mk::segment(at(0x3D15),{F(0x3D15)});
+        frame.single_instruction=true;
+        mk::add_segment(registry,at(0x3D15),std::move(frame),[](auto& z) -> Exit {
+            z.load_immediate(0x3D15,z.r.a);                                                                                  // the frame count
+            return mk::fall_through(0x3D15,0x3D17);
+        });
+    }
 }
 }

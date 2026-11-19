@@ -11,8 +11,8 @@
 // port output: VDP register writes for the scroll, the sprite attribute table,
 // pattern tiles and name-table strips. Each port write happens at the T-state
 // of the original OUT or OUTI (the kit times them), so the VDP sees the same
-// writes at the same cycles. Calls between these units stay native (bare
-// calls are core-executed exits); the unrolled OUTI tails 01:589E, 01:591E and
+// writes at the same cycles. Calls between these units end a segment (bare
+// calls are exits; the callee is another registered segment); the unrolled OUTI tails 01:589E, 01:591E and
 // 01:595E are rendered inline where a unit calls or jumps into them, and the
 // VDP address helper behind RST 08 is rendered inline everywhere.
 #include "game/map.h"
@@ -25,12 +25,6 @@ namespace psmodern::game {
 namespace {
 namespace mk=game::map_kit;
 using mk::Exit;
-using mk::call_cycles;
-using mk::continues;
-using mk::jump_cycles;
-using mk::return_cycles;
-using mk::returns;
-using mk::taken_conditional_return_cycles;
 constexpr RoutineEntry at0(std::uint16_t address) { return {0,address}; }
 constexpr RoutineEntry at1(std::uint16_t address) { return {1,address}; }
 
@@ -47,16 +41,15 @@ template<class Z> void call_tail(Z& z, std::uint16_t at, std::uint16_t from) {
 // A `jp` at `at` into the tail: the tail's RET is the segment's exit. The
 // target is the operand read through the bus; where a push on the mapper
 // registers has switched slot 1 away (a stack the dispatch refuses anyway, but
-// whose bound is estimated first) it is not the tail, and the estimate gives up.
+// whose bound is estimated first) it is not the tail: an explicit guard (the
+// estimate gives up, the live run stops). The jump operand is read from the
+// cartridge, so the guard holds across a delivery inside the body.
 template<class Z> Exit jump_tail(Z& z, std::uint16_t at) {
     const auto from=z.jump(at);
-    if (from<0x589E || from>tail_return || (from-0x589E)%2) {
-        if constexpr (std::is_base_of_v<kit::Estimate,std::remove_reference_t<decltype(z.bus())>>) z.bus().uncertain=true;
-        else throw std::logic_error("a registered video segment jumped outside the upload tail");
-        return returns(tail_return,return_cycles);
-    }
+    if (!z.guard(from>=0x589E && from<=tail_return && (from-0x589E)%2==0,"a registered video segment jumped outside the upload tail"))
+        return z.final_return(tail_return);
     upload_tail(z,from);
-    return returns(tail_return,return_cycles);
+    return z.final_return(tail_return);
 }
 
 // ---- 00:0235 and 00:029F: the scroll registers ------------------------------------------------
@@ -64,14 +57,14 @@ template<class Z> Exit jump_tail(Z& z, std::uint16_t at) {
 // one (C304h); then the sprite table upload is called.
 template<class Z> Exit scroll_registers(Z& z, std::uint16_t at) {
     map_kit::write_scroll_registers(z,at);
-    return continues(at+18,call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+18));
 }
 
 // ---- 00:02B4: the loading handler's palette and name table -----------------------------------
 // 32 bytes from C220h to CRAM (through 01:595E), then 7 x 256 bytes of the
 // name-table mirror D000h to VRAM 3800h. The long OUTI loop (about 46,600
-// cycles) always runs across the frame boundary; a fallback runs natively only
-// to the next entry (one OUTI and its JP NZ), so the loop is cut at its inner
+// cycles) always runs across the frame boundary; a segment must end before the
+// frame limit, at the next entry (one OUTI and its JP NZ), so the loop is cut at its inner
 // JP NZ (00:02D2) once 128 cycles have passed.
 constexpr std::uint16_t name_table_after=128;
 template<class Z> Exit name_table_loop(Z& z, bool at_count) {
@@ -79,13 +72,13 @@ template<class Z> Exit name_table_loop(Z& z, bool at_count) {
     for (;;) {
         if (!at_count) {
             z.output_increment(0x02D0);
-            if (z.loop_exit(name_table_after)) return continues(0x02D2,jump_cycles);
+            if (z.loop_exit(name_table_after)) return z.final_jump_if(0x02D2,mk::Condition::nz);
             if (z.jump_if(0x02D2,!z.zero())) continue;
         }
         at_count=false;
         z.decrement(0x02D5,r.a);
         if (z.jump_if(0x02D6,!z.zero())) continue;
-        return continues(0x02D9,call_cycles);
+        return z.final_call(0x02D9);
     }
 }
 template<class Z> Exit loading_upload(Z& z) {
@@ -120,7 +113,7 @@ template<class Z> Exit sprite_upload(Z& z) {
     z.load_de(0x589A);
     (void)z.restart_vdp_address(0x589D);   // the helper returns into 01:589E
     upload_tail(z,0x589E);
-    return returns(tail_return,return_cycles);
+    return z.final_return(tail_return);
 }
 
 // ---- 01:61F5: the party frame tiles ---------------------------------------------------------
@@ -141,14 +134,14 @@ template<class Z> Exit party_slots(Z& z, bool at_next) {
                 z.load_from_indexed(0x620D,mk::Index::ix,r.a);
                 z.or_a(0x6210);
                 z.load_hl(0x6211);
-                return mk::jump_if_exit(0x6214);
+                return z.final_jump_if(0x6214,mk::Condition::nz);
             }
         }
         at_next=false;
         z.load_de(0x6217);
         z.add_to_index(0x621A,mk::Index::ix,z.de());
         if (z.decrement_jump(0x621C)) continue;
-        return returns(0x621E,return_cycles);
+        return z.final_return(0x621E);
     }
 }
 template<class Z> Exit party_frames(Z& z) {
@@ -191,6 +184,15 @@ template<class Z> Exit frame_128(Z& z) {
     z.load_immediate(0x628E,r.c);
     return jump_tail(z,0x6290);
 }
+// 01:62AE: after the VDP address is set, three 128-byte blocks and a last
+// jump into the same tail (the frame's 512 bytes).
+template<class Z> Exit frame_512_tail(Z& z) {
+    z.load_immediate(0x62AE,z.r.c);
+    call_tail(z,0x62B0,0x589E);
+    call_tail(z,0x62B3,0x589E);
+    call_tail(z,0x62B6,0x589E);
+    return jump_tail(z,0x62B9);
+}
 // 01:6293: a 512-byte frame (D x 200h) from bank 18, only in game modes 5
 // and 9; any other mode returns at once.
 template<class Z> Exit frame_512(Z& z) {
@@ -199,8 +201,7 @@ template<class Z> Exit frame_512(Z& z) {
     z.compare_immediate(0x6296);
     if (!z.relative_if(0x6298,z.zero())) {
         z.compare_immediate(0x629A);
-        if (!z.zero()) return returns(0x629C,taken_conditional_return_cycles);
-        z.return_not_taken(0x629C);
+        if (auto exit=z.final_return_if(0x629C,mk::Condition::nz)) return *exit;
     }
     z.load_hl(0x629D);
     z.store_to_hl(0x62A0);
@@ -211,11 +212,7 @@ template<class Z> Exit frame_512(Z& z) {
     z.add_to_hl(0x62A9,z.de());
     z.load_de(0x62AA);
     (void)z.restart_vdp_address(0x62AD);
-    z.load_immediate(0x62AE,r.c);
-    call_tail(z,0x62B0,0x589E);
-    call_tail(z,0x62B3,0x589E);
-    call_tail(z,0x62B6,0x589E);
-    return jump_tail(z,0x62B9);
+    return frame_512_tail(z);
 }
 
 // ---- 01:62BC and 01:630A: the tile animators ---------------------------------------------------
@@ -225,7 +222,7 @@ template<class Z> Exit animator_call(Z& z, std::uint16_t at) {
     z.load_hl(at);
     z.load_de(at+3);
     z.load_bc(at+6);
-    return continues(at+9,call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+9));
 }
 template<class Z> Exit animators(Z& z) {
     z.load_hl(0x62BC);
@@ -235,8 +232,8 @@ template<class Z> Exit animators(Z& z) {
 // The upload loop: A rows of 32 bytes, an OUTI and a NOP each. The end pops
 // the caller's return address (01:6343) and returns past 01:62BC.
 // The loop is long (up to 16 rows, about 15,700 cycles) and often runs across
-// the frame boundary, where a call falls back; a fallback runs natively only
-// to the next entry, so the chunks are cut fine: at the inner JP NZ (01:633C,
+// the frame boundary, where a call is refused at its entry; a segment must end at
+// the next entry, so the chunks are cut fine: at the inner JP NZ (01:633C,
 // resumed at 01:6339 or 01:633F) and at the outer one (01:6340, resumed at
 // 01:6337 or 01:6343), each at its first arrival once 32 cycles have passed.
 constexpr std::uint16_t animator_after=32;
@@ -251,20 +248,26 @@ template<class Z> Exit animator_tiles(Z& z, Tiles from) {
         case Tiles::tile:
             z.output_increment(0x6339);
             z.nop(0x633B);
-            if (z.loop_exit(animator_after)) return continues(0x633C,jump_cycles);
+            if (z.loop_exit(animator_after)) return z.final_jump_if(0x633C,mk::Condition::nz);
             if (z.jump_if(0x633C,!z.zero())) { from=Tiles::tile; continue; }
             [[fallthrough]];
         case Tiles::count:
             z.decrement(0x633F,r.a);
-            if (z.loop_exit(animator_after)) return continues(0x6340,jump_cycles);
+            if (z.loop_exit(animator_after)) return z.final_jump_if(0x6340,mk::Condition::nz);
             if (z.jump_if(0x6340,!z.zero())) { from=Tiles::row; continue; }
             [[fallthrough]];
         case Tiles::end:
             break;
         }
         z.pop(0x6343,r.h,r.l);
-        return returns(0x6344,return_cycles);
+        return z.final_return(0x6344);
     }
+}
+// 01:6334: after the VDP address is set, the tile count and the row loop.
+template<class Z> Exit animator_rows(Z& z) {
+    z.load_immediate(0x6334,z.r.c);
+    z.copy(0x6336,z.r.a,z.r.b);
+    return animator_tiles(z,Tiles::row);
 }
 // The record: +0 on (0 skips), +1 delay, +2 countdown, +3 step (eight
 // frames, counted down on the road's later roads, C2E9h >= 4, else up).
@@ -272,14 +275,12 @@ template<class Z> Exit animator(Z& z) {
     auto& r=z.r;
     z.load_from_hl(0x630A,r.a);
     z.or_a(0x630B);
-    if (z.zero()) return returns(0x630C,taken_conditional_return_cycles);
-    z.return_not_taken(0x630C);
+    if (auto exit=z.final_return_if(0x630C,mk::Condition::z)) return *exit;
     z.increment_hl(0x630D);
     z.load_from_hl(0x630E,r.a);
     z.increment_hl(0x630F);
     z.decrement_at_hl(0x6310);
-    if (!z.sign()) return returns(0x6311,taken_conditional_return_cycles);
-    z.return_not_taken(0x6311);
+    if (auto exit=z.final_return_if(0x6311,mk::Condition::p)) return *exit;
     z.store_register_to_hl(0x6312,r.a);
     z.increment_hl(0x6313);
     z.load_a_direct(0x6314);
@@ -307,15 +308,14 @@ template<class Z> Exit animator(Z& z) {
     z.add_to_hl(0x6331,z.hl());
     z.exchange_de_hl(0x6332);
     (void)z.restart_vdp_address(0x6333);
-    z.load_immediate(0x6334,r.c);
-    z.copy(0x6336,r.a,r.b);
-    return animator_tiles(z,Tiles::row);
+    return animator_rows(z);
 }
 
 // ---- 01:73D0: one pending strip to the name table ------------------------------------------------
 // C264h low nibble: 0 nothing; bits 0-1 a row, else a column. C263h is the
 // bank of the strip's source. A column is 28 cells (two bytes each, one VRAM
 // address per cell) from the mirror at D000h; a row is 64 bytes.
+template<class Z> Exit strip_column_loop(Z& z);
 template<class Z> Exit strip_row(Z& z) {
     auto& r=z.r;
     z.copy(0x741C,r.a,r.b);
@@ -347,14 +347,13 @@ template<class Z> Exit strip_row(Z& z) {
         z.output_increment(0x7444);
         z.nop(0x7446);
     } while (z.jump_if(0x7447,!z.zero()));
-    return returns(0x744A,return_cycles);
+    return z.final_return(0x744A);
 }
 template<class Z> Exit strip_upload(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x73D0);
     z.and_immediate(0x73D3);
-    if (z.zero()) return returns(0x73D5,taken_conditional_return_cycles);
-    z.return_not_taken(0x73D5);
+    if (auto exit=z.final_return_if(0x73D5,mk::Condition::z)) return *exit;
     z.copy(0x73D6,r.b,r.a);
     z.and_immediate(0x73D7);
     z.load_a_direct(0x73D9);
@@ -378,12 +377,22 @@ template<class Z> Exit strip_upload(Z& z) {
     z.load_immediate(0x73FC,r.d);
     z.load_immediate(0x73FE,r.h);
     z.load_bc(0x7400);
+    return strip_column_loop(z);
+}
+// 01:7403: the column's cells, one VRAM address and four bytes each.
+template<class Z> Exit strip_column_loop(Z& z) {
+    auto& r=z.r;
     do {
+        // With the stack in ROM the pop gives back the same count every pass, so the original's loop
+        // never ends: the estimate gives up after two frames (uncertain); the live run, which only
+        // follows an estimate that ended, never reaches the guard (it would stop with its message).
+        if (!z.guard(z.elapsed()<=mk::uncertain_maximum,"a registered video segment ran past two frames"))
+            return z.final_return(0x741B);
         z.push(0x7403,r.b,r.c);
         // A stack that does not read back (in ROM) makes the helper return
         // elsewhere and the popped count meaningless: the estimate gives up
         // here (uncertain) rather than follow a loop that may not end.
-        if (!z.restart_vdp_address(0x7404)) return returns(0x741B,return_cycles);
+        if (!z.restart_vdp_address(0x7404)) return z.final_return(0x741B);
         z.nop(0x7405);
         z.nop(0x7406);
         z.nop(0x7407);
@@ -400,7 +409,7 @@ template<class Z> Exit strip_upload(Z& z) {
         z.exchange_de_hl(0x7417);
         z.pop(0x7418,r.b,r.c);
     } while (z.decrement_jump(0x7419));
-    return returns(0x741B,return_cycles);
+    return z.final_return(0x741B);
 }
 
 // ---- 01:7C18: the vehicles' and the ship's colours --------------------------------------------
@@ -419,15 +428,13 @@ template<class Z> Exit colour_cycle(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x7C18);
     z.or_a(0x7C1B);
-    if (z.zero()) return returns(0x7C1C,taken_conditional_return_cycles);
-    z.return_not_taken(0x7C1C);
+    if (auto exit=z.final_return_if(0x7C1C,mk::Condition::z)) return *exit;
     z.compare_immediate(0x7C1D);
     if (z.jump_if(0x7C1F,z.zero())) return ship_palette(z);
     z.compare_immediate(0x7C22);
     if (z.jump_if(0x7C24,z.zero())) return ship_palette(z);
     z.compare_immediate(0x7C27);
-    if (!z.carry()) return returns(0x7C29,taken_conditional_return_cycles);
-    z.return_not_taken(0x7C29);
+    if (auto exit=z.final_return_if(0x7C29,mk::Condition::nc)) return *exit;
     z.copy(0x7C2A,r.b,r.a);
     z.load_immediate(0x7C2B,r.c);
     z.compare_immediate(0x7C2D);
@@ -435,13 +442,11 @@ template<class Z> Exit colour_cycle(Z& z) {
         z.load_immediate(0x7C32,r.c);
         z.load_a_direct(0x7C34);
         z.or_a(0x7C37);
-        if (z.zero()) return returns(0x7C38,taken_conditional_return_cycles);
-        z.return_not_taken(0x7C38);
+        if (auto exit=z.final_return_if(0x7C38,mk::Condition::z)) return *exit;
     }
     z.load_hl(0x7C39);
     z.decrement_at_hl(0x7C3C);
-    if (!z.sign()) return returns(0x7C3D,taken_conditional_return_cycles);
-    z.return_not_taken(0x7C3D);
+    if (auto exit=z.final_return_if(0x7C3D,mk::Condition::p)) return *exit;
     z.store_to_hl(0x7C3E);
     z.decrement_hl(0x7C40);
     z.copy(0x7C41,r.a,r.c);
@@ -465,7 +470,7 @@ template<class Z> Exit colour_cycle(Z& z) {
     (void)z.restart_vdp_address(0x7C63);
     z.load_bc(0x7C64);
     do z.output_increment(0x7C67); while (z.jump_if(0x7C69,!z.zero()));
-    return returns(0x7C6C,return_cycles);
+    return z.final_return(0x7C6C);
 }
 
 // ---- Exit lists ------------------------------------------------------------------------------------
@@ -481,17 +486,15 @@ std::vector<SegmentExit> animator_tile_exits() {
 
 void register_sprite_output_slices(RoutineRegistry& registry) {
     // Other call and resume positions use eight writes at a time. The last
-    // OUTI is stepped by the core so the next opcode remains an observable boundary.
+    // OUTI is left to the next segment so the next opcode remains an observable boundary.
     for (std::uint16_t from=0x58AE;from<tail_return;from+=16) {
         if (from==0x595E) continue; // already has a full-tail entry
         auto final=mk::core_final_at(from+14);
         final.sprite_outputs=8;
-        registry.add(at1(from),mk::segment(map::sprite_upload_unit,{final}),
-            [](const Machine&){return 128u;},[from](RoutineContext& c) {
-                mk::run(c,[from](auto& z) {
-                    z.output_increment_run(from,7);
-                    return mk::continues(from+14,16);
-                });
+        mk::add_segment(registry,at1(from),mk::segment(map::sprite_upload_unit,{final}),
+            [](const Machine&) -> std::uint64_t { return 128; },[from](auto& z) {
+                z.output_increment_run(from,8);
+                return mk::fall_through(static_cast<std::uint16_t>(from+14),static_cast<std::uint16_t>(from+16));
             });
     }
 }
@@ -519,7 +522,19 @@ void register_map_video(RoutineRegistry& registry) {
     // Preserve the full-tail entries already used by the sprite and palette uploads.
     for (const std::uint16_t from:{std::uint16_t{0x589E},std::uint16_t{0x595E}})
         mk::add_segment(registry,at1(from),mk::segment(map::sprite_upload_unit,{mk::returned_at(tail_return)}),
-            [from](auto& z) { upload_tail(z,from); return returns(tail_return,return_cycles); });
+            [from](auto& z) { upload_tail(z,from); return z.final_return(tail_return); });
+
+    // Joining stretches: the return that ends the unrolled tail when it was
+    // called from code outside these segments, and the RET that ends the animators' call
+    // chain (the hottest of them: once per animator and frame).
+    for (const auto& [entry,of_unit]:{std::pair{std::uint16_t{0x599E},map::sprite_upload_unit},
+                                      std::pair{std::uint16_t{0x6309},map::tile_animators_unit},
+                                      std::pair{std::uint16_t{0x741B},map::strip_upload_unit}}) {
+        auto spec=mk::segment(of_unit,{mk::returned_at(entry)});
+        spec.single_instruction=true;
+        const auto at=entry;
+        mk::add_segment(registry,at1(entry),std::move(spec),[at](auto& z) -> Exit { return z.final_return(at); });
+    }
 
     // The party frame tiles and their kinds.
     mk::add_segment(registry,map::party_frames_unit,
@@ -566,11 +581,24 @@ void register_map_video(RoutineRegistry& registry) {
         mk::segment(map::tile_animators_unit,{mk::returned_at(0x6344,+2)},{.inherited_stack=2}),
         [](auto& z) { return animator_tiles(z,Tiles::end); });
 
+    // 01:62AE: the frame's 512 bytes after the VDP address is set.
+    mk::add_segment(registry,at1(0x62AE),
+        mk::segment(map::party_frames_unit,{mk::returned_at(tail_return)},{.scratch_stack=2}),
+        [](auto& z) { return frame_512_tail(z); });
+    // 01:6334: the animator's tile count and row loop after the VDP address.
+    mk::add_segment(registry,at1(0x6334),
+        mk::segment(map::tile_animators_unit,animator_tile_exits(),{.inherited_stack=2}),
+        [](auto& z) { return animator_rows(z); });
+
     // The strip upload and the colour cycle.
     mk::add_segment(registry,map::strip_upload_unit,
         mk::segment(map::strip_upload_unit,{mk::returned_at(0x73D5),mk::returned_at(0x741B),mk::returned_at(0x744A)},
                     {.slot2_mapper=true,.scratch_stack=4}),
         [](auto& z) { return strip_upload(z); });
+    // 01:7403: the column's cells when a chunk was cut.
+    mk::add_segment(registry,at1(0x7403),
+        mk::segment(map::strip_upload_unit,{mk::returned_at(0x741B)},{.scratch_stack=4}),
+        [](auto& z) { return strip_column_loop(z); });
     mk::add_segment(registry,map::colour_cycle_unit,
         mk::segment(map::colour_cycle_unit,{mk::returned_at(0x7C1C),mk::returned_at(0x7C29),mk::returned_at(0x7C38),
                     mk::returned_at(0x7C3D),mk::returned_at(0x7C6C),mk::returned_at(tail_return)},{.scratch_stack=2}),

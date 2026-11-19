@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Field spell effects: trap removal/inspection, dungeon exit, magic door and
 // transfer request. Shared item entry points bypass the spell's MP debit.
+#include "game/joins.h"
 #include "game/field_magic.h"
 #include "game/menu_kit.h"
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 
 template <class Z> Exit spend_magic_points(Z &z, unsigned at) {
     z.copy(at, z.r.a, z.r.b);
-    return continues(at + 1, k::call_cycles);
+    return z.final_call(at + 1);
 }
 template <class Z> Exit disarm_chest_message(Z &z) {
     z.load_a_direct(0x204C);
@@ -20,7 +19,7 @@ template <class Z> Exit disarm_chest_message(Z &z) {
     z.load_hl(0x2051);
     if (!z.relative_if(0x2054, z.zero()))
         z.load_hl(0x2056);
-    return continues(0x2059, k::call_cycles);
+    return z.final_call(0x2059);
 }
 template <class Z> Exit begin_disarm(Z &z) {
     z.store_a_to_pair(0x2020, z.de());
@@ -34,31 +33,31 @@ template <class Z> Exit begin_disarm(Z &z) {
     z.or_a(0x2030);
     z.load_hl(0x2031);
     if (z.relative_if(0x2034, !z.zero()))
-        return continues(0x2046, k::call_cycles);
-    return continues(0x2036, k::call_cycles);
+        return z.final_call(0x2046);
+    return z.final_call(0x2036);
 }
 // The dungeon helper returns C as the cell index and distinguishes a pitfall
 // from an object record. Only a positive result clears the cell to floor.
 template <class Z> Exit disarm_pitfall(Z &z) {
     z.load_hl(0x2039);
     if (z.relative_if(0x203C, z.zero()))
-        return continues(0x2046, k::call_cycles);
+        return z.final_call(0x2046);
     z.copy(0x203E, z.r.l, z.r.c);
     z.load_immediate(0x203F, z.r.h);
     z.store_to_hl(0x2041);
     z.load_hl(0x2043);
-    return continues(0x2046, k::call_cycles);
+    return z.final_call(0x2046);
 }
 template <class Z> Exit disarm_chest(Z &z) {
     z.load_immediate(0x205C, z.r.a);
     z.store_a_direct(0x205E);
-    return continues(0x2061, k::jump_cycles);
+    return z.final_jump(0x2061);
 }
 template <class Z> Exit dungeon_exit_message(Z &z) {
     z.load_immediate(0x2078, z.r.a);
     z.store_a_direct(0x207A);
     z.load_hl(0x207D);
-    return continues(0x2080, k::call_cycles);
+    return z.final_call(0x2080);
 }
 template <class Z> Exit begin_dungeon_exit(Z &z) {
     z.store_a_to_pair(0x2068, z.de());
@@ -67,18 +66,18 @@ template <class Z> Exit begin_dungeon_exit(Z &z) {
     if (z.relative_if(0x206D, z.zero()))
         return dungeon_exit_message(z);
     z.load_hl(0x206F);
-    return continues(0x2072, k::call_cycles);
+    return z.final_call(0x2072);
 }
 template <class Z> Exit request_dungeon_exit(Z &z) {
     z.load_immediate(0x2086, z.r.a);
     z.store_a_direct(0x2088);
     z.load_hl(0x208B);
     z.store_to_hl(0x208E);
-    return returns(0x2090, k::return_cycles);
+    return z.final_return(0x2090);
 }
 template <class Z> Exit magic_door_failure(Z &z) {
     z.load_hl(0x20A1);
-    return continues(0x20A4, k::call_cycles);
+    return z.final_call(0x20A4);
 }
 template <class Z> Exit begin_magic_door(Z &z) {
     z.store_a_to_pair(0x2095, z.de());
@@ -89,7 +88,7 @@ template <class Z> Exit begin_magic_door(Z &z) {
     if (!z.relative_if(0x209F, z.zero()))
         return magic_door_failure(z);
     z.load_immediate(0x20AA, z.r.b);
-    return continues(0x20AC, k::call_cycles);
+    return z.final_call(0x20AC);
 }
 template <class Z> Exit accept_magic_door(Z &z) {
     z.and_immediate(0x20AF);
@@ -101,7 +100,7 @@ template <class Z> Exit accept_magic_door(Z &z) {
         return magic_door_failure(z);
     z.load_immediate(0x20B9, z.r.a);
     z.store_a_direct(0x20BB);
-    return returns(0x20BE, k::return_cycles);
+    return z.final_return(0x20BE);
 }
 template <class Z> Exit inspect_chest(Z &z) {
     z.load_a_direct(0x2128);
@@ -109,7 +108,7 @@ template <class Z> Exit inspect_chest(Z &z) {
     z.load_hl(0x212D);
     if (!z.relative_if(0x2130, z.zero()))
         z.load_hl(0x2132);
-    return continues(0x2135, k::call_cycles);
+    return z.final_call(0x2135);
 }
 template <class Z> Exit inspect_target(Z &z) {
     z.load_a_direct(0x2102);
@@ -120,8 +119,8 @@ template <class Z> Exit inspect_target(Z &z) {
     z.or_a(0x210C);
     z.load_hl(0x210D);
     if (z.relative_if(0x2110, !z.zero()))
-        return continues(0x211D, k::call_cycles);
-    return continues(0x2112, k::call_cycles);
+        return z.final_call(0x211D);
+    return z.final_call(0x2112);
 }
 template <class Z> Exit begin_inspection(Z &z) {
     z.store_a_to_pair(0x20FC, z.de());
@@ -133,21 +132,21 @@ template <class Z> Exit inspect_pitfall(Z &z) {
     z.load_hl(0x2115);
     if (!z.relative_if(0x2118, z.zero()))
         z.load_hl(0x211A);
-    return continues(0x211D, k::call_cycles);
+    return z.final_call(0x211D);
 }
 template <class Z> Exit finish_inspection(Z &z) {
     z.load_immediate(0x2120, z.r.a);
     z.store_a_direct(0x2122);
-    return continues(0x2125, k::jump_cycles);
+    return z.final_jump(0x2125);
 }
 template <class Z> Exit inspect_then_open_chest(Z &z) {
     z.load_immediate(0x2138, z.r.a);
     z.store_a_direct(0x213A);
-    return continues(0x213D, k::jump_cycles);
+    return z.final_jump(0x213D);
 }
 template <class Z> Exit transfer_message(Z &z) {
     z.load_hl(0x2159);
-    return continues(0x215C, k::call_cycles);
+    return z.final_call(0x215C);
 }
 template <class Z> Exit begin_transfer(Z &z) {
     z.store_a_to_pair(0x2144, z.de());
@@ -158,12 +157,12 @@ template <class Z> Exit begin_transfer(Z &z) {
     if (z.relative_if(0x214E, !z.zero()))
         return transfer_message(z);
     z.load_hl(0x2150);
-    return continues(0x2153, k::call_cycles);
+    return z.final_call(0x2153);
 }
 template <class Z> Exit request_transfer(Z &z) {
     z.load_immediate(0x2162, z.r.a);
     z.store_a_direct(0x2164);
-    return returns(0x2167, k::return_cycles);
+    return z.final_return(0x2167);
 }
 } // namespace
 void register_field_magic(RoutineRegistry &registry) {
@@ -208,7 +207,30 @@ void register_field_magic(RoutineRegistry &registry) {
         [](auto &z) { return spend_magic_points(z, 0x2140); });
     add(0x2144, 0x2140, {core_final_at(0x215C), core_final_at(0x2153)}, {},
         [](auto &z) { return begin_transfer(z); });
+    // After the transfer message, the window is closed by a jump (no party
+    // check) or by a call (the transfer is then requested).
+    auto close_window = segment({0, 0x2140}, {core_final_at(0x2156)});
+    close_window.single_instruction = true;
+    k::add_segment(registry, {0, 0x2156}, std::move(close_window),
+                   [](auto &z) { return z.final_jump(0x2156); });
+    auto close_then_request = segment({0, 0x2159}, {core_final_at(0x215F)}, {.scratch_stack = 2});
+    close_then_request.single_instruction = true;
+    k::add_segment(registry, {0, 0x215F}, std::move(close_then_request),
+                   [](auto &z) { return z.final_call(0x215F); });
     add(0x2159, 0x2159, {core_final_at(0x215C)}, {}, [](auto &z) { return transfer_message(z); });
     add(0x2162, 0x2159, {returned_at(0x2167)}, {}, [](auto &z) { return request_transfer(z); });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_field_magic_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x2049},{0,0x201C},{kit::core_final_at(0x2049)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2049); });
+    kit::add_joining(registry,{0,0x2075},{0,0x2064},{kit::core_final_at(0x2075)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2075); });
+    kit::add_joining(registry,{0,0x2083},{0,0x2064},{kit::core_final_at(0x2083)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2083); });
+    kit::add_joining(registry,{0,0x20A7},{0,0x2091},{kit::core_final_at(0x20A7)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x20A7); });
 }
 } // namespace psmodern::game

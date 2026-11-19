@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "oracle/native_machine.h"
 #include "app/sdl_host.h"
 #include "app/frame_driver.h"
 #include "game/routines.h"
@@ -9,7 +10,7 @@
 #include <stdexcept>
 namespace {
 using namespace psmodern;
-unsigned sampled=0,press_stage=0,focus_event=0,quick_event=0,options_event=0; unsigned marks[4]{}; double times[4]{}; bool got_badge[2]{},sent_quit=false,release_key=false,record_mode=false,sent_f5=false,saw_f5_reset=false,saw_before_f5=false;
+unsigned sampled=0,press_stage=0,focus_event=0,quick_event=0,options_event=0; unsigned marks[4]{}; double times[4]{}; double discarded[4]{}; double clock_discarded=0; bool got_badge[2]{},sent_quit=false,release_key=false,record_mode=false,sent_f5=false,saw_f5_reset=false,saw_before_f5=false;
 unsigned audio_speed=1;std::size_t audible[3]{};
 std::size_t queued_audible[3]{};SDL_AudioDeviceID audio_device=0;bool removed_audio=false;
 int checked_queue(SDL_AudioDeviceID device,const void* data,Uint32 size) {
@@ -65,7 +66,7 @@ const Uint8* scripted_keys(int*) {
     if(sampled>=100 && sampled<106) {keys[SDL_SCANCODE_TAB]=1;return keys.data();}
     constexpr unsigned thresholds[]{60,180,420};
     if(press_stage<3 && sampled>=thresholds[press_stage]) {
-        keys[SDL_SCANCODE_TAB]=1;if(press_stage<3){times[press_stage+1]=time_now();marks[press_stage+1]=sampled;}
+        keys[SDL_SCANCODE_TAB]=1;if(press_stage<3){times[press_stage+1]=time_now();marks[press_stage+1]=sampled;discarded[press_stage+1]=clock_discarded;}
         ++press_stage;release_key=true;
     }
     return keys.data();
@@ -73,7 +74,7 @@ const Uint8* scripted_keys(int*) {
 SDL_Window* scripted_focus(){return focus_window;}
 app::MenuInput scripted_menu(SDL_Window* w,const app::Controller&){focus_window=w;return {};}
 FrameInput scripted_input(SDL_Window*,const app::Controller&,const app::EnterKey&) {
-    if(sampled==0)times[0]=time_now();
+    if(sampled==0){times[0]=time_now();discarded[0]=clock_discarded;}
     ++sampled;FrameInput input;input.pause=!record_mode && (sampled==240 || sampled==280);return input;
 }
 class CheckedDriver : public app::FrameDriver {
@@ -89,13 +90,17 @@ public:
         if(record_mode && output.playback)throw std::runtime_error("Recording used independent audio");
         if(output.playback)for(auto sample:output.playback->values)
             if(sample)++audible[audio_speed==4 ? 2 : audio_speed==2 ? 1 : 0];
-        shadow->run_frame(input,shadow_routines);
-        if(output.writes!=shadow->take_psg_writes() || output.samples!=shadow->take_samples())
+        // Milestone 14: the frame's sound is taken at the frame observer, as
+        // the driver does (a run can end after the segment crossing the frame end).
+        std::vector<PsgWrite> writes;PsgSamples samples{};
+        shadow->run_frame(input,shadow_routines,{},{},[&]{writes=shadow->take_psg_writes();samples=shadow->take_samples();});
+        if(output.writes!=writes || output.samples!=samples)
             throw std::runtime_error("Frame PSG writes or samples differ from shadow");
         return output;
     }
 };
-int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,const SDL_Rect* rect,const void* data,int pitch) {
+int checked_upload(const Machine& machine,unsigned speed,double clock_lag,SDL_Texture* texture,const SDL_Rect* rect,const void* data,int pitch) {
+    clock_discarded=clock_lag;
     if(record_mode && speed!=1)throw std::runtime_error("Recording speed changed");
     if(!sent_f5 && sampled>=440 && speed==2)saw_before_f5=true;
     if(sent_f5 && speed==1)saw_f5_reset=true;
@@ -171,7 +176,7 @@ void reset_script(bool recording) {
 #define SDL_GetKeyboardFocus scripted_focus
 #define sample_input scripted_input
 #define sample_menu_input scripted_menu
-#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),t,r,p,pitch)
+#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),clock.discarded_seconds(),t,r,p,pitch)
 #define apply_canvas(d,w) ((void)(w),psmodern::app::apply_canvas(d,test_wide))
 #define upload_bands(d,w) checked_bands(d,w)
 #include "../src/app/main.cpp"
@@ -193,7 +198,10 @@ void reset_script(bool recording) {
 #include "../src/app/sdl_host.cpp"
 #undef SDL_QueueAudio
 #undef SDL_RenderPresent
-int main(int argc,char** argv){try{
+int main(int argc,char** argv){
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try{
     if(argc!=3)return 1;if(!*argv[1] || !std::filesystem::exists(argv[1]))return 77;
     image_dir=argv[2];std::filesystem::create_directories(image_dir);
     const auto temp=std::filesystem::temp_directory_path()/("psmodern-speed-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -211,7 +219,12 @@ int main(int argc,char** argv){try{
         test_wide=wide;reset_script(false);
         if(wide)fresh_shadow(); else shadow=std::make_unique<Machine>(rom);
         char* args[]{argv[0],argv[1]};if(fast_app_main(2,args))throw std::runtime_error("App session failed");
-        for(int i=0;i<3;++i){const auto seconds=times[i+1]-times[i];const auto expected=(marks[i+1]-marks[i])*app::frame_seconds/(1u<<i);if(seconds<expected*.70 || seconds>expected*1.40)throw std::runtime_error("Unexpected speed interval: "+std::to_string(seconds));std::cout<<"interval "<<i<<": "<<seconds<<" seconds, "<<marks[i+1]-marks[i]<<" frames\n";}
+        // The wall-clock speed check (review R3 M7): an interval in which the frame clock discarded time (the host
+        // fell more than the catch-up limit behind, as under outside load) says nothing about the pacing; it is
+        // reported and not judged. Every other interval must keep the speed within 30%.
+        for(int i=0;i<3;++i){const auto seconds=times[i+1]-times[i];const auto expected=(marks[i+1]-marks[i])*app::frame_seconds/(1u<<i);
+            if(discarded[i+1]>discarded[i]){std::cout<<"interval "<<i<<": not judged, the frame clock discarded "<<discarded[i+1]-discarded[i]<<" s (host load)\n";continue;}
+            if(seconds<expected*.70 || seconds>expected*1.40)throw std::runtime_error("Unexpected speed interval: "+std::to_string(seconds));std::cout<<"interval "<<i<<": "<<seconds<<" seconds, "<<marks[i+1]-marks[i]<<" frames\n";}
         if(!got_badge[0] || !got_badge[1] || !sent_f5 || !saw_before_f5 || !saw_f5_reset)throw std::runtime_error("Missing badge or F5 reset");
         if(!audible[0] || !audible[1] || !audible[2])throw std::runtime_error("Missing continuous music at one speed");
         if(!queued_audible[0] || !queued_audible[1] || !queued_audible[2] || !removed_audio)

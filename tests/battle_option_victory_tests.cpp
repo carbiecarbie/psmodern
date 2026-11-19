@@ -6,28 +6,53 @@
 #include "game/experience.h"
 #include "menu_probe.h"
 #include <algorithm>
+#include <optional>
 #include <iostream>
 using namespace psmodern;
 namespace {
 std::uint16_t word(const Machine& m,std::uint16_t a) {return m.peek(a)|(m.peek(a+1)<<8);}
 void put_word(Machine& m,std::uint16_t a,unsigned value) {m.memory().write(a,value);m.memory().write(a+1,value>>8);}
-void step_pair(Machine& fast,Machine& native,RoutineRegistry& all,RoutineRegistry& only,const char* label,unsigned* base_money=nullptr) {
+// The reference (milestone 14): the original on the oracle's native machine,
+// except that at an entry of an option hook (the three segments of `only`) the
+// engine runs that one segment on the reference's state; the program runs with
+// its full registry. At 100% the game is the original, so every program step
+// also runs under lockstep with an oracle (this replaced the per-call verifier).
+void step_reference(oracle::NativeMachine& reference,Machine& engine,RoutineRegistry& only) {
+    const auto pc=reference.cpu().pc.uint16_value;const auto mapping=reference.memory().mapping(pc);
+    if (!reference.cpu().resume && mapping.kind==Memory::Kind::rom && only.find({mapping.bank,pc})) {
+        reference.settle();
+        if (reference.pending_acceptance()==Console::Acceptance::none) {
+            static_cast<Console&>(engine)=static_cast<const Console&>(reference);
+            engine.step(only);
+            static_cast<Console&>(reference)=static_cast<const Console&>(engine);
+            return;
+        }
+    }
+    reference.step();
+}
+void step_pair(Machine& fast,oracle::NativeMachine& native,RoutineRegistry& all,RoutineRegistry& only,const char* label,unsigned* base_money,bool verify) {
+    std::optional<oracle::Lockstep> lockstep;
+    if (verify) lockstep.emplace(fast,label);
+    Machine engine=fast;
     for (unsigned steps=0;fast.cpu().pc.uint16_value!=0x0180;++steps) {
         probe::check(steps<30000000,std::string(label)+" did not return");
         auto pad=battle_effect_probe::press_both(fast);pad.one=false;
         fast.set_pad(0,pad);native.set_pad(0,pad);
         if (base_money && fast.cpu().pc.uint16_value==0x60bc && fast.memory().mapping(0x60bc).bank==1) *base_money=fast.cpu().hl.uint16_value;
-        fast.step(all);
-        while (native.cycles()<fast.cycles()) native.step(only);
+        if (lockstep) { lockstep->oracle().set_pad(0,pad); lockstep->step(fast,&all); }
+        else fast.step(all);
+        while (native.cycles()<fast.cycles() || native.cpu().resume) step_reference(native,engine,only);
         probe::check(native.cycles()==fast.cycles(),std::string(label)+" cycle boundary");
         if ((steps&255)==0) {
             probe::check(native.take_psg_writes()==fast.take_psg_writes(),std::string(label)+" PSG order");
             native.take_samples();fast.take_samples();
+            if (lockstep) { lockstep->oracle().take_psg_writes(); lockstep->oracle().take_samples(); }
         }
     }
     probe::check(native.take_psg_writes()==fast.take_psg_writes(),std::string(label)+" final PSG");
     native.take_samples();fast.take_samples();
-    std::string diff;for(const auto& d:native.differences(fast))diff+=" "+d.field;
+    std::string diff;for(const auto& d:oracle::differences(fast,native,oracle::Scope::whole))diff+=" "+d;
+    for(const auto& d:oracle::queue_differences(fast,native))diff+=" "+d;
     probe::check(diff.empty(),std::string(label)+" state:"+diff);
 }
 std::uint64_t calls(const RoutineRegistry& r,RoutineEntry e) {auto p=r.find(e);return p ? p->counters.cpp_calls+p->counters.fallback_calls : 0;}
@@ -39,12 +64,11 @@ void option_case(const probe::Rom& rom,const Machine& base,unsigned rate,unsigne
         auto* p=full.find(e);probe::check(p!=nullptr,"option hook missing");
         native.add(e,p->spec,p->bound,p->body);
     }
-    replay::CallVerifier verifier("battle-option-outcome",true);if (rate==100) full.verifier=&verifier;
     auto fast=map_probe::prepare_at(base,game::battle_setup_unit,{.return_address=0x0180,.iff1=true,.iff2=true});
     fast.memory().write(0xc2e6,1);
-    auto original=fast;
+    oracle::NativeMachine original(fast);
     unsigned base_money=0;
-    step_pair(fast,original,full,native,"battle setup",&base_money);
+    step_pair(fast,original,full,native,"battle setup",&base_money,rate==100);
     probe::check(calls(full,game::battle_money_store)==1 && calls(native,game::battle_money_store)==1,"money hook count");
     const unsigned money_reward=word(fast,0xc2dd),xp_reward=word(fast,0xc2d0);
     probe::check(money_reward && xp_reward && base_money,"fixture rewards are zero");
@@ -57,8 +81,8 @@ void option_case(const probe::Rom& rom,const Machine& base,unsigned rate,unsigne
     const unsigned starting_xp=cap_case ? 65535u-scaled_xp+1 : 0;
     const unsigned starting_money=cap_case ? 65535u-money_reward+1 : 0;
     put_word(outcome,0xc403,starting_xp);put_word(outcome,0xc4e0,starting_money);
-    original=outcome;fast=outcome;
-    step_pair(fast,original,full,native,"victory");
+    original=oracle::NativeMachine(outcome);fast=outcome;
+    step_pair(fast,original,full,native,"victory",nullptr,rate==100);
     probe::check(calls(full,game::experience_award_unit)==1 && calls(native,game::experience_award_unit)==1,"experience display count");
     probe::check(calls(full,game::experience_add_entry)==1 && calls(native,game::experience_add_entry)==1,"experience add count");
     probe::check(word(fast,0xc403)==std::min(65535u,starting_xp+scaled_xp),"experience result");
@@ -66,12 +90,13 @@ void option_case(const probe::Rom& rom,const Machine& base,unsigned rate,unsigne
     if (cap_case==2) probe::check(fast.peek(0xc405)==(rate==100 ? 1 : 2),"overflow level check follows option semantics");
     for (auto e:{game::battle_money_store,game::experience_award_unit,game::experience_add_entry}) {
         const auto& c=full.find(e)->counters;
-        probe::check(!c.forced_failed && c.forced_calls==(rate==100?0u:1u),"option force count");
+        probe::check(!c.fallback_calls && c.cpp_calls==1,"option hooks are rendered, never refused, and run once");
     }
     std::cout<<"rate="<<rate<<" cap="<<cap_case<<" xp="<<xp_reward<<" money="<<money_reward<<" passed\n"<<std::flush;
 }
 }
-int main(int argc,char** argv) { try {
+int main(int argc,char** argv) {
+    try {
     const auto inputs=map_probe::load(argc,argv);if(!inputs)return 77;
     const auto rec=replay::read(inputs->recording("first-battle"));
     const auto image=map_probe::start_image(*inputs,"first-battle",rec);if(!image)return 77;

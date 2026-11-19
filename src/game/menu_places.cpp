@@ -7,14 +7,14 @@
 // game/menu_kit.h.
 //
 // What the code does. Every place is a conversation: the game shows a line of
-// dialogue (the native routine 00:31CF, a bare call that ends a segment), asks
+// dialogue (the routine 00:31CF, a bare call that ends a segment), asks
 // a yes-or-no question (00:2D19), lets the player pick a party member
 // (00:3665) or an item (00:38D9, 00:34D5) and closes the window it opened
-// (00:36BB, 00:3464). Those calls all run natively. What the segments here
+// (00:36BB, 00:3464). Those calls end a segment and the callee has its own. What the segments here
 // render is the decision making between two such calls: which line comes next,
 // the arithmetic of prices, and the bookkeeping of the party's records, so a
 // segment is short and always ends on the next bare call (or on a jump to the
-// common exit 00:3464, which stays native).
+// common exit 00:3464, a segment of its own).
 //
 // The hospital (00:298D) asks whether the party wants healing, lets the player
 // pick a member, and says so when the member is dead, already healthy or the
@@ -43,6 +43,7 @@
 // looks the item's price up in a bank-3 table (a zero price means it cannot be
 // sold: dialogue BD7Eh), asks, removes the item (00:277C) and adds the money
 // (00:297A).
+#include "game/joins.h"
 #include "game/menu.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
@@ -57,14 +58,13 @@ using mk::Index;
 
 constexpr unsigned button_one=4;   // `bit 4,c`: the pressed-button byte's first-button bit (the ROM's constant)
 
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit call_if_at(std::uint16_t at, bool taken) { return mk::continues(at,taken ? mk::call_cycles : mk::untaken_call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
 // `ld hl,nn` at `at` and the bare call of the dialogue routine right after it.
-template<class Z> Exit say(Z& z, std::uint16_t at) { z.load_hl(at); return call_at(static_cast<std::uint16_t>(at+3)); }
+template<class Z> Exit say(Z& z, std::uint16_t at) { z.load_hl(at); return call_at(z,static_cast<std::uint16_t>(at+3)); }
 
 // ---- The hospital: 00:298D-2A6A --------------------------------------------------------------
-// The member's record (HL from the native alive check, copied to IY): bytes 1-2 are the
+// The member's record (HL from the alive check, copied to IY): bytes 1-2 are the
 // current points, bytes 6-7 their maxima; the price is the sum of what is missing.
 template<class Z> Exit hospital_after_alive(Z& z) {                // 00:29BC-29FB, after the jr nz at 29B1
     auto& r=z.r;
@@ -95,7 +95,7 @@ template<class Z> Exit hospital_choose(Z& z) {
     z.load_a_direct(0x2999);
     z.or_a(0x299C);
     z.load_hl(0x299D);
-    return call_if_at(0x29A0,!z.zero());
+    return z.final_call_if(0x29A0,mk::Condition::nz);
 }
 
 // ---- The church: 00:2A85-2B4F ----------------------------------------------------------------
@@ -118,13 +118,12 @@ template<class Z> Exit next_level_member(Z& z) {                    // 00:2B84-2
     auto& r=z.r;
     z.store_a_direct(0x2B84);
     z.test_bit_indexed(0x2B87,Index::iy,0);
-    if (z.zero()) return mk::returns(0x2B8B,mk::taken_conditional_return_cycles);
-    z.return_not_taken(0x2B8B);
+    if (auto exit=z.final_return_if(0x2B8B,mk::Condition::z)) return *exit;
     z.load_from_indexed(0x2B8C,Index::iy,r.a);
     z.compare_immediate(0x2B8F);
     if (!z.relative_if(0x2B91,z.carry())) {
         z.load_hl(0x2B93);
-        return jump_at(0x2B96);                                      // jp 31CF: the dialogue routine ends the report
+        return jump_at(z,0x2B96);                                      // jp 31CF: the dialogue routine ends the report
     }
     z.load_hl(0x2B99);
     z.store_to_hl(0x2B9C);                                           // bank 3 into slot 2
@@ -144,7 +143,7 @@ template<class Z> Exit next_level_member(Z& z) {                    // 00:2B84-2
     z.subtract_hl_with_carry(0x2BB5,z.de());
     z.store_hl_direct(0x2BB7);
     z.load_hl(0x2BBA);
-    return jump_at(0x2BBD);
+    return jump_at(z,0x2BBD);
 }
 // 00:2B58-2B84: one character of the four, up to the call of 00:2B84.
 template<class Z> Exit next_level_load(Z& z, std::uint16_t at, bool first_load_is_xor) {
@@ -152,7 +151,7 @@ template<class Z> Exit next_level_load(Z& z, std::uint16_t at, bool first_load_i
     z.load_de(static_cast<std::uint16_t>(at+4));
     if (first_load_is_xor) z.xor_a(static_cast<std::uint16_t>(at+7));
     else z.load_immediate(static_cast<std::uint16_t>(at+7),z.r.a);
-    return call_at(static_cast<std::uint16_t>(first_load_is_xor ? at+8 : at+9));
+    return call_at(z,static_cast<std::uint16_t>(first_load_is_xor ? at+8 : at+9));
 }
 
 // ---- The shops: 00:2BC0-2D16 -------------------------------------------------------------------
@@ -169,16 +168,16 @@ template<class Z> Exit shop_vehicle(Z& z) {
         z.push(0x2C6B,r.h,r.l);
         z.load_immediate(0x2C6C,r.a);
         z.store_a_direct(0x2C6E);
-        return call_at(0x2C71);
+        return call_at(z,0x2C71);
     }
     z.compare_immediate(0x2C4D);
     z.load_hl(0x2C4F);
     if (!z.relative_if(0x2C52,z.carry())) z.load_hl(0x2C54);
     z.increment(0x2C57,r.a);
     z.store_a_direct(0x2C58);
-    return call_at(0x2C5B);
+    return call_at(z,0x2C5B);
 }
-// 00:2CEA: the goodbye line, then the native close (00:3464).
+// 00:2CEA: the goodbye line, then the close (00:3464).
 template<class Z> Exit goodbye(Z& z) { return say(z,0x2CEA); }
 
 void register_all(RoutineRegistry& registry) {
@@ -201,9 +200,9 @@ void register_all(RoutineRegistry& registry) {
     });
     fixed(0x29A6,h,{F(0x29AE),F(0x2A52)},[](auto& z) -> Exit {
         z.test_bit(0x29A6,button_one,z.r.c);
-        if (z.jump_if(0x29A8,!z.zero())) return call_at(0x2A52);
+        if (z.jump_if(0x29A8,!z.zero())) return call_at(z,0x2A52);
         z.store_a_direct(0x29AB);
-        return call_at(0x29AE);
+        return call_at(z,0x29AE);
     });
     add(0x29B1,h,{F(0x29B6),F(0x29D2),F(0x29FB)},{.scratch_stack=2},[](auto& z) -> Exit {
         if (z.relative_if(0x29B1,!z.zero())) return hospital_after_alive(z);
@@ -212,24 +211,24 @@ void register_all(RoutineRegistry& registry) {
     fixed(0x29D5,h,{F(0x29DE),F(0x2A48)},[](auto& z) -> Exit {
         z.load_a_direct(0x29D5);
         z.or_a(0x29D8);
-        if (z.relative_if(0x29D9,!z.zero())) return call_at(0x2A48);
+        if (z.relative_if(0x29D9,!z.zero())) return call_at(z,0x2A48);
         return say(z,0x29DB);
     });
     add(0x2A04,h,{F(0x2A05,-2)},{.scratch_stack=2},[](auto& z) -> Exit {
         z.push(0x2A04,z.r.a,z.r.f);
-        return call_if_at(0x2A05,!z.zero());
+        return z.final_call_if(0x2A05,mk::Condition::nz);
     });
     add(0x2A08,h,{F(0x2A1A,2),F(0x2A48,2),F(0x2A5E,2)},{.inherited_stack=2},[](auto& z) -> Exit {
         auto& r=z.r;
         z.pop(0x2A08,r.a,r.f);
-        if (z.relative_if(0x2A09,!z.zero())) return call_at(0x2A48);
+        if (z.relative_if(0x2A09,!z.zero())) return call_at(z,0x2A48);
         z.load_pair_direct(0x2A0B,r.d,r.e);
         z.load_hl_direct(0x2A0F);
         z.or_a(0x2A12);
         z.subtract_hl_with_carry(0x2A13,z.de());
-        if (z.relative_if(0x2A15,z.carry())) return call_at(0x2A5E);
+        if (z.relative_if(0x2A15,z.carry())) return call_at(z,0x2A5E);
         z.store_hl_direct(0x2A17);
-        return call_at(0x2A1A);
+        return call_at(z,0x2A1A);
     });
     fixed(0x2A1D,h,{F(0x2A31)},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -244,18 +243,18 @@ void register_all(RoutineRegistry& registry) {
     fixed(0x2A37,h,{F(0x2A40),F(0x2A6A)},[](auto& z) -> Exit {
         z.load_a_direct(0x2A37);
         z.or_a(0x2A3A);
-        if (z.relative_if(0x2A3B,z.zero())) return jump_at(0x2A6A);
+        if (z.relative_if(0x2A3B,z.zero())) return jump_at(z,0x2A6A);
         return say(z,0x2A3D);
     });
     fixed(0x2A46,h,{F(0x2A48),F(0x2A52)},[](auto& z) -> Exit {
-        if (z.relative_if(0x2A46,!z.zero())) return call_at(0x2A52);
-        return call_at(0x2A48);
+        if (z.relative_if(0x2A46,!z.zero())) return call_at(z,0x2A52);
+        return call_at(z,0x2A48);
     });
     fixed(0x2A4B,h,{F(0x29A0),F(0x2A52)},[](auto& z) -> Exit {
         z.load_a_direct(0x2A4B);
         z.or_a(0x2A4E);
         if (z.jump_if(0x2A4F,!z.zero())) return hospital_choose(z);
-        return call_at(0x2A52);
+        return call_at(z,0x2A52);
     });
     fixed(0x2A55,h,{F(0x2A58)},[](auto& z) -> Exit { return say(z,0x2A55); });
     fixed(0x2A64,h,{F(0x2A67)},[](auto& z) -> Exit { return say(z,0x2A64); });
@@ -266,7 +265,7 @@ void register_all(RoutineRegistry& registry) {
         z.load_bc(0x2A6D);
         z.copy(0x2A70,z.r.a,z.r.b);
         z.decrement(0x2A71,z.r.a);
-        return call_at(0x2A72);
+        return call_at(z,0x2A72);
     });
     fixed(0x2A75,restore,{F(0x2A72),R(0x2A84)},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -283,9 +282,9 @@ void register_all(RoutineRegistry& registry) {
         if (z.decrement_jump(0x2A82)) {
             z.copy(0x2A70,r.a,r.b);
             z.decrement(0x2A71,r.a);
-            return call_at(0x2A72);
+            return call_at(z,0x2A72);
         }
-        return mk::returns(0x2A84,mk::return_cycles);
+        return z.final_return(0x2A84);
     });
 
     // ---- the church ----
@@ -303,8 +302,8 @@ void register_all(RoutineRegistry& registry) {
     fixed(0x2A98,c,{F(0x2AA2),F(0x2B37)},[](auto& z) -> Exit { return church_choose(z); });
     fixed(0x2AA8,c,{F(0x2AAD),F(0x2B43)},[](auto& z) -> Exit {
         z.test_bit(0x2AA8,button_one,z.r.c);
-        if (z.jump_if(0x2AAA,!z.zero())) return call_at(0x2B43);
-        return call_at(0x2AAD);
+        if (z.jump_if(0x2AAA,!z.zero())) return call_at(z,0x2B43);
+        return call_at(z,0x2AAD);
     });
     add(0x2AB0,c,{F(0x2ACB),F(0x2B37)},{.scratch_stack=2},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -330,7 +329,7 @@ void register_all(RoutineRegistry& registry) {
     });
     add(0x2AD4,c,{F(0x2AD5,-2)},{.scratch_stack=2},[](auto& z) -> Exit {
         z.push(0x2AD4,z.r.a,z.r.f);
-        return call_if_at(0x2AD5,!z.zero());
+        return z.final_call_if(0x2AD5,mk::Condition::nz);
     });
     add(0x2AD8,c,{F(0x2ADE,2),F(0x2B18,2)},{.inherited_stack=2},[](auto& z) -> Exit {
         z.pop(0x2AD8,z.r.a,z.r.f);
@@ -345,7 +344,7 @@ void register_all(RoutineRegistry& registry) {
         z.subtract_hl_with_carry(0x2AE9,z.de());
         if (z.jump_if(0x2AEB,z.carry())) return say(z,0x2B26);
         z.store_hl_direct(0x2AEE);
-        return call_at(0x2AF1);
+        return call_at(z,0x2AF1);
     });
     fixed(0x2AF4,c,{F(0x2B07)},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -359,12 +358,12 @@ void register_all(RoutineRegistry& registry) {
     fixed(0x2B0A,c,{F(0x2B0F)},[](auto& z) -> Exit {
         z.load_immediate(0x2B0A,z.r.a);
         z.store_a_direct(0x2B0C);                                    // sound request C5h
-        return call_at(0x2B0F);
+        return call_at(z,0x2B0F);
     });
     fixed(0x2B15,c,{F(0x2B18)},[](auto& z) -> Exit { return say(z,0x2B15); });
     fixed(0x2B1E,c,{F(0x2B20),F(0x2B43)},[](auto& z) -> Exit {
-        if (z.relative_if(0x2B1E,!z.zero())) return call_at(0x2B43);
-        return call_at(0x2B20);
+        if (z.relative_if(0x2B1E,!z.zero())) return call_at(z,0x2B43);
+        return call_at(z,0x2B20);
     });
     fixed(0x2B2F,c,{F(0x2B18)},[](auto& z) -> Exit {
         z.relative(0x2B2F);
@@ -374,7 +373,7 @@ void register_all(RoutineRegistry& registry) {
         z.load_a_direct(0x2B3A);
         z.or_a(0x2B3D);
         if (z.relative_if(0x2B3E,!z.zero())) return say(z,0x2B15);
-        return call_at(0x2B40);
+        return call_at(z,0x2B40);
     });
     fixed(0x2B46,c,{F(0x2B49)},[](auto& z) -> Exit { return say(z,0x2B46); });
     fixed(0x2B4C,c,{F(0x2B4F)},[](auto& z) -> Exit { return say(z,0x2B4C); });
@@ -400,7 +399,7 @@ void register_all(RoutineRegistry& registry) {
     add(0x2BC9,s,{F(0x2BCE),F(0x2BD5,-2)},{.scratch_stack=2},[](auto& z) -> Exit {
         if (z.relative_if(0x2BC9,z.zero())) {
             z.push(0x2BD4,z.r.b,z.r.c);
-            return call_at(0x2BD5);
+            return call_at(z,0x2BD5);
         }
         return say(z,0x2BCB);
     });
@@ -410,7 +409,7 @@ void register_all(RoutineRegistry& registry) {
     });
     add(0x2BE2,s,{F(0x2BE3,-2)},{.scratch_stack=2},[](auto& z) -> Exit {
         z.push(0x2BE2,z.r.b,z.r.c);
-        return call_at(0x2BE3);
+        return call_at(z,0x2BE3);
     });
     add(0x2BE6,s,{F(0x2C0C,2),F(0x2C30,2),F(0x2C5B,2),F(0x2C71)},{.inherited_stack=2},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -422,7 +421,7 @@ void register_all(RoutineRegistry& registry) {
         if (z.relative_if(0x2BF0,!z.carry())) {                      // the item list is full
             z.load_hl(0x2C3C);
             z.relative(0x2C3F);
-            return call_at(0x2C30);
+            return call_at(z,0x2C30);
         }
         z.load_from_hl(0x2BF2,r.a);
         z.store_a_direct(0x2BF3);
@@ -436,25 +435,25 @@ void register_all(RoutineRegistry& registry) {
         if (z.relative_if(0x2C00,z.carry())) {                       // not enough money
             z.load_hl(0x2C41);
             z.relative(0x2C44);
-            return call_at(0x2C30);
+            return call_at(z,0x2C30);
         }
         z.load_a_direct(0x2C02);
         z.compare_immediate(0x2C05);
         if (z.relative_if(0x2C07,!z.carry())) return shop_vehicle(z);
         z.store_hl_direct(0x2C09);
-        return call_at(0x2C0C);
+        return call_at(z,0x2C0C);
     });
     fixed(0x2C0F,s,{F(0x2C1A),F(0x2C1F)},[](auto& z) -> Exit {
         z.load_a_direct(0x2C0F);
         z.compare_immediate(0x2C12);
-        if (z.relative_if(0x2C14,z.carry())) return call_at(0x2C1F);
+        if (z.relative_if(0x2C14,z.carry())) return call_at(z,0x2C1F);
         z.compare_immediate(0x2C16);
-        if (z.relative_if(0x2C18,!z.carry())) return call_at(0x2C1F);
-        return call_at(0x2C1A);
+        if (z.relative_if(0x2C18,!z.carry())) return call_at(z,0x2C1F);
+        return call_at(z,0x2C1A);
     });
     fixed(0x2C1D,s,{F(0x2C1F),F(0x2C25)},[](auto& z) -> Exit {
         if (z.relative_if(0x2C1D,z.zero())) return say(z,0x2C22);
-        return call_at(0x2C1F);
+        return call_at(z,0x2C1F);
     });
     fixed(0x2C22,s,{F(0x2C25)},[](auto& z) -> Exit { return say(z,0x2C22); });
     fixed(0x2C2B,s,{F(0x2BDF),F(0x2C30)},[](auto& z) -> Exit {
@@ -465,7 +464,7 @@ void register_all(RoutineRegistry& registry) {
         z.pop(0x2C74,z.r.h,z.r.l);
         if (z.relative_if(0x2C75,z.zero())) return shop_vehicle(z);
         z.store_hl_direct(0x2C77);
-        return call_at(0x2C7A);
+        return call_at(z,0x2C7A);
     });
     fixed(0x2C80,s,{F(0x2C83)},[](auto& z) -> Exit { return say(z,0x2C80); });
 
@@ -476,7 +475,7 @@ void register_all(RoutineRegistry& registry) {
     add(0x2CA1,b,{F(0x2CA3,-4)},{.scratch_stack=4},[](auto& z) -> Exit {
         z.push(0x2CA1,z.r.a,z.r.f);
         z.push(0x2CA2,z.r.b,z.r.c);
-        return call_at(0x2CA3);
+        return call_at(z,0x2CA3);
     });
     add(0x2CA6,b,{F(0x2BD5,2),F(0x2CB4,4),F(0x2CED,4)},{.inherited_stack=4},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -487,7 +486,7 @@ void register_all(RoutineRegistry& registry) {
         z.or_a(0x2CAD);
         if (z.jump_if(0x2CAE,z.zero())) {                            // bought: 00:2BD4
             z.push(0x2BD4,r.b,r.c);
-            return call_at(0x2BD5);
+            return call_at(z,0x2BD5);
         }
         return say(z,0x2CB1);                                        // sold: the sell routine follows
     });
@@ -498,7 +497,7 @@ void register_all(RoutineRegistry& registry) {
     add(0x2CBA,sell,{F(0x2CBD,-2)},{.scratch_stack=2},[](auto& z) -> Exit {
         z.test_bit(0x2CBA,button_one,z.r.c);
         z.push(0x2CBC,z.r.a,z.r.f);
-        return call_at(0x2CBD);
+        return call_at(z,0x2CBD);
     });
     add(0x2CC0,sell,{F(0x2CE4,2),F(0x2CED,2),F(0x2CF6,2)},{.slot2_mapper=true,.inherited_stack=2},[](auto& z) -> Exit {
         auto& r=z.r;
@@ -525,17 +524,17 @@ void register_all(RoutineRegistry& registry) {
         return say(z,0x2CE1);                                        // price zero: cannot be sold
     });
     fixed(0x2CFC,sell,{F(0x2CB4),F(0x2D01)},[](auto& z) -> Exit {
-        if (z.relative_if(0x2CFC,z.zero())) return call_at(0x2D01);
+        if (z.relative_if(0x2CFC,z.zero())) return call_at(z,0x2D01);
         z.jump(0x2CFE);
         return say(z,0x2CB1);
     });
     fixed(0x2D04,sell,{F(0x2D07)},[](auto& z) -> Exit {
         z.load_hl_direct(0x2D04);
-        return call_at(0x2D07);
+        return call_at(z,0x2D07);
     });
     fixed(0x2D0A,sell,{F(0x2D0D)},[](auto& z) -> Exit {
         z.load_hl(0x2D0A);
-        return call_at(0x2D0D);
+        return call_at(z,0x2D0D);
     });
     fixed(0x2D13,sell,{F(0x2CB4),F(0x2CED)},[](auto& z) -> Exit {
         if (z.jump_if(0x2D13,z.zero())) return say(z,0x2CB1);
@@ -547,5 +546,79 @@ void register_all(RoutineRegistry& registry) {
 
 void register_menu_places(RoutineRegistry& registry) {
     register_all(registry);
+}
+
+// ---- The joining segments between the segments above (milestone 14) -----------------------------
+// The places: the hospital, the church, the shops and selling.
+// Each is one call or jump that follows the final of a segment above (or the first instruction of a
+// unit): the next window routine or dialogue step, which has a segment of its own. Registered with
+// the menu continuations (register_menu_remainder).
+void register_menu_places_joins(RoutineRegistry& registry) {
+    auto call=[&](std::uint16_t at,RoutineEntry unit) {
+        auto spec=mk::segment(unit,{mk::core_final_at(at)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,{0,at},std::move(spec),[](const Machine&) { return mk::call_cycles; },
+                        [at](auto& z) -> Exit { return z.final_call(at); });
+    };
+    auto jump=[&](std::uint16_t at,RoutineEntry unit) {
+        auto spec=mk::segment(unit,{mk::core_final_at(at)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,{0,at},std::move(spec),[](const Machine&) { return mk::jump_cycles; },
+                        [at](auto& z) -> Exit { return z.final_jump(at); });
+    };
+    call(0x2993,menu::hospital_unit);   // then: the yes-or-no question
+    call(0x29A3,menu::hospital_unit);   // then: member choice
+    jump(0x29B9,menu::hospital_unit);   // then: the routine at 00:2A48
+    call(0x29FE,menu::hospital_unit);   // then: money window open
+    call(0x2A01,menu::hospital_unit);   // then: the yes-or-no question
+    call(0x2A34,menu::hospital_unit);   // then: money window close
+    call(0x2A43,menu::hospital_unit);   // then: the yes-or-no question
+    call(0x2A48,menu::hospital_unit);   // then: member choice close
+    jump(0x2A5B,menu::hospital_unit);   // then: dialogue close
+    call(0x2A61,menu::hospital_unit);   // then: member choice close
+    jump(0x2A6A,menu::hospital_unit);   // then: dialogue close
+    call(0x2A91,menu::church_unit);   // then: the yes-or-no question
+    call(0x2AA5,menu::church_unit);   // then: member choice
+    call(0x2ACE,menu::church_unit);   // then: money window open
+    call(0x2AD1,menu::church_unit);   // then: the yes-or-no question
+    call(0x2B12,menu::church_unit);   // then: money window close
+    call(0x2B1B,menu::church_unit);   // then: the yes-or-no question
+    jump(0x2B23,menu::church_unit);   // then: the routine at 00:2A98
+    call(0x2B2C,menu::church_unit);   // then: money window close
+    call(0x2B52,menu::church_unit);   // then: next level report
+    jump(0x2B55,menu::church_unit);   // then: dialogue close
+    call(0x2BC6,menu::shop_unit);   // then: the yes-or-no question
+    jump(0x2BD1,menu::shop_unit);   // then: dialogue close
+    call(0x2BD8,menu::shop_unit);   // then: money window open
+    call(0x2C28,menu::shop_unit);   // then: the yes-or-no question
+    call(0x2C33,menu::shop_unit);   // then: money window close
+    call(0x2C36,menu::shop_unit);   // then: shop list close
+    jump(0x2C39,menu::shop_unit);   // then: dialogue close
+    call(0x2C9E,menu::buy_sell_shop_unit);   // then: buy or sell
+    call(0x2CB7,menu::sell_unit);   // then: item choice
+    jump(0x2CE7,menu::sell_unit);   // then: sell
+    jump(0x2CF0,menu::sell_unit);   // then: dialogue close
+    call(0x2CF9,menu::sell_unit);   // then: the yes-or-no question
+    call(0x2D10,menu::sell_unit);   // then: the yes-or-no question
+}
+
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_menu_places_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x29E1},{0,0x298D},{kit::core_final_at(0x29E1)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x29E1); });
+    kit::add_joining(registry,{0,0x2B43},{0,0x2A85},{kit::core_final_at(0x2B43)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2B43); });
+    kit::add_joining(registry,{0,0x2C5E},{0,0x2BC0},{kit::core_final_at(0x2C5E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2C5E); });
+    kit::add_joining(registry,{0,0x2C61},{0,0x2BC0},{kit::core_final_at(0x2C61)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2C61); });
+    kit::add_joining(registry,{0,0x2C64},{0,0x2BC0},{kit::core_final_at(0x2C64)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2C64); });
+    kit::add_joining(registry,{0,0x2C7D},{0,0x2BC0},{kit::core_final_at(0x2C7D)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2C7D); });
+    kit::add_joining(registry,{0,0x2C86},{0,0x2BC0},{kit::core_final_at(0x2C86)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2C86); });
+    kit::add_joining(registry,{0,0x2C89},{0,0x2BC0},{kit::core_final_at(0x2C89)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2C89); });
+    kit::add_joining(registry,{0,0x2C8C},{0,0x2BC0},{kit::core_final_at(0x2C8C)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2C8C); });
+    kit::add_joining(registry,{0,0x2C95},{0,0x2C8F},{kit::core_final_at(0x2C95)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2C95); });
 }
 }

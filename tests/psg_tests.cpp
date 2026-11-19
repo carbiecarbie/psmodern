@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "hw/psg.h"
 #include "machine/machine.h"
+#include "oracle/native_machine.h"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
 using namespace psmodern;
+// The authored programs run on the oracle's native machine: since milestone 14 it is
+// the only machine that steps the pinned core with no registered routine (the engine
+// does so only during the transition). Tests of host hooks stay on the engine.
+using Native = oracle::NativeMachine;
 namespace {
 void check(bool value,const char* message) { if (!value) throw std::runtime_error(message); }
 void period(Psg& p,unsigned channel,unsigned value) {
@@ -120,8 +125,8 @@ std::shared_ptr<const Memory::Rom> program(std::initializer_list<std::uint8_t> b
 }
 void timing_and_replay() {
     auto rom=program({0x3e,0x90,0xd3,0x7f,0x3e,0x9f,0xd3,0x40,0xc3,0,0});
-    Machine m(rom); m.step(); // snapshot in a partial divide-by-16 interval
-    auto copy=m; Machine assigned(program({0})); assigned=m;
+    Native m(rom); m.step(); // snapshot in a partial divide-by-16 interval
+    auto copy=m; Native assigned(program({0})); assigned=m;
     auto replay=m.psg();
     while (m.cycles()<2000) { m.step(); copy.step(); assigned.step(); }
     check(m.equivalent(copy) && m.equivalent(assigned),"snapshot includes chip, writes and samples");
@@ -135,7 +140,7 @@ void timing_and_replay() {
     check(writes==copy.take_psg_writes() && writes==assigned.take_psg_writes() && writes==replay.take_writes(),"identical write logs");
     check(m.psg()==replay,"replayed chip has identical complete state");
     check(m.equivalent(copy) && m.equivalent(assigned),"matching drains restore machine equality");
-    Machine stepped(program({0})), advanced(program({0}));
+    Native stepped(program({0})), advanced(program({0}));
     for (auto* machine:{&stepped,&advanced}) {
         machine->write_port(0x40,0x83,0); machine->write_port(0x7e,0,0); machine->write_port(0x7f,0x90,0);
     }
@@ -178,7 +183,7 @@ void timing_and_replay() {
     check(sounding==sounding_copy && sounding==sounding_replay,"active replay has identical complete PSG state");
 }
 void bound() {
-    Machine m(program({0}));
+    Native m(program({0}));
     for (std::size_t i=0;i<Psg::max_writes;++i) m.write_port(0x40,0x9f,0);
     auto copy=m; bool full=false;
     try { m.write_port(0x7f,0x90,0); } catch (const std::overflow_error&) { full=true; }
@@ -205,7 +210,7 @@ void bound() {
     check(samples.take_samples().values.size()==Psg::max_samples,"every accepted sample retained");
     samples.sync(samples.cycle()+16);
     check(samples.take_samples().values.size()==1,"sample drain restores capacity");
-    Machine bounded(program({0})); auto initial=bounded; full=false;
+    Native bounded(program({0})); auto initial=bounded; full=false;
     try { bounded.advance((Psg::max_samples+1)*Psg::sample_cycles); } catch (const std::overflow_error&) { full=true; }
     check(full && bounded.equivalent(initial),"sample overflow preflight precedes all machine devices");
     for (int frame=0;frame<20;++frame) {
@@ -215,6 +220,8 @@ void bound() {
 }
 }
 int main() {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try { startup(); protocol(); tone(); noise(); attenuation(); timing_and_replay(); bound();
         std::cout<<"PSG: 7 test groups passed.\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }

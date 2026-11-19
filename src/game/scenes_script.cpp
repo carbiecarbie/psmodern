@@ -13,11 +13,11 @@
 // (00:3D47), the graphics and layout decoders, the text renderers (00:337D for
 // the portrait conversations) and the portrait transition. Every call into
 // them is where a segment ends: the segment renders the loads and stores that
-// set up the call and the core runs the call itself. The instruction after a
-// call is the next entry. A few segments instead end on a load the core runs
-// (the count of a block copy, so the shared block transfer starts at the
-// copy), on the `di` or `ei` around a video transfer (their timing belongs to
-// the core), or on a jump.
+// set up the call and the call is the segment's last instruction. The
+// instruction after a call is the next entry (a one-instruction segment when
+// the original goes on with another call or a jump). A few segments instead end
+// on a load (the count of a block copy, so the shared block transfer starts at
+// the copy), on the `di` or `ei` around a video transfer, or on a jump.
 //
 // Where a setup selects a ROM bank (a store to FFFF), the segment is declared
 // with the slot-2 mapper permission. No picture, text, palette or script byte
@@ -28,6 +28,7 @@
 // state, C250 the palette, C29E the interaction picture, C2E6 the enemy group,
 // C2F5 the credits latch, C309 the location, C800 and C900 the first object
 // slot and its sprite.
+#include "game/joins.h"
 #include "game/scenes.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
@@ -38,38 +39,36 @@ namespace {
 namespace mk=menu_kit;
 using mk::Exit;
 
-// The ways a segment ends. Each names the original's final instruction and
-// charges its cycles; the core runs that instruction.
-constexpr unsigned load_pair_cycles=10;     // `ld rr,nn`
-constexpr unsigned relative_cycles=12;      // `jr e`
-constexpr unsigned interrupt_cycles=4;      // `di` / `ei`
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }
-Exit relative_at(std::uint16_t at) { return mk::continues(at,relative_cycles); }
-Exit load_pair_at(std::uint16_t at) { return mk::continues(at,load_pair_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit taken_return_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit relative_at(Z& z, std::uint16_t at) { return z.final_relative(at); }
+template<class Z> Exit load_pair_at(Z& z, std::uint16_t at) {             // loads the count of the copy that follows
+    z.load_bc(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+3));
+}
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
 std::uint16_t after(std::uint16_t at, unsigned length) { return static_cast<std::uint16_t>(at+length); }
 
 // ---- Shared shapes ----------------------------------------------------------------------------
-// `ld a,n` at `at`, then a call (a frame count, a picture or portrait number).
+// A load of the accumulator at `at`, then a call (a frame count, a picture or portrait number).
 template<class Z> Exit number_then_call(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
-    return call_at(after(at,2));
+    return call_at(z,after(at,2));
 }
-// `ld a,n; ld (nn),a` at `at`, then a call: a sound request (C004), an
+// A load and a store of the accumulator at `at`, then a call: a sound request (C004), an
 // interaction picture (C29E) or an enemy group (C2E6).
 template<class Z> Exit store_then_call(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
     z.store_a_direct(after(at,2));
-    return call_at(after(at,5));
+    return call_at(z,after(at,5));
 }
-// `ld hl,nn` at `at`, then a call: a dialogue or a text of a conversation.
+// A load of the HL pair at `at`, then a call: a dialogue or a text of a conversation.
 template<class Z> Exit text_then_call(Z& z, std::uint16_t at) {
     z.load_hl(at);
-    return call_at(after(at,3));
+    return call_at(z,after(at,3));
 }
-// `ld hl,FFFF; ld (hl),n` at `at`: the bank of the data that follows is
+// A store to the bank register (FFFF) at `at`: the bank of the data that follows is
 // mapped into slot 2.
 template<class Z> void select_bank(Z& z, std::uint16_t at) {
     z.load_hl(at);
@@ -81,13 +80,13 @@ template<class Z> Exit conversation_start(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
     z.store_a_direct(after(at,2));                                   // C004
     z.load_immediate(after(at,5),z.r.a);
-    return call_at(after(at,7));
+    return call_at(z,after(at,7));
 }
 // A conversation ends with its sound request and returns.
 template<class Z> Exit conversation_end(Z& z, std::uint16_t at) {
     z.load_immediate(at,z.r.a);
     z.store_a_direct(after(at,2));                                   // C004
-    return return_at(after(at,5));
+    return return_at(z,after(at,5));
 }
 // Bank, palette copy and graphics: the bank is selected, a palette is copied
 // to its buffer by a block copy (`ldir`), and the graphics source and video
@@ -106,19 +105,20 @@ template<class Z> Exit bank_and_graphics(Z& z, std::uint16_t at) {
     select_bank(z,at);
     z.load_hl(after(at,5));
     z.load_de(after(at,8));
-    return call_at(after(at,11));
+    return call_at(z,after(at,11));
 }
 // The source and destination of the decoder call, the bank already selected.
 template<class Z> Exit graphics(Z& z, std::uint16_t at) {
     z.load_hl(at);
     z.load_de(after(at,3));
-    return call_at(after(at,6));
+    return call_at(z,after(at,6));
 }
 
 // ---- Entry facades and interrupt switches -----------------------------------------------------
-// The CALL at 00:074D (title initialization) and at 01:454E (the finale's
-// first fade) runs on the core; the following segments own the bodies.
-template<class Z> Exit facade(Z&, std::uint16_t at) { return call_at(at); }
+// The call at 00:074D (title initialization) and at 01:454E (the finale's
+// first fade) is a one-instruction segment; the following segments own the
+// bodies.
+template<class Z> Exit facade(Z& z, std::uint16_t at) { return call_at(z,at); }
 
 // ---- The opening: 01:42AC-43A9 ----------------------------------------------------------------
 // 01:42AC: the opening's sound request, then the fade out.
@@ -126,25 +126,25 @@ template<class Z> Exit opening_sound(Z& z) { return store_then_call(z,0x42AC); }
 // 01:42B4: the opening palette and graphics.
 template<class Z> Exit opening_graphics(Z& z) {
     palette_and_graphics(z,0x42B4);
-    return call_at(0x42CA);
+    return call_at(z,0x42CA);
 }
 // 01:42CD: the opening layout for the layout decoder (01:6B62).
 template<class Z> Exit opening_layout(Z& z) {
     select_bank(z,0x42CD);
     z.load_hl(0x42D2);
-    return call_at(0x42D5);
+    return call_at(z,0x42D5);
 }
 // 01:42D8: the screen copy at D000 is duplicated further down by two block
-// copies (01:42E1, 01:42E9). The core runs the count loads that end these
-// segments, so each copy starts at its own entry.
+// copies (01:42E1, 01:42E9). The count loads end these segments, so
+// each copy starts at its own entry.
 template<class Z> Exit opening_screen_copy(Z& z) {
     z.load_hl(0x42D8);                                               // the source
     z.load_de(0x42DB);                                               // the destination
-    return load_pair_at(0x42DE);                                     // the count
+    return load_pair_at(z,0x42DE);                                     // the count
 }
 template<class Z> Exit opening_screen_second_copy(Z& z) {
     z.load_hl(0x42E3);
-    return load_pair_at(0x42E6);
+    return load_pair_at(z,0x42E6);
 }
 // 01:42EB: the scroll starts at its first values; the screen copy's source,
 // destination and length are loaded for the video transfer, which runs with
@@ -157,13 +157,13 @@ template<class Z> Exit opening_video_transfer(Z& z) {
     z.load_hl(0x42F4);
     z.load_de(0x42F7);
     z.load_bc(0x42FA);
-    return mk::continues(0x42FD,interrupt_cycles);
+    return z.final_disable_interrupts(0x42FD);
 }
-// 01:4304: after the protected load that follows the `ei` (01:4302, kept on the
-// core), its sound request is stored and the picture fades in.
+// 01:4304: after the protected load that follows the `ei` (01:4302, a segment of
+// its own), its sound request is stored and the picture fades in.
 template<class Z> Exit opening_fade_in(Z& z) {
     z.store_a_direct(0x4304);                                        // C004
-    return call_at(0x4307);
+    return call_at(z,0x4307);
 }
 // 01:4314: the top of the scroll loop: the frame wait.
 template<class Z> Exit opening_frame(Z& z) { return number_then_call(z,0x4314); }
@@ -179,7 +179,7 @@ template<class Z> Exit opening_scroll_start(Z& z) {
 template<class Z> Exit opening_buttons(Z& z) {
     z.load_a_direct(0x4319);                                         // the pressed buttons
     z.and_immediate(0x431C);
-    return mk::relative_if_exit(0x431E,!z.zero());
+    return z.final_relative_if(0x431E,mk::Condition::nz);
 }
 // 01:4323: after one scroll step (01:43AA). The scroll goes on until both
 // C307 and C304 reach their final values; then a wait for a button.
@@ -193,14 +193,14 @@ template<class Z> Exit opening_scroll_done(Z& z) {
         again=z.relative_if(0x432F,!z.zero());
     }
     if (again) return opening_frame(z);
-    return call_at(0x4331);
+    return call_at(z,0x4331);
 }
 // 01:4334: the scroll stops (C264 and C307 cleared) and the picture fades out.
 template<class Z> Exit opening_scroll_stop(Z& z) {
     z.xor_a(0x4334);
     z.store_a_direct(0x4335);                                        // C264
     z.store_a_direct(0x4338);                                        // C307
-    return call_at(0x433B);
+    return call_at(z,0x433B);
 }
 // 01:433E: the second picture of the opening (00:3D47).
 template<class Z> Exit opening_picture(Z& z) { return store_then_call(z,0x433E); }
@@ -220,7 +220,7 @@ template<class Z> Exit opening_rows(Z& z) {
     z.load_hl(0x4371);
     z.load_de(0x4374);
     z.load_bc(0x4377);
-    return call_at(0x437A);
+    return call_at(z,0x437A);
 }
 
 // ---- The opening's scroll step: 01:43AA-43CE --------------------------------------------------
@@ -244,14 +244,12 @@ template<class Z> Exit opening_scroll_step(Z& z) {
     z.subtract_register(0x43BF,r.d);
     z.store_a_direct(0x43C0);
     z.compare_immediate(0x43C3);
-    if (!z.zero()) return taken_return_at(0x43C5);
-    z.return_not_taken(0x43C5);
+    if (auto exit=z.final_return_if(0x43C5,mk::Condition::nz)) return *exit;
     z.copy(0x43C6,r.a,r.d);
     z.or_a(0x43C7);
-    if (z.zero()) return taken_return_at(0x43C8);
-    z.return_not_taken(0x43C8);
+    if (auto exit=z.final_return_if(0x43C8,mk::Condition::z)) return *exit;
     z.load_hl(0x43C9);
-    return jump_at(0x43CC);
+    return jump_at(z,0x43CC);
 }
 
 // ---- The conversations: 01:43CF-4496 ----------------------------------------------------------
@@ -260,7 +258,7 @@ template<class Z> Exit opening_scroll_step(Z& z) {
 template<class Z> Exit conversation_fade(Z& z) {
     z.load_immediate(0x4459,z.r.a);
     z.store_a_direct(0x445B);                                        // C004
-    return jump_at(0x445E);
+    return jump_at(z,0x445E);
 }
 // 01:4464: the conversation at 01:4461 opens with the portrait of the first
 // member whose record says alive (bit 0): the first member's, else the third
@@ -280,7 +278,7 @@ template<class Z> Exit speaker_portrait(Z& z) {
         chosen=z.relative_if(0x4479,!z.zero());
         if (!chosen) z.load_immediate(0x447B,r.a);
     }
-    return call_at(0x447D);                                          // 01:46D1
+    return call_at(z,0x447D);                                          // 01:46D1
 }
 
 // ---- The boss scene: 01:4497-4516 -------------------------------------------------------------
@@ -288,13 +286,13 @@ template<class Z> Exit speaker_portrait(Z& z) {
 template<class Z> Exit boss_location(Z& z) {
     z.load_a_direct(0x4497);                                         // C309
     z.compare_immediate(0x449A);
-    return mk::relative_if_exit(0x449C,!z.zero());
+    return z.final_relative_if(0x449C,mk::Condition::nz);
 }
 // 01:44A1: after the transition, that location's transfer record goes to the
 // map transfer (the jump into 01:4509).
 template<class Z> Exit boss_skip(Z& z) {
     z.load_hl(0x44A1);
-    return jump_at(0x44A4);
+    return jump_at(z,0x44A4);
 }
 // 01:44C8: the boss picture (00:3D47).
 template<class Z> Exit boss_picture(Z& z) { return store_then_call(z,0x44C8); }
@@ -309,7 +307,7 @@ template<class Z> Exit boss_flash(Z& z) {
         z.store_to_hl(0x44DA);
         z.increment_hl(0x44DC);
     } while (z.decrement_jump(0x44DD));
-    return call_at(0x44DF);
+    return call_at(z,0x44DF);
 }
 // 01:44E5: the boss palette is copied from its bank and its enemy group is
 // stored before the encounter setup.
@@ -325,15 +323,14 @@ template<class Z> Exit boss_encounter(Z& z) {
 template<class Z> Exit boss_transfer(Z& z) {
     z.load_immediate(0x4509,z.r.a);
     z.store_a_direct(0x450B);                                        // the game mode
-    return jump_at(0x450E);
+    return jump_at(z,0x450E);
 }
 // 01:4500: after the battle. A defeat (game mode 2) returns; a victory moves
 // the party by the transfer record that follows the routine.
 template<class Z> Exit boss_after_battle(Z& z) {
     z.load_a_direct(0x4500);                                         // the game mode
     z.compare_immediate(0x4503);
-    if (z.zero()) return taken_return_at(0x4505);
-    z.return_not_taken(0x4505);
+    if (auto exit=z.final_return_if(0x4505,mk::Condition::z)) return *exit;
     z.load_hl(0x4506);
     return boss_transfer(z);
 }
@@ -342,7 +339,7 @@ template<class Z> Exit transition_picture(Z& z) { return store_then_call(z,0x451
 // 01:4522: its palette and graphics.
 template<class Z> Exit transition_graphics(Z& z) {
     palette_and_graphics(z,0x4522);
-    return call_at(0x4538);
+    return call_at(z,0x4538);
 }
 // 01:453B: the frame wait.
 template<class Z> Exit transition_frame(Z& z) { return number_then_call(z,0x453B); }
@@ -363,29 +360,30 @@ template<class Z> Exit finale_picture(Z& z) {
 template<class Z> Exit finale_frame(Z& z) { return number_then_call(z,0x4563); }
 template<class Z> Exit finale_pause(Z& z) {
     z.load_immediate(0x456B,z.r.b);
-    return call_at(0x456D);
+    return call_at(z,0x456D);
 }
 // 01:45DD: after the conversation, the credits picture's palette and graphics.
 template<class Z> Exit finale_graphics(Z& z) {
     palette_and_graphics(z,0x45DD);
-    return call_at(0x45F3);
+    return call_at(z,0x45F3);
 }
 // 01:45F6: the screen copy at D000 is cleared (the seed store 01:4604 and the
-// block copy 01:4606 run on their own). The core runs the source load.
+// block copy 01:4606 run on their own). The source load ends the segment.
 template<class Z> Exit finale_clear_bank(Z& z) {
     select_bank(z,0x45F6);
-    return load_pair_at(0x45FB);                                     // D000
+    z.load_hl(0x45FB);                                                 // D000
+    return mk::fall_through(0x45FB,0x45FE);
 }
 template<class Z> Exit finale_clear_destination(Z& z) {
     z.load_de(0x45FE);
-    return load_pair_at(0x4601);                                     // the count
+    return load_pair_at(z,0x4601);                                     // the count
 }
 // 01:4608: the credits layout: source, destination and size for its decoder.
 template<class Z> Exit finale_layout(Z& z) {
     z.load_hl(0x4608);
     z.load_de(0x460B);
     z.load_bc(0x460E);
-    return call_at(0x4611);
+    return call_at(z,0x4611);
 }
 // 01:4614: the frame wait.
 template<class Z> Exit finale_frame_two(Z& z) { return number_then_call(z,0x4614); }
@@ -396,7 +394,7 @@ template<class Z> Exit finale_dungeon(Z& z) {
     z.store_hl_direct(0x4622);                                       // the dungeon position
     z.xor_a(0x4625);
     z.store_a_direct(0x4626);                                        // the direction
-    return call_at(0x4629);
+    return call_at(z,0x4629);
 }
 // 01:462C: the credits graphics.
 template<class Z> Exit finale_credits_graphics(Z& z) { return bank_and_graphics(z,0x462C); }
@@ -407,7 +405,7 @@ template<class Z> Exit route_read(Z& z) {
     z.store_a_direct(0x4649);                                        // FFFF
     z.load_from_hl(0x464C,z.r.a);
     z.compare_immediate(0x464D);
-    return mk::relative_if_exit(0x464F,z.zero());
+    return z.final_relative_if(0x464F,mk::Condition::z);
 }
 // 01:463A: the credits latch (C2F5) is set, the sound request made and HL
 // pointed at the route script; then its first step.
@@ -422,30 +420,30 @@ template<class Z> Exit route_start(Z& z) {
 // 01:4651: anything but the wait command is a movement (01:465D).
 template<class Z> Exit route_wait_command(Z& z) {
     z.compare_immediate(0x4651);
-    return mk::relative_if_exit(0x4653,!z.zero());
+    return z.final_relative_if(0x4653,mk::Condition::nz);
 }
 // 01:4655: the wait: B frames.
 template<class Z> Exit route_wait(Z& z) {
     z.load_immediate(0x4655,z.r.b);
-    return call_at(0x4657);
+    return call_at(z,0x4657);
 }
 // 01:465A: after the wait, the next command (a jump back to the step).
 template<class Z> Exit route_waited(Z& z) {
     z.increment_hl(0x465A);
-    return relative_at(0x465B);
+    return relative_at(z,0x465B);
 }
 // 01:465D: a movement. The script pointer is kept on the stack and the command
 // becomes the held buttons for the ordinary dungeon handler.
 template<class Z> Exit route_walk(Z& z) {
     z.push(0x465D,z.r.h,z.r.l);
     z.store_a_direct(0x465E);                                        // the held buttons
-    return call_at(0x4661);
+    return call_at(z,0x4661);
 }
 // 01:4664: the pointer back, the next command (a jump back to the step).
 template<class Z> Exit route_walked(Z& z) {
     z.pop(0x4664,z.r.h,z.r.l);
     z.increment_hl(0x4665);
-    return relative_at(0x4666);
+    return relative_at(z,0x4666);
 }
 // 01:4668: the end marker. The sound request stops the music, the credits
 // latch is cleared and a long wait follows.
@@ -455,13 +453,13 @@ template<class Z> Exit route_end(Z& z) {
     z.xor_a(0x466D);
     z.store_a_direct(0x466E);                                        // C2F5
     z.load_immediate(0x4671,z.r.b);
-    return call_at(0x4673);
+    return call_at(z,0x4673);
 }
 // 01:4676: game mode 2 (the title) and the finale returns.
 template<class Z> Exit finale_done(Z& z) {
     z.load_immediate(0x4676,z.r.a);
     z.store_a_direct(0x4678);                                        // the game mode
-    return return_at(0x467B);
+    return return_at(z,0x467B);
 }
 
 // ---- The portrait-conversation setup: 01:467F-46D0 --------------------------------------------
@@ -498,7 +496,7 @@ template<class Z> Exit setup_reset(Z& z) {
 // 01:46D1: the requested portrait (A) waits on the stack during the fade out.
 template<class Z> Exit portrait_keep(Z& z) {
     z.push(0x46D1,z.r.a,z.r.f);
-    return call_at(0x46D2);
+    return call_at(z,0x46D2);
 }
 // 01:46D5: the portrait's five-byte record (bank, palette, layout) is found at
 // five times its number; the bank is selected, the palette copied to C240 and
@@ -527,10 +525,10 @@ template<class Z> Exit portrait_record(Z& z) {
     z.load_bc(0x46EF);
     z.block_copy(0x46F2);
     z.load_de(0x46F4);                                               // the graphics' video address
-    return call_at(0x46F7);
+    return call_at(z,0x46F7);
 }
 // 01:46FA: the layout bank selected again; the layout pointer read through the
-// saved address; its destination loaded. The core runs the count load before
+// saved address; its destination loaded. The count load ends the segment before
 // the `di` (01:470A) and the video transfer.
 template<class Z> Exit portrait_layout(Z& z) {
     auto& r=z.r;
@@ -541,27 +539,27 @@ template<class Z> Exit portrait_layout(Z& z) {
     z.load_from_hl(0x4702,r.h);
     z.copy(0x4703,r.l,r.a);
     z.load_de(0x4704);
-    return load_pair_at(0x4707);
+    return load_pair_at(z,0x4707);
 }
 // 01:470E: the lower panel is cleared: destination, count and fill word.
 template<class Z> Exit portrait_clear_lower(Z& z) {
     z.load_de(0x470E);
     z.load_bc(0x4711);
     z.load_hl(0x4714);
-    return call_at(0x4717);
+    return call_at(z,0x4717);
 }
 
 // ---- Darkfalz and the final answer: 01:5619-569B ----------------------------------------------
 // 01:5619 and 01:5621: the sound request, the wait, then the Darkfalz picture.
 template<class Z> Exit darkfalz_sound(Z& z) { return store_then_call(z,0x5619); }
 template<class Z> Exit darkfalz_picture(Z& z) { return store_then_call(z,0x5621); }
-// 01:5629: sixteen palette bytes from their bank to C250; the core runs the
-// count load and the shared block transfer runs the copy (01:5637).
+// 01:5629: sixteen palette bytes from their bank to C250; the count load ends the
+// segment and the shared block transfer runs the copy (01:5637).
 template<class Z> Exit darkfalz_palette(Z& z) {
     select_bank(z,0x5629);
     z.load_hl(0x562E);
     z.load_de(0x5631);                                               // C250
-    return load_pair_at(0x5634);
+    return load_pair_at(z,0x5634);
 }
 // 01:5639: the frame wait.
 template<class Z> Exit darkfalz_frame(Z& z) { return number_then_call(z,0x5639); }
@@ -573,7 +571,7 @@ template<class Z> Exit darkfalz_battle(Z& z) { return store_then_call(z,0x564C);
 template<class Z> Exit darkfalz_survivor(Z& z) {
     z.load_a_direct(0x5657);                                         // the first member's status
     z.or_a(0x565A);
-    return mk::relative_if_exit(0x565B,!z.zero());
+    return z.final_relative_if(0x565B,mk::Condition::nz);
 }
 // 01:565D: the extra text.
 template<class Z> Exit darkfalz_extra_text(Z& z) { return text_then_call(z,0x565D); }
@@ -588,13 +586,13 @@ template<class Z> Exit final_question(Z& z) { return text_then_call(z,0x5681); }
 template<class Z> Exit final_answer(Z& z) {
     z.load_hl(0x568A);
     if (!z.relative_if(0x568D,z.zero())) z.load_hl(0x568F);
-    return call_at(0x5692);
+    return call_at(z,0x5692);
 }
 // 01:5698: both answers drop the interaction's return address and jump into
 // the finale (01:454E).
 template<class Z> Exit final_unwind(Z& z) {
     z.pop(0x5698,z.r.h,z.r.l);
-    return jump_at(0x5699);
+    return jump_at(z,0x5699);
 }
 
 // ---- Registration ---------------------------------------------------------------------------------
@@ -617,16 +615,35 @@ void register_all(RoutineRegistry& registry) {
     auto add_mapped_call=[&](std::uint16_t entry, std::uint16_t end, auto logic) {
         add(entry,{F(end)},{.slot2_mapper=true,.scratch_stack=2},logic);
     };
-    // A single `di` or `ei` run by the core, so its interrupt delay is the original's.
+    // A single `di` or `ei`, so its interrupt delay is the original's.
     auto add_interrupt_switch=[&](RoutineEntry entry, InterruptMask mask) {
         auto exit=mk::core_final_at(entry.address);
         exit.interrupt_mask=mask;
         auto spec=mk::segment(entry,{exit});
         spec.single_instruction=true;
-        registry.add(entry,spec,[](const Machine&) {return 4;},[at=entry.address](RoutineContext& c) { c.finish_core(at); });
+        mk::add_segment(registry,entry,std::move(spec),[at=entry.address,mask](auto& z) -> Exit {
+            return mask==InterruptMask::enable ? z.final_enable_interrupts(at) : z.final_disable_interrupts(at);
+        });
+    };
+    // A joining instruction (milestone 14) that sits between two
+    // segments: a call into a shared helper, or a jump, as a segment of its own.
+    auto add_joining_call=[&](std::uint16_t entry) {
+        auto spec=mk::segment(RoutineEntry{1,entry},{F(entry)},{.scratch_stack=2});
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,entry},std::move(spec),[entry](auto& z) -> Exit { return z.final_call(entry); });
+    };
+    auto add_joining_jump=[&](std::uint16_t entry) {
+        auto spec=mk::segment(RoutineEntry{1,entry},{F(entry)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,entry},std::move(spec),[entry](auto& z) -> Exit { return z.final_jump(entry); });
+    };
+    auto add_joining_load=[&](std::uint16_t entry, auto logic) {
+        auto spec=mk::segment(RoutineEntry{1,entry},{F(entry)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,RoutineEntry{1,entry},std::move(spec),logic);
     };
 
-    // ---- entry facades: the CALL keeps its return address ----
+    // ---- entry facades: the call keeps its return address ----
     for (const auto entry:{RoutineEntry{0,0x074D},RoutineEntry{1,0x454E}}) {
         auto spec=mk::segment(entry,{mk::core_final_at(entry.address)},{.scratch_stack=2});
         spec.single_instruction=true;
@@ -741,10 +758,41 @@ void register_all(RoutineRegistry& registry) {
     add_call(0x5681,0x5684,[](auto& z) -> Exit { return final_question(z); });
     add(0x568A,{F(0x5692)},{.scratch_stack=2},[](auto& z) -> Exit { return final_answer(z); });             // after the yes/no (00:2D19)
     add(0x5698,{F(0x5699,2)},{.inherited_stack=2},[](auto& z) -> Exit { return final_unwind(z); });         // after the window is closed (00:3464)
+
+    // ---- joining stretches (milestone 14) ----
+    // The calls after a fade, a frame wait, a button wait, a window close or a
+    // screen transfer, the jumps back into a frame and the loads after an EI,
+    // each a one-instruction segment of its own.
+    for (const std::uint16_t entry:{0x42FE,0x4320,0x4369,0x437D,0x4380,0x4568,0x4570,0x4597,0x459A,0x45DA,0x4619,0x461C,0x467C,0x470B,
+                                    0x54EF,0x563E,0x5649,0x5654,0x5666,0x5676,0x567E,0x5687})
+        add_joining_call(entry);
+    for (const std::uint16_t entry:{0x46CE,0x471B}) add_joining_jump(entry);
+    add_joining_load(0x4302,[](auto& z) -> Exit { z.load_immediate(0x4302,z.r.a); return mk::fall_through(0x4302,0x4304); });     // the sound request, kept before any interrupt after the EI
+    add_joining_load(0x4604,[](auto& z) -> Exit { z.store_to_hl(0x4604); return mk::fall_through(0x4604,0x4606); });            // the zero seed of the screen-copy clear
 }
 }
 
 void register_scene_scripts(RoutineRegistry& registry) {
     register_all(registry);
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_scenes_script_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{1,0x4453},{1,0x444D},{kit::core_final_at(0x4453)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x4453); });
+    kit::add_joining(registry,{1,0x4456},{1,0x444D},{kit::core_final_at(0x4456)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x4456); });
+    kit::add_joining(registry,{1,0x449E},{1,0x4497},{kit::core_final_at(0x449E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x449E); });
+    kit::add_joining(registry,{1,0x44A7},{1,0x4497},{kit::core_final_at(0x44A7)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x44A7); });
+    kit::add_joining(registry,{1,0x44C5},{1,0x44BF},{kit::core_final_at(0x44C5)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x44C5); });
+    kit::add_joining(registry,{1,0x44E2},{1,0x44D5},{kit::core_final_at(0x44E2)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x44E2); });
+    kit::add_joining(registry,{1,0x44FD},{1,0x44E5},{kit::core_final_at(0x44FD)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x44FD); });
+    kit::add_joining(registry,{1,0x4517},{1,0x44BF},{kit::core_final_at(0x4517)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x4517); });
+    kit::add_joining(registry,{1,0x4540},{1,0x453B},{kit::core_final_at(0x4540)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x4540); });
+    kit::add_joining(registry,{1,0x454B},{1,0x4543},{kit::core_final_at(0x454B)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x454B); });
+    kit::add_joining(registry,{1,0x5663},{1,0x565D},{kit::core_final_at(0x5663)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5663); });
 }
 }

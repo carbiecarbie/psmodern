@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Story-item and dungeon-tool gates, deferred requests and shared effects.
+#include "game/joins.h"
 #include "game/items_story.h"
 #include "game/menu_kit.h"
 namespace psmodern::game {
 namespace {
 namespace k = menu_kit;
-using k::continues;
 using k::Exit;
-using k::returns;
 template <class Z> Exit announce_alsulin(Z &);
 template <class Z> Exit check_alsulin_battle(Z &);
 template <class Z> Exit check_alsulin_scene(Z &);
@@ -64,7 +63,7 @@ template <class Z> Exit announce_unusable_item(Z &);
 template <class Z> Exit report_unusable_item(Z &);
 template <class Z> Exit announce_alsulin(Z &z) {
     z.load_hl(0x242F);
-    return continues(0x2432, k::call_cycles);
+    return z.final_call(0x2432);
 }
 template <class Z> Exit check_alsulin_battle(Z &z) {
     z.load_a_direct(0x2435);
@@ -72,34 +71,34 @@ template <class Z> Exit check_alsulin_battle(Z &z) {
     if (z.relative_if(0x2439, z.zero()))
         return check_alsulin_scene(z);
     z.load_hl(0x243B);
-    return continues(0x243E, k::call_cycles);
+    return z.final_call(0x243E);
 }
 template <class Z> Exit check_alsulin_scene(Z &z) {
     z.load_a_direct(0x2444);
     z.compare_immediate(0x2447);
     if (z.relative_if(0x2449, z.zero()))
-        return continues(0x245C, k::call_cycles);
-    return continues(0x244B, k::call_cycles);
+        return z.final_call(0x245C);
+    return z.final_call(0x244B);
 }
 template <class Z> Exit report_alsulin_wrong_scene(Z &z) {
     z.load_hl(0x244E);
     if (!z.relative_if(0x2451, !z.zero()))
         z.load_hl(0x2453);
-    return continues(0x2456, k::call_cycles);
+    return z.final_call(0x2456);
 }
 template <class Z> Exit check_alsulin_party(Z &z) {
     if (z.relative_if(0x245F, z.zero())) {
         z.load_hl(0x2453);
-        return continues(0x2456, k::call_cycles);
+        return z.final_call(0x2456);
     }
     z.load_hl(0x2461);
-    return continues(0x2464, k::call_cycles);
+    return z.final_call(0x2464);
 }
 template <class Z> Exit restore_odin_equipment(Z &z) {
     z.load_index(0x246D, k::Index::iy);
     z.store_immediate_indexed(0x2471, k::Index::iy);
     z.store_immediate_indexed(0x2475, k::Index::iy);
-    return continues(0x2479, k::call_cycles);
+    return z.final_call(0x2479);
 }
 template <class Z> Exit finish_odin_restoration(Z &z) {
     z.load_immediate(0x247C, z.r.a);
@@ -110,11 +109,11 @@ template <class Z> Exit finish_odin_restoration(Z &z) {
     z.store_to_hl(0x2489);
     z.load_immediate(0x248B, z.r.a);
     z.store_a_direct(0x248D);
-    return returns(0x2490, k::return_cycles);
+    return z.final_return(0x2490);
 }
 template <class Z> Exit announce_polymaterial(Z &z) {
     z.load_hl(0x2491);
-    return continues(0x2494, k::call_cycles);
+    return z.final_call(0x2494);
 }
 template <class Z> Exit check_polymaterial_battle(Z &z) {
     z.load_a_direct(0x2497);
@@ -122,20 +121,20 @@ template <class Z> Exit check_polymaterial_battle(Z &z) {
     if (z.relative_if(0x249B, z.zero()))
         return check_polymaterial_scene(z);
     z.load_hl(0x249D);
-    return continues(0x24A0, k::call_cycles);
+    return z.final_call(0x24A0);
 }
 template <class Z> Exit check_polymaterial_scene(Z &z) {
     z.load_a_direct(0x24A6);
     z.compare_immediate(0x24A9);
     if (z.relative_if(0x24AB, z.zero()))
-        return continues(0x24CC, k::call_cycles);
-    return continues(0x24AD, k::call_cycles);
+        return z.final_call(0x24CC);
+    return z.final_call(0x24AD);
 }
 template <class Z> Exit report_polymaterial_wrong_scene(Z &z) {
     z.load_hl(0x24B0);
     if (!z.relative_if(0x24B3, z.zero()))
         z.load_hl(0x24B5);
-    return continues(0x24B8, k::call_cycles);
+    return z.final_call(0x24B8);
 }
 template <class Z> Exit check_human_records(Z &z) {
     z.load_a_direct(0x24BE);
@@ -145,41 +144,41 @@ template <class Z> Exit check_human_records(Z &z) {
     z.load_a_direct(0x24C6);
     z.or_register(0x24C9, z.r.d);
     z.or_register(0x24CA, z.r.e);
-    return returns(0x24CB, k::return_cycles);
+    return z.final_return(0x24CB);
 }
 template <class Z> Exit check_polymaterial_party(Z &z) {
     if (z.relative_if(0x24CF, !z.zero())) {
         z.load_hl(0x24DA);
-        return continues(0x24DD, k::call_cycles);
+        return z.final_call(0x24DD);
     }
     z.load_hl(0x24D1);
-    return continues(0x24D4, k::call_cycles);
+    return z.final_call(0x24D4);
 }
 template <class Z> Exit report_polymaterial_success(Z &z) {
     z.load_hl(0x24DA);
-    return continues(0x24DD, k::call_cycles);
+    return z.final_call(0x24DD);
 }
 template <class Z> Exit announce_key_outside(Z &z) {
     z.load_hl(0x24EF);
-    return continues(0x24F2, k::call_cycles);
+    return z.final_call(0x24F2);
 }
 template <class Z> Exit report_key_outside(Z &z) {
     z.load_hl(0x24F5);
-    return continues(0x24F8, k::call_cycles);
+    return z.final_call(0x24F8);
 }
 template <class Z> Exit check_dungeon_key_context(Z &z) {
     z.load_a_direct(0x24E9);
     z.or_a(0x24EC);
     if (z.relative_if(0x24ED, z.zero())) {
         z.load_hl(0x24FE);
-        return continues(0x2501, k::call_cycles);
+        return z.final_call(0x2501);
     }
     z.load_hl(0x24EF);
-    return continues(0x24F2, k::call_cycles);
+    return z.final_call(0x24F2);
 }
 template <class Z> Exit find_dungeon_key_door(Z &z) {
     z.load_immediate(0x2504, z.r.b);
-    return continues(0x2506, k::call_cycles);
+    return z.final_call(0x2506);
 }
 template <class Z> Exit unlock_dungeon_key_door(Z &z) {
     z.and_immediate(0x2509);
@@ -189,28 +188,28 @@ template <class Z> Exit unlock_dungeon_key_door(Z &z) {
         if (!z.relative_if(0x2511, !z.zero())) {
             z.load_immediate(0x2513, z.r.a);
             z.store_a_direct(0x2515);
-            return continues(0x2518, k::jump_cycles);
+            return z.final_jump(0x2518);
         }
     }
     z.load_hl(0x251B);
-    return continues(0x251E, k::call_cycles);
+    return z.final_call(0x251E);
 }
 template <class Z> Exit refuse_dungeon_key_door(Z &z) {
     z.load_hl(0x251B);
-    return continues(0x251E, k::call_cycles);
+    return z.final_call(0x251E);
 }
 template <class Z> Exit announce_sphere(Z &z) {
     z.load_hl(0x2527);
-    return continues(0x252A, k::call_cycles);
+    return z.final_call(0x252A);
 }
 template <class Z> Exit choose_sphere_effect(Z &z) {
     z.load_a_direct(0x252D);
     z.or_a(0x2530);
-    return continues(0x2531, k::jump_cycles);
+    return z.final_jump_if(0x2531,k::Condition::nz);
 }
 template <class Z> Exit announce_eclipse_torch(Z &z) {
     z.load_hl(0x2537);
-    return continues(0x253A, k::call_cycles);
+    return z.final_call(0x253A);
 }
 template <class Z> Exit check_torch_battle(Z &z) {
     z.load_a_direct(0x253D);
@@ -218,7 +217,7 @@ template <class Z> Exit check_torch_battle(Z &z) {
     if (z.relative_if(0x2541, z.zero()))
         return check_torch_scene(z);
     z.load_hl(0x2543);
-    return continues(0x2546, k::call_cycles);
+    return z.final_call(0x2546);
 }
 template <class Z> Exit check_torch_scene(Z &z) {
     z.load_a_direct(0x254C);
@@ -226,35 +225,35 @@ template <class Z> Exit check_torch_scene(Z &z) {
     if (z.relative_if(0x2551, z.zero()))
         return flash_torch_palette(z);
     z.load_hl(0x2553);
-    return continues(0x2556, k::call_cycles);
+    return z.final_call(0x2556);
 }
 template <class Z> Exit flash_torch_palette(Z &z) {
     z.push(0x255C, z.r.b, z.r.c);
-    return continues(0x255D, k::call_cycles);
+    return z.final_call(0x255D);
 }
 template <class Z> Exit find_torch_pot(Z &z) {
     z.pop(0x2560, z.r.b, z.r.c);
     z.load_immediate(0x2561, z.r.a);
-    return continues(0x2563, k::call_cycles);
+    return z.final_call(0x2563);
 }
 template <class Z> Exit check_torch_pot(Z &z) {
     if (z.relative_if(0x2566, z.zero()))
-        return continues(0x2571, k::call_cycles);
+        return z.final_call(0x2571);
     z.load_hl(0x2568);
-    return continues(0x256B, k::call_cycles);
+    return z.final_call(0x256B);
 }
 template <class Z> Exit report_torch_success(Z &z) {
     z.load_hl(0x2574);
-    return continues(0x2577, k::call_cycles);
+    return z.final_call(0x2577);
 }
 template <class Z> Exit find_nuts_reward(Z &z) {
     z.load_immediate(0x257D, z.r.a);
     z.store_a_direct(0x257F);
-    return continues(0x2582, k::call_cycles);
+    return z.final_call(0x2582);
 }
 template <class Z> Exit announce_aero_prism(Z &z) {
     z.load_hl(0x2589);
-    return continues(0x258C, k::call_cycles);
+    return z.final_call(0x258C);
 }
 template <class Z> Exit check_prism_battle(Z &z) {
     z.load_a_direct(0x258F);
@@ -262,7 +261,7 @@ template <class Z> Exit check_prism_battle(Z &z) {
     if (z.relative_if(0x2593, z.zero()))
         return check_prism_scene(z);
     z.load_hl(0x2595);
-    return continues(0x2598, k::call_cycles);
+    return z.final_call(0x2598);
 }
 template <class Z> Exit check_prism_scene(Z &z) {
     z.load_a_direct(0x259E);
@@ -270,26 +269,26 @@ template <class Z> Exit check_prism_scene(Z &z) {
     if (z.relative_if(0x25A3, z.zero()))
         return check_prism_phase(z);
     z.load_hl(0x25A5);
-    return continues(0x25A8, k::call_cycles);
+    return z.final_call(0x25A8);
 }
 template <class Z> Exit check_prism_phase(Z &z) {
     z.load_a_direct(0x25AE);
     z.compare_immediate(0x25B1);
     if (z.relative_if(0x25B3, z.zero())) {
         z.load_hl(0x25A5);
-        return continues(0x25A8, k::call_cycles);
+        return z.final_call(0x25A8);
     }
     z.load_hl(0x25B5);
-    return continues(0x25B8, k::call_cycles);
+    return z.final_call(0x25B8);
 }
 template <class Z> Exit request_prism_effect(Z &z) {
     z.load_immediate(0x25BB, z.r.a);
     z.store_a_direct(0x25BD);
-    return continues(0x25C0, k::jump_cycles);
+    return z.final_jump(0x25C0);
 }
 template <class Z> Exit announce_nuts_refusal(Z &z) {
     z.load_hl(0x25D7);
-    return continues(0x25DA, k::call_cycles);
+    return z.final_call(0x25DA);
 }
 template <class Z> Exit check_nuts_phase(Z &z) {
     z.load_a_direct(0x25EF);
@@ -297,7 +296,7 @@ template <class Z> Exit check_nuts_phase(Z &z) {
     if (z.relative_if(0x25F4, !z.zero()))
         return announce_nuts_refusal(z);
     z.load_hl(0x25F6);
-    return continues(0x25F9, k::call_cycles);
+    return z.final_call(0x25F9);
 }
 template <class Z> Exit check_nuts_castle(Z &z) {
     z.load_a_direct(0x2605);
@@ -310,7 +309,7 @@ template <class Z> Exit check_nuts_castle(Z &z) {
         return announce_nuts_refusal(z);
     z.relative(0x2611);
     z.load_hl(0x25F6);
-    return continues(0x25F9, k::call_cycles);
+    return z.final_call(0x25F9);
 }
 template <class Z> Exit check_nuts_conditions(Z &z) {
     z.load_a_direct(0x25C3);
@@ -333,36 +332,36 @@ template <class Z> Exit report_nuts_refusal(Z &z) {
     z.load_hl(0x25E1);
     if (!z.relative_if(0x25E4, z.zero()))
         z.load_hl(0x25E6);
-    return continues(0x25E9, k::call_cycles);
+    return z.final_call(0x25E9);
 }
 template <class Z> Exit request_myau_transform(Z &z) {
     z.load_immediate(0x25FF, z.r.a);
     z.store_a_direct(0x2601);
-    return returns(0x2604, k::return_cycles);
+    return z.final_return(0x2604);
 }
 template <class Z> Exit check_hapsby_battle(Z &z) {
     z.load_a_direct(0x2613);
     z.or_a(0x2616);
     if (z.relative_if(0x2617, z.zero())) {
         z.load_hl(0x2628);
-        return continues(0x262B, k::call_cycles);
+        return z.final_call(0x262B);
     }
     z.load_hl(0x2619);
-    return continues(0x261C, k::call_cycles);
+    return z.final_call(0x261C);
 }
 template <class Z> Exit report_battle_hapsby(Z &z) {
     z.load_hl(0x261F);
-    return continues(0x2622, k::call_cycles);
+    return z.final_call(0x2622);
 }
 template <class Z> Exit check_compass_battle(Z &z) {
     z.load_a_direct(0x264F);
     z.or_a(0x2652);
     if (z.relative_if(0x2653, !z.zero())) {
         z.load_hl(0x2637);
-        return continues(0x263A, k::call_cycles);
+        return z.final_call(0x263A);
     }
     z.load_hl(0x2655);
-    return continues(0x2658, k::call_cycles);
+    return z.final_call(0x2658);
 }
 template <class Z> Exit check_compass_dungeon(Z &z) {
     z.load_a_direct(0x2631);
@@ -370,7 +369,7 @@ template <class Z> Exit check_compass_dungeon(Z &z) {
     if (z.relative_if(0x2635, z.zero()))
         return check_compass_battle(z);
     z.load_hl(0x2637);
-    return continues(0x263A, k::call_cycles);
+    return z.final_call(0x263A);
 }
 template <class Z> Exit report_compass_refusal(Z &z) {
     z.load_a_direct(0x263D);
@@ -378,7 +377,7 @@ template <class Z> Exit report_compass_refusal(Z &z) {
     z.load_hl(0x2641);
     if (!z.relative_if(0x2644, z.zero()))
         z.load_hl(0x2646);
-    return continues(0x2649, k::call_cycles);
+    return z.final_call(0x2649);
 }
 template <class Z> Exit report_compass_direction(Z &z) {
     z.load_a_direct(0x265B);
@@ -394,20 +393,20 @@ template <class Z> Exit report_compass_direction(Z &z) {
                 z.load_hl(0x2673);
         }
     }
-    return continues(0x2676, k::call_cycles);
+    return z.final_call(0x2676);
 }
 template <class Z> Exit check_miracle_key_context(Z &z) {
     z.load_a_direct(0x267C);
     z.or_a(0x267F);
-    return continues(0x2680, k::jump_cycles);
+    return z.final_jump_if(0x2680,k::Condition::nz);
 }
 template <class Z> Exit announce_miracle_key(Z &z) {
     z.load_hl(0x2683);
-    return continues(0x2686, k::call_cycles);
+    return z.final_call(0x2686);
 }
 template <class Z> Exit find_miracle_key_door(Z &z) {
     z.load_immediate(0x2689, z.r.b);
-    return continues(0x268B, k::call_cycles);
+    return z.final_call(0x268B);
 }
 template <class Z> Exit unlock_miracle_key_door(Z &z) {
     z.test_bit_at_hl(0x268E, 7);
@@ -426,19 +425,19 @@ template <class Z> Exit unlock_miracle_key_door(Z &z) {
         if (accepted) {
             z.copy(0x26A0, z.r.a, z.r.b);
             z.store_a_direct(0x26A1);
-            return continues(0x26A4, k::jump_cycles);
+            return z.final_jump(0x26A4);
         }
     }
     z.load_hl(0x26A7);
-    return continues(0x26AA, k::call_cycles);
+    return z.final_call(0x26AA);
 }
 template <class Z> Exit refuse_miracle_key_door(Z &z) {
     z.load_hl(0x26A7);
-    return continues(0x26AA, k::call_cycles);
+    return z.final_call(0x26AA);
 }
 template <class Z> Exit announce_unusable_item(Z &z) {
     z.load_hl(0x26B0);
-    return continues(0x26B3, k::call_cycles);
+    return z.final_call(0x26B3);
 }
 template <class Z> Exit report_unusable_item(Z &z) {
     z.load_a_direct(0x26B6);
@@ -446,7 +445,7 @@ template <class Z> Exit report_unusable_item(Z &z) {
     z.load_hl(0x26BA);
     if (!z.relative_if(0x26BD, !z.zero()))
         z.load_hl(0x26BF);
-    return continues(0x26C2, k::call_cycles);
+    return z.final_call(0x26C2);
 }
 } // namespace
 void register_items_story(RoutineRegistry &registry) {
@@ -569,5 +568,44 @@ void register_items_story(RoutineRegistry &registry) {
         [](auto &z) { return announce_unusable_item(z); });
     add(0x26B6, 0x26B0, {core_final_at(0x26C2, 0)}, {},
         [](auto &z) { return report_unusable_item(z); });
+}
+
+// Joining instructions of this file's routines that no input recording reaches
+// (milestone 14, Part I): each place the machine continues at after one of the
+// file's segments ends (the return point of a call, a branch target, a
+// code-table target) begins a one-instruction segment of its own, so the game
+// runs on in C++ there too. Found by the static walk of every declared exit
+// and checked by lockstep probes (tests/joins_tests.cpp).
+void register_items_story_walk_joins(RoutineRegistry& registry) {
+    kit::add_joining(registry,{0,0x2441},{0,0x242F},{kit::core_final_at(0x2441)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2441); });
+    kit::add_joining(registry,{0,0x2459},{0,0x242F},{kit::core_final_at(0x2459)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2459); });
+    kit::add_joining(registry,{0,0x2467},{0,0x242F},{kit::core_final_at(0x2467)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2467); });
+    kit::add_joining(registry,{0,0x246A},{0,0x242F},{kit::core_final_at(0x246A)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x246A); });
+    kit::add_joining(registry,{0,0x24A3},{0,0x2491},{kit::core_final_at(0x24A3)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x24A3); });
+    kit::add_joining(registry,{0,0x24BB},{0,0x2491},{kit::core_final_at(0x24BB)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x24BB); });
+    kit::add_joining(registry,{0,0x24D7},{0,0x2491},{kit::core_final_at(0x24D7)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x24D7); });
+    kit::add_joining(registry,{0,0x24E0},{0,0x2491},{kit::core_final_at(0x24E0)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x24E0); });
+    kit::add_joining(registry,{0,0x24E3},{0,0x2491},{kit::core_final_at(0x24E3)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x24E3); });
+    kit::add_joining(registry,{0,0x24E6},{0,0x2491},{kit::core_final_at(0x24E6)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x24E6); });
+    kit::add_joining(registry,{0,0x24FB},{0,0x24E9},{kit::core_final_at(0x24FB)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x24FB); });
+    kit::add_joining(registry,{0,0x2521},{0,0x24E9},{kit::core_final_at(0x2521)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2521); });
+    kit::add_joining(registry,{0,0x2524},{0,0x2524},{kit::core_final_at(0x2524)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x2524); });
+    kit::add_joining(registry,{0,0x2534},{0,0x2524},{kit::core_final_at(0x2534)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2534); });
+    kit::add_joining(registry,{0,0x2549},{0,0x2537},{kit::core_final_at(0x2549)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2549); });
+    kit::add_joining(registry,{0,0x2559},{0,0x2537},{kit::core_final_at(0x2559)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2559); });
+    kit::add_joining(registry,{0,0x256E},{0,0x2537},{kit::core_final_at(0x256E)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x256E); });
+    kit::add_joining(registry,{0,0x257A},{0,0x2537},{kit::core_final_at(0x257A)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x257A); });
+    kit::add_joining(registry,{0,0x2585},{0,0x2537},{kit::returned_at(0x2585),kit::core_final_at(0x2585)},kit::taken_conditional_return_cycles,0,[](auto& z) { if (auto exit=z.final_return_if(0x2585,kit::Condition::z)) return *exit; return kit::fall_through(0x2585,0x2585+1); });
+    kit::add_joining(registry,{0,0x2586},{0,0x2537},{kit::core_final_at(0x2586)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2586); });
+    kit::add_joining(registry,{0,0x259B},{0,0x2589},{kit::core_final_at(0x259B)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x259B); });
+    kit::add_joining(registry,{0,0x25AB},{0,0x2589},{kit::core_final_at(0x25AB)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x25AB); });
+    kit::add_joining(registry,{0,0x25EC},{0,0x25C3},{kit::core_final_at(0x25EC)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x25EC); });
+    kit::add_joining(registry,{0,0x25FC},{0,0x25C3},{kit::core_final_at(0x25FC)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x25FC); });
+    kit::add_joining(registry,{0,0x2625},{0,0x2613},{kit::core_final_at(0x2625)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2625); });
+    kit::add_joining(registry,{0,0x262E},{0,0x2613},{kit::core_final_at(0x262E)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x262E); });
+    kit::add_joining(registry,{0,0x264C},{0,0x2631},{kit::core_final_at(0x264C)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x264C); });
+    kit::add_joining(registry,{0,0x2679},{0,0x2631},{kit::core_final_at(0x2679)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x2679); });
+    kit::add_joining(registry,{0,0x26AD},{0,0x267C},{kit::core_final_at(0x26AD)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x26AD); });
+    kit::add_joining(registry,{0,0x26C5},{0,0x26B0},{kit::core_final_at(0x26C5)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x26C5); });
 }
 } // namespace psmodern::game

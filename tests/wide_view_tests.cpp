@@ -32,6 +32,7 @@
 //                              not a test: the mode and source of every frame
 //                              and PPM pictures of the listed frames
 // ROM parts exit 77 without their ROM. Only the frames part writes images.
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "app/session_roms.h"
 #include "app/wide_view.h"
@@ -39,7 +40,6 @@
 #include "replay/recording.h"
 #include "rom/rom.h"
 #include "rom/sha1.h"
-#include <Z80.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -733,13 +733,18 @@ bool background_vram_differs(const std::array<std::uint8_t,0x4000>& a,const std:
 // the picture shows the old column's tiles at x 254-255 there); the ice
 // digger (01:756C) writes a broken cell's names during the picture (recording
 // ice, every 8 frames while digging). ROM run.
-bool background_changes_before_192(const Machine& before,const FrameInput& input) {
+// Milestone 14: `before` is the machine where the previous run ended, which
+// can lie after the frame start (a run ends after the segment crossing the
+// frame end), so the comparison starts from `frame_start`, the VRAM at the
+// previous frame's observer.
+bool background_changes_before_192(const Machine& before,const FrameInput& input,
+                                   const std::array<std::uint8_t,0x4000>& frame_start) {
     Machine copy(before);
     for(unsigned i=0;i<2;++i)copy.set_pad(i,input.pads[i]);
     copy.set_reset(input.reset);copy.set_pause(input.pause);
     const auto target=(copy.cycles()/frame_cycles)*frame_cycles+192*228+4;
-    while(copy.cycles()<target || copy.cpu().resume==Z80_RESUME_XY)copy.step();
-    return background_vram_differs(before.vdp().vram(),copy.vdp().vram(),before.vdp().registers()[2]);
+    while(copy.cycles()<target || copy.cpu().resume==Z80::resume_xy)copy.step();
+    return background_vram_differs(frame_start,copy.vdp().vram(),before.vdp().registers()[2]);
 }
 bool family(std::uint8_t mode) {
     return mode==0x08 || mode==0x09 || mode==0x0A || mode==0x0B || mode==0x0C || mode==0x0E || mode==0x0F;
@@ -861,6 +866,17 @@ void recording_part(const Setup& s,const std::string& stem) {
         } catch(...) { off_error=std::current_exception(); }
     });
     Counts c;
+    // VRAM at the frame observer of the current and of the previous run.
+    std::array<std::uint8_t,0x4000> frame_vram=on.machine().vdp().vram(),previous_frame_vram=frame_vram;
+    // The state the pairing rule reads, also at the frame observer (where
+    // the wide view captures): mode, registers 0, 1, 8, 9 and the camera bytes.
+    std::array<std::uint8_t,11> frame_state{};
+    on.set_frame_probe([&](const Machine& m) {
+        frame_vram=m.vdp().vram();
+        const auto& regs=m.vdp().registers();
+        frame_state={m.peek(0xC202),regs[0],regs[1],regs[8],regs[9],m.peek(0xC300),m.peek(0xC301),m.peek(0xC302),
+                     m.peek(0xC304),m.peek(0xC305),m.peek(0xC306)};
+    });
     game::MapScreens reader(s.rom);
     // The state after the previous frame: what the picture of this frame is drawn with.
     struct Prev {
@@ -905,6 +921,7 @@ void recording_part(const Setup& s,const std::string& stem) {
     try {
         for(std::uint64_t n=0;n<rec.frames;++n) {
             const auto input=rec.input_at(n);
+            previous_frame_vram=frame_vram;
             const Machine* before=nullptr;std::optional<Machine> saved;
             const auto& m0=on.machine();
             const bool candidate=family(m0.peek(0xC202)) && m0.vdp().registers()[0]==0x26 && (m0.vdp().registers()[1]&0x40);
@@ -1007,7 +1024,7 @@ void recording_part(const Setup& s,const std::string& stem) {
                 // Centre agreement, unless pattern VRAM changed before line 192.
                 const auto mask=sprite_mask(shown.vdp);
                 const bool late=before && background_vram_differs(shown.vdp.vram,on.machine().vdp().vram(),shown.vdp.registers[2]) &&
-                                background_changes_before_192(*before,input);
+                                background_changes_before_192(*before,input,previous_frame_vram);
                 if(late)++c.late_patterns;
                 else { c.centre_pixels+=centre_agrees(*view,on.machine().picture(),&mask,stem+" frame "+std::to_string(n));++c.centre_frames; }
                 // Scroll consistency against earlier widened frames of the same stay.
@@ -1083,9 +1100,10 @@ void recording_part(const Setup& s,const std::string& stem) {
                 c.edited_cells+=edited;c.edited_frames+=edited>0;
             }
             prev_c202_after=m.peek(0xC202);
-            const auto& regs=m.vdp().registers();
-            prev={m.peek(0xC202),regs[0],regs[1],regs[8],regs[9],m.peek(0xC300),m.peek(0xC301),m.peek(0xC302),m.peek(0xC304),
-                  m.peek(0xC305),m.peek(0xC306),page,true};
+            // Milestone 14: the state after the frame is the one at its frame
+            // observer (a run can end after the segment crossing the frame end).
+            const auto& f=frame_state;
+            prev={f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9],f[10],{f[7],f[10]},true};
         }
     } catch(...) { off_thread.join();throw; }
     off_thread.join();
@@ -1205,12 +1223,10 @@ void probes(const Setup& s,const std::filesystem::path& other_path) {
         for(unsigned k=0;k<300;++k) { d.run({});check(!d.wide_picture(),"nothing widens while the game boots"); }
         std::cout<<s.region<<" probe: power cycle drops the anchor; 300 boot frames pillarboxed\n";
     }
-    {   // Recording mode and --no-routines refuse the option.
-        app::FrameDriver recording_mode(s.rom,app::SaveStore(fresh(s,"probe-recording-mode"),s.version),true,{},true);
+    {   // Recording mode refuses the option (--no-routines is gone since milestone 14).
+        app::FrameDriver recording_mode(s.rom,app::SaveStore(fresh(s,"probe-recording-mode"),s.version),{},true);
         recording_mode.set_widescreen(true);
-        app::FrameDriver no_routines(s.rom,app::SaveStore(fresh(s,"probe-no-routines"),s.version),false);
-        no_routines.set_widescreen(true);
-        check(!recording_mode.widescreen() && !no_routines.widescreen(),"recording mode and --no-routines stay at the original picture");
+        check(!recording_mode.widescreen(),"recording mode stays at the original picture");
     }
     if(!other_path.empty() && std::filesystem::exists(other_path)) {
         // ROM swap: the Options hold at the map wait, a language change, the
@@ -1239,6 +1255,13 @@ void probes(const Setup& s,const std::filesystem::path& other_path) {
         for(;k<100 && d.language_changes()==changes;++k)d.run({});
         check(d.language_changes()==changes+1,"the language swap happened");
         check(!d.wide_picture(),"the swap frame pillarboxes (reader refreshed, anchor dropped)");
+        // Milestone 14 (review-2 M1): the swap is made once, at the frame end;
+        // a second reset after the run used to drop the capture just taken, so
+        // that the frame after the swap pillarboxed too and lost its anchor.
+        // The game is back on the map here: that frame widens at once.
+        d.run({});
+        check(d.wide_picture()!=nullptr,"the frame after the swap widens (the swap frame's capture was kept)");
+        centre_check(d,"the frame after the ROM swap");
         std::uint64_t widened=0;
         for(unsigned j=0;j<60;++j) { d.run({});if(d.wide_picture()) { centre_check(d,"after the ROM swap");++widened; } }
         check(widened>0,"widened again after the swap");
@@ -1464,6 +1487,8 @@ void frames(const Setup& s,const std::string& stem,const std::string& list) {
 }
 
 int main(int argc,char** argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         if(argc<2)throw std::runtime_error("Expected unit | rom <rom> <us|br> | recording <rom> <us|br> <recordings> <reference> <work> <stem> | probes <rom> <us|br> <recordings> <reference> <work> <other rom>.");
         const std::string_view part=argv[1];

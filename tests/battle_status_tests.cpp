@@ -2,6 +2,7 @@
 #include "battle_effect_probe.h"
 #include "game/battle_status.h"
 #include "menu_probe.h"
+#include "c4_sweep.h"
 #include <iostream>
 using namespace psmodern;
 namespace {
@@ -230,6 +231,8 @@ int scenarios(probe::Harness &harness, const map_probe::Inputs &inputs) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -238,6 +241,13 @@ int main(int argc, char **argv) {
         if (!inputs)
             return 77;
         probe::Harness harness(inputs->rom);
+        {
+            probe::Harness sweeping(inputs->rom);
+            c4::sweep_file(sweeping,"battle_status",game::battle_status::segments,[](RoutineEntry entry,Machine& m) {
+                // 1FD0 returns at once when Z is set: make it take the call too.
+                if (entry.address==0x1FD0) m.cpu().af.uint8_values.at_0&=static_cast<std::uint8_t>(~0x40);
+            });
+        }
         unsigned count = state_probes(harness);
         count += strength_gates(harness);
         count += restore_fields(harness);

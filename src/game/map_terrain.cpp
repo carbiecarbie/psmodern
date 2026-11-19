@@ -5,7 +5,7 @@
 //   01:7764  the tile attribute lookup (the map tile under a probe point)
 //   01:74E4  the blocked test of a step (on foot, Land Rover, Hovercraft, ice)
 //   01:756C  the ice probe and the ice breaking (its name-table update, the
-//            stretch with interrupts off, stays native)
+//            stretch with interrupts off, a segment of its own)
 //   01:7602  the ice preset used when a full screen is built (and 01:761F)
 //   01:7656, 01:76C1, 01:7732  placing the party when it gets into the Land
 //            Rover or the Hovercraft and when it gets out
@@ -32,12 +32,6 @@ namespace psmodern::game {
 namespace {
 namespace mk=map_kit;
 using mk::Exit;
-using mk::call_cycles;
-using mk::continues;
-using mk::return_cycles;
-using mk::returns;
-
-constexpr unsigned taken_return=mk::taken_conditional_return_cycles;
 
 // ---- Tile lookup (01:7764, copied at 01:756C and 01:761F) -------------------------------
 // From the `ld hl,<offset table>` at `b` up to and including `ld a,(hl)`: the
@@ -96,7 +90,7 @@ template<class Z> Exit attribute(Z& z, std::uint16_t t) {
     z.compare_immediate(t+0x13);
     if (!z.relative_if(t+0x15,z.carry())) z.increment(t+0x17,r.h);
     z.load_from_hl(t+0x18,r.a);
-    return returns(t+0x19,return_cycles);
+    return z.final_return(static_cast<std::uint16_t>(t+0x19));
 }
 
 // ---- 01:7764 ------------------------------------------------------------------------------
@@ -113,7 +107,7 @@ template<class Z> Exit blocked_pop_tail(Z& z, std::uint16_t at) {          // po
     z.pop(at,r.d,r.e);
     z.pop(at+1,r.h,r.l);
     z.pop(at+2,r.b,r.c);
-    return returns(at+3,return_cycles);
+    return z.final_return(static_cast<std::uint16_t>(at+3));
 }
 template<class Z> Exit blocked_entry(Z& z) {
     auto& r=z.r;
@@ -126,7 +120,7 @@ template<class Z> Exit blocked_entry(Z& z) {
         z.xor_a(0x7502);
         z.pop(0x7503,r.h,r.l);
         z.pop(0x7504,r.b,r.c);
-        return returns(0x7505,return_cycles);
+        return z.final_return(0x7505);
     }
     z.load_a_direct(0x74ED);                // transport
     z.or_a(0x74F0);
@@ -135,7 +129,7 @@ template<class Z> Exit blocked_entry(Z& z) {
         z.load_hl(0x74F5);
         z.add_to_hl(0x74F8,z.bc());
         z.load_from_hl(0x74F9,r.a);
-        return continues(0x74FA,call_cycles);
+        return z.final_call(0x74FA);
     }
     z.compare_immediate(0x7506);
     if (!z.relative_if(0x7508,!z.zero())) { // Land Rover: two points
@@ -145,7 +139,7 @@ template<class Z> Exit blocked_entry(Z& z) {
         z.add_to_hl(0x7510,z.bc());
         z.exchange_de_hl(0x7511);
         z.load_a_from_pair(0x7512,z.de());
-        return continues(0x7513,call_cycles);
+        return z.final_call(0x7513);
     }
     z.compare_immediate(0x7525);
     if (!z.relative_if(0x7527,!z.zero())) { // Hovercraft: two points
@@ -155,7 +149,7 @@ template<class Z> Exit blocked_entry(Z& z) {
         z.add_to_hl(0x752F,z.bc());
         z.exchange_de_hl(0x7530);
         z.load_a_from_pair(0x7531,z.de());
-        return continues(0x7532,call_cycles);
+        return z.final_call(0x7532);
     }
     z.push(0x7544,r.d,r.e);                 // the ship and the rest: two ice probes
     z.load_immediate(0x7545,r.b);
@@ -165,7 +159,7 @@ template<class Z> Exit blocked_entry(Z& z) {
     z.load_from_hl(0x754C,r.a);
     z.increment_hl(0x754D);
     z.load_from_hl(0x754E,r.d);
-    return continues(0x754F,call_cycles);
+    return z.final_call(0x754F);
 }
 // 01:74FD: the on-foot result.
 template<class Z> Exit blocked_foot(Z& z) {
@@ -173,7 +167,7 @@ template<class Z> Exit blocked_foot(Z& z) {
     z.and_immediate(0x74FD);
     z.pop(0x74FF,r.h,r.l);
     z.pop(0x7500,r.b,r.c);
-    return returns(0x7501,return_cycles);
+    return z.final_return(0x7501);
 }
 // 01:7516 / 01:7535: the first point of a two-point test came back. A nonzero
 // result ends the test; else the second point is probed.
@@ -183,7 +177,7 @@ template<class Z> Exit blocked_second_probe(Z& z, std::uint16_t first, std::uint
     if (z.relative_if(first+2,!z.zero())) return blocked_pop_tail(z,tail);
     z.increment_pair(first+4,r.d,r.e);
     z.load_a_from_pair(first+5,z.de());
-    return continues(call,call_cycles);
+    return z.final_call(call);
 }
 // 01:751F / 01:753E: the second point came back.
 template<class Z> Exit blocked_second_result(Z& z, std::uint16_t at, std::uint16_t tail) {
@@ -197,7 +191,7 @@ template<class Z> Exit ice_first_result(Z& z) {
     z.copy(0x7554,r.c,r.a);
     z.copy(0x7555,r.a,r.d);
     z.copy(0x7556,r.d,r.c);
-    return continues(0x7557,call_cycles);
+    return z.final_call(0x7557);
 }
 // 01:755A: the second ice probe came back; a break (E set by the ice probe)
 // asks for the ice-breaking sound.
@@ -216,13 +210,13 @@ template<class Z> Exit ice_second_result(Z& z) {
     z.pop(0x7568,r.d,r.e);
     z.pop(0x7569,r.h,r.l);
     z.pop(0x756A,r.b,r.c);
-    return returns(0x756B,return_cycles);
+    return z.final_return(0x756B);
 }
 
 // ---- 01:756C: the ice probe ------------------------------------------------------------------
 // The tile is looked up as at 01:7764. A tile numbered D8h-DFh is ice: it is
 // replaced in the decoded screens by D7h (broken ice) and the four tiles of
-// the picture are rewritten in the name table (native, with interrupts off).
+// the picture are rewritten in the name table (with interrupts off).
 // Any other tile only gets its attribute read (the code at 01:75E8).
 template<class Z> Exit ice_probe(Z& z) {
     auto& r=z.r;
@@ -252,7 +246,8 @@ template<class Z> Exit ice_probe(Z& z) {
     z.copy(0x75C5,r.a,r.h);
     z.add_immediate(0x75C6);
     z.copy(0x75C8,r.d,r.a);
-    return continues(0x75C9,10);            // ld hl,nn; the DI stretch follows natively
+    z.load_hl(0x75C9);
+    return mk::fall_through(0x75C9,0x75CC);  // the stretch with interrupts off follows
 }
 // 01:75E5: after the name-table update (and the instruction after EI).
 template<class Z> Exit ice_after_update(Z& z) {
@@ -270,29 +265,25 @@ template<class Z> Exit preset_entry(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x7602);
     z.compare_immediate(0x7605);
-    if (!z.zero()) return returns(0x7607,taken_return);
-    z.return_not_taken(0x7607);
+    if (auto exit=z.final_return_if(0x7607,mk::Condition::nz)) return *exit;
     z.load_a_direct(0x7608);
     z.compare_immediate(0x760B);
-    if (!z.zero()) return returns(0x760D,taken_return);
-    z.return_not_taken(0x760D);
+    if (auto exit=z.final_return_if(0x760D,mk::Condition::nz)) return *exit;
     z.load_immediate(0x760E,r.a);
-    return continues(0x7610,call_cycles);
+    return z.final_call(0x7610);
 }
 template<class Z> Exit preset_point(Z& z) {                    // 01:761F
     locate(z,0x761F);
     z.compare_immediate(0x764D);
-    if (z.carry()) return returns(0x764F,taken_return);
-    z.return_not_taken(0x764F);
+    if (auto exit=z.final_return_if(0x764F,mk::Condition::c)) return *exit;
     z.compare_immediate(0x7650);
-    if (!z.carry()) return returns(0x7652,taken_return);
-    z.return_not_taken(0x7652);
+    if (auto exit=z.final_return_if(0x7652,mk::Condition::nc)) return *exit;
     z.store_to_hl(0x7653);
-    return returns(0x7655,return_cycles);
+    return z.final_return(0x7655);
 }
 template<class Z> Exit preset_next(Z& z, std::uint16_t at, std::uint16_t call) {  // ld a,n; call 761F
     z.load_immediate(at,z.r.a);
-    return continues(call,call_cycles);
+    return z.final_call(call);
 }
 template<class Z> Exit preset_last(Z& z) {                      // 01:761D: ld a,14h, then 01:761F
     z.load_immediate(0x761D,z.r.a);
@@ -322,7 +313,7 @@ template<class Z> Exit chain_loop(Z& z, const Chain& c) {      // a try: ... ld 
     z.add_to_hl(c.loop+6,z.bc());
     z.exchange_de_hl(c.loop+7);
     z.load_a_from_pair(c.loop+8,z.de());
-    return continues(c.loop+9,call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(c.loop+9));
 }
 template<class Z> Exit chain_blocked(Z& z, const Chain& c) {   // pop bc; next try or A = FF
     auto& r=z.r;
@@ -334,7 +325,7 @@ template<class Z> Exit chain_blocked(Z& z, const Chain& c) {   // pop bc; next t
     if (z.decrement_jump(b+5)) return chain_loop(z,c);
     z.load_immediate(b+7,r.a);
     z.or_a(b+9);
-    return returns(b+10,return_cycles);
+    return z.final_return(static_cast<std::uint16_t>(b+10));
 }
 // Returns through `found` when the last probe of a try is clear (a try found).
 template<class Z, class Found> Exit chain_after(Z& z, const Chain& c, unsigned k, Found found) {
@@ -345,7 +336,7 @@ template<class Z, class Found> Exit chain_after(Z& z, const Chain& c, unsigned k
         if (z.relative_if(a+2,!z.zero())) return chain_blocked(z,c);
         z.increment_pair(a+4,r.d,r.e);
         z.load_a_from_pair(a+5,z.de());
-        return continues(a+6,call_cycles);
+        return z.final_call(static_cast<std::uint16_t>(a+6));
     }
     if (z.relative_if(a+2,z.zero())) return found(z);
     return chain_blocked(z,c);
@@ -358,8 +349,7 @@ template<class Z> Exit landrover_found(Z& z) {
     z.pop(0x768F,r.b,r.c);
     z.copy(0x7690,r.a,r.c);
     z.or_a(0x7691);
-    if (z.zero()) return returns(0x7692,taken_return);
-    z.return_not_taken(0x7692);
+    if (auto exit=z.final_return_if(0x7692,mk::Condition::z)) return *exit;
     z.load_de(0x7693);
     z.compare_immediate(0x7696);
     if (!z.relative_if(0x7698,z.zero())) {
@@ -382,7 +372,7 @@ template<class Z> Exit landrover_found(Z& z) {
     z.store_hl_direct(0x76B9);
     z.store_hl_direct(0x76BC);
     z.xor_a(0x76BF);
-    return returns(0x76C0,return_cycles);
+    return z.final_return(0x76C0);
 }
 // 01:76FD: move the party by the offsets HL points at (plus the try's index in
 // the C pushed earlier), shared by the Hovercraft and by getting out.
@@ -420,7 +410,7 @@ template<class Z> Exit move_tail(Z& z) {
     z.store_hl_direct(0x772A);
     z.store_hl_direct(0x772D);
     z.xor_a(0x7730);
-    return returns(0x7731,return_cycles);
+    return z.final_return(0x7731);
 }
 template<class Z> Exit hovercraft_found(Z& z) {                // 01:76FA
     z.load_hl(0x76FA);
@@ -437,7 +427,7 @@ template<class Z> Exit leave_try(Z& z) {
     z.load_hl(leave_loop+3);
     z.add_to_hl(leave_loop+6,z.bc());
     z.load_from_hl(leave_loop+7,r.a);
-    return continues(leave_loop+8,call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(leave_loop+8));
 }
 template<class Z> Exit leave_entry(Z& z) {
     auto& r=z.r;
@@ -468,7 +458,7 @@ template<class Z> Exit leave_after(Z& z) {                     // 01:7749
     if (z.decrement_jump(0x7758)) return leave_try(z);
     z.load_immediate(0x775A,r.a);
     z.or_a(0x775C);
-    return returns(0x775D,return_cycles);
+    return z.final_return(0x775D);
 }
 }
 
@@ -500,6 +490,15 @@ void register_map_terrain(RoutineRegistry& registry) {
     add(map::ice_probe_unit,0x756C,{F(0x75C9,-2),R(0x7601)},{.slot2_mapper=true,.scratch_stack=2},
         [](auto& z) { return ice_probe(z); });
     add(map::ice_probe_unit,0x75E5,{R(0x7601)},{.slot2_mapper=true},[](auto& z) { return ice_after_update(z); });
+    // After the stretch with interrupts off: the saved register comes back before the broken-ice tile is named.
+    {
+        auto spec=mk::segment(map::ice_probe_unit,{F(0x75E4)});
+        spec.single_instruction=true;
+        mk::add_segment(registry,map::at1(0x75E4),std::move(spec),[](auto& z) -> Exit {
+            z.pop(0x75E4,z.r.d,z.r.e);
+            return mk::fall_through(0x75E4,0x75E5);
+        });
+    }
 
     // 01:7602: the ice preset
     const auto preset=map::ice_preset_unit;

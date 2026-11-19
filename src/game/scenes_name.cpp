@@ -35,7 +35,8 @@
 // How the code is cut, as in scenes.cpp: a segment ends at a call into
 // another routine, at a DI or EI, at a store to the cartridge control
 // register ($FFFC) and before a long copy (LDIR, block_transfer.cpp); the
-// core runs that instruction. The addresses passed to the kit are the
+// that instruction is rendered as the last of the segment. The addresses
+// passed to the kit are the
 // original's, because the kit reads each instruction's operands and cycle
 // cost from the player's ROM.
 #include "game/scenes.h"
@@ -47,65 +48,66 @@ namespace {
 namespace mk=menu_kit;
 using mk::Exit;
 
-// The ways a segment ends: the core runs the named instruction.
-Exit call_at(std::uint16_t at) { return mk::continues(at,mk::call_cycles); }
-Exit return_at(std::uint16_t at) { return mk::returns(at,mk::return_cycles); }
-Exit return_taken_at(std::uint16_t at) { return mk::returns(at,mk::taken_conditional_return_cycles); }
-Exit relative_jump_at(std::uint16_t at) { return mk::continues(at,12); }       // `jr e`
-Exit jump_at(std::uint16_t at) { return mk::continues(at,mk::jump_cycles); }     // `jp cc,nn`: 10 either way
-Exit disable_interrupts_at(std::uint16_t at) { return mk::continues(at,4); }     // `di`
-Exit video_address_at(std::uint16_t at) { return mk::continues(at,11); }         // `rst 08h`
-Exit cartridge_store_at(std::uint16_t at) { return mk::continues(at,13); }       // `ld ($FFFC),a`
+// The ways a segment ends: the final instruction, rendered like the others.
+template<class Z> Exit call_at(Z& z, std::uint16_t at) { return z.final_call(at); }
+template<class Z> Exit return_at(Z& z, std::uint16_t at) { return z.final_return(at); }
+template<class Z> Exit relative_jump_at(Z& z, std::uint16_t at) { return z.final_relative(at); }   // a relative jump
+template<class Z> Exit jump_at(Z& z, std::uint16_t at) { return z.final_jump(at); }
+template<class Z> Exit disable_interrupts_at(Z& z, std::uint16_t at) { return z.final_disable_interrupts(at); }
+template<class Z> Exit video_address_at(Z& z, std::uint16_t at) { return z.final_restart(at,0x08); }   // the restart that sets the video address
+template<class Z> Exit cartridge_store_at(Z& z, std::uint16_t at) {   // a store to the cartridge control byte
+    z.store_a_direct(at);
+    return mk::fall_through(at,static_cast<std::uint16_t>(at+3));
+}
 
 // rra: A rotated right through the carry; S, Z and P/V kept, H and N cleared,
-// the undocumented bits from the result (as the core).
+// the undocumented bits from the result (as the reference core).
 template<class Z> void rotate_a_right(Z& z, std::uint16_t at) {
     z.one_byte(at,4);
     const auto before=z.r.a;
     z.r.a=static_cast<std::uint8_t>((before>>1)|((z.r.f&mk::carry_flag)<<7));
     z.r.f=static_cast<std::uint8_t>((z.r.f&(mk::sign_flag|mk::zero_flag|mk::parity_flag))|
-        (z.r.a&(mk::y_flag|mk::x_flag))|(before&1));
+        (z.r.a&(mk::y_flag|mk::x_flag))|(before&1)); z.r.q=z.r.f;
 }
 
 // ---- The frame: 00:3EB9-3F25 ----------------------------------------------------------------------
-// 00:3EB9: wait out a pause (CALL NZ 00:00F1).
+// 00:3EB9: wait out a pause (the call to 00:00F1 when the flag is set).
 template<class Z> Exit frame_pause_test(Z& z) {
     z.load_a_direct(0x3EB9);                                         // the pause flag (C212)
     z.or_a(0x3EBC);
-    return call_at(0x3EBD);
+    return z.final_call_if(0x3EBD,mk::Condition::nz);
 }
 // 00:3EC0: IX = the cursor record (C784), then the frame wait 00:0052; the
-// core then calls the cursor sprites 01:40C5 at 3EC9.
+// call of the cursor sprites 01:40C5 at 3EC9 is a segment of its own.
 template<class Z> Exit frame_wait(Z& z) {
     z.load_index(0x3EC0,mk::Index::ix);
     z.load_immediate(0x3EC4,z.r.a);
-    return call_at(0x3EC6);
+    return call_at(z,0x3EC6);
 }
-// 00:3ECC: no button 1 or 2 just pressed: the directions (JP Z 00:3F73).
+// 00:3ECC: no button 1 or 2 just pressed: the directions (the jump to 00:3F73).
 template<class Z> Exit button_test(Z& z) {
     z.load_a_direct(0x3ECC);                                         // the pressed buttons (C205)
     z.and_immediate(0x3ECF);
-    return jump_at(0x3ED1);
+    return z.final_jump_if(0x3ED1,mk::Condition::z);
 }
-// 00:3ED4: button 1 erases (JP NZ 00:3F11); button 2 goes on to the key.
+// 00:3ED4: button 1 erases (the jump to 00:3F11); button 2 goes on to the key.
 template<class Z> Exit button_one_test(Z& z) {
     z.and_immediate(0x3ED4);
-    return jump_at(0x3ED6);
+    return z.final_jump_if(0x3ED6,mk::Condition::nz);
 }
 // 00:3EF5: the text position C781 (HL) steps forward, up to 25h; returns.
 template<class Z> Exit advance_position(Z& z) {
     z.load_from_hl(0x3EF5,z.r.a);
     z.compare_immediate(0x3EF6);                                     // 25h, the last name character
-    if (z.zero()) return return_taken_at(0x3EF8);
-    z.return_not_taken(0x3EF8);
+    if (auto exit=z.final_return_if(0x3EF8,mk::Condition::z)) return *exit;
     z.increment_at_hl(0x3EF9);
-    return return_at(0x3EFA);
+    return return_at(z,0x3EFA);
 }
 // 00:3ED9: button 2 on the key C788. The next key (5Ch) steps the position
 // forward: the original jumps to the load at 3EF2, which is rendered here with
-// the step; the EI before that load (3EF1) belongs to the typing path, whose
-// load the core runs before the entry 3EF5. The back and end keys take the
-// JR NC at 3EE0; a character falls through to 3EE2.
+// the step; the interrupt enable before that load (3EF1) belongs to the typing path, whose
+// load (3EF2, a segment of its own) comes before the entry 3EF5. The back and
+// end keys take the branch at 3EE0; a character falls through to 3EE2.
 template<class Z> Exit key_pressed(Z& z) {
     z.load_a_direct(0x3ED9);
     z.compare_immediate(0x3EDC);                                     // 5Ch
@@ -113,7 +115,7 @@ template<class Z> Exit key_pressed(Z& z) {
         z.load_hl(0x3EF2);                                           // the text position (C781)
         return advance_position(z);
     }
-    return mk::relative_if_exit(0x3EE0,!z.carry());
+    return z.final_relative_if(0x3EE0,mk::Condition::nc);
 }
 // 00:3EE2 (a character) and 00:3F11 (button 1, the erase): the character in A
 // (the key, or 20h, a space, at 3F17) is stored at the text position of the
@@ -122,26 +124,26 @@ template<class Z> Exit type_character(Z& z) {
     z.load_pair_direct(0x3EE2,z.r.d,z.r.e);                          // E = the text position
     z.load_immediate(0x3EE6,z.r.d);                                  // D = C7h
     z.store_a_to_pair(0x3EE8,z.de());
-    return call_at(0x3EE9);
+    return call_at(z,0x3EE9);
 }
 template<class Z> Exit erase_character(Z& z) {
     z.load_pair_direct(0x3F11,z.r.d,z.r.e);
     z.load_immediate(0x3F15,z.r.d);
     z.load_immediate(0x3F17,z.r.a);                                  // a space
     z.store_a_to_pair(0x3F19,z.de());
-    return call_at(0x3F1A);
+    return call_at(z,0x3F1A);
 }
-// 00:3EEC and 00:3F1D: the character back in A, then the DI before the glyph
-// upload 01:414F (the EI follows at 3EF1 or 3F22).
+// 00:3EEC and 00:3F1D: the character back in A, then the interrupt disable before the glyph
+// upload 01:414F (the enable follows at 3EF1 or 3F22).
 template<class Z> Exit reload_character(Z& z, std::uint16_t at) {
     z.load_a_from_pair(at,z.de());
-    return disable_interrupts_at(static_cast<std::uint16_t>(at+1));
+    return disable_interrupts_at(z,static_cast<std::uint16_t>(at+1));
 }
-// 00:3EFB: the end key (5Eh) confirms (JR Z 00:3F26); the back key (5Dh)
+// 00:3EFB: the end key (5Eh) confirms (the jump to 00:3F26); the back key (5Dh)
 // falls through to 3EFF.
 template<class Z> Exit end_key_test(Z& z) {
     z.compare_immediate(0x3EFB);                                     // 5Eh
-    return mk::relative_if_exit(0x3EFD,z.zero());
+    return z.final_relative_if(0x3EFD,mk::Condition::z);
 }
 // 00:3EFF: the text position steps back (also after an erase, by the jump at
 // 3F23), down to 21h, the first name character; with bit 0 of C780 set the
@@ -154,10 +156,9 @@ template<class Z> Exit back_position(Z& z) {
     z.load_hl(0x3F09);
     z.load_from_hl(0x3F0C,z.r.a);
     z.compare_register(0x3F0D,z.r.c);
-    if (z.zero()) return return_taken_at(0x3F0E);
-    z.return_not_taken(0x3F0E);
+    if (auto exit=z.final_return_if(0x3F0E,mk::Condition::z)) return *exit;
     z.decrement_at_hl(0x3F0F);
-    return return_at(0x3F10);
+    return return_at(z,0x3F10);
 }
 
 // ---- The confirmation: 00:3F26-3F68 ----------------------------------------------------------------
@@ -183,12 +184,12 @@ template<class Z> Exit confirm_name(Z& z) {
     z.load_hl(0x3F3C);                                               // D19A, the drawn name
     z.load_bc(0x3F3F);                                               // 10 bytes
     z.load_immediate(0x3F42,z.r.a);                                  // 08h: cartridge RAM on
-    return cartridge_store_at(0x3F44);
+    return cartridge_store_at(z,0x3F44);
 }
 // 00:3F49: the second row. In cartridge RAM the slot window's rows are 18
 // bytes apart (8 more after the 10 copied); in the screen copy 64 bytes apart
-// (36h more). The core loads the count (10) at 3F51; the LDIR at 3F53 is an
-// entry of its own.
+// (36h more). The count (10) is loaded at 3F51; the LDIR at 3F53 is an entry
+// of its own.
 template<class Z> Exit name_second_row(Z& z) {
     z.load_immediate(0x3F49,z.r.c);
     z.exchange_de_hl(0x3F4B);
@@ -196,12 +197,13 @@ template<class Z> Exit name_second_row(Z& z) {
     z.exchange_de_hl(0x3F4D);
     z.load_immediate(0x3F4E,z.r.c);
     z.add_to_hl(0x3F50,z.bc());
-    return mk::continues(0x3F51,7);                                  // `ld c,n`
+    z.load_immediate(0x3F51,z.r.c);                                  // 10 bytes
+    return mk::fall_through(0x3F51,0x3F53);
 }
 // 00:3F55: cartridge RAM off (80h, stored at 3F57).
 template<class Z> Exit confirm_cartridge_off(Z& z) {
     z.load_immediate(0x3F55,z.r.a);
-    return cartridge_store_at(0x3F57);
+    return cartridge_store_at(z,0x3F57);
 }
 // 00:3F5A: the next game mode: 0Ah for a game saved in a dungeon (saved mode
 // C316 = 0Bh), 0Ch otherwise; then return.
@@ -211,7 +213,7 @@ template<class Z> Exit next_mode(Z& z) {
     z.load_immediate(0x3F5F,z.r.a);                                  // 0Ah
     if (!z.relative_if(0x3F61,z.zero())) z.load_immediate(0x3F63,z.r.a);   // 0Ch
     z.store_a_direct(0x3F65);                                        // the game mode (C202)
-    return return_at(0x3F68);
+    return return_at(z,0x3F68);
 }
 
 // ---- The directions: 00:3F73-01:402B ----------------------------------------------------------------
@@ -219,13 +221,13 @@ template<class Z> Exit next_mode(Z& z) {
 // left, right). A new press sets the repeat counter C789 to 18h (24 frames)
 // and jumps to that direction's move. Without a new press, a held direction
 // (bits of C204) calls the repeat countdown 01:402C first; nothing held
-// returns. Each exit is the instruction the core runs next: the JR to the
+// returns. Each exit is the instruction that ends the segment: the jump to the
 // move after a press, or the countdown's call.
 template<class Z> Exit read_directions(Z& z) {
     auto pressed=[&](std::uint16_t load, std::uint16_t store, std::uint16_t jump) -> Exit {
         z.load_immediate(load,z.r.a);                                // 18h
         z.store_a_direct(store);                                     // C789
-        return relative_jump_at(jump);
+        return relative_jump_at(z,jump);
     };
     z.load_a_direct(0x3F73);                                         // the pressed buttons (C205)
     rotate_a_right(z,0x3F76);
@@ -238,18 +240,17 @@ template<class Z> Exit read_directions(Z& z) {
     if (z.relative_if(0x3F80,z.carry())) return pressed(0x3FA0,0x3FA2,0x3FA5);   // right
     z.load_a_direct(0x3F82);                                         // the held buttons (C204)
     rotate_a_right(z,0x3F85);
-    if (z.relative_if(0x3F86,z.carry())) return call_at(0x3FA7);    // up
+    if (z.relative_if(0x3F86,z.carry())) return call_at(z,0x3FA7);    // up
     rotate_a_right(z,0x3F88);
-    if (z.relative_if(0x3F89,z.carry())) return call_at(0x3FBE);    // down
+    if (z.relative_if(0x3F89,z.carry())) return call_at(z,0x3FBE);    // down
     rotate_a_right(z,0x3F8B);
-    if (z.relative_if(0x3F8C,z.carry())) return call_at(0x3FD5);    // left
+    if (z.relative_if(0x3F8C,z.carry())) return call_at(z,0x3FD5);    // left
     rotate_a_right(z,0x3F8E);
-    if (!z.carry()) return return_taken_at(0x3F8F);
-    z.return_not_taken(0x3F8F);
-    return call_at(0x3F90);                                          // right
+    if (auto exit=z.final_return_if(0x3F8F,mk::Condition::nc)) return *exit;
+    return call_at(z,0x3F90);                                          // right
 }
 // 00:3F94 (right), 00:3FAB (up), 00:3FC2 (down): a move's parameters, then the
-// JR to the move 00:3FF2. B is the coordinate the cursor stops at and C the
+// jump to the move 00:3FF2. B is the coordinate the cursor stops at and C the
 // step of that coordinate in pixels; DE the step of the cursor's screen-copy
 // address (two bytes a key, 128 bytes, two screen rows, a keyboard row); IY
 // the coordinate (C784 X, C785 Y).
@@ -257,12 +258,11 @@ template<class Z> Exit move_parameters(Z& z, std::uint16_t at) {
     z.load_bc(at);
     z.load_de(static_cast<std::uint16_t>(at+3));
     z.load_index(static_cast<std::uint16_t>(at+6),mk::Index::iy);
-    return relative_jump_at(static_cast<std::uint16_t>(at+10));
+    return relative_jump_at(z,static_cast<std::uint16_t>(at+10));
 }
 // 00:3F93, 00:3FAA, 00:3FC1: after the repeat countdown; not yet (NZ): return.
 template<class Z> Exit held_move(Z& z, std::uint16_t at) {
-    if (!z.zero()) return return_taken_at(at);
-    z.return_not_taken(at);
+    if (auto exit=z.final_return_if(at,mk::Condition::nz)) return *exit;
     return move_parameters(z,static_cast<std::uint16_t>(at+1));
 }
 // 00:3FD9: left, whose parameters are loaded around one more rule: while the
@@ -271,28 +271,25 @@ template<class Z> Exit move_left(Z& z) {
     z.load_bc(0x3FD9);
     z.load_a_direct(0x3FDC);                                         // the key (C788)
     z.compare_immediate(0x3FDF);                                     // 5Ch
-    if (z.zero()) return return_taken_at(0x3FE1);
-    z.return_not_taken(0x3FE1);
+    if (auto exit=z.final_return_if(0x3FE1,mk::Condition::z)) return *exit;
     z.load_de(0x3FE2);
     z.load_index(0x3FE5,mk::Index::iy);
-    return relative_jump_at(0x3FE9);
+    return relative_jump_at(z,0x3FE9);
 }
 // 00:3FD8: left after the repeat countdown.
 template<class Z> Exit held_move_left(Z& z) {
-    if (!z.zero()) return return_taken_at(0x3FD8);
-    z.return_not_taken(0x3FD8);
+    if (auto exit=z.final_return_if(0x3FD8,mk::Condition::nz)) return *exit;
     return move_left(z);
 }
 // 00:3FF2: one step. At the stop coordinate: return. Otherwise the coordinate
 // and the screen-copy address C786 take their steps and the cell there is
-// read; an empty cell takes the JR Z at 01:4004 back for another step. The
+// read; an empty cell takes the branch at 01:4004 back for another step. The
 // routine runs across the end of the first fixed bank (00:3FFF, 01:4002), so
 // its bound needs ROM bank 1 at 4000h (see the registration).
 template<class Z> Exit move_cursor(Z& z) {
     z.load_from_indexed(0x3FF2,mk::Index::iy,z.r.a);
     z.compare_register(0x3FF5,z.r.b);
-    if (z.zero()) return return_taken_at(0x3FF6);
-    z.return_not_taken(0x3FF6);
+    if (auto exit=z.final_return_if(0x3FF6,mk::Condition::z)) return *exit;
     z.add_register(0x3FF7,z.r.c);
     z.store_to_indexed(0x3FF8,mk::Index::iy,z.r.a);
     z.load_hl_direct(0x3FFB);
@@ -300,13 +297,13 @@ template<class Z> Exit move_cursor(Z& z) {
     z.store_hl_direct(0x3FFF);
     z.load_from_hl(0x4002,z.r.a);
     z.or_a(0x4003);
-    return mk::relative_if_exit(0x4004,z.zero());
+    return z.final_relative_if(0x4004,mk::Condition::z);
 }
 // 01:4006: the same key as before (the second half of a wide key): another
-// step (JR Z at 4009).
+// step (the branch at 4009).
 template<class Z> Exit same_key_test(Z& z) {
     z.compare_indexed(0x4006,mk::Index::ix);                         // IX + 4 = C788
-    return mk::relative_if_exit(0x4009,z.zero());
+    return z.final_relative_if(0x4009,mk::Condition::z);
 }
 // 01:400B: the new key goes to C788. A character returns. An action key puts
 // the cursor at that key's fixed X (C784) and screen-copy address (C786),
@@ -314,8 +311,7 @@ template<class Z> Exit same_key_test(Z& z) {
 template<class Z> Exit cursor_on_key(Z& z) {
     z.store_a_direct(0x400B);
     z.compare_immediate(0x400E);                                     // 5Ch
-    if (z.carry()) return return_taken_at(0x4010);
-    z.return_not_taken(0x4010);
+    if (auto exit=z.final_return_if(0x4010,mk::Condition::c)) return *exit;
     z.load_immediate(0x4011,z.r.c);
     z.load_hl(0x4013);
     bool chosen=z.relative_if(0x4016,z.zero());                      // next
@@ -332,49 +328,50 @@ template<class Z> Exit cursor_on_key(Z& z) {
     z.store_hl_direct(0x4024);
     z.copy(0x4027,z.r.a,z.r.c);
     z.store_a_direct(0x4028);
-    return return_at(0x402B);
+    return return_at(z,0x402B);
 }
 // 01:402C: the repeat countdown C789: NZ until it reaches zero, then it
 // restarts at 5 and returns Z (move now).
 template<class Z> Exit repeat_countdown(Z& z) {
     z.load_hl(0x402C);
     z.decrement_at_hl(0x402F);
-    if (!z.zero()) return return_taken_at(0x4030);
-    z.return_not_taken(0x4030);
+    if (auto exit=z.final_return_if(0x4030,mk::Condition::nz)) return *exit;
     z.store_to_hl(0x4031);
-    return return_at(0x4033);
+    return return_at(z,0x4033);
 }
 
 // ---- The screen: 01:4034-40BF -----------------------------------------------------------------------
-// 01:4037: the operands of the name-table clear 00:0363 (DE = 7800h, a
-// write at video address 3800h; BC = 300h; HL = 0), then the DI before it.
+// 01:4037: the operands of the name-table clear 00:0363 (a write at video address 3800h, 300h bytes, filled with zero), then the interrupt disable before it.
 template<class Z> Exit clear_name_table(Z& z) {
     z.load_de(0x4037);
     z.load_bc(0x403A);
     z.load_hl(0x403D);
-    return disable_interrupts_at(0x4040);
+    return disable_interrupts_at(z,0x4040);
 }
-// 01:4048: after the EI at 4044 and the load the core runs at 4045: the next
-// game mode, then C781-C800 cleared (the zero at C781 copied forward; the core
-// loads the count at 4051 and the LDIR at 4054 is an entry of its own).
+// 01:4048: after the interrupt enable at 4044 and the load at 4045 (its own segment): the
+// next game mode, then C781-C800 cleared (the zero at C781 copied forward; the
+// count is loaded at 4051 and the LDIR at 4054 is an entry of its own).
 template<class Z> Exit clear_working_state(Z& z) {
     z.increment_at_hl(0x4048);                                       // game mode + 1
     z.load_hl(0x4049);
     z.store_to_hl(0x404C);
     z.load_de(0x404E);
-    return mk::continues(0x4051,10);                                 // `ld bc,nn`
+    z.load_bc(0x4051);
+    return mk::fall_through(0x4051,0x4054);
 }
-// 01:4056: the screen copy D000-D600 cleared: the core loads the count at
-// 405C, the zero seed at 405F stays native and the LDIR at 4061 is an entry.
+// 01:4056: the screen copy D000-D600 cleared: the count is loaded at 405C, the
+// zero seed at 405F is a one-instruction segment and the LDIR at 4061 is an
+// entry.
 template<class Z> Exit clear_screen_copy(Z& z) {
     z.load_hl(0x4056);
     z.load_de(0x4059);
-    return mk::continues(0x405C,10);                                 // `ld bc,nn`
+    z.load_bc(0x405C);
+    return mk::fall_through(0x405C,0x405F);
 }
 // 01:4066: after the layout stream (01:4166): the name buffer C700-C737
 // cleared, the text position at 21h, then the pointers of the transfer of
 // the screen copy from D0C0 (540h bytes to video address 38C0h, 00:0346) and
-// the DI before it.
+// the interrupt disable before it.
 template<class Z> Exit name_buffer_and_upload(Z& z) {
     z.load_hl(0x4066);
     z.load_de(0x4069);
@@ -386,12 +383,12 @@ template<class Z> Exit name_buffer_and_upload(Z& z) {
     z.load_de(0x4078);
     z.load_hl(0x407B);
     z.load_bc(0x407E);
-    return disable_interrupts_at(0x4081);
+    return disable_interrupts_at(z,0x4081);
 }
 // 01:4089: after the keyboard (01:41DB): the palette (20h bytes from 41FCh)
 // to the target palette C240, then the pointers of one tile (20h bytes from
 // 421Ch to video address 2000h, the sprites' tile 0 that the cursor sprites
-// use) and the DI before the transfer.
+// use) and the interrupt disable before the transfer.
 template<class Z> Exit palette_and_cursor_tiles(Z& z) {
     z.load_hl(0x4089);
     z.load_de(0x408C);
@@ -400,12 +397,12 @@ template<class Z> Exit palette_and_cursor_tiles(Z& z) {
     z.load_de(0x4094);
     z.load_hl(0x4097);
     z.load_bc(0x409A);
-    return disable_interrupts_at(0x409D);
+    return disable_interrupts_at(z,0x409D);
 }
-// 01:40A5: after the EI at 40A1 and the load the core runs at 40A2 (DE =
+// 01:40A5: after the interrupt enable at 40A1 and the load at 40A2 (its own segment, DE =
 // C784): the cursor record's five starting bytes (from 40C0h); both scroll
 // shadows (C304, C300) and the dialogue-window flag C2D3 to zero; DE = 8006h
-// for the video register write (RST 08h at 40BB), after the DI at 40BA.
+// for the video register write (the restart at 40BB), after the interrupt disable at 40BA.
 template<class Z> Exit place_cursor(Z& z) {
     z.load_hl(0x40A5);
     z.load_bc(0x40A8);
@@ -415,7 +412,7 @@ template<class Z> Exit place_cursor(Z& z) {
     z.store_a_direct(0x40B1);
     z.store_a_direct(0x40B4);
     z.load_de(0x40B7);
-    return disable_interrupts_at(0x40BA);
+    return disable_interrupts_at(z,0x40BA);
 }
 
 // ---- The cursor sprites: 01:40C5-40FF --------------------------------------------------------------
@@ -466,7 +463,7 @@ template<class Z> Exit cursor_sprites(Z& z) {
         z.store_register_to_hl(0x40FA,z.r.c);
         z.subtract_immediate(0x40FB);                                // 8 pixels left
     } while (z.decrement_jump(0x40FD));
-    return return_at(0x40FF);
+    return return_at(z,0x40FF);
 }
 
 // ---- Redrawing the name buffer: 01:4100-4116 -------------------------------------------------------
@@ -476,11 +473,10 @@ template<class Z> Exit cursor_sprites(Z& z) {
 // buffer address) across the second.
 template<class Z> Exit redraw_next(Z& z) {
     z.decrement_at_hl(0x4107);
-    if (z.sign()) return return_taken_at(0x4108);                    // all drawn
-    z.return_not_taken(0x4108);
+    if (auto exit=z.final_return_if(0x4108,mk::Condition::m)) return *exit;                    // all drawn
     z.load_from_hl(0x4109,z.r.e);                                    // DE = C700 + position
     z.push(0x410A,z.r.h,z.r.l);
-    return call_at(0x410B);
+    return call_at(z,0x410B);
 }
 template<class Z> Exit redraw_name(Z& z) {
     z.load_hl(0x4100);
@@ -492,13 +488,13 @@ template<class Z> Exit redraw_name(Z& z) {
 template<class Z> Exit redraw_glyph(Z& z) {
     z.load_a_from_pair(0x410E,z.de());
     z.push(0x410F,z.r.d,z.r.e);
-    return call_at(0x4110);
+    return call_at(z,0x4110);
 }
-// 01:4113: both words back, then the JR to the next position (4107).
+// 01:4113: both words back, then the jump to the next position (4107).
 template<class Z> Exit redraw_glyph_done(Z& z) {
     z.pop(0x4113,z.r.d,z.r.e);
     z.pop(0x4114,z.r.h,z.r.l);
-    return relative_jump_at(0x4115);
+    return relative_jump_at(z,0x4115);
 }
 
 // ---- The cell of a text position: 01:4117-4139 -----------------------------------------------------
@@ -532,7 +528,7 @@ template<class Z> Exit character_cell(Z& z) {
     z.and_immediate(0x4135);
     z.add_register(0x4137,z.r.l);
     z.copy(0x4138,z.r.l,z.r.a);                                      // + 2 x (c / 8)
-    return return_at(0x4139);
+    return return_at(z,0x4139);
 }
 
 // ---- The glyph: 01:413A-4165 -----------------------------------------------------------------------
@@ -557,7 +553,7 @@ template<class Z> Exit write_glyph(Z& z) {
     z.add_to_hl(0x414B,z.de());
     z.store_register_to_hl(0x414C,z.r.c);                            // the tile above
     z.pop(0x414D,z.r.h,z.r.l);
-    return return_at(0x414E);
+    return return_at(z,0x414E);
 }
 // 01:4152: after the glyph (01:414F calls 01:413A first), the same two tiles
 // go to video memory: the cell's name-table address is its screen-copy
@@ -568,7 +564,7 @@ template<class Z> Exit glyph_video_address(Z& z) {
     z.subtract_immediate(0x4154);
     z.copy(0x4156,z.r.h,z.r.a);
     z.exchange_de_hl(0x4157);
-    return video_address_at(0x4158);
+    return video_address_at(z,0x4158);
 }
 // 01:4159: the cell's tile out, then the address one row above (- 40h).
 template<class Z> Exit glyph_video_upper(Z& z) {
@@ -577,13 +573,13 @@ template<class Z> Exit glyph_video_upper(Z& z) {
     z.load_hl(0x415C);
     z.add_to_hl(0x415F,z.de());
     z.exchange_de_hl(0x4160);
-    return video_address_at(0x4161);
+    return video_address_at(z,0x4161);
 }
 // 01:4162: the tile above out; return.
 template<class Z> Exit glyph_video_upper_tile(Z& z) {
     z.copy(0x4162,z.r.a,z.r.c);
     z.output(0x4163);
-    return return_at(0x4165);
+    return return_at(z,0x4165);
 }
 
 // ---- The layout: 01:4166-41FB ----------------------------------------------------------------------
@@ -649,7 +645,7 @@ template<class Z> Exit layout_stream(Z& z) {
     }
     z.load_hl(0x41A2);
     z.load_de(0x41A5);
-    return call_at(0x41A8);
+    return call_at(z,0x41A8);
 }
 // 01:41AB: the bottom row of the frame (row 18): HL is just past the left
 // column, on the attribute byte of its first cell; 24 attribute bytes there
@@ -657,7 +653,7 @@ template<class Z> Exit layout_stream(Z& z) {
 template<class Z> Exit layout_bottom_attributes(Z& z) {
     z.increment_hl(0x41AB);
     z.load_bc(0x41AC);
-    return call_at(0x41AF);
+    return call_at(z,0x41AF);
 }
 // 01:41B2: the attribute bytes of the two right corners (the end of that
 // row, and D137 on row 4), then the 24 of the top row from D107 (01:41D5).
@@ -667,7 +663,7 @@ template<class Z> Exit layout_corner_attributes(Z& z) {
     z.store_to_hl(0x41B7);
     z.load_hl(0x41B9);
     z.load_bc(0x41BC);
-    return call_at(0x41BF);
+    return call_at(z,0x41BF);
 }
 // 01:41C8: a column of the frame: 13 cells (tile D, attribute E), one screen
 // row apart (1 + 3Fh bytes); return. 01:41C2 is the right column (from D176,
@@ -682,7 +678,7 @@ template<class Z> Exit border_column(Z& z) {
         z.add_to_hl(0x41D0,z.bc());
         z.decrement(0x41D1,z.r.a);
     } while (z.relative_if(0x41D2,!z.zero()));
-    return return_at(0x41D4);
+    return return_at(z,0x41D4);
 }
 template<class Z> Exit right_border(Z& z) {
     z.load_hl(0x41C2);
@@ -696,7 +692,7 @@ template<class Z> Exit every_other_byte(Z& z) {
         z.increment(0x41D6,z.r.l);
         z.increment(0x41D7,z.r.l);
     } while (z.decrement_jump(0x41D8));
-    return return_at(0x41DA);
+    return return_at(z,0x41DA);
 }
 // 01:41DB: the keyboard: four rows of eleven keys from the table at 4280h,
 // drawn from D30A; after each key a blank cell (tile 0); a row's 44 bytes
@@ -722,7 +718,7 @@ template<class Z> Exit keyboard(Z& z) {
         z.exchange_de_hl(0x41F7);
         z.decrement(0x41F8,z.r.a);
     } while (z.relative_if(0x41F9,!z.zero()));
-    return return_at(0x41FB);
+    return return_at(z,0x41FB);
 }
 }
 
@@ -733,20 +729,20 @@ void register_scene_names(RoutineRegistry& registry) {
     auto F=[](std::uint16_t at, std::int8_t stack=0) { return mk::core_final_at(at,stack); };
     auto R=[](std::uint16_t at) { return mk::returned_at(at); };
     auto C=[](std::uint16_t at) { return mk::conditional_at(at); };
-    // A final `ld ($FFFC),a`: the core remaps cartridge RAM at that moment.
+    // A final store to the cartridge control byte: cartridge RAM is remapped at that moment.
     auto cartridge=[](std::uint16_t at) { auto exit=mk::core_final_at(at); exit.cartridge_control=true; return exit; };
-    // A final DI, run by the core.
+    // A final interrupt disable.
     auto di=[](std::uint16_t at) { auto exit=mk::core_final_at(at); exit.interrupt_mask=InterruptMask::disable; return exit; };
     auto add=[&](RoutineEntry entry, RoutineEntry unit, std::vector<SegmentExit> exits, mk::Permissions permissions, auto logic) {
         mk::add_segment(registry,entry,mk::segment(unit,std::move(exits),permissions),logic);
     };
-    // A lone EI, run by the core (four cycles).
+    // A lone interrupt enable (four cycles).
     auto enable_interrupts=[&](RoutineEntry entry) {
         auto exit=mk::core_final_at(entry.address);
         exit.interrupt_mask=InterruptMask::enable;
         auto spec=mk::segment(entry,{exit});
         spec.single_instruction=true;
-        registry.add(entry,spec,[](const Machine&) { return 4; },[=](RoutineContext& c) { c.finish_core(entry.address); });
+        mk::add_segment(registry,entry,std::move(spec),[at=entry.address](auto& z) -> Exit { return z.final_enable_interrupts(at); });
     };
     auto copy=[&](RoutineEntry entry) { register_block_transfer(registry,entry); };
     constexpr RoutineEntry e3EB9{0,0x3EB9}, e3EC0{0,0x3EC0}, e3ECC{0,0x3ECC}, e3ED4{0,0x3ED4}, e3ED9{0,0x3ED9};
@@ -764,15 +760,15 @@ void register_scene_names(RoutineRegistry& registry) {
     add(e3EE2,e3EE2,{F(0x3EE9)},calls,[](auto& z) -> Exit { return type_character(z); });
     add(e3EEC,e3EEC,{di(0x3EED)},none,[](auto& z) -> Exit { return reload_character(z,0x3EEC); });            // after 01:4117
     enable_interrupts({0,0x3EF1});
-    add(e3EF5,e3EF5,{R(0x3EF8),R(0x3EFA)},none,[](auto& z) -> Exit { return advance_position(z); });          // after the EI-delayed load at 3EF2
-    add(e3EFB,e3EFB,{C(0x3EFD)},none,[](auto& z) -> Exit { return end_key_test(z); });                        // the JR NC at 3EE0
+    add(e3EF5,e3EF5,{R(0x3EF8),R(0x3EFA)},none,[](auto& z) -> Exit { return advance_position(z); });          // after the interrupt-delayed load at 3EF2
+    add(e3EFB,e3EFB,{C(0x3EFD)},none,[](auto& z) -> Exit { return end_key_test(z); });                        // the branch at 3EE0
     add(e3EFF,e3EFF,{R(0x3F0E),R(0x3F10)},none,[](auto& z) -> Exit { return back_position(z); });
-    add(e3F11,e3F11,{F(0x3F1A)},calls,[](auto& z) -> Exit { return erase_character(z); });                    // the JP NZ at 3ED6
+    add(e3F11,e3F11,{F(0x3F1A)},calls,[](auto& z) -> Exit { return erase_character(z); });                    // the jump at 3ED6
     add(e3F1D,e3F1D,{di(0x3F1E)},none,[](auto& z) -> Exit { return reload_character(z,0x3F1D); });            // after 01:4117
     enable_interrupts({0,0x3F22});
 
     // ---- the confirmation ----
-    add(e3F26,e3F26,{cartridge(0x3F44)},none,[](auto& z) -> Exit { return confirm_name(z); });                // the JR Z at 3EFD
+    add(e3F26,e3F26,{cartridge(0x3F44)},none,[](auto& z) -> Exit { return confirm_name(z); });                // the branch at 3EFD
     copy({0,0x3F47});
     add(e3F49,e3F49,{F(0x3F51)},calls,[](auto& z) -> Exit { return name_second_row(z); });
     copy({0,0x3F53});
@@ -781,25 +777,24 @@ void register_scene_names(RoutineRegistry& registry) {
 
     // ---- the directions ----
     add(e3F73,e3F73,{R(0x3F8F),F(0x3F90),F(0x3FA7),F(0x3FBE),F(0x3FD5),F(0x3FA5),F(0x3FBC),F(0x3FD3),F(0x3FF0)},calls,
-        [](auto& z) -> Exit { return read_directions(z); });                                                    // the JP Z at 3ED1
+        [](auto& z) -> Exit { return read_directions(z); });                                                    // the jump at 3ED1
     for (const auto [at,move,jump]:{std::tuple{std::uint16_t{0x3F93},std::uint16_t{0x3F94},std::uint16_t{0x3F9E}},
                                      std::tuple{std::uint16_t{0x3FAA},std::uint16_t{0x3FAB},std::uint16_t{0x3FB5}},
                                      std::tuple{std::uint16_t{0x3FC1},std::uint16_t{0x3FC2},std::uint16_t{0x3FCC}}}) {
         const RoutineEntry held{0,at}, moved{0,move};
         add(held,held,{R(at),F(jump)},none,[=](auto& z) -> Exit { return held_move(z,at); });                    // after 01:402C
-        add(moved,moved,{F(jump)},calls,[=](auto& z) -> Exit { return move_parameters(z,move); });              // the JR after a press
+        add(moved,moved,{F(jump)},calls,[=](auto& z) -> Exit { return move_parameters(z,move); });              // the jump after a press
     }
     add(e3FD8,e3FD8,{R(0x3FD8),R(0x3FE1),F(0x3FE9)},none,[](auto& z) -> Exit { return held_move_left(z); });  // after 01:402C
-    add(e3FD9,e3FD9,{R(0x3FE1),F(0x3FE9)},none,[](auto& z) -> Exit { return move_left(z); });                 // the JR after a press
-    // The move runs from 00:3FF2 into 01:4002-4004 (slot 1), so its path is
-    // only known with ROM bank 1 mapped at 4000h; otherwise the bound is the
-    // uncertain maximum and the segment falls back.
+    add(e3FD9,e3FD9,{R(0x3FE1),F(0x3FE9)},none,[](auto& z) -> Exit { return move_left(z); });                 // the jump after a press
+    // The move runs from 00:3FF2 into 01:4002-4004 (slot 1), so it needs ROM
+    // bank 1 mapped at 4000h. Read at entry: no interrupt handler remaps slot
+    // 1, so the guard holds across a delivery.
     const RoutineEntry move{0,0x3FF2};
-    const auto move_logic=[](auto& z) -> Exit { return move_cursor(z); };
-    registry.add(move,mk::segment(move,{R(0x3FF6),C(0x4004)}),[=](const Machine& m) {
-        if (m.memory().mapping(0x4000)!=Memory::Mapping{Memory::Kind::rom,1}) return mk::uncertain_maximum;
-        return mk::cost(m,move_logic,mk::uncertain_maximum);
-    },[=](RoutineContext& c) { mk::run(c,move_logic); });
+    mk::add_segment(registry,move,mk::segment(move,{R(0x3FF6),C(0x4004)}),
+        mk::Guard{"ROM bank 1 is mapped at 4000h",[](const Machine& m) {
+            return m.memory().mapping(0x4000)==Memory::Mapping{Memory::Kind::rom,1};
+        }},[](auto& z) -> Exit { return move_cursor(z); });
     add({1,0x4006},{1,0x4006},{C(0x4009)},none,[](auto& z) -> Exit { return same_key_test(z); });
     add({1,0x400B},{1,0x400B},{R(0x4010),R(0x402B)},none,[](auto& z) -> Exit { return cursor_on_key(z); });
     add({1,0x402C},{1,0x402C},{R(0x4030),R(0x4033)},none,[](auto& z) -> Exit { return repeat_countdown(z); });
@@ -807,7 +802,7 @@ void register_scene_names(RoutineRegistry& registry) {
     // ---- the screen ----
     add({1,0x4037},{1,0x4037},{di(0x4040)},none,[](auto& z) -> Exit { return clear_name_table(z); });         // after 01:7B05
     enable_interrupts({1,0x4044});
-    add({1,0x4048},{1,0x4048},{F(0x4051)},none,[](auto& z) -> Exit { return clear_working_state(z); });       // after the EI-delayed load at 4045
+    add({1,0x4048},{1,0x4048},{F(0x4051)},none,[](auto& z) -> Exit { return clear_working_state(z); });       // after the interrupt-delayed load at 4045
     copy({1,0x4054});
     add({1,0x4056},{1,0x4048},{F(0x405C)},none,[](auto& z) -> Exit { return clear_screen_copy(z); });
     copy({1,0x4061});
@@ -815,13 +810,13 @@ void register_scene_names(RoutineRegistry& registry) {
     enable_interrupts({1,0x4085});
     add({1,0x4089},{1,0x4089},{di(0x409D)},none,[](auto& z) -> Exit { return palette_and_cursor_tiles(z); });
     enable_interrupts({1,0x40A1});
-    add({1,0x40A5},{1,0x40A5},{di(0x40BA)},none,[](auto& z) -> Exit { return place_cursor(z); });             // after the EI-delayed load at 40A2
+    add({1,0x40A5},{1,0x40A5},{di(0x40BA)},none,[](auto& z) -> Exit { return place_cursor(z); });             // after the interrupt-delayed load at 40A2
     enable_interrupts({1,0x40BC});
 
     // ---- the cursor sprites, the redraw, the cell, the glyph ----
     add({1,0x40C8},{1,0x40C8},{R(0x40FF)},none,[](auto& z) -> Exit { return cursor_sprites(z); });             // after 01:4117
     add({1,0x4100},{1,0x4100},{R(0x4108),F(0x410B,-2)},{.scratch_stack=4},[](auto& z) -> Exit { return redraw_name(z); });
-    add({1,0x4107},{1,0x4107},{R(0x4108),F(0x410B,-2)},{.scratch_stack=4},[](auto& z) -> Exit { return redraw_next(z); });  // the JR at 4115
+    add({1,0x4107},{1,0x4107},{R(0x4108),F(0x410B,-2)},{.scratch_stack=4},[](auto& z) -> Exit { return redraw_next(z); });  // the jump at 4115
     add({1,0x410E},{1,0x410E},{F(0x4110,-2)},{.scratch_stack=4},[](auto& z) -> Exit { return redraw_glyph(z); });           // after 01:4117
     add({1,0x4113},{1,0x410E},{F(0x4115,4)},{.inherited_stack=4},[](auto& z) -> Exit { return redraw_glyph_done(z); });     // after 01:413A
     add({1,0x4117},{1,0x4117},{R(0x4139)},none,[](auto& z) -> Exit { return character_cell(z); });
@@ -838,5 +833,28 @@ void register_scene_names(RoutineRegistry& registry) {
     add({1,0x41C8},{1,0x41C8},{R(0x41D4)},none,[](auto& z) -> Exit { return border_column(z); });
     add({1,0x41D5},{1,0x41D5},{R(0x41DA)},none,[](auto& z) -> Exit { return every_other_byte(z); });
     add({1,0x41DB},{1,0x41DB},{R(0x41FB)},none,[](auto& z) -> Exit { return keyboard(z); });
+
+    // ---- joining stretches (milestone 14) ----
+    // The instructions between two segments, one segment
+    // each: the calls that follow a pause test, a redraw or a screen
+    // clear, the loads right after an interrupt enable (kept in front of any interrupt by
+    // the interrupt delay), the zero seed of the screen-copy clear, the
+    // restart that sends a VDP address, and the jumps back into the frame.
+    auto single=[&](RoutineEntry entry, SegmentExit exit, mk::Permissions permissions, auto logic) {
+        auto spec=mk::segment(entry,{exit},permissions);
+        spec.single_instruction=true;
+        mk::add_segment(registry,entry,std::move(spec),logic);
+    };
+    for (const RoutineEntry entry:{RoutineEntry{0,0x3EC9},RoutineEntry{0,0x3EEE},RoutineEntry{0,0x3F1F},RoutineEntry{1,0x4034},
+                                    RoutineEntry{1,0x4041},RoutineEntry{1,0x4082},RoutineEntry{1,0x4086},RoutineEntry{1,0x409E},
+                                    RoutineEntry{1,0x40C5},RoutineEntry{1,0x414F}})
+        single(entry,F(entry.address),calls,[at=entry.address](auto& z) -> Exit { return z.final_call(at); });
+    single({1,0x40BB},F(0x40BB),calls,[](auto& z) -> Exit { return z.final_restart(0x40BB,0x08); });
+    single({0,0x3F23},F(0x3F23),none,[](auto& z) -> Exit { return z.final_jump(0x3F23); });
+    single({1,0x40BD},F(0x40BD),none,[](auto& z) -> Exit { return z.final_jump(0x40BD); });
+    single({0,0x3EF2},F(0x3EF2),none,[](auto& z) -> Exit { z.load_hl(0x3EF2); return mk::fall_through(0x3EF2,0x3EF5); });      // the text position (C781)
+    single({1,0x4045},F(0x4045),none,[](auto& z) -> Exit { z.load_hl(0x4045); return mk::fall_through(0x4045,0x4048); });      // the game mode (C202)
+    single({1,0x40A2},F(0x40A2),none,[](auto& z) -> Exit { z.load_de(0x40A2); return mk::fall_through(0x40A2,0x40A5); });      // the cursor coordinates (C784)
+    single({1,0x405F},F(0x405F),none,[](auto& z) -> Exit { z.store_to_hl(0x405F); return mk::fall_through(0x405F,0x4061); });
 }
 }

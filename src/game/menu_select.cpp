@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Menus and windows (milestone 12), part select:
-// Choosing: the cursor loop 00:2D51 (its cancel point 00:2D93 stays native for
+// Choosing: the cursor loop 00:2D51 (its cancel point 00:2D93 is observed by
 // the host), the paged item list 00:2DA5, yes or no 00:2D19, the waits 00:2D25
 // to 00:2D49, the cursor blink 00:2E62 and the frame-interrupt handler bodies
 // 00:015F, 00:01AD and 00:01D1.
@@ -8,7 +8,7 @@
 // game/menu_kit.h.
 //
 // What runs here is the polling between the frame waits. Every wait itself
-// (the bare call of 00:0052) stays native and ends a segment, so each segment
+// (the bare call of 00:0052) ends a segment, so each segment
 // is the few instructions between two waits: read the pressed buttons, move
 // the choice or the page, test the confirm buttons, and loop back to the next
 // wait. The frame interrupt handlers (the three bodies) do the same on the
@@ -25,9 +25,7 @@ namespace {
 namespace mk=game::menu_kit;
 using mk::Exit;
 using mk::call_cycles;
-using mk::continues;
 using mk::return_cycles;
-using mk::returns;
 using mk::taken_conditional_return_cycles;
 using mk::core_final_at;
 using mk::returned_at;
@@ -40,7 +38,7 @@ namespace menu_ns=game::menu;
 // (the call is the final instruction, 18 bytes after the start).
 template<class Z> Exit scroll_registers(Z& z, std::uint16_t at) {
     map_kit::write_scroll_registers(z,at);
-    return continues(at+18,call_cycles);
+    return z.final_call(static_cast<std::uint16_t>(at+18));
 }
 // 00:017A: after the fade steps, the palette (C220h, 32 bytes) goes to colour
 // memory; the call of the unrolled upload is the final instruction.
@@ -50,24 +48,24 @@ template<class Z> Exit fade_palette(Z& z) {
     z.load_de(0x017D);
     (void)z.restart_vdp_address(0x0180);
     z.load_immediate(0x0181,r.c);
-    return continues(0x0183,call_cycles);
+    return z.final_call(0x0183);
 }
 
 // ---- Yes or no (00:2D19) ----------------------------------------------------------------------
 template<class Z> Exit yes_no_open(Z& z) {                          // push bc, then the window call
     z.push(0x2D19,z.r.b,z.r.c);
-    return continues(0x2D1A,call_cycles);
+    return z.final_call(0x2D1A);
 }
 template<class Z> Exit yes_no_between(Z& z) {                       // push af holds the answer across the close call
     z.push(0x2D1D,z.r.a,z.r.f);
-    return continues(0x2D1E,call_cycles);
+    return z.final_call(0x2D1E);
 }
 template<class Z> Exit yes_no_close(Z& z) {                         // the answer comes back with Z set for "no"
     auto& r=z.r;
     z.pop(0x2D21,r.a,r.f);
     z.pop(0x2D22,r.b,r.c);
     z.or_a(0x2D23);
-    return returns(0x2D24,return_cycles);
+    return z.final_return(0x2D24);
 }
 
 // ---- The waits (00:2D25-00:2D50) --------------------------------------------------------------
@@ -76,15 +74,15 @@ template<class Z> Exit button_wait(Z& z, bool poll_first) {
     auto& r=z.r;
     if (!poll_first) {
         z.load_immediate(0x2D25,r.a);
-        return continues(0x2D27,call_cycles);
+        return z.final_call(0x2D27);
     }
     z.load_a_direct(0x2D2A);
     z.and_immediate(0x2D2D);
     if (z.jump_if(0x2D2F,z.zero())) {
         z.load_immediate(0x2D25,r.a);
-        return continues(0x2D27,call_cycles);
+        return z.final_call(0x2D27);
     }
-    return returns(0x2D32,return_cycles);
+    return z.final_return(0x2D32);
 }
 // 00:2D33 (B = 1Eh) and 00:2D37 (B = B4h) wait that many frames for a button;
 // 00:2D3E is the poll after each frame wait.
@@ -93,39 +91,38 @@ template<class Z> Exit timed_wait_short(Z& z) {
     z.load_immediate(0x2D33,r.b);
     z.relative(0x2D35);
     z.load_immediate(0x2D39,r.a);
-    return continues(0x2D3B,call_cycles);
+    return z.final_call(0x2D3B);
 }
 template<class Z> Exit timed_wait_long(Z& z) {
     auto& r=z.r;
     z.load_immediate(0x2D37,r.b);
     z.load_immediate(0x2D39,r.a);
-    return continues(0x2D3B,call_cycles);
+    return z.final_call(0x2D3B);
 }
 template<class Z> Exit timed_wait_poll(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x2D3E);
     z.and_immediate(0x2D41);
-    if (!z.zero()) return returns(0x2D43,taken_conditional_return_cycles);
-    z.return_not_taken(0x2D43);
-    if (!z.decrement_jump(0x2D44)) return returns(0x2D46,return_cycles);
+    if (auto exit=z.final_return_if(0x2D43,mk::Condition::nz)) return *exit;
+    if (!z.decrement_jump(0x2D44)) return z.final_return(0x2D46);
     z.load_immediate(0x2D39,r.a);
-    return continues(0x2D3B,call_cycles);
+    return z.final_call(0x2D3B);
 }
 // 00:2D47 (B = D0h) falls into 00:2D49: wait B frames, no button test.
 template<class Z> Exit fixed_wait(Z& z) {
     auto& r=z.r;
     z.load_immediate(0x2D47,r.b);
     z.load_immediate(0x2D49,r.a);
-    return continues(0x2D4B,call_cycles);
+    return z.final_call(0x2D4B);
 }
 template<class Z> Exit frames_wait(Z& z) {
     z.load_immediate(0x2D49,z.r.a);
-    return continues(0x2D4B,call_cycles);
+    return z.final_call(0x2D4B);
 }
 template<class Z> Exit frames_wait_next(Z& z) {
-    if (!z.decrement_jump(0x2D4E)) return returns(0x2D50,return_cycles);
+    if (!z.decrement_jump(0x2D4E)) return z.final_return(0x2D50);
     z.load_immediate(0x2D49,z.r.a);
-    return continues(0x2D4B,call_cycles);
+    return z.final_call(0x2D4B);
 }
 
 // ---- The cursor loop (00:2D51) ------------------------------------------------------------------
@@ -141,15 +138,15 @@ template<class Z> Exit selection_start(Z& z) {
     z.xor_a(0x2D5C);
     z.store_a_direct(0x2D5D);
     z.load_immediate(0x2D60,r.a);
-    return continues(0x2D62,call_cycles);
+    return z.final_call(0x2D62);
 }
 template<class Z> Exit selection_wait(Z& z) {
     z.load_immediate(0x2D60,z.r.a);
-    return continues(0x2D62,call_cycles);
+    return z.final_call(0x2D62);
 }
 // After each frame wait: Up and Down move the choice (wrapping), then button 1
 // or 2 leaves the loop (the jump at 00:2D90 is the segment's conditional exit;
-// the cancel point 00:2D93 behind it is native).
+// the cancel point 00:2D93 behind it is the next segment's entry).
 template<class Z> Exit selection_poll(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x2D65);
@@ -174,7 +171,7 @@ template<class Z> Exit selection_poll(Z& z) {
     }
     z.load_a_direct(0x2D8B);
     z.and_immediate(0x2D8E);
-    return mk::jump_if_exit(0x2D90);
+    return z.final_jump_if(0x2D90,mk::Condition::z);
 }
 // After the cancel point: the blink counter is cleared, one more frame wait.
 template<class Z> Exit selection_leave(Z& z) {
@@ -182,14 +179,14 @@ template<class Z> Exit selection_leave(Z& z) {
     z.xor_a(0x2D94);
     z.store_a_direct(0x2D95);
     z.load_immediate(0x2D98,r.a);
-    return continues(0x2D9A,call_cycles);
+    return z.final_call(0x2D9A);
 }
 // After that wait: the selection is no longer active; the choice is returned.
 template<class Z> Exit selection_end(Z& z) {
     z.xor_a(0x2D9D);
     z.store_a_direct(0x2D9E);
     z.load_a_direct(0x2DA1);
-    return returns(0x2DA4,return_cycles);
+    return z.final_return(0x2DA4);
 }
 
 // ---- The paged item list (00:2DA5) ---------------------------------------------------------------
@@ -197,7 +194,7 @@ template<class Z> Exit selection_end(Z& z) {
 // the recount, as in the original's flow (see menus.md).
 template<class Z> Exit item_wait(Z& z) {                            // ld a,8 ; call WaitForVInt
     z.load_immediate(0x2DAA,z.r.a);
-    return continues(0x2DAC,call_cycles);
+    return z.final_call(0x2DAC);
 }
 template<class Z> Exit item_start(Z& z) {                           // 00:2DA5 and the jump back to it
     auto& r=z.r;
@@ -209,7 +206,7 @@ template<class Z> Exit item_start(Z& z) {                           // 00:2DA5 a
 template<class Z> Exit item_redraw(Z& z) {
     z.xor_a(0x2E30);
     z.store_a_direct(0x2E31);
-    return continues(0x2E34,call_cycles);
+    return z.final_call(0x2E34);
 }
 // 00:2DFE: no page key; button 1 or 2 ends the selection, else wait again.
 template<class Z> Exit item_confirm(Z& z) {
@@ -220,7 +217,7 @@ template<class Z> Exit item_confirm(Z& z) {
     z.xor_a(0x2E03);
     z.store_a_direct(0x2E04);
     z.load_immediate(0x2E07,r.a);
-    return continues(0x2E09,call_cycles);
+    return z.final_call(0x2E09);
 }
 template<class Z> Exit item_poll(Z& z) {
     auto& r=z.r;
@@ -279,17 +276,15 @@ template<class Z> Exit item_finish(Z& z) {
     z.xor_a(0x2E0C);
     z.store_a_direct(0x2E0D);
     z.test_bit(0x2E10,4,r.c);
-    if (!z.zero()) return returns(0x2E12,taken_conditional_return_cycles);
-    z.return_not_taken(0x2E12);
+    if (auto exit=z.final_return_if(0x2E12,mk::Condition::nz)) return *exit;
     z.load_a_direct(0x2E13);
     z.compare_immediate(0x2E16);
     z.load_a_direct(0x2E18);
-    if (z.carry()) return returns(0x2E1B,taken_conditional_return_cycles);
-    z.return_not_taken(0x2E1B);
+    if (auto exit=z.final_return_if(0x2E1B,mk::Condition::c)) return *exit;
     z.or_a(0x2E1C);
     if (!z.relative_if(0x2E1D,z.zero())) {
         z.decrement(0x2E1F,r.a);
-        return returns(0x2E20,return_cycles);
+        return z.final_return(0x2E20);
     }
     z.load_hl_direct(0x2E21);
     z.copy(0x2E24,r.a,r.l);
@@ -335,8 +330,7 @@ template<class Z> Exit cursor_blink(Z& z) {
     auto& r=z.r;
     z.load_a_direct(0x2E62);
     z.or_a(0x2E65);
-    if (z.zero()) return returns(0x2E66,taken_conditional_return_cycles);
-    z.return_not_taken(0x2E66);
+    if (auto exit=z.final_return_if(0x2E66,mk::Condition::z)) return *exit;
     z.load_a_direct(0x2E67);
     z.compare_immediate(0x2E6A);
     z.load_bc(0x2E6C);
@@ -370,7 +364,7 @@ template<class Z> Exit cursor_blink(Z& z) {
     z.copy(0x2EA5,r.a,r.b);
     if (!z.relative_if(0x2EA6,!z.zero())) z.copy(0x2EA8,r.a,r.c);
     z.output(0x2EA9);
-    return returns(0x2EAB,return_cycles);
+    return z.final_return(0x2EAB);
 }
 
 template<class Logic> void add(RoutineRegistry& registry, std::uint16_t address, RoutineEntry unit,

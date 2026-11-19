@@ -23,7 +23,6 @@ struct AppArguments {
     AppMode mode=AppMode::play;
     std::filesystem::path rom;
     std::optional<std::filesystem::path> record_path;
-    bool routines_enabled=true;
     game::Options options;
     game::OptionOverrides overrides;
 };
@@ -51,6 +50,9 @@ struct FrameOutput {
 using game::host_observed_instructions;
 // Check observed entry opt-ins and reject exits that would hide an observation.
 void guard_observed_instructions(const RoutineRegistry& registry);
+// The game's whole registry (review R3 L1): the guard above, and every watched
+// address begins an observed segment, since the host's hook runs only there.
+void require_observed_entries(const RoutineRegistry& registry);
 
 // What the host's hold of the native field menu is for.
 enum class HostMenu { options, map };
@@ -67,13 +69,25 @@ struct MapEvent {
 
 class FrameDriver {
 public:
-    FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,bool routines_enabled=true,
+    // original_only: recording mode (the original game, no options, no host
+    // menus).
+    FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,
                 game::OptionOverrides overrides={},bool original_only=false);
+    // One frame. Everything the frame hands over (picture, sound, the
+    // widescreen capture, the save, the end of a menu request) is taken at
+    // the frame end (Machine's frame observer); the machine itself can stop
+    // up to one segment later. An error of the engine (code with no C++
+    // body, a state a body does not handle) propagates: the game stops
+    // (stopped()), and run and power_cycle refuse from then on.
     FrameOutput run(const FrameInput& next_input);
     std::optional<std::string> power_cycle();
     // An explicit flush (exit, power cycle) also retries a failed automap
-    // write at once; the per-frame flush in run() follows its backoff.
-    std::optional<std::string> flush() { return store_.flush(machine_->memory(),true); }
+    // write at once; the per-frame flush in run() follows its backoff. After
+    // a stop it writes only the cartridge RAM of the last frame end not yet
+    // written (none: nothing), never the state of the stopped frame.
+    std::optional<std::string> flush();
+    // The engine's error that stopped the game, if one did.
+    const std::optional<std::string>& stopped() const { return stopped_; }
     Machine& machine() { return *machine_; }
     const SaveStore& store() const { return store_; }
     RoutineRegistry& routines() { return routines_; }
@@ -81,14 +95,15 @@ public:
     const game::Options& chosen_options() const { return chosen_; }
     const game::Options& configured_options() const { return store_.preferences(); }
     bool options_pending() const { return chosen_!=effective_; }
-    bool options_restricted() const { return original_only_ || !routines_.enabled; }
+    // Recording mode (or the test-only driver without routines).
+    bool options_restricted() const { return original_only_; }
     std::optional<std::string> choose_options(const game::Options& options);
     std::optional<std::string> choose_options(const game::Options& options,bool automap);
     // Milestone 10: also stores the profile's widescreen switch (like the
     // automap, never a routine option and never pending); on a failed write the
     // stored switch is kept.
     std::optional<std::string> choose_options(const game::Options& options,bool automap,bool widescreen);
-    // The stored switch, off in a restricted session (recording, --no-routines).
+    // The stored switch, off in a restricted session (recording).
     bool widescreen_option() const { return !options_restricted() && store_.widescreen_preference(); }
     // Host-owned, verified images. Prepare may throw BEFORE language.txt is
     // saved. Commit only queues the last successfully saved choice; the
@@ -114,13 +129,18 @@ public:
     // The view built once when a map hold began, until the next one.
     const std::optional<game::MapView>& map_view() const { return map_view_; }
     void log_map_events(std::vector<MapEvent>* log) { map_log_=log; }
+    // Test instrumentation (milestone 14): called at each frame's frame
+    // observer, the first instruction boundary at or after the frame end,
+    // after this frame's sound was taken. It must not change the machine.
+    using FrameProbe=std::function<void(const Machine&)>;
+    void set_frame_probe(FrameProbe probe) { frame_probe_=std::move(probe); }
     void close_menu() { if (menu_active_) menu_closing_=true; }
     bool menu_active() const { return menu_active_; }
     bool menu_closing() const { return menu_closing_; }
     void speed(unsigned value);
     // Widescreen (milestone 10), applied at once and never seen by the
     // machine or the routine options. Off: nothing is copied. Refused (stays
-    // off) in recording mode and with --no-routines.
+    // off) in recording mode.
     void set_widescreen(bool on);
     bool widescreen() const { return bool(wide_); }
     // The 344-wide picture for the frame just run, or nullptr when it is
@@ -148,6 +168,7 @@ private:
     std::unique_ptr<game::DungeonTables> tables_;
     std::unique_ptr<game::ExplorationTracker> tracker_;
     std::optional<game::MapView> map_view_;
+    FrameProbe frame_probe_;
     std::vector<MapEvent>* map_log_=nullptr;
     HostMenu menu_purpose_=HostMenu::options,requested_purpose_=HostMenu::options;
     std::optional<std::uint16_t> exploration_wait_,menu_request_;
@@ -161,5 +182,13 @@ private:
     bool audio_failed_=false;
     std::optional<std::uint8_t> sound_request_;
     std::unique_ptr<WideView> wide_;
+    // The image the wide view reads (it follows rom_ at the next frame end).
+    const Memory::Rom* wide_rom_=nullptr;
+    // The last frame end's memory while its cartridge RAM is not yet written.
+    std::optional<Memory> unwritten_;
+    std::optional<std::string> stopped_;
 };
+// What a session that ended returns to the system (milestone 14): 1 when the
+// engine stopped the game or the last save failed, 0 otherwise.
+inline int session_status(bool save_failed,bool stopped) { return save_failed || stopped ? 1 : 0; }
 }

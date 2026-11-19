@@ -10,7 +10,7 @@ namespace k=menu_kit;
 using sound::init; using sound::silence; using sound::clear;
 
 // Reset the shared sound-control bytes. The copy reads through the bus, so
-// disabled work RAM and unusual stack placements retain their native effects.
+// disabled work RAM and unusual stack placements keep their original effects.
 template<class Z> void clear_body(Z& z) {
     z.xor_a(0x802D);
     z.load_hl(0x802E);
@@ -21,13 +21,18 @@ template<class Z> void clear_body(Z& z) {
 }
 template<class Z> k::Exit clear_controls(Z& z) {
     clear_body(z);
-    return k::returns(0x803A,k::return_cycles);
+    return z.final_return(0x803A);
 }
-// Begin initialization and process the first record. The last instruction is
-// an allowed native boundary; each later record uses the same two segments.
+// Begin initialization and process the first record. Each record ends with
+// the step to the next one (add hl,de); later records use the same two
+// segments.
 template<class Z> void record_prefix(Z& z) {
     z.store_register_to_hl(0x800C,z.r.a);
     z.load_de(0x800D);
+}
+template<class Z> k::Exit step_to_next_record(Z& z) {
+    z.add_to_hl(0x8010,z.de());
+    return k::fall_through(0x8010,0x8011);
 }
 template<class Z> k::Exit initialize(Z& z) {
     z.push(0x8000,z.r.h,z.r.l);
@@ -36,16 +41,16 @@ template<class Z> k::Exit initialize(Z& z) {
     if (!z.inline_subroutine(0x8003,[](auto& in) {
         clear_body(in);
         return in.return_from(0x803A);
-    })) return k::continues(0x8010,11);
+    })) return k::refused();
     z.load_immediate(0x8006,z.r.b);
     z.load_hl(0x8008);
     z.xor_a(0x800B);
     record_prefix(z);
-    return k::continues(0x8010,11);
+    return step_to_next_record(z);
 }
 template<class Z> k::Exit next_record(Z& z) {
     record_prefix(z);
-    return k::continues(0x8010,11);
+    return step_to_next_record(z);
 }
 template<class Z> k::Exit record_end(Z& z) {
     z.store_register_to_hl(0x8011,z.r.a);
@@ -55,19 +60,18 @@ template<class Z> k::Exit record_end(Z& z) {
     z.store_register_to_hl(0x8015,z.r.a);
     z.load_de(0x8016);
     z.add_to_hl(0x8019,z.de());
-    return k::decrement_jump_exit(z,0x801A);
+    return z.final_decrement_jump(0x801A);
 }
 // Mark channels that need restoring when the shared noise voice is active.
 template<class Z> k::Exit mark_shared_channels(Z& z) {
     z.load_hl(0x80A4);
     z.test_bit_at_hl(0x80A7,7);
-    if (z.zero()) return k::returns(0x80A9,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x80A9);
+    if (auto exit=z.final_return_if(0x80A9,k::Condition::z)) return *exit;
     z.load_a_direct(0x80AA);
     z.or_a(0x80AD);
     if (z.jump_if(0x80AE,z.sign())) {
         z.set_bit_at_hl(0x80C6,2);
-        return k::returns(0x80C8,k::return_cycles);
+        return z.final_return(0x80C8);
     }
     z.test_bit_at_hl(0x80B1,6);
     if (!z.relative_if(0x80B3,z.zero())) {
@@ -81,7 +85,7 @@ template<class Z> k::Exit mark_shared_channels(Z& z) {
     }
     z.load_hl(0x80C0);
     z.set_bit_at_hl(0x80C3,2);
-    return k::returns(0x80C5,k::return_cycles);
+    return z.final_return(0x80C5);
 }
 // Count down the shared timer. When it expires, reload it and advance the
 // timing byte of each participating voice in the selected bank of records.
@@ -89,11 +93,9 @@ template<class Z> k::Exit advance_timer(Z& z) {
     z.load_hl(0x80C9);
     z.load_from_hl(0x80CC,z.r.a);
     z.or_a(0x80CD);
-    if (z.zero()) return k::returns(0x80CE,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x80CE);
+    if (auto exit=z.final_return_if(0x80CE,k::Condition::z)) return *exit;
     z.decrement_at_hl(0x80CF);
-    if (!z.zero()) return k::returns(0x80D0,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x80D0);
+    if (auto exit=z.final_return_if(0x80D0,k::Condition::nz)) return *exit;
     z.load_a_direct(0x80D1);
     z.or_a(0x80D4);
     z.reset_bit(0x80D5,7,z.r.a);
@@ -109,7 +111,7 @@ template<class Z> k::Exit advance_timer(Z& z) {
     do { z.increment_at_hl(0x80EB);
         z.add_to_hl(0x80EC,z.de());
     } while (z.decrement_jump(0x80ED));
-    return k::returns(0x80EF,k::return_cycles);
+    return z.final_return(0x80EF);
 }
 // Advance a fade. Positive and negative phases change each participating
 // channel toward its own limit; completed phases return or hand off to the
@@ -118,13 +120,12 @@ template<class Z> k::Exit advance_fade(Z& z) {
     using k::Index; constexpr auto ix=Index::ix;
     z.load_a_direct(0x80F0);
     z.or_a(0x80F3);
-    if (z.zero()) return k::returns(0x80F4,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x80F4);
+    if (auto exit=z.final_return_if(0x80F4,k::Condition::z)) return *exit;
     if (z.jump_if(0x80F5,z.sign())) {
         z.load_a_direct(0x8155);
         z.decrement(0x8158,z.r.a);
         if (!z.relative_if(0x8159,z.zero())) { z.store_a_direct(0x815B);
-        return k::returns(0x815E,k::return_cycles); }
+        return z.final_return(0x815E); }
         z.load_immediate(0x815F,z.r.a);
         z.store_a_direct(0x8161);
         z.load_a_direct(0x8164);
@@ -140,7 +141,7 @@ template<class Z> k::Exit advance_fade(Z& z) {
             const auto value=z.bus().read(z.hl());
             z.bus().write(z.hl(),static_cast<std::uint8_t>(value&~4u));
             z.bus().advance(15);
-            return k::returns(0x8178,k::return_cycles);
+            return z.final_return(0x8178);
         }
         z.load_index(0x8179,ix);
         z.load_de(0x817D);
@@ -154,12 +155,12 @@ template<class Z> k::Exit advance_fade(Z& z) {
             }
             z.add_to_index(0x8191,ix,z.de());
         } while (z.decrement_jump(0x8193));
-        return k::returns(0x8195,k::return_cycles);
+        return z.final_return(0x8195);
     }
     z.load_a_direct(0x80F8);
     z.decrement(0x80FB,z.r.a);
     if (!z.relative_if(0x80FC,z.zero())) { z.store_a_direct(0x80FE);
-    return k::returns(0x8101,k::return_cycles); }
+    return z.final_return(0x8101); }
     z.load_a_direct(0x8102);
     z.store_a_direct(0x8105);
     z.load_a_direct(0x8108);
@@ -172,9 +173,9 @@ template<class Z> k::Exit advance_fade(Z& z) {
         z.load_a_direct(0x8117);
         z.compare_immediate(0x811A);
         if (!z.relative_if(0x811C,!z.zero())) { z.load_immediate(0x811E,z.r.a);
-        return k::continues(0x8120,k::jump_cycles); }
+        return z.final_jump(0x8120); }
         z.or_a(0x8123);
-        return k::continues(0x8124,k::jump_cycles);
+        return z.final_jump_if(0x8124,k::Condition::p);
     }
     z.load_index(0x812F,ix);
     z.load_de(0x8133);
@@ -190,28 +191,37 @@ template<class Z> k::Exit advance_fade(Z& z) {
         if (!z.relative_if(0x814B,z.zero())) z.store_to_indexed(0x814D,ix,z.r.a);
         z.add_to_index(0x8150,ix,z.de());
     } while (z.decrement_jump(0x8152));
-    return k::returns(0x8154,k::return_cycles);
+    return z.final_return(0x8154);
 }
 template<class Z> k::Exit fade_handoff(Z& z) {
     z.load_a_direct(0x8127);
     z.or_a(0x812A);
-    if (z.zero()) return k::returns(0x812B,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x812B);
-    return k::continues(0x812C,k::jump_cycles);
+    if (auto exit=z.final_return_if(0x812B,k::Condition::z)) return *exit;
+    return z.final_jump(0x812C);
 }
 // Request classification starts after the host-observed read at 82EF.
-// Each native conditional transfer remains a boundary for the dispatcher.
-template<class Z> k::Exit request_reset_test(Z& z) { z.test_bit(0x82F2,7,z.r.a);
-return k::continues(0x82F4,k::jump_cycles); }
-template<class Z> k::Exit request_low_test(Z& z) { z.compare_immediate(0x82F7);
-return k::relative_if_exit(0x82F9,z.carry()); }
-template<class Z> k::Exit request_song_test(Z& z) { z.compare_immediate(0x82FB);
-return k::continues(0x82FD,k::jump_cycles); }
-template<class Z> k::Exit request_effect_test(Z& z) { z.compare_immediate(0x8300);
-return k::continues(0x8302,k::jump_cycles); }
-template<class Z> k::Exit request_limit_test(Z& z) { z.compare_immediate(0x8305);
-return k::continues(0x8307,k::jump_cycles); }
-// Resolve the command table; its indirect jump remains native.
+// Each conditional transfer ends a segment and is a boundary for the dispatcher.
+template<class Z> k::Exit request_reset_test(Z& z) {
+    z.test_bit(0x82F2,7,z.r.a);
+    return z.final_jump_if(0x82F4,k::Condition::z);
+}
+template<class Z> k::Exit request_low_test(Z& z) {
+    z.compare_immediate(0x82F7);
+    return z.final_relative_if(0x82F9,k::Condition::c);
+}
+template<class Z> k::Exit request_song_test(Z& z) {
+    z.compare_immediate(0x82FB);
+    return z.final_jump_if(0x82FD,k::Condition::c);
+}
+template<class Z> k::Exit request_effect_test(Z& z) {
+    z.compare_immediate(0x8300);
+    return z.final_jump_if(0x8302,k::Condition::c);
+}
+template<class Z> k::Exit request_limit_test(Z& z) {
+    z.compare_immediate(0x8305);
+    return z.final_jump_if(0x8307,k::Condition::nc);
+}
+// Resolve the command table; its indirect jump ends the segment.
 template<class Z> k::Exit request_command(Z& z) {
     z.subtract_immediate(0x830A);
     z.add_register(0x830C,z.r.a);
@@ -223,12 +233,12 @@ template<class Z> k::Exit request_command(Z& z) {
     z.increment_hl(0x8315);
     z.load_from_hl(0x8316,z.r.h);
     z.copy(0x8317,z.r.l,z.r.a);
-    return k::continues(0x8318,4);
+    return z.final_jump_hl(0x8318);
 }
 template<class Z> k::Exit request_voice_lookup(Z& z) {
     z.subtract_immediate(0x8319);
     z.load_hl(0x831B);
-    return k::continues(0x831E,k::call_cycles);
+    return z.final_call(0x831E);
 }
 template<class Z> k::Exit request_voice_setup(Z& z) {
     z.load_de(0x8321);
@@ -236,23 +246,23 @@ template<class Z> k::Exit request_voice_setup(Z& z) {
     z.output(0x8326);
     z.load_immediate(0x8328,z.r.a);
     z.output(0x832A);
-    return k::continues(0x832C,k::jump_cycles);
+    return z.final_jump(0x832C);
 }
 template<class Z> k::Exit request_track_test(Z& z) {
     z.compare_immediate(0x832F);
-    return k::continues(0x8331,k::jump_cycles);
+    return z.final_jump_if(0x8331,k::Condition::nc);
 }
 template<class Z> k::Exit request_track_lookup(Z& z) {
     z.subtract_immediate(0x8334);
-    if (z.sign()) return k::returns(0x8336,k::taken_conditional_return_cycles);
-    z.return_not_taken(0x8336);
+    if (auto exit=z.final_return_if(0x8336,k::Condition::m)) return *exit;
     z.load_immediate(0x8337,z.r.b);
     z.copy(0x8339,z.r.c,z.r.a);
     z.load_hl(0x833A);
-    return k::continues(0x833D,11);
+    z.add_to_hl(0x833D,z.bc());
+    return k::fall_through(0x833D,0x833E);
 }
 // Carry the chosen track into the shared state while preserving the caller's
-// two saved values. The conditional transfer and calls stay on the core.
+// two saved values. The conditional transfer and calls end the segment.
 template<class Z> k::Exit request_track_select(Z& z) {
     z.load_a_direct(0x833F);
     z.and_immediate(0x8342);
@@ -263,7 +273,7 @@ template<class Z> k::Exit request_track_select(Z& z) {
     z.push(0x834E,z.r.a,z.r.f);
     z.load_a_direct(0x834F);
     z.or_a(0x8352);
-    return k::continues(0x8353,k::jump_cycles);
+    return z.final_jump_if(0x8353,k::Condition::p);
 }
 template<class Z> k::Exit restore_voice_levels(Z& z) {
     using k::Index; constexpr auto ix=Index::ix;
@@ -275,22 +285,23 @@ template<class Z> k::Exit restore_voice_levels(Z& z) {
         z.store_to_indexed(0x8362,ix,z.r.a);
         z.add_to_index(0x8365,ix,z.de());
     } while(z.decrement_jump(0x8367));
-    return k::continues(0x8369,k::call_cycles);
+    return z.final_call(0x8369);
 }
 template<class Z> k::Exit choose_voice_bank(Z& z) {
     z.load_de(0x8370);
     z.or_a(0x8373);
-    return k::continues(0x8374,k::jump_cycles);
+    return z.final_jump_if(0x8374,k::Condition::m);
 }
 template<class Z> k::Exit set_voice_bank(Z& z) {
     z.load_de(0x837A);
-    return k::continues(0x837D,10);
+    z.load_hl(0x837D);
+    return k::fall_through(0x837D,0x8380);
 }
 // A handled request becomes idle, so it is not processed again next tick.
 template<class Z> k::Exit acknowledge(Z& z) {
     z.load_immediate(0x8420,z.r.a);
     z.store_a_direct(0x8422);
-    return k::returns(0x8425,k::return_cycles);
+    return z.final_return(0x8425);
 }
 // Resolve an indexed pair from a table in the player's ROM or work RAM.
 template<class Z> k::Exit lookup_pair(Z& z) {
@@ -301,7 +312,7 @@ template<class Z> k::Exit lookup_pair(Z& z) {
     z.load_from_hl(0x842B,z.r.c);
     z.increment_hl(0x842C);
     z.load_from_hl(0x842D,z.r.b);
-    return k::returns(0x842E,k::return_cycles);
+    return z.final_return(0x842E);
 }
 // The second lookup keeps the selected pair in HL instead of BC.
 template<class Z> k::Exit lookup_address(Z& z) {
@@ -313,7 +324,7 @@ template<class Z> k::Exit lookup_address(Z& z) {
     z.increment_hl(0x8435);
     z.load_from_hl(0x8436,z.r.h);
     z.copy(0x8437,z.r.l,z.r.a);
-    return k::returns(0x8438,k::return_cycles);
+    return z.final_return(0x8438);
 }
 // Preserve the caller's registers while preparing the cartridge's eight PSG
 // commands. The next segment performs the output when its window is safe.
@@ -322,25 +333,23 @@ template<class Z> k::Exit prepare_silence(Z& z) {
     z.push(0x8020,z.r.b,z.r.c);
     z.load_hl(0x8021);
     z.load_immediate(0x8024,z.r.c);
-    return k::continues(0x8026,7);
+    z.load_immediate(0x8026,z.r.b);
+    return k::fall_through(0x8026,0x8028);
 }
 // Repeat the cartridge's block output only when the whole transfer fits in
 // the admitted window. Each intermediate iteration adds its five-cycle
 // repeat overhead; its transient flags and MEMPTR are overwritten by the
-// next transfer. A frame or interrupt in the window leaves execution native.
+// next transfer. A frame or interrupt in the window makes the segment refuse the state at its entry (the run stops).
 template<class Z> k::Exit send_silence(Z& z) {
-    do {
-        z.output_increment(0x8028);
-        if (z.r.b) z.bus().advance(5);
-    } while (z.r.b);
+    do z.output_increment_repeat(0x8028); while (z.r.b);
     z.pop(0x802A,z.r.b,z.r.c);
     z.pop(0x802B,z.r.h,z.r.l);
-    return k::returns(0x802C,k::return_cycles);
+    return z.final_return(0x802C);
 }
 template<class Z> k::Exit finish_silence(Z& z) {
     z.pop(0x802A,z.r.b,z.r.c);
     z.pop(0x802B,z.r.h,z.r.l);
-    return k::returns(0x802C,k::return_cycles);
+    return z.final_return(0x802C);
 }
 }
 void register_sound(RoutineRegistry& registry) {
@@ -381,14 +390,41 @@ void register_sound(RoutineRegistry& registry) {
     k::add_segment(registry,sound::address,k::segment(sound::address,{k::returned_at(0x8438)}),[](auto& z) { return lookup_address(z); });
     k::add_segment(registry,clear,k::segment(clear,{k::returned_at(0x803A)}),[](auto& z) { return clear_controls(z); });
     k::add_segment(registry,silence,k::segment(silence,{k::core_final_at(0x8026,-4)},{.scratch_stack=4}),[](auto& z) { return prepare_silence(z); });
-    const auto transfer=[](auto& z) { return send_silence(z); };
-    registry.add({12,0x8028},k::segment(silence,{k::returned_at(0x802C,4)},{.inherited_stack=4}),
-        [transfer](const Machine& machine) {
-            // Other port numbers can control mapping or interrupts. The game
-            // enters with C=7F; leave all other states to the original CPU.
-            if (machine.cpu().bc.uint8_values.at_0!=0x7f) return k::uncertain_maximum;
-            return k::cost(machine,transfer,k::uncertain_maximum);
-        },[transfer](RoutineContext& context) { k::run(context,transfer); });
+    // Other port numbers can control mapping or interrupts. The game enters
+    // with C=7F (the PSG port); the guard reads registers only, so it holds at
+    // entry and stays valid across a delivery (C is not changed by the body).
+    k::add_segment(registry,{12,0x8028},k::segment(silence,{k::returned_at(0x802C,4)},{.inherited_stack=4}),
+        k::Guard{"the port register holds the PSG port (C=7F)",[](const Machine& machine) { return machine.cpu().bc.uint8_values.at_0==0x7f; }},
+        [](auto& z) { return send_silence(z); });
     k::add_segment(registry,{12,0x802A},k::segment(silence,{k::returned_at(0x802C,4)},{.inherited_stack=4}),[](auto& z) { return finish_silence(z); });
+    // Joining instructions between the segments above: the end of the
+    // initialization's record loop restores the caller's registers and runs
+    // into the silence routine (801C); the fade and request paths call the
+    // silence and clear routines (8196, 836C, 8369); the track lookup saves
+    // the selector (833E) and the shared-track path skips over its
+    // alternative (8380).
+    {
+        auto restore=k::segment(init,{k::core_final_at(0x801E,4)},{.inherited_stack=6});
+        k::add_segment(registry,{12,0x801C},std::move(restore),[](auto& z) {
+            z.pop(0x801C,z.r.b,z.r.c);
+            z.pop(0x801D,z.r.d,z.r.e);
+            z.pop(0x801E,z.r.h,z.r.l);
+            return k::fall_through(0x801E,0x801F);
+        });
+        for (const std::uint16_t at:{0x8196,0x8369,0x836C}) {
+            auto call_routine=k::segment(at==0x8196 ? RoutineEntry{12,0x8196} : dispatch,{k::core_final_at(at)},{.scratch_stack=2});
+            call_routine.single_instruction=true;
+            k::add_segment(registry,{12,at},std::move(call_routine),[at](auto& z) { return z.final_call(at); });
+        }
+        auto save_selector=k::segment(dispatch,{k::core_final_at(0x833E)},{.scratch_stack=2});
+        save_selector.single_instruction=true;
+        k::add_segment(registry,{12,0x833E},std::move(save_selector),[](auto& z) {
+            z.push(0x833E,z.r.a,z.r.f);
+            return k::fall_through(0x833E,0x833F);
+        });
+        auto skip_alternative=k::segment(dispatch,{k::core_final_at(0x8380)});
+        skip_alternative.single_instruction=true;
+        k::add_segment(registry,{12,0x8380},std::move(skip_alternative),[](auto& z) { return z.final_relative(0x8380); });
+    }
 }
 }

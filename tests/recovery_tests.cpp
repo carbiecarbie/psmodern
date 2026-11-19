@@ -3,10 +3,18 @@
 #include "game/recovery.h"
 #include "menu_probe.h"
 #include "probe.h"
+#include "c4_sweep.h"
 #include <iostream>
 #include <set>
 using namespace psmodern;
 namespace {
+// The documented equality of the engine and the oracle (milestone 14), plus the
+// two host-side records the equality leaves out: the PSG writes waiting to be
+// taken and the cartridge RAM dirty flag.
+bool same_state(Machine& engine, Machine& original) {
+    return oracle::equal(engine,original,oracle::Scope::whole) && engine.take_psg_writes()==original.take_psg_writes() &&
+           engine.memory().cartridge_ram_dirty()==original.memory().cartridge_ram_dirty();
+}
 void registration() {
     RoutineRegistry registry;
     game::register_recovery(registry);
@@ -182,7 +190,7 @@ int probe_complete_recovery_calls(probe::Harness &h, const map_probe::Inputs &in
                 };
                 const auto expected_writes = run(native, false), actual_writes = run(m, true);
                 probe::check(expected_writes == actual_writes, "ordered PSG writes and cycles");
-                probe::check(native.differences(m).empty(),
+                probe::check(same_state(m, native),
                              "whole recovery call differs from original");
                 const unsigned amount = kind % 4 == 0   ? 20
                                         : kind % 4 == 1 ? 80
@@ -206,6 +214,8 @@ int probe_complete_recovery_calls(probe::Harness &h, const map_probe::Inputs &in
 }
 } // namespace
 int main(int argc, char **argv) {
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
         registration();
         if (argc == 1)
@@ -214,6 +224,13 @@ int main(int argc, char **argv) {
         if (!inputs)
             return 77;
         probe::Harness harness(inputs->rom);
+        {
+            probe::Harness sweeping(inputs->rom);
+            c4::sweep_file(sweeping,"recovery",game::recovery::segments,[](RoutineEntry entry,Machine& m) {
+                // 1E52 returns at once when Z is set: make it go on to the debit.
+                if (entry.address==0x1E52) m.cpu().af.uint8_values.at_0&=static_cast<std::uint8_t>(~0x40);
+            });
+        }
         unsigned probes = probe_segment_states(harness, inputs->rom);
         probes += probe_hp_saturation(harness, inputs->rom);
         probes += probe_magic_balances(harness, inputs->rom);

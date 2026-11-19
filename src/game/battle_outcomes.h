@@ -21,7 +21,13 @@ inline constexpr std::array segments{
     Segment{{0, 0x16E3}, {0, 0x16B2}}, Segment{{0, 0x16EB}, {0, 0x16B2}},
     Segment{{0, 0x16F1}, {0, 0x16F1}}, Segment{{0, 0x16FE}, {0, 0x16F1}},
     Segment{{0, 0x15E7}, {0, 0x15E7}}, Segment{{0, 0x16C0}, {0, 0x16C0}},
-    Segment{{0, 0x16CB}, {0, 0x16CB}}, Segment{{0, 0x16E1}, {0, 0x16E1}}};
+    Segment{{0, 0x16CB}, {0, 0x16CB}}, Segment{{0, 0x16E1}, {0, 0x16E1}},
+    Segment{{0, 0x15D9}, {0, 0x15D9}}, Segment{{0, 0x15F3}, {0, 0x15D9}},
+    Segment{{0, 0x15F6}, {0, 0x15D9}}, Segment{{0, 0x15F9}, {0, 0x15D9}},
+    Segment{{0, 0x1601}, {0, 0x15D9}}, Segment{{0, 0x1694}, {0, 0x1656}},
+    Segment{{0, 0x1697}, {0, 0x1656}}, Segment{{0, 0x16A9}, {0, 0x1656}},
+    Segment{{0, 0x16AC}, {0, 0x1656}}, Segment{{0, 0x16AF}, {0, 0x1656}},
+    Segment{{0, 0x16F0}, {0, 0x16B2}}};
 inline constexpr std::array copy_entries{RoutineEntry{0, 0x15E7}, RoutineEntry{0, 0x16C0},
                                          RoutineEntry{0, 0x16CB}, RoutineEntry{0, 0x16E1}};
 } // namespace battle_outcomes

@@ -2,7 +2,10 @@
 
 Phantasy Star was written for the Sega Master System, a home console from
 the 1980s. PSModern runs the original game program on a rebuilt copy of that
-console, made of software. This chapter explains the console's parts in
+console, made of software. The processor itself is not part of the program
+any more: since milestone 14 the game's instructions are carried out by C++
+code written to do exactly what the processor did, and a real processor
+model remains only in the tests, as the referee. This chapter explains the console's parts in
 plain words, how they work together during one frame, and why exact timing
 matters for this game.
 
@@ -47,6 +50,15 @@ standard controllers and a Reset button, without the optional FM unit (an
 extra music chip). It rebuilds only what this game uses.
 
 ## The Z80 processor
+
+**Maintainer decision.** PSModern does not contain a Z80 interpreter. The
+game's code is a long list of small pieces of C++, each piece doing what a
+stretch of the original instructions does, instruction by instruction, with the
+same cycles, flags and memory accesses; the program reads the cartridge only
+as data (text, graphics, maps, tables). What follows describes the real
+processor, which PSModern's pieces imitate. In the tests, a model of the real
+Z80 runs the original beside the C++ and the two are compared at every
+instruction; it never runs in the game.
 
 **Hardware documentation.** The processor reads the game's instructions
 one at a time and carries them out: add two numbers, copy a byte, jump to
@@ -313,8 +325,11 @@ means the same thing in every run.
 
 **Maintainer decision.** In PSModern a frame starts at the first cycle of
 line 0. The processor never stops between frames: the program that runs the
-console frame by frame lets an instruction that crosses the boundary finish,
-and notes how many cycles it went over.
+console frame by frame lets the C++ piece that crosses the boundary finish,
+and notes how many cycles it went over. What the player sees and hears
+(the picture, the sound chip's writes, the widescreen copy and the save) is
+taken at the exact instruction where the frame ends, not at the end of the
+piece that crossed it.
 
 Putting together the pieces above, each labeled where it is explained:
 

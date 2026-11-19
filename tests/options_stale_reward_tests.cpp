@@ -2,6 +2,7 @@
 // A dialogue-only setup leaves a stale reward. A pending settings change must
 // apply at the following dispatcher and the next battle must prepare a fresh
 // reward at the new rate. Starts at a real recorded map-battle entry.
+#include "oracle/native_machine.h"
 #include "app/frame_driver.h"
 #include "game/routines.h"
 #include "replay/recording.h"
@@ -18,7 +19,10 @@ unsigned word(const Machine& m,std::uint16_t a){return m.memory().read(a)|(m.mem
 void put(Machine& m,std::uint16_t a,unsigned v){m.memory().write(a,static_cast<std::uint8_t>(v));m.memory().write(a+1,static_cast<std::uint8_t>(v>>8));}
 std::uint64_t calls(RoutineRegistry& r,RoutineEntry entry){const auto* p=r.find(entry);check(p!=nullptr,"missing registered entry");return p->counters.cpp_calls+p->counters.fallback_calls;}
 }
-int main(int argc,char** argv){try {
+int main(int argc,char** argv){
+    // The original runs of this test (no registry) step the oracle's core.
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    try {
     if(argc!=3)throw std::runtime_error("Expected ROM and matching first-battle recording");
     if(!*argv[1] || !std::filesystem::exists(argv[1]) || !std::filesystem::exists(argv[2]))return 77;
     std::ifstream f(argv[1],std::ios::binary);
@@ -27,12 +31,17 @@ int main(int argc,char** argv){try {
     check(sha1(Memory::CartridgeRam{})==recording.cart_ram_sha1,"recording needs nonzero cartridge RAM");
     Machine machine(rom);RoutineRegistry routines;game::register_routines(routines,recording.rom_sha1);
     std::optional<Machine> before;std::uint64_t at_frame=0;
-    Machine::Hook find=[&](std::uint16_t pc,Memory::Mapping map)->std::optional<std::uint16_t>{
-        if(pc==0x3c1a && map==Memory::Mapping{Memory::Kind::rom,0} && !before)before=machine;return {};
+    // The machine at the top-level boundary of 00:3C1A, a segment entry (a
+    // host hook only sees the segments flagged observe_entry since milestone 14).
+    const Machine::BoundaryObserver find=[&](const Machine::Boundary& at){
+        if(at.pc==0x3c1a && !at.depth && !at.in_body && !before &&
+           machine.memory().mapping(at.pc)==Memory::Mapping{Memory::Kind::rom,0})before=machine;
     };
+    machine.set_boundary_observer(&find);
     for(std::uint64_t frame=0;frame<recording.frames && !before;++frame){
-        machine.run_frame(recording.input_at(frame),routines,find);machine.take_samples();machine.take_psg_writes();at_frame=frame;
+        machine.run_frame(recording.input_at(frame),routines);machine.take_samples();machine.take_psg_writes();at_frame=frame;
     }
+    machine.set_boundary_observer(nullptr);
     check(before.has_value(),"recording did not reach the map battle setup");
     const auto enemy=before->memory().read(0xc2e6);
     const auto root=std::filesystem::temp_directory_path()/("psmodern-stale-reward-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

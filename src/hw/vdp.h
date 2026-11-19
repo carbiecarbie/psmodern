@@ -42,6 +42,7 @@ private:
         return {};
     }
     friend class Machine;
+    friend class Console;
     friend struct VdpFixture;
     std::array<std::uint8_t, 0x4000> vram_{};
     std::array<std::uint8_t, 32> cram_ = initial_state::cram;

@@ -37,7 +37,7 @@ k::Exit select_graphics(Z& z) {
     z.copy(0x6B13,r.l,r.a);
     z.rotate_right_through_carry(0x6B14,r.c);
     z.load_immediate(0x6B16,r.d);
-    return k::relative_if_exit(0x6B18,!z.carry());
+    return z.final_relative_if(0x6B18,k::Condition::nc);
 }
 template<class Z>
 k::Exit select_tilemap(Z& z) {
@@ -56,7 +56,7 @@ k::Exit select_tilemap(Z& z) {
     z.store_a_direct(0x6B53);
     z.increment_hl(0x6B56);
     read_pointer(z,0x6B57);
-    return k::continues(0x6B5B,k::call_cycles);
+    return z.final_call(0x6B5B);
 }
 template<class Z>
 void standing_frame(Z& z,std::uint16_t pc) {
@@ -80,25 +80,24 @@ void register_animation(RoutineRegistry& registry) {
                 }
                 z.load_from_hl(0x6A69,z.r.a);
                 z.compare_immediate(0x6A6A);
-                if (z.zero()) return k::returns(0x6A6C,k::taken_conditional_return_cycles);
-                z.return_not_taken(0x6A6C);
+                if (auto exit=z.final_return_if(0x6A6C,k::Condition::z)) return *exit;
                 z.push(0x6A6D,z.r.h,z.r.l);
-                return k::continues(0x6A6E,k::call_cycles);
+                return z.final_call(0x6A6E);
             });
     }
     k::add_segment(registry,{1,0x6A71},k::segment(animation,{k::core_final_at(0x6A73,2)},
         {.inherited_stack=2}),[](auto& z) {
             z.pop(0x6A71,z.r.h,z.r.l);
             z.increment_hl(0x6A72);
-            return k::continues(0x6A73,k::jump_cycles);
+            return z.final_jump(0x6A73);
         });
     auto draw=k::segment(animation,{k::core_final_at(0x6AE5)},{.scratch_stack=2});
     draw.single_instruction=true;
-    registry.add({1,0x6AE5},std::move(draw),[](const Machine&){return k::call_cycles;},
-        [](RoutineContext& c){c.finish_core(0x6AE5);});
+    k::add_segment(registry,{1,0x6AE5},std::move(draw),[](const Machine&){return std::uint64_t{k::call_cycles};},
+        [](auto& z){return z.final_call(0x6AE5);});
     k::add_segment(registry,{1,0x6AE8},k::segment(animation,{k::core_final_at(0x6AEA)}),[](auto& z) {
         z.load_immediate(0x6AE8,z.r.a);
-        return k::continues(0x6AEA,k::jump_cycles);
+        return z.final_jump(0x6AEA);
     });
     k::add_segment(registry,floor_music,k::segment(floor_music,{k::core_final_at(0x6DF4)},
         {.slot2_mapper=true}),[](auto& z) {
@@ -112,7 +111,7 @@ void register_animation(RoutineRegistry& registry) {
             z.load_de(0x6DEF);
             z.add_to_hl(0x6DF2,z.de());
             z.load_from_hl(0x6DF3,z.r.a);
-            return k::continues(0x6DF4,k::jump_cycles);
+            return z.final_jump(0x6DF4);
         });
 }
 void register_frame(RoutineRegistry& registry) {
@@ -121,7 +120,7 @@ void register_frame(RoutineRegistry& registry) {
             z.and_immediate(0x6AED);
             if (z.relative_if(0x6AEF,!z.zero())) return select_graphics(z);
             z.load_immediate(0x6AF1,z.r.b);
-            return k::continues(0x6AF3,k::call_cycles);
+            return z.final_call(0x6AF3);
         });
     for (auto pc:{0x6AF6,0x6AFC})
         add(registry,pc,{k::conditional_at(0x6B18,-4)},{.slot2_mapper=true,.scratch_stack=4},[pc](auto& z) {
@@ -131,28 +130,33 @@ void register_frame(RoutineRegistry& registry) {
     const SegmentExit disable{.kind=RoutineExit::core_final,.address=0x6B1C,.interrupt_mask=InterruptMask::disable};
     add(registry,0x6B1A,{disable},{},[](auto& z) {
         z.load_immediate(0x6B1A,z.r.d);
-        return k::continues(0x6B1C,4);
+        return z.final_disable_interrupts(0x6B1C);
     });
     auto single=k::segment(frame,{disable});
     single.single_instruction=true;
-    registry.add({1,0x6B1C},std::move(single),[](const Machine&){return 4;},
-        [](RoutineContext& context){context.finish_core(0x6B1C);});
+    k::add_segment(registry,{1,0x6B1C},std::move(single),[](const Machine&){return std::uint64_t{4};},
+        [](auto& z){return z.final_disable_interrupts(0x6B1C);});
     const SegmentExit enable{.kind=RoutineExit::core_final,.address=0x6B23,.interrupt_mask=InterruptMask::enable};
     auto write_address=[](auto& z) {
         z.xor_a(0x6B1D);
         z.output(0x6B1E);
         z.copy(0x6B20,z.r.a,z.r.d);
         z.output(0x6B21);
-        return k::continues(0x6B23,4);
+        return z.final_enable_interrupts(0x6B23);
     };
-    registry.add({1,0x6B1D},k::segment(frame,{enable}),
-        [=](const Machine& m) {
-            const auto high=m.cpu().de.uint16_value>>8;
-            if (high!=0x40 && high!=0x60) return k::uncertain_maximum;
-            return k::cost(m,write_address,k::uncertain_maximum);
-        },[=](RoutineContext& c) { k::run(c,write_address); });
-    // The original CALL at 6B24 is the instruction protected by EI's delay.
-    // The normal machine step executes it, with the boundary hook available.
+    // The video address written is a VRAM write address (high byte 40 or 60);
+    // D is a register, so the check holds across a delivery inside the body.
+    const k::Guard vram_write{"D selects a VRAM write address",[](const Machine& m) {
+        const auto high=m.cpu().de.uint16_value>>8;
+        return high==0x40 || high==0x60;
+    }};
+    k::add_segment(registry,{1,0x6B1D},k::segment(frame,{enable}),vram_write,write_address);
+    // The CALL at 6B24 is the instruction protected by EI's delay: it starts
+    // the pointer-table upload of the frame.
+    auto upload=k::segment(frame,{k::core_final_at(0x6B24)},{.scratch_stack=2});
+    upload.single_instruction=true;
+    k::add_segment(registry,{1,0x6B24},std::move(upload),[](const Machine&){return std::uint64_t{k::call_cycles};},
+        [](auto& z){return z.final_call(0x6B24);});
     add(registry,0x6B27,{k::core_final_at(0x6B32,2)},
         {.slot2_mapper=true,.inherited_stack=2},[](auto& z) {
             z.pop(0x6B27,z.r.h,z.r.l);
@@ -161,16 +165,16 @@ void register_frame(RoutineRegistry& registry) {
             z.store_a_direct(0x6B2A);
             z.increment_hl(0x6B2D);
             read_pointer(z,0x6B2E);
-            return k::continues(0x6B32,k::call_cycles);
+            return z.final_call(0x6B32);
         });
     add(registry,0x6B35,{k::core_final_at(0x6B36,2)},{.inherited_stack=2},[](auto& z) {
         z.pop(0x6B35,z.r.b,z.r.c);
-        return k::continues(0x6B36,k::call_cycles);
+        return z.final_call(0x6B36);
     });
-    add(registry,0x6B39,{k::returned_at(0x6B39)},{},[](auto&) { return k::returns(0x6B39,k::return_cycles); });
+    add(registry,0x6B39,{k::returned_at(0x6B39)},{},[](auto& z) { return z.final_return(0x6B39); });
     add(registry,0x6B3A,{k::core_final_at(0x6B3C)},{.scratch_stack=2},[](auto& z) {
         z.load_immediate(0x6B3A,z.r.b);
-        return k::continues(0x6B3C,k::call_cycles);
+        return z.final_call(0x6B3C);
     });
     for (auto pc:{0x6B3F,0x6B45})
         add(registry,pc,{k::core_final_at(0x6B5B,-2)},{.slot2_mapper=true,.scratch_stack=4},[pc](auto& z) {
@@ -179,7 +183,7 @@ void register_frame(RoutineRegistry& registry) {
         });
     add(registry,0x6B5E,{k::core_final_at(0x6B5F,2)},{.inherited_stack=2},[](auto& z) {
         z.pop(0x6B5E,z.r.b,z.r.c);
-        return k::continues(0x6B5F,k::jump_cycles);
+        return z.final_jump(0x6B5F);
     });
 }
 }
