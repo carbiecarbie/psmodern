@@ -1,6 +1,7 @@
 # Milestone 16 plan - Android version
 
-**Tier A. Status: completed and accepted (2026-11-21).** Personal Android
+**Tier A. Status: completed and accepted (2026-11-21); commits `20e317a`,
+`247e218`.** Personal Android
 build `1.0.0-m16.4`. The maintainer passed all five checks in the m16.2
 Samsung play-test and requested closure. Review fixes and the final APK were
 verified on the same Galaxy S24 Ultra (SM-S928B).

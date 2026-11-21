@@ -263,4 +263,5 @@ travel between Android and Windows. The maintainer passed the Samsung play-test.
 On the final `1.0.0-m16.4` APK, the S24 continued a Windows save with its
 explored dungeon map, sustained 1x/2x/4x and resumed the same game from Home.
 Independent Tier A reviews approved the port. The Windows suite passed all 390
-tests with zero skips. The desktop fast-forward test fix is `247e218`.
+tests with zero skips. Implementation: `20e317a`; the desktop fast-forward
+test fix is `247e218`.
