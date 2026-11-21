@@ -2,32 +2,29 @@
 
 Last updated: 2026-11-21
 
-Release 1.2.0 preparation (Windows zip + first official signed Android APK) is
-ready in the working tree, awaiting maintainer authorization to commit, build
-the clean release packages into `../releases/`, and publish `v1.2.0`.
+Release 1.2.0 is published on GitHub (tag `v1.2.0` on `c292948`). It ships
+both the Windows x64 zip and the first official signed Android APK (ARM64 and
+ARMv7, `versionCode 10200`), along with the README/documentation overhaul
+(`b3f59bc`) and `tools/package-android-release.ps1`:
 
-Changes prepared in the working tree:
-- `CMakeLists.txt`, `tests/launcher_tests.cpp`, `tests/version_process_tests.py`,
-  `docs/images/start-screen.png`: bumped version to `1.2.0`.
-- `android/build.gradle`: synced `versionName` and `versionCode` (`10200`) from
-  `CMakeLists.txt`, added `signingConfigs.release` / `buildTypes.release`
-  (non-debuggable), and bundled `assets/LIBCXX-LICENSE.txt` and
-  `assets/THIRD-PARTY.txt` with version and source commit.
-- `tools/package-android-release.ps1`: clean `git archive` Android release APK
-  packager with `apksigner`, 16 KiB `zipalign`, `aapt2`, notice/forbidden-file,
-  and per-ABI `llvm-readelf` / `llvm-nm` zero-Z80/oracle verification.
-- `README.md`, `README.pt-BR.md`, `docs/dependencies.md`, `docs/development.md`:
-  updated for official Android APK release and packaging steps.
+- `PSModern-1.2.0-windows-x64.zip` SHA-256:
+  `de520f035fc40582c0cf199fc13206c2295611345415989442caf07afc101cc2`
+- `PSModern-1.2.0-android-arm.apk` SHA-256:
+  `706f894bf1577b8eabe1b1a6c903fcea8bcd4abb2f801d3d4a0ce321508186ef`
+- Android release certificate SHA-256:
+  `30d98c6879947a5f9b45f80e892bea3c3eb56527ce85a1e715c588bdfd29edfe`
 
-Verification so far:
-- Windows `build-rel` (`1.2.0`) compiled with zero warnings; `ctest -L fast`
-  passed 182/182 (zero skips).
-- End-to-end test of `tools/package-android-release.ps1` (`-AllowDirty
-  -UseWorkingTree`) passed all signature, alignment, badging, notice and
-  per-ABI (`arm64-v8a`, `armeabi-v7a`) checks with the new release keystore
-  outside Git (`D:\Projetos\Phantasy Star\android-signing\psmodern-release.jks`,
-  cert SHA-256 `30d98c6879947a5f9b45f80e892bea3c3eb56527ce85a1e715c588bdfd29edfe`).
+Both assets downloaded from GitHub matched their local hashes. Packages, logs
+and notes live in `../releases/`. The Android release keystore and credentials
+live outside Git in `../android-signing/` (must be kept backed up for in-place
+updates); extracted `SDL2-2.32.10` lives in `../android-deps/SDL2-2.32.10`.
 
-Pending: maintainer authorization to commit "Prepare release 1.2.0", package
-clean `PSModern-1.2.0-windows-x64.zip` and `PSModern-1.2.0-android-arm.apk`,
-play-test if desired, and tag/publish `v1.2.0`.
+Under the release rule, the complete Windows suite was reused from `9736e2c`
+(390/390); the Windows 1.2.0 build was warning-free and `ctest -L fast` passed
+182/182.
+
+Note kept from the 1.1.0 release checks: `launcher_unit` once failed on its own
+right after `ctest -L fast` (then passed 330x in a row). If it recurs, capture
+output and check the `steady_clock` suffix in `tests/launcher_tests.cpp`.
+
+No milestone is active; the maintainer starts the next one explicitly.

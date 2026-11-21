@@ -277,3 +277,19 @@ the version, documents and the start-screen picture. The build was
 warning-free and all 182 fast tests passed. The exact zip was published
 without a manual release play-test. Published as GitHub release v1.1.0 from
 `5afed78`.
+
+## Release 1.2.0 - Official Android APK and documentation refresh (2026-11-21)
+
+The release publishes the first official signed Android APK
+(`PSModern-1.2.0-android-arm.apk`, ARM64 and ARMv7, `versionCode 10200`)
+alongside `PSModern-1.2.0-windows-x64.zip`, plus the rewritten READMEs and
+documentation accuracy pass (`b3f59bc`). `android/build.gradle` now syncs
+`versionName`/`versionCode` from `CMakeLists.txt`, configures release signing
+from external credentials and bundles GPL-3.0, SDL2 and NDK LLVM
+`libc++_shared` notices with commit metadata; `tools/package-android-release.ps1`
+automates clean `git archive` packaging with `apksigner`, 16 KiB `zipalign`,
+`aapt2` and per-ABI Build ID / zero-Z80/oracle verification. Under the release
+rule, the complete Windows suite was reused from `9736e2c` (390/390); the
+Windows 1.2.0 build was warning-free and all 182 fast tests passed. Both
+packages were verified and published without a separate manual release
+play-test. Published as GitHub release v1.2.0 from `c292948`.

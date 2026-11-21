@@ -1,11 +1,11 @@
 # PSModern - Project Status
 
-**Milestone 16 was completed and accepted on 2026-11-21.** The personal
-Android build `1.0.0-m16.4` runs on ARM phones and exchanges saved games
-with Windows. The [Android plan](milestone-16-plan.md) records the Samsung
-play-test and verification. The latest published Windows release, 1.1.0
-(2026-11-21), covers through milestone 16, including milestone 15's Windows
-audio recovery. See the [project history](project-history.md).
+**Milestone 16 was completed and accepted on 2026-11-21.** The latest published
+release, **1.2.0** (2026-11-21), ships both the Windows x64 zip and the first
+official signed Android APK (`PSModern-1.2.0-android-arm.apk`, ARM64 and ARMv7,
+`versionCode 10200`), covering through milestone 16 plus the documentation
+overhaul. The [Android plan](milestone-16-plan.md) records the Samsung
+play-test and verification. See the [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
 The whole game runs in C++ (milestone 14, see its [plan](milestone-14-plan.md)).
