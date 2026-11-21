@@ -25,7 +25,7 @@ sobrevive nos testes, que o rodam ao lado do C++ e comparam os dois
 instrução por instrução. No caminho, o projeto documenta [como o jogo funciona por dentro][how-it-works]
 (em inglês).
 
-| Tela inicial (1.0.0) | Opções | Tela larga |
+| Tela inicial (1.1.0) | Opções | Tela larga |
 | --- | --- | --- |
 | ![A tela inicial, com as ROMs americana e brasileira já lembradas](docs/images/start-screen.png) | ![A tela de opções sobre uma cidade: as seis opções, as escolhas da selecionada ao lado e a explicação embaixo, nas janelas do próprio jogo](docs/images/options.png) | ![Uma cidade na visão larga de 344 x 192](docs/images/widescreen.png) |
 

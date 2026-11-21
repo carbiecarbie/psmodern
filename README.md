@@ -24,7 +24,7 @@ Z80. The original survives in the tests, which run it beside the C++ and
 compare the two instruction by instruction. Along the way the project writes
 down [how the game works inside][how-it-works].
 
-| Start screen (1.0.0) | Options | Widescreen |
+| Start screen (1.1.0) | Options | Widescreen |
 | --- | --- | --- |
 | ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options screen over a town: the six options, the choices of the selected one beside them and its explanation below, in the game's own windows](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
 
