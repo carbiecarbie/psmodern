@@ -52,6 +52,28 @@ void equal_set(const fs::path& root,RomVersion v) {
         if(fs::exists(shared_path(root,i)))check(read(shared_path(root,i))==read(legacy(root,v,i)),"copied bytes differ");
     }
 }
+void remove_tree_cases() {
+    Temp t;const auto tree=t.path/"stage";
+    write(tree/"a"/"b"/u8"ç.bin",bytes(1));write(tree/"a"/"c.bin",bytes(2));fs::create_directories(tree/"empty");
+    check(!remove_tree(tree) && !fs::exists(tree),"nested stage removed");
+    check(!remove_tree(tree),"missing path is already removed");
+    write(t.path/"single.bin",bytes(3));
+    check(!remove_tree(t.path/"single.bin") && !fs::exists(t.path/"single.bin"),"single file removed");
+    // A link inside the stage is removed as a link; its target survives.
+    const auto outside=t.path/"outside";write(outside/"keep.bin",bytes(4));
+    write(tree/"file.bin",bytes(5));
+#ifdef _WIN32
+    const auto junction=tree/"junction";
+    const std::wstring command=L"cmd /c mklink /J \""+junction.wstring()+L"\" \""+outside.wstring()+L"\" >nul";
+    check(_wsystem(command.c_str())==0 && fs::exists(junction/"keep.bin"),"junction fixture");
+#endif
+    std::error_code link_error;fs::create_directory_symlink(outside,tree/"symlink",link_error);
+#ifndef _WIN32
+    check(!link_error,"directory symlink fixture");
+#endif
+    check(!remove_tree(tree) && !fs::exists(tree),"stage with links removed");
+    check(read(outside/"keep.bin")==bytes(4),"link target kept");
+}
 void first_and_single() {
     {Temp t;auto store=open_shared_save(t.path);check(store && fs::is_directory(t.path/"shared") && !fs::exists(store->path()),"empty first launch");check(store->load()==Memory::CartridgeRam{},"empty image");}
     for(auto v:{RomVersion::us_rev_a,RomVersion::brazilian}) {
@@ -190,6 +212,6 @@ int worker(int argc,char** argv) {
 }
 int main(int argc,char** argv) {try {
     if(argc>1)return worker(argc,argv);
-    first_and_single();choices();invalid_and_locks();authority_and_failure();cleanup_locks();
+    remove_tree_cases();first_and_single();choices();invalid_and_locks();authority_and_failure();cleanup_locks();
     std::cout<<"Shared save import fixtures passed.\n";return 0;
 } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}}

@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/shared_save.h"
+#include "app/remove_tree.h"
 #include <atomic>
-#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
-#include <thread>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -73,14 +72,10 @@ struct Stage {
     ~Stage() noexcept {
         if(path.empty())return; // Published storage is never a cleanup target.
         try {
-            std::error_code error;
-            for(unsigned attempt=0;attempt<6;++attempt) {
-                std::filesystem::remove_all(path,error);
-                if(!error)return;
-                // A host handle can briefly outlive the failed write.
-                if(attempt<5)std::this_thread::sleep_for(std::chrono::milliseconds(40));
-            }
-            std::cerr<<"Warning: shared-save staging cleanup failed; the leftover stage will be ignored: "<<error.message()<<'\n';
+            // remove_tree, not remove_all: see remove_tree.h. A host handle
+            // can briefly outlive the failed write.
+            if(const auto error=remove_tree(path))
+                std::cerr<<"Warning: shared-save staging cleanup failed; the leftover stage will be ignored: "<<error.message()<<'\n';
         } catch(...) { /* Cleanup must not hide the original import failure. */ }
     }
     void publish(const std::filesystem::path& target) {
