@@ -35,8 +35,9 @@ Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 (adds language selection and shared saves, 2026-11-13), 0.5.0 (adds
 widescreen, 2026-11-14), 0.6.0 (the world map and towns in C++,
 2026-11-15) and 1.0.0 (complete C++ reimplementation with no Z80,
-milestones 12 to 14, 2026-11-19). The latest published release covers
-milestone 14.
+milestones 12 to 14, 2026-11-19) and 1.1.0 (Windows audio recovery and the
+Android version in the source, milestones 15 and 16, 2026-11-21). The latest
+published release covers milestone 16.
 
 ## Next milestones
 

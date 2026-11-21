@@ -265,3 +265,15 @@ explored dungeon map, sustained 1x/2x/4x and resumed the same game from Home.
 Independent Tier A reviews approved the port. The Windows suite passed all 390
 tests with zero skips. Implementation: `20e317a`; the desktop fast-forward
 test fix is `247e218`.
+
+## Release 1.1.0 - Audio recovery and the Android source (2026-11-21)
+
+The Windows release brings milestones 15 and 16 together: sound that recovers
+from Windows audio stalls without added silence, and the safer cleanup of a
+failed save import (`9736e2c`). The Android version is in the source; no APK
+is published. Under the release rule recorded that day, the complete suite was
+not rerun: it had passed 390 of 390 on `9736e2c`, and the release changed only
+the version, documents and the start-screen picture. The build was
+warning-free and all 182 fast tests passed. The exact zip was published
+without a manual release play-test. Published as GitHub release v1.1.0 from
+`5afed78`.
