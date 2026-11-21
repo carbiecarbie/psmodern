@@ -1,27 +1,141 @@
 plugins {
     id 'com.android.application' version '9.1.0'
 }
+
 def sdl = file(providers.environmentVariable("PSMODERN_SDL2").get())
-def notices = tasks.register("prepareNotices", Sync) {
-    from("../LICENSE") { rename { "PSModern-LICENSE.txt" } }
-    from(new File(sdl, "LICENSE.txt")) { rename { "SDL2-LICENSE.txt" } }
-    into(layout.buildDirectory.dir("generated/notices"))
+def cmakeFile = file("../CMakeLists.txt")
+def cmakeVersionMatch = (cmakeFile.getText("UTF-8") =~ /project\(PSModern VERSION (\d+)\.(\d+)\.(\d+)/)
+if (!cmakeVersionMatch.find()) {
+    throw new GradleException("Cannot read version from ../CMakeLists.txt")
 }
+def appVersionName = providers.gradleProperty("PSMODERN_VERSION_OVERRIDE")
+    .getOrElse("${cmakeVersionMatch.group(1)}.${cmakeVersionMatch.group(2)}.${cmakeVersionMatch.group(3)}")
+def parsedVersion = (appVersionName =~ /^(\d+)\.(\d+)\.(\d+)/)
+if (!parsedVersion.find()) {
+    throw new GradleException("Invalid version string: ${appVersionName}")
+}
+def appVersionCode = parsedVersion.group(1).toInteger() * 10000 +
+    parsedVersion.group(2).toInteger() * 100 +
+    parsedVersion.group(3).toInteger()
+
+def ndkVer = "28.2.13676358"
+def androidHome = providers.environmentVariable("ANDROID_HOME")
+    .orElse(providers.environmentVariable("ANDROID_SDK_ROOT"))
+    .getOrNull()
+def ndkLlvmNotice = null
+if (androidHome != null) {
+    def prebuiltRoot = file("${androidHome}/ndk/${ndkVer}/toolchains/llvm/prebuilt")
+    if (prebuiltRoot.isDirectory()) {
+        def hostDirs = prebuiltRoot.listFiles()?.findAll { it.isDirectory() && new File(it, "NOTICE").isFile() }
+        if (hostDirs && !hostDirs.isEmpty()) {
+            ndkLlvmNotice = new File(hostDirs[0], "NOTICE")
+        }
+    }
+}
+if (ndkLlvmNotice == null || !ndkLlvmNotice.isFile()) {
+    throw new GradleException("Cannot locate NDK LLVM NOTICE under ANDROID_HOME/ndk/${ndkVer}/toolchains/llvm/prebuilt/*/NOTICE")
+}
+
+def sourceCommit = providers.gradleProperty("PSMODERN_COMMIT").getOrElse("")
+if (!sourceCommit) {
+    try {
+        def p = new ProcessBuilder("git", "-C", file("..").absolutePath, "rev-parse", "HEAD").start()
+        def out = p.inputStream.getText("UTF-8").trim()
+        if (p.waitFor() == 0 && out ==~ /^[0-9a-f]{40}$/) {
+            sourceCommit = out
+        }
+    } catch (Exception ignored) {
+    }
+}
+if (!sourceCommit) {
+    sourceCommit = "local-build"
+}
+
+def noticesDir = layout.buildDirectory.dir("generated/notices")
+def notices = tasks.register("prepareNotices") {
+    inputs.file(file("../LICENSE"))
+    inputs.file(new File(sdl, "LICENSE.txt"))
+    inputs.file(ndkLlvmNotice)
+    inputs.property("version", appVersionName)
+    inputs.property("commit", sourceCommit)
+    inputs.property("ndkVersion", ndkVer)
+    outputs.dir(noticesDir)
+    doLast {
+        def outDir = noticesDir.get().asFile
+        if (outDir.exists()) {
+            outDir.deleteDir()
+        }
+        outDir.mkdirs()
+        copy {
+            from(file("../LICENSE")) { rename { "PSModern-LICENSE.txt" } }
+            from(new File(sdl, "LICENSE.txt")) { rename { "SDL2-LICENSE.txt" } }
+            from(ndkLlvmNotice) { rename { "LIBCXX-LICENSE.txt" } }
+            into(outDir)
+        }
+        new File(outDir, "THIRD-PARTY.txt").setText("""PSModern ${appVersionName} (Android) - third-party notices
+
+PSModern is free software under the GNU General Public License version 3 or
+later (assets/PSModern-LICENSE.txt).
+
+Corresponding source:
+  PSModern  https://github.com/carbiecarbie/psmodern
+            commit ${sourceCommit}
+            (the tag v${appVersionName} points to this commit for official releases)
+
+Credit (not shipped):
+  redcode/Z80, a Z80 CPU core (LGPL-3.0-or-later, https://github.com/redcode/Z80),
+  is the reference PSModern's tests compare the C++ code against, instruction
+  by instruction. This APK contains none of its code.
+
+Bundled libraries (license texts in assets/):
+  libSDL2.so        Simple DirectMedia Layer 2.32.10, zlib license (assets/SDL2-LICENSE.txt)
+  libc++_shared.so  LLVM libc++ runtime from Android NDK ${ndkVer}, Apache License 2.0
+                    with LLVM Exceptions (assets/LIBCXX-LICENSE.txt)
+
+No Phantasy Star data is included; bring your own cartridge dump.
+""", "UTF-8")
+    }
+}
+
+def releaseKeystore = providers.environmentVariable("PSMODERN_KEYSTORE").getOrNull()
+def releaseKeystorePassword = providers.environmentVariable("PSMODERN_KEYSTORE_PASSWORD").getOrNull()
+def releaseKeyAlias = providers.environmentVariable("PSMODERN_KEY_ALIAS").getOrElse("psmodern")
+def releaseKeyPassword = providers.environmentVariable("PSMODERN_KEY_PASSWORD").getOrElse(releaseKeystorePassword ?: "")
+
 android {
     namespace "org.psmodern.game"
     compileSdk 36
     buildToolsVersion "36.0.0"
-    ndkVersion "28.2.13676358"
+    ndkVersion ndkVer
     defaultConfig {
         applicationId "org.psmodern.game"
         minSdk 24
         targetSdk 35
-        versionCode 4
-        versionName "1.0.0-m16.4"
+        versionCode appVersionCode
+        versionName appVersionName
         ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
         externalNativeBuild.cmake {
             arguments "-DPSMODERN_SDL2=" + sdl.absolutePath, "-DANDROID_STL=c++_shared"
             targets "main", "SDL2"
+        }
+    }
+    if (releaseKeystore != null && releaseKeystorePassword != null) {
+        signingConfigs {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            debuggable false
+            minifyEnabled false
+            if (releaseKeystore != null && releaseKeystorePassword != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     externalNativeBuild.cmake {
@@ -30,7 +144,7 @@ android {
     }
     sourceSets.main {
         java.srcDir new File(sdl, "android-project/app/src/main/java")
-        assets.srcDir layout.buildDirectory.dir("generated/notices").get().asFile
+        assets.srcDir noticesDir.get().asFile
     }
 }
 

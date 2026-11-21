@@ -58,8 +58,9 @@ jogo (`Escape` ou botão `Y` no controle durante a exploração):
   usando um único arquivo de save compartilhado.
 - **Controles configuráveis:** teclado e controle funcionam juntos, e todas as
   teclas e botões podem ser alterados na tela **CONTROLES** dentro do jogo.
-- **Versão para Android (via código-fonte):** o repositório também traz um port
-  Android com controles na tela e saves compatíveis com o Windows.
+- **Versão para Android:** APK oficial para aparelhos ARM com Android 7.0+,
+  controles na tela, suporte a controle físico e saves compatíveis com o
+  Windows.
 
 ## Como instalar e jogar
 
@@ -89,14 +90,19 @@ PSModern valida o arquivo e avisa se a ROM não for uma das versões aceitas.
 > exibir um aviso de "editor desconhecido". Clique em **Mais informações** e
 > depois em **Executar assim mesmo**.
 
-### Android
+### Android (ARM, Android 7.0+)
 
-Não publicamos APK pronto, mas você pode compilar para aparelhos ARM com
-Android 7.0 ou superior seguindo o
-[guia de compilação Android](docs/dependencies.md#android-family-build) (em
-inglês). Abra o app, escolha o `.sms` pelo seletor do Android (o jogo guarda uma
-cópia interna) e toque em **1** sobre **JOGAR**. Funciona tanto em pé quanto
-deitado.
+1. Baixe `PSModern-<versão>-android-arm.apk` na [página de Releases][releases]
+   pelo celular e instale (pode ser necessário permitir **Instalar apps
+   desconhecidos** para o navegador ou gerenciador de arquivos).
+2. Abra o **PSModern** e selecione seu arquivo `.sms` descompactado no seletor
+   do Android — o app guarda uma cópia interna.
+3. Toque em **1** sobre **JOGAR** para começar. Use **ADICIONAR ROM** para
+   importar o cartucho do outro idioma. Funciona tanto em pé quanto deitado.
+
+*(Quer compilar o APK por conta própria? Siga o
+[guia de compilação Android](docs/dependencies.md#android-family-build), em
+inglês.)*
 
 Para transferir saves entre Windows e Android, feche o PSModern nos dois
 aparelhos, faça backup da pasta de destino e copie os arquivos de dentro de

@@ -54,8 +54,8 @@ controller `Y` while exploring):
   file across both languages.
 - **Full control remapping:** keyboard and gamepad work together, and every key
   and button can be remapped from the in-game **Controls** screen.
-- **Android support (source build):** the repository also includes a standalone
-  Android port with touch controls and save compatibility with Windows.
+- **Android support:** official ARM APK for Android 7.0+ with touch controls,
+  gamepad support, and saves compatible with Windows.
 
 ## How to install and play
 
@@ -84,14 +84,18 @@ the file and refuses unsupported dumps with an explanation.
 > Because `psmodern.exe` is not digitally signed, Windows SmartScreen may show
 > an "unknown publisher" warning. Click **More info** and then **Run anyway**.
 
-### Android
+### Android (ARM, Android 7.0+)
 
-No prebuilt APK is published, but you can build your own for ARM devices
-running Android 7.0+ by following the
-[Android build guide](docs/dependencies.md#android-family-build). Open the app,
-pick your `.sms` file in the Android file picker (it keeps an internal copy),
-and tap **1** on **PLAY** to begin. Both portrait and landscape layouts are
-supported.
+1. Download `PSModern-<version>-android-arm.apk` from the
+   [Releases page][releases] on your phone and install it (you may need to allow
+   **Install unknown apps** for your browser or file manager).
+2. Open **PSModern** and select your uncompressed `.sms` file in the Android
+   file picker — the app keeps an internal copy.
+3. Tap **1** on **PLAY** to start. Use **ADD ROM** to import the other
+   language's cartridge. Both portrait and landscape layouts are supported.
+
+*(Want to build the APK yourself? Follow the
+[Android build guide](docs/dependencies.md#android-family-build).)*
 
 To move saves between Windows and Android, close PSModern on both devices, back
 up the destination folder, and copy the files inside `shared/`:

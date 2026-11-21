@@ -81,20 +81,35 @@ lists the matching Gradle, Build Tools and NDK versions.
 Extract the [SDL2 2.32.10 source archive](https://www.libsdl.org/release/SDL2-2.32.10.tar.gz)
 outside the checkout after verifying SHA-256
 `5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165`.
-The build uses both its C sources and its Android Java classes. Set
-`ANDROID_HOME` to the SDK and `PSMODERN_SDL2` to this extracted source
-directory. From `android/` on Windows, run `.\gradlew.bat assembleDebug`.
-The APK is `android/build/outputs/apk/debug/PSModern-debug.apk`. It uses the local
-Android debug signing key. Keep using that key for in-place updates on the
-family's phones. SDK tools, keys, ROMs and APKs stay outside version control.
+The build uses both its C sources and its Android Java classes. `android/build.gradle`
+reads `versionName` directly from `CMakeLists.txt` and derives `versionCode` as
+`major * 10000 + minor * 100 + patch`. Set `ANDROID_HOME` to the SDK and
+`PSMODERN_SDL2` to this extracted source directory.
 
-Verify the packaged APK with the pinned Build Tools. Run `apksigner verify
---verbose --print-certs` and `zipalign -c -P 16 4`, each followed by the
-APK path. For each ABI, use the NDK's `llvm-readelf -n` to match the build
-ID of the packaged `libmain.so` to its unstripped counterpart under
-`android/build/intermediates/cxx/Debug/`. Inspect the latter with
-`llvm-nm --demangle` for the SDL entry point and the absence of the Z80
-interpreter and test oracle.
+- **Local debug build:** from `android/` on Windows, run `.\gradlew.bat assembleDebug`.
+  The APK is `android/build/outputs/apk/debug/PSModern-debug.apk` (signed with the
+  local Android debug key).
+- **Signed release build:** set `PSMODERN_KEYSTORE`, `PSMODERN_KEYSTORE_PASSWORD`,
+  `PSMODERN_KEY_ALIAS` (default `psmodern`) and `PSMODERN_KEY_PASSWORD` (defaults to
+  the keystore password) and run `.\gradlew.bat assembleRelease`, or use
+  `tools/package-android-release.ps1` to build from a clean export of `HEAD` and
+  run all release checks automatically. Keep the release keystore and its passwords
+  backed up safely outside version control; changing keys prevents in-place updates.
+
+Every APK bundles `assets/PSModern-LICENSE.txt` (GPL-3.0-or-later),
+`assets/SDL2-LICENSE.txt` (zlib), `assets/LIBCXX-LICENSE.txt` (LLVM `libc++_shared.so`,
+Apache-2.0 with LLVM Exception from the pinned NDK), and `assets/THIRD-PARTY.txt`
+recording the version and source commit.
+
+Verify a packaged APK with the pinned Build Tools (automated by
+`tools/package-android-release.ps1`): run `apksigner verify --verbose --print-certs`
+(confirming the release certificate, never `CN=Android Debug`),
+`zipalign -c -P 16 4`, and `aapt2 dump badging` (confirming package name, version
+and absence of `application-debuggable`). For each ABI, use the NDK's
+`llvm-readelf -n` to match the build ID of the packaged `libmain.so` to its
+unstripped counterpart under `android/build/intermediates/cxx/<Release|Debug>/`,
+and inspect the unstripped library with `llvm-nm --demangle` for `SDL_main` and
+the absence of the Z80 interpreter and test oracle.
 
 ## Windows libraries and version header
 

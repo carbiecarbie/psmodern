@@ -2,23 +2,32 @@
 
 Last updated: 2026-11-21
 
-Release 1.1.0 is published on GitHub (tag `v1.1.0` on `5afed78`, zip and notes
-in `../releases/`). No APK is published; the Android build stays personal.
+Release 1.2.0 preparation (Windows zip + first official signed Android APK) is
+ready in the working tree, awaiting maintainer authorization to commit, build
+the clean release packages into `../releases/`, and publish `v1.2.0`.
 
-Latest change: documentation overhaul and accuracy pass.
-- Rewrote `README.md`, `README.pt-BR.md` and `tools/release/README.txt` to be
-  shorter, clearer and more readable, highlighting full playability, the C++
-  rewrite with no Z80, optional features and installation steps; losslessly
-  recompressed `docs/images/options.png` (1.33 MB -> 9.4 KB).
-- Added `docs/how-it-works/README.md` index, updated `docs/AGENTS.md`, and
-  consolidated detailed player option/automap/save/CLI guides in
-  `docs/player-controls.md`.
-- Corrected outdated statements, recording counts, duplicates and typos in
-  `docs/project-status.md`, `docs/development.md`, `docs/design.md`,
-  `docs/original-quirks.md` and `docs/how-it-works/*.md`.
+Changes prepared in the working tree:
+- `CMakeLists.txt`, `tests/launcher_tests.cpp`, `tests/version_process_tests.py`,
+  `docs/images/start-screen.png`: bumped version to `1.2.0`.
+- `android/build.gradle`: synced `versionName` and `versionCode` (`10200`) from
+  `CMakeLists.txt`, added `signingConfigs.release` / `buildTypes.release`
+  (non-debuggable), and bundled `assets/LIBCXX-LICENSE.txt` and
+  `assets/THIRD-PARTY.txt` with version and source commit.
+- `tools/package-android-release.ps1`: clean `git archive` Android release APK
+  packager with `apksigner`, 16 KiB `zipalign`, `aapt2`, notice/forbidden-file,
+  and per-ABI `llvm-readelf` / `llvm-nm` zero-Z80/oracle verification.
+- `README.md`, `README.pt-BR.md`, `docs/dependencies.md`, `docs/development.md`:
+  updated for official Android APK release and packaging steps.
 
-No milestone is active; the maintainer starts the next one explicitly.
+Verification so far:
+- Windows `build-rel` (`1.2.0`) compiled with zero warnings; `ctest -L fast`
+  passed 182/182 (zero skips).
+- End-to-end test of `tools/package-android-release.ps1` (`-AllowDirty
+  -UseWorkingTree`) passed all signature, alignment, badging, notice and
+  per-ABI (`arm64-v8a`, `armeabi-v7a`) checks with the new release keystore
+  outside Git (`D:\Projetos\Phantasy Star\android-signing\psmodern-release.jks`,
+  cert SHA-256 `30d98c6879947a5f9b45f80e892bea3c3eb56527ce85a1e715c588bdfd29edfe`).
 
-Note kept from the 1.1.0 release checks: `launcher_unit` once failed on its own
-right after `ctest -L fast` (then passed 330x in a row). If it recurs, capture
-output and check the `steady_clock` suffix in `tests/launcher_tests.cpp`.
+Pending: maintainer authorization to commit "Prepare release 1.2.0", package
+clean `PSModern-1.2.0-windows-x64.zip` and `PSModern-1.2.0-android-arm.apk`,
+play-test if desired, and tag/publish `v1.2.0`.

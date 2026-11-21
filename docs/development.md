@@ -104,7 +104,7 @@ and applying the option resizes a normal window to the canvas at its current
 scale, lowered until it fits the usable display bounds; maximized and
 fullscreen windows change only the viewport. Alt+Enter toggles borderless desktop fullscreen.
 
-`psmodern.exe --version` prints `PSModern 1.1.0` and exits with 0 before any
+`psmodern.exe --version` prints `PSModern 1.2.0` and exits with 0 before any
 window or SDL start-up; combined with any other argument it is refused. The
 version comes from `project(PSModern VERSION ...)` in `CMakeLists.txt`,
 through the generated header `PSModernVersion.h`.
@@ -128,7 +128,7 @@ With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
 the ROM's font, so labels are uppercase. Entries (localized in Portuguese):
 `PLAY`, `ADD ROM`, `CONTROLS`, `LANGUAGE <preference>`, `OPEN SAVES FOLDER`
-(desktop only) and `QUIT`, with `PSMODERN 1.1.0` in a small window under
+(desktop only) and `QUIT`, with `PSMODERN 1.2.0` in a small window under
 them (tile row 20, as Options' explanation window). The window title shows
 the active language (`PSModern - Phantasy Star - Language: <language>`).
 
@@ -1953,6 +1953,16 @@ expecting a rebuild to match. `THIRD-PARTY.txt` names the full commit the
 zip was built from; the script ends by printing it, and the tag `v<version>`
 must point to that commit.
 
+`tools/package-android-release.ps1` builds the signed Android APK
+(`PSModern-<version>-android-arm.apk`) from a clean export of `HEAD`, using the
+pinned Android SDK/NDK, extracted `SDL2-2.32.10` source directory and external
+release keystore (`Get-Help` shows its parameters). It runs `apksigner verify`
+(refusing the debug certificate), `zipalign -c -P 16 4`, `aapt2 dump badging`
+(verifying package name, `versionCode`/`versionName` and non-debuggable),
+required license/notice checks (`assets/PSModern-LICENSE.txt`,
+`SDL2-LICENSE.txt`, `LIBCXX-LICENSE.txt`, `THIRD-PARTY.txt`), forbidden-file
+checks, and per-ABI `llvm-readelf` Build ID and `llvm-nm` zero-Z80/oracle checks.
+
 Steps:
 
 1. On a clean, committed tree, run the complete suite, or reuse the last
@@ -1960,10 +1970,11 @@ Steps:
    README images changed since its commit; then the build and `ctest -L fast`
    suffice ([suite protocol](../tools/AGENTS.md)).
 2. Run `tools/package-release.ps1 -OutputDir <folder outside the repository>`
-   (the tag does not have to exist yet; create `v<version>` on the printed
-   commit before publishing).
-3. Extract the zip into a clean folder and run `psmodern.exe --version` with
-   `PATH` limited to System32, which proves the DLL set is complete.
-4. Play-test the exact zip ([release play-test](playtests.md#release-play-test)).
+   for Windows and `tools/package-android-release.ps1 -OutputDir <folder outside the repository> -Sdl2Dir <SDL2-2.32.10> -CredentialsFile <credentials.txt>`
+   for Android (the tag does not have to exist yet; create `v<version>` on the
+   printed commit before publishing).
+3. Extract the Windows zip into a clean folder and run `psmodern.exe --version`
+   with `PATH` limited to System32, which proves the DLL set is complete.
+4. Play-test the exact release packages ([release play-test](playtests.md#release-play-test)).
 5. Tag and publish the GitHub release only with the maintainer's
    authorization.
