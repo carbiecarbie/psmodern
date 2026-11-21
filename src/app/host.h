@@ -108,6 +108,8 @@ class FrameClock {
 public:
     explicit FrameClock(double now):deadline_(now) {}
     unsigned due(double now);
+    // Resume with one frame due and no wall time accumulated during suspension.
+    void rebase(double now) { deadline_=now; }
     void speed(unsigned value,double now);
     unsigned speed() const { return speed_; }
     double deadline() const { return deadline_; }

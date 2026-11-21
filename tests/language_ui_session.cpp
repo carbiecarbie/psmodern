@@ -7,7 +7,7 @@
 #include "app/shared_save.h"
 #include "app/localization.h"
 #include "app/start_loop.h"
-#include "app/windows_platform.h"
+#include "app/platform.h"
 #include "replay/recording.h"
 #include "temporary_cleanup.h"
 #include <chrono>

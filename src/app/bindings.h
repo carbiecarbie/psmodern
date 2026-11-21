@@ -98,6 +98,7 @@ struct InputSnapshot {
     int stick_x=0, stick_y=0;             // left stick
     bool focused=true;                    // keyboard focus on the game window
     bool controller=false;                // a controller is open
+    bool cancel_capture=false;            // platform Back while assigning a control
 };
 // Console input: each console action's key OR pad input, the left stick added
 // through controller() and both halves joined by combine(), as in 0.2.0.

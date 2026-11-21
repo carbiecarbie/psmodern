@@ -6,7 +6,10 @@
 #include "app/frame_driver.h"
 #include "app/shared_save.h"
 #include "app/start_loop.h"
-#include "app/windows_platform.h"
+#include "app/platform.h"
+#ifdef __ANDROID__
+#include "app/android_controls.h"
+#endif
 #include "PSModernVersion.h"
 #include "rom/sha1.h"
 #include "replay/recording.h"
@@ -58,7 +61,13 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         std::cerr<<error.what()<<'\n';message(std::string(ui_text(UiText::legacy_failed,language)));return 1;
     }
     if(!store)return play_cancelled;
+#ifdef __ANDROID__
+    // SDLActivity runs native code on a Java thread with a small stack.
+    auto owned_driver=std::make_unique<FrameDriver>(rom,std::move(*store),overrides,record_path.has_value());
+    auto& driver=*owned_driver;
+#else
     FrameDriver driver(rom,std::move(*store),overrides,record_path.has_value());
+#endif
     driver.configure_languages(session);
     RomFont font(*rom);OptionsMenu menu;MapScreen map_screen;InputRelease release;
     if(launcher_display) release.consume();
@@ -141,7 +150,20 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         FrameClock clock(start);
         std::uint64_t frames=0; bool quit=false,toggle_held=false,map_held=false;
         unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
-        auto effective_speed=[&]() { return !recorder && SDL_GetKeyboardFocus()==window && !driver.menu_active() ? chosen_speed : 1u; };
+#ifdef __ANDROID__
+        AndroidControls mobile(display,font);
+        auto focused=[] { return android_foreground(); };
+#else
+        auto focused=[&] { return SDL_GetKeyboardFocus()==window; };
+#endif
+        auto console_input=[&]() {
+            auto input=sample_input(window,controller,enter);
+#ifdef __ANDROID__
+            input=mobile.frame(input);
+#endif
+            return input;
+        };
+        auto effective_speed=[&]() { return !recorder && focused() && !driver.menu_active() ? chosen_speed : 1u; };
         auto sync_speed=[&]() {
             const unsigned speed=effective_speed();
             if (clock.speed()!=speed) { clock.speed(speed,now()); driver.speed(speed); }
@@ -155,6 +177,9 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             audio.report();
         };
         while (!quit) {
+#ifdef __ANDROID__
+            if (android_foreground()) mobile.layout(!driver.menu_active(),driver.automap_enabled());
+#endif
             SDL_Event event;
             struct SpeedEvent { bool keyboard,down; };
             std::vector<SpeedEvent> speed_events;
@@ -162,6 +187,19 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             bool lost_focus=false,controller_changed=false,options_pressed=false,power_cycled=false;
             while (SDL_PollEvent(&event)) {
                 if (event.type==SDL_QUIT) quit=true;
+#ifdef __ANDROID__
+                // SDL 2 delivers the background pair before its next pump sleeps.
+                // Flush on this thread while the driver is between frames.
+                if (event.type==SDL_APP_WILLENTERBACKGROUND) {
+                    mobile.clear(); release.consume(); speed_shortcut.focus_lost();
+                    chosen_speed=1; sync_speed(); audio.pause(true);
+                    if (const auto error=driver.flush()) std::cerr<<*error<<'\n';
+                }
+                if (event.type==SDL_APP_DIDENTERFOREGROUND) {
+                    clock.rebase(now()); next_report=now()+10; audio.pause(false); mobile.redraw=true;
+                }
+                if (android_foreground()) mobile.event(event);
+#endif
                 if (event.type==SDL_WINDOWEVENT && event.window.windowID==SDL_GetWindowID(window) &&
                     event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { lost_focus=true; speed_shortcut.focus_lost(); }
                 if (event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) {
@@ -196,8 +234,17 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if (pad_is(Action::fullscreen)==true && !controls_screen.visible()) { fullscreen_changed=true; toggle_fullscreen(window); }
             }
             if (quit) break;
-            const auto menu_input=sample_menu_input(window,controller);
+#ifdef __ANDROID__
+            if (!android_foreground()) { SDL_Delay(5); continue; }
+#endif
+            auto menu_input=sample_menu_input(window,controller);
+#ifdef __ANDROID__
+            menu_input=mobile.menu(menu_input,false,driver.menu_active());
+#endif
             const bool speed_allowed=!recorder && !driver.menu_active() && !menu_input.toggle && !options_pressed && !power_cycled;
+#ifdef __ANDROID__
+            if (speed_allowed && mobile.speed_pressed()) chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+#endif
             if(!lost_focus) for(const auto& speed_event:speed_events) {
                 if(!speed_event.keyboard && controller_changed)continue;
                 const bool pressed=speed_event.keyboard ? speed_shortcut.keyboard_event(speed_event.down,menu_input.focused,speed_allowed) :
@@ -219,7 +266,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             toggle_held=menu_input.toggle;
             if(opening && !recorder && menu_input.focused && !menu_input.up && !menu_input.down &&
                 !menu_input.left && !menu_input.right && !menu_input.accept && !menu_input.cancel) {
-                const auto input=sample_input(window,controller,enter);
+                const auto input=console_input();
                 if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu())
                     capture_menu_background();
             }
@@ -230,7 +277,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             map_held=menu_input.map;
             if(map_opening && !recorder && driver.automap_enabled() && menu_input.focused && !menu_input.up && !menu_input.down &&
                 !menu_input.left && !menu_input.right && !menu_input.accept && !menu_input.cancel && !menu_input.toggle) {
-                const auto input=sample_input(window,controller,enter);
+                const auto input=console_input();
                 if(!input.reset && !input.pause && input.pads==std::array<Pad,2>{} && driver.request_menu(HostMenu::map))
                     capture_menu_background();
             }
@@ -241,7 +288,11 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             // game stays held by the Options bridge throughout. Its own fixed
             // navigation reads the raw snapshot, never the bindings.
             if(controls_screen.visible()) {
-                if(controls_screen.update(sample_controls_input(window,controller,enter),now())==ControlsAction::save) {
+                auto input=sample_controls_input(window,controller,enter);
+#ifdef __ANDROID__
+                input=mobile.navigation(input,controls_screen.capturing());
+#endif
+                if(controls_screen.update(input,now())==ControlsAction::save) {
                     try {
                         save_bindings(production_save_folder(),controls_screen.draft());
                         controller.set_bindings(controls_screen.draft());controls_screen.saved();
@@ -279,7 +330,11 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             }
             const auto count=clock.due(now());
             for (unsigned i=0;i<count;++i) {
-                const auto input=release.filter(sample_input(window,controller,enter),menu_input.any(),menu_input.focused);
+                const auto input=release.filter(console_input(),menu_input.any(),menu_input.focused);
+#ifdef __ANDROID__
+                mobile.end_frame();
+                if (!android_foreground()) break;
+#endif
                 const bool was_active=driver.menu_active();
                 FrameOutput output;
                 const auto began=now();
@@ -315,6 +370,10 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 // the remainder calculated at the previous effective speed.
                 if (clock.speed()!=effective_speed()) { sync_speed(); break; }
             }
+#ifdef __ANDROID__
+            mobile.end_poll();
+            if (!android_foreground()) continue;
+#endif
             if (stopped) {
                 // The player sees a message box over the game window (in the
                 // session language, the technical details in English below
@@ -335,7 +394,12 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 (options_hint.empty() ? "" : " - "+std::string(ui_text(UiText::options,language))+": "+options_hint)+
                 (driver.automap_enabled() && !map_hint.empty() ? " - "+std::string(ui_text(UiText::map,language))+": "+map_hint : "");
             if(current_title!=displayed_title) {SDL_SetWindowTitle(window,current_title.c_str());displayed_title=current_title;}
-            if ((count || menu.visible() || map_screen.visible()) && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
+            bool redraw=count || menu.visible() || map_screen.visible();
+#ifdef __ANDROID__
+            mobile.layout(!driver.menu_active(),driver.automap_enabled());
+            redraw|=mobile.redraw;
+#endif
+            if (redraw && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
                 const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 // The wide picture only on the wide canvas; the narrow canvas
                 // shows the VDP picture alone, as 0.4.0 did.
@@ -353,7 +417,13 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 upload_bands(display,wide);
                 const auto centre=centre_rect(display);
                 sdl_check(SDL_UpdateTexture(display.texture.get(),&centre,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
-                const auto began=now();present(display);report_slow("present",began,frames);
+                const auto began=now();
+#ifdef __ANDROID__
+                mobile.present(language,clock.speed());
+#else
+                present(display);
+#endif
+                report_slow("present",began,frames);
             }
             if (now()>=next_report) { report(); next_report=now()+10; }
             // Yield even in the last two milliseconds; the frame clock still
@@ -373,16 +443,29 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
 }
 int main(int argc,char** argv) {
     attach_parent_console();
+#ifdef __ANDROID__
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,"0");
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE,"1");
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON,"1");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS,"LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
+#else
     SDL_SetMainReady();
+#endif
     try {
         const auto words=utf8_arguments(argc,argv);
         std::vector<const char*> pointers;
         for (const auto& word:words) pointers.push_back(word.c_str());
         const auto args=parse_app_arguments(static_cast<int>(pointers.size()),pointers.data());
         if (args.mode==AppMode::version) { std::cout<<"PSModern "<<PSMODERN_VERSION<<'\n'; return 0; }
+#ifdef __ANDROID__
+        sdl_check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"Starting SDL");
+        watch_android_lifecycle();
+#endif
         const auto initial_language=load_language(production_save_folder()).preference;
         failure_language=initial_language==LanguagePreference::portuguese ? Language::portuguese : Language::english;
+#ifndef __ANDROID__
         sdl_check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_TIMER)==0,"Starting SDL");
+#endif
         int result=0;
         if (args.mode==AppMode::launcher) {
             std::optional<Display> display;

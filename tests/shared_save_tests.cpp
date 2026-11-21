@@ -122,6 +122,15 @@ void invalid_and_locks() {
     {Temp t;fs::create_directory(t.path/"shared");SaveLock lock(shared_path(t.path).string()+".lock");throws([&]{open_shared_save(t.path);},"canonical lock excludes another session");}
 }
 void authority_and_failure() {
+    {
+        Temp t;
+        write(legacy(t.path,RomVersion::us_rev_a),bytes(1));
+        auto competitor=[&](ImportStep step) {
+            if (step==ImportStep::before_publish) fs::create_directory(t.path/"shared");
+        };
+        throws([&]{ open_shared_save(t.path,{},competitor); },"publication refuses an existing directory");
+        check(fs::is_empty(t.path/"shared"),"competing empty directory is preserved");
+    }
     {Temp t;write(legacy(t.path,RomVersion::us_rev_a),bytes(1));fs::create_directory(t.path/"shared");auto store=open_shared_save(t.path);check(store && !fs::exists(store->path()),"empty canonical is authoritative");}
     {Temp t;write(legacy(t.path,RomVersion::us_rev_a),bytes(1));write(shared_path(t.path),"bad");throws([&]{open_shared_save(t.path);},"invalid canonical fails");check(read(shared_path(t.path))=="bad","invalid canonical untouched");}
     {Temp t;write(legacy(t.path,RomVersion::us_rev_a),bytes(1));write(t.path/"shared","not a directory");throws([&]{open_shared_save(t.path);},"non-directory canonical fails");check(read(t.path/"shared")=="not a directory","canonical object untouched");}

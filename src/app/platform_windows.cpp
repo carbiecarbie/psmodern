@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "app/windows_platform.h"
+#include "app/platform.h"
 #include "app/localization.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -20,6 +20,21 @@
 #endif
 
 namespace psmodern::app {
+std::filesystem::path production_save_folder() {
+#ifdef _WIN32
+    const auto length=GetEnvironmentVariableW(L"APPDATA",nullptr,0);
+    if (length==0) throw std::runtime_error("Cannot resolve %APPDATA% for saves.");
+    std::wstring value(length,L'\0');
+    const auto written=GetEnvironmentVariableW(L"APPDATA",value.data(),length);
+    if (!written || written>=length) throw std::runtime_error("Cannot resolve %APPDATA% for saves.");
+    value.resize(written);
+    std::filesystem::path folder(value);
+    if (!folder.is_absolute()) throw std::runtime_error("%APPDATA% must be an absolute folder.");
+    return folder/"PSModern";
+#else
+    throw std::runtime_error("Production save location currently requires Windows %APPDATA%.");
+#endif
+}
 #ifdef _WIN32
 namespace {
 std::string utf8(const wchar_t* text) {

@@ -13,7 +13,13 @@
 #endif
 #include <windows.h>
 #else
+#include <cerrno>
+#include <fcntl.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
 #endif
 
 namespace psmodern::app {
@@ -85,8 +91,22 @@ struct Stage {
             throw std::system_error(GetLastError(),std::system_category(),"Publishing shared saves");
         path.clear();
 #else
-        (void)target;
-        throw std::runtime_error("Shared-save publication currently requires Windows.");
+        sync_directory(path);
+#if defined(SYS_renameat2) && defined(RENAME_NOREPLACE)
+        if (syscall(SYS_renameat2,AT_FDCWD,path.c_str(),AT_FDCWD,target.c_str(),RENAME_NOREPLACE)<0) {
+            if (errno!=ENOSYS && errno!=EINVAL && errno!=EOPNOTSUPP)
+                throw std::system_error(errno,std::generic_category(),"Publishing shared saves");
+#else
+        {
+#endif
+            // Every PSModern publisher holds shared-import.lock. Recheck immediately
+            // before rename on filesystems without the no-replace operation.
+            if (artifact_status(target).type()!=std::filesystem::file_type::not_found)
+                throw std::runtime_error("Shared save storage already exists.");
+            std::filesystem::rename(path,target);
+        }
+        path.clear();
+        sync_directory(target.parent_path());
 #endif
     }
 };

@@ -254,3 +254,13 @@ playing it successfully, the maintainer chose to keep the original game rules
 and six-row Options menu. The [plan](milestone-15-plan.md) records each fix,
 its verification and the recovery patch. The audio-only revision passed
 all 389 tests with zero skips.
+
+## Milestone 16 - Android version (2026-11-21)
+
+The [personal Android build](milestone-16-plan.md) brought the C++ game to ARM
+phones with cartridge-style touch controls, system ROM import and saves that
+travel between Android and Windows. The maintainer passed the Samsung play-test.
+On the final `1.0.0-m16.4` APK, the S24 continued a Windows save with its
+explored dungeon map, sustained 1x/2x/4x and resumed the same game from Home.
+Independent Tier A reviews approved the port. The Windows suite passed all 390
+tests with zero skips. The desktop fast-forward test fix is `247e218`.

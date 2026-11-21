@@ -21,6 +21,10 @@ public:
     bool supports(char character) const;
     void text(std::span<std::uint32_t> pixels,int x,int y,std::string_view text,std::uint32_t color) const;
     void window(std::span<std::uint32_t> pixels,int x,int y,int width,int height,int cursor_y) const;
+    // Arbitrary tightly packed rows for host surfaces such as touch textures.
+    void text(std::span<std::uint32_t> pixels,int stride,int x,int y,std::string_view text,std::uint32_t color) const;
+    void window(std::span<std::uint32_t> pixels,int stride,int x,int y,int width,int height,int cursor_y,std::uint32_t border) const;
+    const auto& window_tiles() const { return window_tiles_; }
     const auto& glyphs() const { return glyphs_; }
 private:
     std::array<std::array<std::uint8_t,8>,96> glyphs_{};

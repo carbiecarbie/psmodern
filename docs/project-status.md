@@ -1,12 +1,11 @@
 # PSModern - Project Status
 
-**Milestone 15 was completed and accepted on 2026-11-19.** Its Windows
-audio fix is active. After playing the prototype the maintainer chose to
-keep the cartridge rules and the six-row Options menu. The
-[plan](milestone-15-plan.md) records the five tested fixes. Release
-1.0.0 (2026-11-19) is the latest published version and covers through milestone
-14. The [project history](project-history.md) lists every milestone and
-release.
+**Milestone 16 was completed and accepted on 2026-11-21.** The personal
+Android build `1.0.0-m16.4` runs on ARM phones and exchanges saved games
+with Windows. The [Android plan](milestone-16-plan.md) records the Samsung
+play-test and verification. The latest published Windows release, 1.0.0
+(2026-11-19), covers through milestone 14. Milestone 15 improved Windows
+audio recovery. See the [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
 The whole game runs in C++ (milestone 14, see its [plan](milestone-14-plan.md)).
@@ -32,7 +31,11 @@ optional widescreen view. Milestone 12 changed how PSModern's own screens
 look (Options, Controls, start) and no feature of the game: with every option
 off the game plays and looks as it did.
 
-- **Starting:** double-click `psmodern.exe` to reach the start screen: the
+- **On Android**, open PSModern and select a supported cartridge in the system
+  file picker. The app remembers an imported copy. Play in portrait or
+  landscape using the cartridge-style touch controls or a controller.
+  [Android controls](player-controls.md#android-touch-controls) explains the layout.
+- **On Windows**, double-click `psmodern.exe` to reach the start screen: the
   first time, pick an uncompressed `.sms` file of the US Rev-A or the
   Brazilian Tec Toy cartridge; it is remembered, and any other file is refused
   with a message. One PLAY entry starts the game; ADD ROM makes the other
@@ -76,7 +79,8 @@ off the game plays and looks as it did.
   progress are kept across a switch, and if the preferred ROM is absent the
   available language is used with a warning.
 - **Saves:** the game's own save menu writes one shared cartridge file,
-  `%APPDATA%\PSModern\shared\phantasy-star.sav`, with options and automap
+  `phantasy-star.sav`, under `%APPDATA%\PSModern\shared` on Windows or
+  `Android/data/org.psmodern.game/files/shared/` on Android, with options and automap
   companions beside it, a `.bak` of the previous file before the first write
   of a session, and a lock against concurrent use. First use imports old US/BR
   files without modifying them. The parent folder holds `roms.txt`,
@@ -130,6 +134,7 @@ layer.
 | ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
 | Game | `src/game/` | Cartridge-driven C++ game routines, optional game rules, dungeon exploration and map-screen readers |
 | Program | `src/app/` | SDL window, sound, input and its bindings, save files, the start, Options, Controls, Language and map screens (the first three in the game's window style), `WideView` (the widescreen renderer), frame pacing, command-line options |
+| Android host | `android/`, `src/app/` | Android activity, document picker, app storage, touch controls and SDL lifecycle |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, lockstep and frame verification, routine censuses |
 | Oracle | `src/oracle/`, `third_party/` | Test-only: the pinned Z80 core and a machine running the original, for lockstep. Not linked into `psmodern.exe` |
 | Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
@@ -226,10 +231,11 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   recording check the distinct text paths; switching and legacy-import tests
   cover preserved state, cancellation, missing or locked files, concurrency
   and crashes.
-- **Review and acceptance.** Independent reviews covered the timing
-  mechanism and game routines. The full suite passed all 389 tests after the milestone 15
-  cartridge-fix withdrawal, including the six-row menu and audio queue tests.
-  The maintainer approved all three play-test scenarios.
+- **Review and acceptance.** Independent reviews covered the timing mechanism,
+  game routines and Android host. The maintainer passed the Samsung play-test.
+  The Windows suite passed 390/390 with zero skips. On the S24, the final APK
+  loaded both cartridges and a Windows save with its map, and sustained 1x,
+  2x and 4x in the dungeon. See the [device results](milestone-16-plan.md#verification).
 
 ## Known gaps
 
@@ -268,7 +274,6 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   executable against 5.5 MB, a cost of rendering every instruction. It
   still uses about a tenth of each frame's time; the maintainer accepted it
   (Maintainer decision, 2026-11-19).
-- **Windows only** for the save location.
 - **Some details of the first Master System's video chip are unmeasured.**
   PSModern follows the reference and [development](development.md) labels
   them Unknown; the US recordings reach two (video memory accesses at two

@@ -3,6 +3,7 @@
 #include "app/options_menu.h"
 #include "app/localization.h"
 #include "app/rom_list.h"
+#include "app/rom_import.h"
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -22,7 +23,7 @@ inline constexpr menu_style::TileWindow version_window{2,20,28,3};
 class StartScreen {
 public:
     // The cursor starts on selected when it is an entry, else on the first.
-    explicit StartScreen(const RomList& list,StartAction selected=StartAction::none);
+    explicit StartScreen(const RomList& list,StartAction selected=StartAction::none,bool show_open_saves=true);
     const std::vector<StartAction>& entries() const { return entries_; }
     unsigned selected() const { return selected_; }
     // accept chooses the selected entry; cancel (Esc) quits.
@@ -39,6 +40,7 @@ private:
     bool armed_=false;
     double next_repeat_=0;
 };
+
 // What the launcher needs from the system, so that its decisions are tested
 // without dialogs or files.
 class LauncherPlatform {
@@ -56,6 +58,11 @@ public:
     virtual void save_list(const RomList& list)=0;
     // Throws std::runtime_error with the reason for an unsupported file.
     virtual RomVersion identify(const std::filesystem::path& path)=0;
+    // Desktop remembers the picked file. Android publishes the validated staging
+    // file here and returns its permanent path before the list is updated.
+    virtual ImportedRom import_picked(const std::filesystem::path& path) {
+        return {identify(path),std::filesystem::absolute(path)};
+    }
 };
 // Loads the remembered ROMs, forgets those that are missing or changed and asks
 // for a ROM while none is left. Empty when the player cancels; nothing is

@@ -24,7 +24,10 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-std::filesystem::path production_save_folder();
+#ifndef _WIN32
+// Persist directory entries after publishing data on POSIX filesystems.
+void sync_directory(const std::filesystem::path& directory);
+#endif
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image);
 // Atomically replaces a small text file (settings, remembered ROMs), creating
 // its folder; refuses a destination that exists and is not a regular file.

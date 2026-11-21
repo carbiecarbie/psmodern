@@ -92,7 +92,9 @@ for this project's organization and workflow.
   stairs down, exit, door, pitfall; the plain, locked and magic doors are
   the one door drawing in three colours). It covers those icons on that screen
   only; it is not a licence for other new art, and any other exception needs
-  its own maintainer decision recorded here.
+  its own maintainer decision recorded here. For Android packaging, the APK
+  launcher icon uses a plain XML monogram or geometric shape without ROM
+  data (maintainer decision, 2026-11-19).
 - Widescreen in battles, 3D dungeons and portrait scenes: they keep their
   original size, centered. (The spaceship flight is not among them since
   2026-11-14: see 5.4.)
@@ -391,7 +393,7 @@ explanation in the system's document behind it.
 - **ROM identification:** the program takes the ROM path and checks the SHA-1
   of US Rev-A and of the Brazilian ROM. Unknown versions are refused with a
   clear message.
-- **Platform:** Windows first, other systems later (as in MMModern).
+- **Platform:** Windows first, followed by the personal [Android build](milestone-16-plan.md).
 - **Stack:** C++, CMake, SDL (as in MMModern).
 - **License:** GPL-3.0-or-later, as in MMModern. Third-party libraries (for
   example the Z80 core) must have a compatible license.

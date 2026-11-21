@@ -39,6 +39,19 @@ the triggers, LSTICK and RSTICK the sticks pressed in. The first controller
 found is used, including one plugged in while the game runs. Keyboard and
 controller work together.
 
+## Android touch controls
+
+Slide your thumb across the cross to change direction. Hold a direction with
+one finger and press **1** or **2** with another. In portrait the controls sit
+below the picture. In landscape the cross and buttons stay in the same place
+when you turn Widescreen on.
+
+During play, **PAUSE** presses the console's Pause button, **OPT** opens
+Options during exploration and the speed button cycles through 1x, 2x and 4x.
+With Automap enabled, **MAP** opens the map while exploring a dungeon.
+Android Back cancels in menus and opens Options during exploration.
+A controller input hides the touch controls. The first touch brings them back.
+
 ## What cannot be changed
 
 - **Alt+Enter** always switches between window and fullscreen. The Fullscreen

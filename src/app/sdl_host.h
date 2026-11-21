@@ -4,7 +4,9 @@
 #include "app/bindings.h"
 #include "app/host.h"
 #include "app/options_menu.h"
+#ifndef __ANDROID__
 #define SDL_MAIN_HANDLED
+#endif
 #include <SDL.h>
 #include <array>
 #include <memory>
@@ -96,7 +98,8 @@ void apply_canvas(Display& display,bool wide);
 // Shows the canvas: nearest-neighbour integer scaling, centred with black
 // bars. The upload stays with the caller, where the session tests intercept
 // it.
-void present(const Display& display);
+void recreate_picture_texture(Display& display);
+void present(const Display& display,const SDL_Rect* target=nullptr,const std::function<void()>& overlay={});
 // Alt+Enter: borderless desktop fullscreen on and off.
 void toggle_fullscreen(SDL_Window* window);
 // Start screen input (start_input), fixed whatever the bindings: arrows,

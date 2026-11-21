@@ -79,6 +79,19 @@ PSModern refuses any other file and tells you why.
 The program is not digitally signed, so Windows SmartScreen may warn about an
 unknown publisher. Click **More info**, then **Run anyway**.
 
+### Play on Android
+
+The personal Android build runs on ARM phones with Android 7.0 or later.
+Install the APK built with the [Android build instructions](docs/dependencies.md#android-family-build).
+Open PSModern and select your cartridge's `.sms` file in the Android file picker.
+The game keeps its own copy. Tap **1** on **PLAY** to start. **ADD ROM** lets you
+import the other language. Rotate the phone to play in portrait or landscape.
+
+On Android, the shared save folder is `Android/data/org.psmodern.game/files/shared/`.
+To move a game between Android and Windows, close PSModern on both devices.
+Back up the destination's `shared` folder before copying the save, options
+and automap files into it. On Windows the folder is `%APPDATA%\PSModern\shared`.
+
 ## Controls
 
 The table shows the defaults. Every key and button can be changed on the

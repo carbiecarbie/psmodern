@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/sdl_host.h"
+#ifdef __ANDROID__
+#include "app/android_controls.h"
+#endif
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -117,7 +120,11 @@ namespace {
 // EnterKey, never while Alt+Enter consumes it. Then the controller.
 InputSnapshot held_input(SDL_Window* window,const Controller& controller,const EnterKey* enter) {
     InputSnapshot input;
+#ifdef __ANDROID__
+    input.focused=android_foreground();
+#else
     input.focused=SDL_GetKeyboardFocus()==window;
+#endif
     if (input.focused) {
         // SDL's keyboard state always holds SDL_NUM_SCANCODES entries.
         const auto* keys=SDL_GetKeyboardState(nullptr);
@@ -157,10 +164,13 @@ Display open_display(const std::string& title) {
     std::cerr<<"Video: "<<renderer_info.name<<", vsync="
              <<bool(renderer_info.flags&SDL_RENDERER_PRESENTVSYNC)
              <<", display_hz="<<(have_display ? mode.refresh_rate : 0)<<'\n';
-    display.texture.reset(SDL_CreateTexture(renderer.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,wide_width,wide_height));
+    recreate_picture_texture(display);
+    return display;
+}
+void recreate_picture_texture(Display& display) {
+    display.texture.reset(SDL_CreateTexture(display.renderer.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,wide_width,wide_height));
     sdl_check(bool(display.texture),"Creating picture texture");
     sdl_check(SDL_SetTextureScaleMode(display.texture.get(),SDL_ScaleModeNearest)==0,"Setting nearest-neighbour scaling");
-    return display;
 }
 SDL_Rect centre_rect(const Display& display) {
     return {canvas_centre_x(display.wide_canvas),0,picture_width,picture_height};
@@ -175,6 +185,10 @@ void upload_bands(Display& display,const WidePicture* wide) {
                   "Uploading the side bands");
 }
 void apply_canvas(Display& display,bool wide) {
+#ifdef __ANDROID__
+    display.wide_canvas=wide;
+    return;
+#endif
     if (display.wide_canvas==wide) return;
     auto* window=display.window.get();
     int ow,oh; sdl_check(SDL_GetRendererOutputSize(display.renderer.get(),&ow,&oh)==0,"Reading output size");
@@ -195,17 +209,21 @@ void apply_canvas(Display& display,bool wide) {
     SDL_SetWindowSize(window,fitted.rect.width,fitted.rect.height);
     SDL_SetWindowPosition(window,fitted.rect.x,fitted.rect.y);
 }
-void present(const Display& display) {
+void present(const Display& display,const SDL_Rect* target,const std::function<void()>& overlay) {
     auto* renderer=display.renderer.get();
     int w,h; sdl_check(SDL_GetRendererOutputSize(renderer,&w,&h)==0,"Reading output size");
     const int canvas=canvas_width(display.wide_canvas);
     const auto v=viewport(w,h,canvas); const SDL_Rect source{0,0,canvas,picture_height},rect{v.x,v.y,v.width,v.height};
     sdl_check(SDL_SetRenderDrawColor(renderer,0,0,0,255)==0,"Setting black bars");
     sdl_check(SDL_RenderClear(renderer)==0,"Clearing picture");
-    sdl_check(SDL_RenderCopy(renderer,display.texture.get(),&source,&rect)==0,"Drawing picture");
+    sdl_check(SDL_RenderCopy(renderer,display.texture.get(),&source,target ? target : &rect)==0,"Drawing picture");
+    if (overlay) overlay();
     SDL_RenderPresent(renderer);
 }
 void toggle_fullscreen(SDL_Window* window) {
+#ifdef __ANDROID__
+    return;
+#endif
     const bool fullscreen=SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP;
     sdl_check(SDL_SetWindowFullscreen(window,fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP)==0,"Toggling fullscreen");
 }

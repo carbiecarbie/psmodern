@@ -14,6 +14,8 @@
 #endif
 #include <windows.h>
 #else
+#include <cerrno>
+#include <cstdlib>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/file.h>
@@ -22,21 +24,6 @@
 namespace psmodern::app {
 const char* save_name(RomVersion version) {
     return version==RomVersion::us_rev_a ? "phantasy-star-us-rev-a.sav" : "phantasy-star-brazil.sav";
-}
-std::filesystem::path production_save_folder() {
-#ifdef _WIN32
-    const auto length=GetEnvironmentVariableW(L"APPDATA",nullptr,0);
-    if (length==0) throw std::runtime_error("Cannot resolve %APPDATA% for saves.");
-    std::wstring value(length,L'\0');
-    const auto written=GetEnvironmentVariableW(L"APPDATA",value.data(),length);
-    if (!written || written>=length) throw std::runtime_error("Cannot resolve %APPDATA% for saves.");
-    value.resize(written);
-    std::filesystem::path folder(value);
-    if (!folder.is_absolute()) throw std::runtime_error("%APPDATA% must be an absolute folder.");
-    return folder/"PSModern";
-#else
-    throw std::runtime_error("Production save location currently requires Windows %APPDATA%.");
-#endif
 }
 SaveStore::SaveStore(std::filesystem::path folder,RomVersion version,Writer writer,SettingsWriter settings_writer,SettingsWriter automap_writer)
     :path_(std::move(folder)/save_name(version)),writer_(std::move(writer)),settings_writer_(std::move(settings_writer)),
@@ -96,6 +83,18 @@ Memory::CartridgeRam SaveStore::load() const {
         throw std::runtime_error("Cannot read complete save; it will not be overwritten: "+path_.string());
     return image;
 }
+#ifndef _WIN32
+void sync_directory(const std::filesystem::path& directory) {
+    const int fd=open(directory.c_str(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    if (fd<0) throw std::system_error(errno,std::generic_category(),"Opening directory to flush");
+    int result;
+    do { result=fsync(fd); } while (result<0 && errno==EINTR);
+    const int error=errno;
+    const int closed=close(fd);
+    if (result<0) throw std::system_error(error,std::generic_category(),"Flushing directory");
+    if (closed<0) throw std::system_error(errno,std::generic_category(),"Closing directory");
+}
+#endif
 static void publish_bytes(const std::filesystem::path& path,std::span<const std::uint8_t> image,bool validate_destination) {
     std::filesystem::create_directories(path.parent_path());
     // Refuse a newly malformed destination too (e.g. external replacement).
@@ -133,6 +132,7 @@ static void publish_bytes(const std::filesystem::path& path,std::span<const std:
         std::size_t offset=0;
         while (offset<image.size()) {
             const auto n=::write(fd,image.data()+offset,image.size()-offset);
+            if (n<0 && errno==EINTR) continue;
             if (n<=0) throw std::system_error(errno,std::generic_category(),"Writing temporary save");
             offset+=n;
         }
@@ -140,6 +140,7 @@ static void publish_bytes(const std::filesystem::path& path,std::span<const std:
         const auto closed=close(fd); fd=-1;
         if (closed) throw std::system_error(errno,std::generic_category(),"Closing temporary save");
         std::filesystem::rename(temp,path);
+        sync_directory(path.parent_path());
     } catch (...) { if (fd>=0) close(fd); unlink(temp.c_str()); throw; }
 #endif
 }

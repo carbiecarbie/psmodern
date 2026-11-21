@@ -85,22 +85,32 @@ bool RomFont::supports(char c) const {
 }
 void RomFont::text(std::span<std::uint32_t> pixels,int x,int y,std::string_view value,std::uint32_t color) const {
     if(pixels.size()!=256*192)throw std::invalid_argument("Expected a 256 by 192 overlay.");
+    text(pixels,256,x,y,value,color);
+}
+void RomFont::text(std::span<std::uint32_t> pixels,int stride,int x,int y,std::string_view value,std::uint32_t color) const {
+    if (stride<=0 || pixels.size()%stride) throw std::invalid_argument("Invalid ROM font surface.");
+    const int height=static_cast<int>(pixels.size()/stride);
     for(char c:value) {
         if(!supports(c))throw std::runtime_error("Unsupported ROM menu character.");
         for(int row=0;row<8;++row)for(int column=0;column<8;++column)
-            if(x+column>=0 && x+column<256 && y+row>=0 && y+row<192 && (glyphs_[c-32][row]&(1u<<(7-column))))
-                pixels[(y+row)*256+x+column]=color;
+            if(x+column>=0 && x+column<stride && y+row>=0 && y+row<height && (glyphs_[c-32][row]&(1u<<(7-column))))
+                pixels[(y+row)*stride+x+column]=color;
         x+=8;
     }
 }
 void RomFont::window(std::span<std::uint32_t> pixels,int x,int y,int width,int height,int cursor_y) const {
-    if(pixels.size()!=256*192 || x<0 || y<0 || width<16 || height<16 || x+width>256 || y+height>192 || width%8 || height%8)
+    if (pixels.size()!=256*192) throw std::invalid_argument("Expected a 256 by 192 overlay.");
+    window(pixels,256,x,y,width,height,cursor_y,menu_style::white);
+}
+void RomFont::window(std::span<std::uint32_t> pixels,int stride,int x,int y,int width,int height,int cursor_y,std::uint32_t border) const {
+    if(stride<=0 || pixels.size()%stride || x<0 || y<0 || width<16 || height<16 ||
+       x>stride-width || static_cast<std::size_t>(y)+height>pixels.size()/stride || width%8 || height%8)
         throw std::invalid_argument("Expected an in-bounds tile-aligned menu window.");
-    for(int row=y;row<y+height;++row)std::fill(pixels.begin()+row*256+x,pixels.begin()+row*256+x+width,0xff000000);
+    for(int row=y;row<y+height;++row)std::fill(pixels.begin()+row*stride+x,pixels.begin()+row*stride+x+width,0xff000000);
     auto tile=[&](unsigned index,int tx,int ty,bool flip_x=false,bool flip_y=false) {
         for(int py=0;py<8;++py)for(int px=0;px<8;++px)
             if(window_tiles_[index][flip_y ? 7-py : py]&(1u<<(flip_x ? px : 7-px)))
-                pixels[(ty+py)*256+tx+px]=0xffffffff;
+                pixels[(ty+py)*stride+tx+px]=border;
     };
     tile(1,x,y);tile(1,x+width-8,y,true);tile(1,x,y+height-8,false,true);tile(1,x+width-8,y+height-8,true,true);
     for(int tx=x+8;tx<x+width-8;tx+=8){tile(2,tx,y);tile(2,tx,y+height-8,false,true);}

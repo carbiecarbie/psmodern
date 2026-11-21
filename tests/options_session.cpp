@@ -260,7 +260,7 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 }
 }
 #include "app/start_loop.h"
-#include "app/windows_platform.h"
+#include "app/platform.h"
 #define SDL_PollEvent launcher_poll
 #define sample_start_input scripted_start
 #define sample_controls_input launcher_controls

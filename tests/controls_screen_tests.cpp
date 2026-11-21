@@ -276,6 +276,20 @@ void capture_messages() {
     }
 }
 void capture_cancel() {
+    {
+        Rig rig;
+        rig.tap(key(Z));
+        check(rig.screen.capturing(),"keyboard capture is active");
+        auto back=key(ESCAPE);
+        back.cancel_capture=true;
+        const auto original=rig.screen.draft().keys;
+        rig.tap(back);
+        check(!rig.screen.capturing() && rig.screen.visible() && rig.screen.draft().keys==original,
+              "platform Back cancels capture without assigning a key or closing Controls");
+        rig.tap(key(Z));
+        rig.tap(key(ESCAPE));
+        check(rig.screen.draft().keys[Action::up]==ESCAPE,"a real Escape key can still be assigned");
+    }
     {   // A press on the other device cancels, and the screen re-arms.
         Rig rig;rig.capture(4,0);const auto before=rig.draft();
         rig.step(pad(PadInput::a));

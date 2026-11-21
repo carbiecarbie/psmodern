@@ -5,7 +5,10 @@
 #include "app/localization.h"
 #include "app/frame_driver.h"
 #include "app/start_screen.h"
-#include "app/windows_platform.h"
+#include "app/platform.h"
+#ifdef __ANDROID__
+#include "app/android_controls.h"
+#endif
 #include <array>
 #include <iostream>
 
@@ -19,6 +22,13 @@ std::string launcher_title(Language language) {
 // the start screen window once it exists.
 class SdlLauncherPlatform : public LauncherPlatform {
 public:
+#ifdef __ANDROID__
+    RomImport stage{production_save_folder()};
+    ImportedRom import_picked(const std::filesystem::path& path) override { return stage.publish(path); }
+    static constexpr bool show_folder=false;
+#else
+    static constexpr bool show_folder=true;
+#endif
     SDL_Window* window=nullptr;
     Language language=Language::english;
     std::optional<std::filesystem::path> pick_rom() override { return pick_rom_file(window,language); }
@@ -87,30 +97,55 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
     controller.set_bindings(loaded.bindings);
     ControlsScreen controls;
     LanguageScreen languages;
-    StartScreen screen(*list);
+    auto start_screen=[&](StartAction selected=StartAction::none) { return StartScreen(*list,selected,platform.show_folder); };
+    auto screen=start_screen();
+#ifdef __ANDROID__
+    AndroidControls mobile(*display,font);
+#endif
     std::array<std::uint32_t,256*192> pixels{};
     const double frequency=static_cast<double>(SDL_GetPerformanceFrequency());
     auto now=[&]() { return SDL_GetPerformanceCounter()/frequency; };
     for (;;) {
+#ifdef __ANDROID__
+        if (android_foreground()) mobile.layout(false,false);
+#endif
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type==SDL_QUIT) return {};
+#ifdef __ANDROID__
+            if (event.type==SDL_APP_WILLENTERBACKGROUND) mobile.clear();
+            if (android_foreground()) mobile.event(event);
+#endif
             if (event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) controller.refresh();
             const auto pad=controller.translate(event);
             if (pad && pad->down && !controls.visible() && !languages.visible() && controller.bindings().pads[Action::fullscreen]==pad->input) toggle_fullscreen(window);
             if ((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && event.key.keysym.sym==SDLK_RETURN &&
                 enter.event(event.type==SDL_KEYDOWN,event.key.keysym.mod&KMOD_ALT,event.key.repeat)) toggle_fullscreen(window);
         }
+#ifdef __ANDROID__
+        if (!android_foreground()) { SDL_Delay(5); continue; }
+#endif
+        auto start_input_now=[&]() {
+            auto input=sample_start_input(window,controller,enter);
+#ifdef __ANDROID__
+            input=mobile.menu(input,!languages.visible(),true);
+#endif
+            return input;
+        };
         if(languages.visible()) {
-            if(languages.update(sample_start_input(window,controller,enter),now())==LanguageAction::save) {
+            if(languages.update(start_input_now(),now())==LanguageAction::save) {
                 try {
                     save_language(production_save_folder(),languages.draft());
                     preference=languages.draft();refresh_language();languages.saved();
                 } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';languages.failed();}
             }
-            if(!languages.visible())screen=StartScreen(*list,StartAction::language);
+            if(!languages.visible())screen=start_screen(StartAction::language);
         } else if (controls.visible()) {
-            if (controls.update(sample_controls_input(window,controller,enter),now())==ControlsAction::save) {
+            auto input=sample_controls_input(window,controller,enter);
+#ifdef __ANDROID__
+            input=mobile.navigation(input,controls.capturing());
+#endif
+            if (controls.update(input,now())==ControlsAction::save) {
                 try {
                     save_bindings(production_save_folder(),controls.draft());
                     controller.set_bindings(controls.draft());
@@ -118,8 +153,8 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
                 } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; controls.failed(); }
             }
             // Back on the start screen it waits for a neutral input again, with the cursor on CONTROLS.
-            if (!controls.visible()) screen=StartScreen(*list,StartAction::controls);
-        } else switch (screen.update(sample_start_input(window,controller,enter),now())) {
+            if (!controls.visible()) screen=start_screen(StartAction::controls);
+        } else switch (screen.update(start_input_now(),now())) {
         case StartAction::play: return load_session_roms(primary_rom(*list),*list,preference);
         case StartAction::quit: return {};
         case StartAction::choose: {
@@ -127,7 +162,7 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
             // on PLAY after a ROM was added, or back on this entry.
             const auto added=choose_rom(platform,*list,false,unreadable);
             refresh_language();
-            screen=StartScreen(*list,added ? StartAction::play : StartAction::choose);
+            screen=start_screen(added ? StartAction::play : StartAction::choose);
             break;
         }
         case StartAction::controls: controls.open(controller.bindings()); break;
@@ -149,8 +184,15 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
             // The start screen is always the narrow canvas: the texture's first 256 columns.
             const auto centre=centre_rect(*display);
             sdl_check(SDL_UpdateTexture(display->texture.get(),&centre,pixels.data(),256*sizeof(std::uint32_t))==0,"Uploading picture");
+#ifdef __ANDROID__
+            mobile.present(platform.language,1);
+#else
             present(*display);
+#endif
         }
+#ifdef __ANDROID__
+        mobile.end_poll();
+#endif
         SDL_Delay(10);
     }
 }

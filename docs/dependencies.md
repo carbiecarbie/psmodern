@@ -69,6 +69,33 @@ mingw-w64-ucrt-x86_64-zlib 1.3.2-2
 mingw-w64-ucrt-x86_64-zstd 1.5.7-2
 ```
 
+## Android family build
+
+The standalone Gradle project under `android/` builds one APK for ARM64 and
+ARMv7, with Android 7.0 (API 24) as its minimum. It uses JDK 21, Gradle 9.3.1
+(the wrapper verifies the distribution SHA-256), Android Gradle Plugin 9.1.0,
+Android SDK Platform 36 revision 2, Build Tools 36.0.0, CMake 3.22.1 and NDK
+r28c (28.2.13676358). The pinned [AGP release](https://developer.android.com/build/releases/agp-9-1-0-release-notes)
+lists the matching Gradle, Build Tools and NDK versions.
+
+Extract the [SDL2 2.32.10 source archive](https://www.libsdl.org/release/SDL2-2.32.10.tar.gz)
+outside the checkout after verifying SHA-256
+`5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165`.
+The build uses both its C sources and its Android Java classes. Set
+`ANDROID_HOME` to the SDK and `PSMODERN_SDL2` to this extracted source
+directory. From `android/` on Windows, run `.\gradlew.bat assembleDebug`.
+The APK is `android/build/outputs/apk/debug/PSModern-debug.apk`. It uses the local
+Android debug signing key. Keep using that key for in-place updates on the
+family's phones. SDK tools, keys, ROMs and APKs stay outside version control.
+
+Verify the packaged APK with the pinned Build Tools. Run `apksigner verify
+--verbose --print-certs` and `zipalign -c -P 16 4`, each followed by the
+APK path. For each ABI, use the NDK's `llvm-readelf -n` to match the build
+ID of the packaged `libmain.so` to its unstripped counterpart under
+`android/build/intermediates/cxx/Debug/`. Inspect the latter with
+`llvm-nm --demangle` for the SDL entry point and the absence of the Z80
+interpreter and test oracle.
+
 ## Windows libraries and version header
 
 `psmodern.exe` also links the Windows system libraries `comdlg32` (Open

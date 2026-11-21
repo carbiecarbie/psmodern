@@ -209,7 +209,7 @@ void check_speed_intervals() {
 }
 // The scripted sessions pass their own argv and never reach the start screen.
 #include "app/start_loop.h"
-#include "app/windows_platform.h"
+#include "app/platform.h"
 #define utf8_arguments(argc,argv) std::vector<std::string>(argv,argv+argc)
 #define attach_parent_console()
 #define run_launcher(...) std::optional<psmodern::app::SessionRoms>()

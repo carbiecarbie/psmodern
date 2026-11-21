@@ -1,6 +1,13 @@
 # Build directories
 /build/
 /build-*/
+/android/.gradle/
+/android/.cxx/
+/android/build/
+/android/local.properties
+*.apk
+*.jks
+*.keystore
 __pycache__/
 
 # Game data and dumps never enter this repository (see AGENTS.md)

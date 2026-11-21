@@ -20,9 +20,11 @@ void remember(LauncherPlatform& platform,const RomList& list,const RomList& unre
     catch (const std::exception& e) { platform.show_notice(UiText::cannot_remember_roms,std::string("PSModern cannot remember the chosen ROMs: ")+e.what()); }
 }
 }
-StartScreen::StartScreen(const RomList& list,StartAction selected) {
+StartScreen::StartScreen(const RomList& list,StartAction selected,bool show_open_saves) {
     if (!list.empty()) entries_.push_back(StartAction::play);
-    entries_.insert(entries_.end(),{StartAction::choose,StartAction::controls,StartAction::language,StartAction::open_saves,StartAction::quit});
+    entries_.insert(entries_.end(),{StartAction::choose,StartAction::controls,StartAction::language});
+    if (show_open_saves) entries_.push_back(StartAction::open_saves);
+    entries_.push_back(StartAction::quit);
     const auto found=std::find(entries_.begin(),entries_.end(),selected);
     if (found!=entries_.end()) selected_=static_cast<unsigned>(found-entries_.begin());
 }
@@ -106,14 +108,16 @@ std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unre
 }
 std::optional<RomVersion> choose_rom(LauncherPlatform& platform,RomList& list,bool first_run,const RomList& unreadable) {
     for (;;) {
-        const auto path=platform.pick_rom();
-        if (!path) return {};
+        std::optional<std::filesystem::path> path;
         RomVersion version{};
         try {
-            version=platform.identify(*path);
-            list.set(version,std::filesystem::absolute(*path));
+            path=platform.pick_rom();
+            if (!path) return {};
+            const auto imported=platform.import_picked(*path);
+            version=imported.version;
+            list.set(version,imported.path);
         } catch (const std::exception& e) {
-            if (platform.ask_retry(utf8(path->filename())+" cannot be used: "+e.what()+
+            if (platform.ask_retry((path ? utf8(path->filename()) : "Document")+" cannot be used: "+e.what()+
                 "\n\nPSModern needs your own uncompressed .sms dump of Phantasy Star, either:"
                 "\n- the US Rev-A cartridge\n- the Brazilian Tec Toy cartridge",first_run ? "Quit" : "Back")) continue;
             return {};

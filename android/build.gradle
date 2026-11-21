@@ -1,0 +1,37 @@
+plugins {
+    id 'com.android.application' version '9.1.0'
+}
+def sdl = file(providers.environmentVariable("PSMODERN_SDL2").get())
+def notices = tasks.register("prepareNotices", Sync) {
+    from("../LICENSE") { rename { "PSModern-LICENSE.txt" } }
+    from(new File(sdl, "LICENSE.txt")) { rename { "SDL2-LICENSE.txt" } }
+    into(layout.buildDirectory.dir("generated/notices"))
+}
+android {
+    namespace "org.psmodern.game"
+    compileSdk 36
+    buildToolsVersion "36.0.0"
+    ndkVersion "28.2.13676358"
+    defaultConfig {
+        applicationId "org.psmodern.game"
+        minSdk 24
+        targetSdk 35
+        versionCode 4
+        versionName "1.0.0-m16.4"
+        ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
+        externalNativeBuild.cmake {
+            arguments "-DPSMODERN_SDL2=" + sdl.absolutePath, "-DANDROID_STL=c++_shared"
+            targets "main", "SDL2"
+        }
+    }
+    externalNativeBuild.cmake {
+        path file("../CMakeLists.txt")
+        version "3.22.1"
+    }
+    sourceSets.main {
+        java.srcDir new File(sdl, "android-project/app/src/main/java")
+        assets.srcDir layout.buildDirectory.dir("generated/notices").get().asFile
+    }
+}
+
+tasks.named("preBuild") { dependsOn notices }

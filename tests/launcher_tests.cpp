@@ -3,6 +3,7 @@
 #include "app/rom_list.h"
 #include "app/session_roms.h"
 #include "app/start_screen.h"
+#include "app/touch_controls.h"
 #include "temporary_cleanup.h"
 #include <algorithm>
 #include <chrono>
@@ -136,6 +137,9 @@ using A=StartAction;
 MenuInput neutral() { return {}; }
 MenuInput press(bool MenuInput::*button) { MenuInput input;input.*button=true;return input; }
 void start_screen_entries() {
+    const StartScreen mobile({},A::quit,false);
+    check(mobile.entries()==std::vector<A>{A::choose,A::controls,A::language,A::quit} &&
+          mobile.entries()[mobile.selected()]==A::quit,"mobile launcher hides the desktop folder action");
     auto expect=[&](const RomList& list,std::vector<A> entries,const char* text) {
         entries.insert(entries.end(),{A::choose,A::controls,A::language,A::open_saves,A::quit});check(StartScreen(list).entries()==entries,text);
     };
@@ -346,6 +350,33 @@ void launcher_flow() {
     check(primary_rom(rom_list(us_a,br_a))==us_a && primary_rom(rom_list({},br_a))==br_a,"the font comes from the US ROM when there is one");
     refuses([] { primary_rom({}); },"no font without a ROM");
 }
+void import_failures() {
+    Temporary temp;
+    const auto folder=temp.path/"roms";
+    std::filesystem::create_directories(folder);
+    const auto canonical=folder/"phantasy-star-us-rev-a.sms";
+    write_file(canonical,"previous");
+    write_file(folder/".import.sms","interrupted");
+    {
+        RomImport stage(temp.path);
+        const auto sms=stage.staging_file(".sms"),zip=stage.staging_file(".zip");
+        check(!std::filesystem::exists(sms),"startup removes the abandoned import");
+        write_file(sms,"partial");
+        refuses([&]{ RomImport other(temp.path); },"overlapping pick cannot clear a live stage");
+        check(read_file(sms)=="partial","live staged data survived concurrent pick");
+        refuses([&]{stage.publish(sms);},"short pick rejected");
+        write_file(sms,std::string(512*1024+1,'x'));
+        refuses([&]{stage.publish(sms);},"overlong pick rejected");
+        write_file(sms,std::string(512*1024,'x'));
+        refuses([&]{stage.publish(sms);},"unknown digest rejected");
+        write_file(zip,"archive");
+        refuses([&]{stage.publish(zip);},"zip rejected");
+        refuses([&]{stage.publish(canonical);},"only reserved staging files can be published");
+        refuses([&]{stage.staging_file("../rom.sms");},"untrusted suffix refused");
+    }
+    check(!std::filesystem::exists(folder/".import.sms") && !std::filesystem::exists(folder/".import.zip") &&
+          read_file(canonical)=="previous","failed imports leave the canonical file intact");
+}
 // Needs the player's ROM: every label is in that ROM's font, the screen draws,
 // and a copy in a non-ASCII folder is identified.
 int rom_checks(const std::filesystem::path& rom,std::string_view version) {
@@ -392,7 +423,81 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
     const auto copy=folder.path/std::filesystem::path(u8"\u00e7\u00e3o \u65e5\u672c")/std::filesystem::path(u8"Phantasy Star \u00e9.sms");
     std::filesystem::create_directory(copy.parent_path());
     std::filesystem::copy_file(rom,copy);
+    RomImport stage(folder.path);
+    const auto staged=stage.staging_file(".sms");
+    struct Picker : FakePlatform {
+        RomImport& import;
+        explicit Picker(RomImport& stage):import(stage) {}
+        ImportedRom import_picked(const std::filesystem::path& path) override { return import.publish(path); }
+    } picker(stage);
+    const auto permanent=staged.parent_path()/(expected==RomVersion::us_rev_a ? "phantasy-star-us-rev-a.sms" : "phantasy-star-brazil.sms");
+    for (int attempt=0;attempt<2;++attempt) {
+        std::filesystem::copy_file(copy,staged);
+        picker.picks.push_back(staged);
+        RomList list;
+        check(choose_rom(picker,list,true)==expected && picker.saves.back().get(expected)==permanent &&
+              !std::filesystem::exists(staged),"picker remembers the published copy on first import and replacement");
+    }
+    for (auto language:{Language::english,Language::portuguese}) {
+        for (Action action:{Action::button1,Action::button2,Action::pause,Action::speed,Action::options,Action::map}) {
+            for (unsigned speed:{1u,2u,4u}) {
+                std::vector<std::uint32_t> texture(56*24);
+                draw_touch_button(font,texture,56,action,language,speed,false);
+                check(std::count(texture.begin(),texture.end(),menu_style::white)>0,"localized ROM glyphs are visible");
+                check(std::count(texture.begin(),texture.end(),menu_style::grey)>0,"cartridge border is visible");
+                const auto idle=texture;
+                draw_touch_button(font,texture,56,action,language,speed,true);
+                for (std::size_t i=0;i<idle.size();++i)
+                    check(texture[i]==(idle[i]==menu_style::black ? menu_style::black : menu_style::yellow),
+                          "pressed button highlights the same border and glyph pixels");
+                for (unsigned y=0;y<8;++y) for (unsigned x=0;x<8;++x)
+                    check((texture[y*56+x]==menu_style::yellow)==bool(font.window_tiles()[1][y]&(1u<<(7-x))),
+                          "touch texture corner matches the decoded cartridge tile at its own stride");
+            }
+        }
+    }
+    {
+        // The cross: the cartridge cursor (window tile 0 right of its border) as four arrows.
+        const auto& cursor=font.window_tiles()[0];
+        int lit=0,cx=8,cy=8;
+        for (int y=0;y<8;++y) for (int x=3;x<8;++x) if (cursor[y]&(1u<<(7-x))) { ++lit; cx=std::min(cx,x); cy=std::min(cy,y); }
+        check(lit>0,"the cartridge window tiles hold a menu cursor");
+        std::vector<std::uint32_t> idle(72*72);
+        draw_touch_cross(font,idle,Action::count);
+        check(std::count(idle.begin(),idle.end(),menu_style::white)==4*9*lit &&
+              std::count(idle.begin(),idle.end(),menu_style::yellow)==0,"four idle arrows of cursor pixels at three times");
+        auto grey=[&](int x,int y){return idle[y*72+x]==menu_style::grey;};
+        for (int y=0;y<72;++y) for (int x=0;x<72;++x) {
+            const bool arm=(x>=24 && x<48) || (y>=24 && y<48);
+            check((idle[y*72+x]!=0)==arm,"the cross is opaque on its arms and centre only");
+            check(grey(x,y)==grey(71-x,y) && grey(x,y)==grey(x,71-y) && grey(x,y)==grey(y,x),"the cross border is symmetric");
+        }
+        for (unsigned y=0;y<8;++y) for (unsigned x=0;x<8;++x)
+            check(grey(24+x,y)==bool(font.window_tiles()[1][y]&(1u<<(7-x))),"the up arm starts with the decoded cartridge corner");
+        // The right arrow is the cursor itself, the left one its mirror image,
+        // and the down and up ones the same two turned.
+        int ax=72,ay=72;
+        for (int y=24;y<48;++y) for (int x=48;x<72;++x) if (idle[y*72+x]==menu_style::white) { ax=std::min(ax,x); ay=std::min(ay,y); }
+        auto white=[&](int x,int y){return x>=0 && x<72 && y>=0 && y<72 && idle[y*72+x]==menu_style::white;};
+        for (int y=0;y<24;++y) for (int x=0;x<24;++x) {
+            const int tx=cx+x/3,ty=cy+y/3;
+            const bool want=tx<8 && ty<8 && (cursor[ty]&(1u<<(7-tx)));
+            check(white(ax+x,ay+y)==want && white(71-ax-x,ay+y)==want,"right and left arrows are the cursor and its mirror");
+            check(white(ay+y,ax+x)==want && white(ay+y,71-ax-x)==want,"down and up arrows are the cursor turned");
+        }
+        for (Action held:{Action::up,Action::down,Action::left,Action::right}) {
+            std::vector<std::uint32_t> pressed(72*72);
+            draw_touch_cross(font,pressed,held);
+            const int x0=held==Action::left ? 0 : held==Action::right ? 48 : 24,y0=held==Action::up ? 0 : held==Action::down ? 48 : 24;
+            for (int y=0;y<72;++y) for (int x=0;x<72;++x) {
+                const bool own=white(x,y) && x>=x0 && x<x0+24 && y>=y0 && y<y0+24;
+                check(pressed[y*72+x]==(own ? menu_style::yellow : idle[y*72+x]),"only the held arrow turns yellow");
+            }
+        }
+    }
     check(identify_rom(copy)==expected && load_rom(copy).version==expected,"a ROM in a non-ASCII folder is identified and loaded");
+    std::filesystem::remove(copy);
+    check(identify_rom(permanent)==expected,"import survives removal of the source document");
     std::cout<<"Start screen ("<<version<<"): labels and footer in the ROM font, 3 lists rendered at every cursor position, non-ASCII ROM path identified.\n";
     return 0;
 }
@@ -401,7 +506,7 @@ int main(int argc,char** argv) {
     try {
         if (argc==3) return rom_checks(argv[1],argv[2]);
         rom_list_round_trip(); rom_list_rejects(); rom_list_crlf(); rom_list_unicode(); rom_list_storage(); rom_list_corrupt(); rom_list_directory();
-        start_screen_entries(); start_screen_input(); launcher_flow();
-        std::cout<<"Launcher: 10 test groups passed (no SDL or ROM).\n"; return 0;
+        start_screen_entries(); start_screen_input(); launcher_flow(); import_failures();
+        std::cout<<"Launcher and ROM staging checks passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

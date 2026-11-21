@@ -71,7 +71,7 @@ ControlsAction ControlsScreen::update(const InputSnapshot& input,double now) {
     return result;
 }
 void ControlsScreen::capture(const InputSnapshot& input,double now) {
-    if (now-capture_started_>=capture_timeout) { end_capture(); return; }
+    if (input.cancel_capture || now-capture_started_>=capture_timeout) { end_capture(); return; }
     // The accept that started the capture is not the answer: wait for its
     // release. Only fresh presses answer, so nothing held before is captured.
     if (!capture_ready_) { capture_ready_=!nav(held_).accept; return; }

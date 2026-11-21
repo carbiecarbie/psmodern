@@ -51,6 +51,27 @@ Keep ROMs, emulator captures, traces, saves and other working material outside
 the repository. Never commit ROM-derived
 data.
 
+## Running the Android build
+
+Build the APK with the pinned [Android toolchain](dependencies.md#android-family-build).
+Connect one authorized device by USB or wireless ADB. For wireless debugging,
+use `adb pair <ip>:<pairing-port>` with the code on the phone, then
+`adb connect <ip>:<connection-port>` from the main Wireless debugging screen.
+From the repository root, install and launch the game:
+
+```sh
+adb install -r android/build/outputs/apk/debug/PSModern-debug.apk
+adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n org.psmodern.game/.PSModernActivity
+adb logcat -s PSModern SDL
+```
+
+Use the same signing key for updates so Android preserves the app's data.
+The file picker imports each supported cartridge into the app's `files/roms/`
+folder. For device tests, use copies of saves and ROMs. The production save
+folder on the device is `/sdcard/Android/data/org.psmodern.game/files/shared/`.
+
+## Engine and verification
+
 For a plain-words introduction to the console parts described below, see
 [how the Master System works](how-it-works/master-system.md).
 The game-system chapters explain [controller reading](how-it-works/controls.md),

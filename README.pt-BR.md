@@ -83,6 +83,21 @@ O programa não tem assinatura digital, então o SmartScreen do Windows pode
 avisar que o editor é desconhecido. Clique em **Mais informações** e depois em
 **Executar assim mesmo**.
 
+### Jogar no Android
+
+A versão pessoal para Android roda em celulares ARM com Android 7.0 ou superior.
+Instale o APK gerado pelas [instruções de compilação](docs/dependencies.md#android-family-build).
+Abra o PSModern e selecione o arquivo `.sms` do seu cartucho no seletor de
+arquivos do Android. O jogo guarda uma cópia própria. Toque em **1** sobre
+**JOGAR** para começar. Use a opção de adicionar ROM para importar o outro
+idioma. Dá para jogar com o celular em pé ou deitado.
+
+No Android, a pasta de saves é `Android/data/org.psmodern.game/files/shared/`.
+Para transferir uma partida entre Android e Windows, feche o PSModern nos
+dois aparelhos. Faça uma cópia de segurança da pasta `shared` de destino antes
+de copiar para ela os arquivos de save, opções e automapa. No Windows a pasta
+fica em `%APPDATA%\PSModern\shared`.
+
 ## Controles
 
 A tabela mostra os padrões. Todas as teclas e botões podem ser mudados na tela

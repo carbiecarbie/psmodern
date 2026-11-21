@@ -8,6 +8,7 @@
 
 struct SDL_Window;
 namespace psmodern::app {
+std::filesystem::path production_save_folder();
 // The command line as UTF-8. On Windows it is read again as UTF-16 because
 // main's argv uses the ANSI code page and loses other characters; argc and
 // argv are ignored there on purpose.
