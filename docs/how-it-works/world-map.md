@@ -289,7 +289,7 @@ interrupt window permits, and otherwise falls back to the Z80. The second fill
 
 The 255-byte clearing of the object slots (`00:0CAC`-`00:0CB1`, about 5,400
 cycles) stays on the Z80 for the same reason: inside a piece it made 9 of 71
-calls fall back (**ROM run**, census of the 18 recordings).
+calls fall back (**ROM run**, milestone 11 census of 18 recordings).
 
 ## How the picture is updated each frame
 
@@ -663,7 +663,7 @@ never continues after a transfer; the next frame of the game runs the new mode.
 The C++ code renders `01:7908` inside every path that reaches it up to the
 second clearing, which stays on the Z80: that copy of 255 bytes takes about
 5,400 cycles, and a piece that included it fell back to the Z80 on every call
-the recordings made (**ROM run**, census of the 18 recordings). The pieces end
+the recordings made (**ROM run**, milestone 11 census of 18 recordings). The pieces end
 at `01:7921`, the Z80 copies, and a short entry at `01:7928` does the
 `pop hl; ret`, consuming the two bytes the same way.
 
@@ -703,7 +703,7 @@ are story items whose names this chapter does not establish.
 world map, the towns and the spaceship flight are shown 344 by 192 pixels, 16:9 in square pixels: the
 original 256 columns in the middle, 44 more on each side, drawn from the map
 with the cartridge's own tiles and palette (in space, from the stars). Everything else keeps 256 pixels,
-centred. When it is off, in recording mode, and with `--no-routines`, nothing
+centred. When it is off or in recording mode, nothing
 changes at all.
 
 **Copies after each frame.** The virtual video chip draws the picture while the
@@ -715,7 +715,7 @@ copy with the next picture. The copy is the state line 0 of that picture was
 drawn with, give or take one instruction (the machine stops on an instruction
 boundary). Copies only read: the machine never sees the option, and the tests
 check that the machine is identical every frame with the option on and off
-(**ROM run**, all 21 recordings). With the option off, nothing is copied.
+(**ROM run**, 23 recordings: 15 US and 8 Brazilian). With the option off, nothing is copied.
 
 **A held camera.** The camera in work RAM is not always the camera of the
 picture just shown: the step controller moves it for the next frame, so it is

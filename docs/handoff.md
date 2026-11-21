@@ -2,25 +2,23 @@
 
 Last updated: 2026-11-21
 
-Release 1.1.0 is published on GitHub (tag `v1.1.0` on `5afed78`). It covers
-milestones 15 and 16 and the shared-save staging cleanup fix `9736e2c`.
-`PSModern-1.1.0-windows-x64.zip` has SHA-256
-`f0d396fc28c7218e25a9db8df062ac9289a75930bbe07a1d596151a9dfce1c2f`. The
-file downloaded from GitHub has the same hash. The zip and its notes are in
-`../releases/`. No APK was published; the Android version remains a personal
-build.
+Release 1.1.0 is published on GitHub (tag `v1.1.0` on `5afed78`, zip and notes
+in `../releases/`). No APK is published; the Android build stays personal.
 
-New rule (in `tools/AGENTS.md` and the release steps in
-`docs/development.md`): a release reuses the last complete suite run that
-passed when only the version, docs or README images changed since then;
-the build and `ctest -L fast` suffice. That applied to 1.1.0 (complete run
-390/390 on `9736e2c`; fast 182/182 on the release commit).
-
-Note: once during the release checks, `launcher_unit` failed when run on its
-own (`ctest -R "launcher|version"`) right after the fast tests. Its message
-was not captured. It then passed 330 times on its own and in two more fast
-runs. If it fails again, keep the output and look at the `Temporary` folder
-naming in `tests/launcher_tests.cpp`, which uses `steady_clock` as its
-unique suffix.
+Latest change: documentation overhaul and accuracy pass.
+- Rewrote `README.md`, `README.pt-BR.md` and `tools/release/README.txt` to be
+  shorter, clearer and more readable, highlighting full playability, the C++
+  rewrite with no Z80, optional features and installation steps; losslessly
+  recompressed `docs/images/options.png` (1.33 MB -> 9.4 KB).
+- Added `docs/how-it-works/README.md` index, updated `docs/AGENTS.md`, and
+  consolidated detailed player option/automap/save/CLI guides in
+  `docs/player-controls.md`.
+- Corrected outdated statements, recording counts, duplicates and typos in
+  `docs/project-status.md`, `docs/development.md`, `docs/design.md`,
+  `docs/original-quirks.md` and `docs/how-it-works/*.md`.
 
 No milestone is active; the maintainer starts the next one explicitly.
+
+Note kept from the 1.1.0 release checks: `launcher_unit` once failed on its own
+right after `ctest -L fast` (then passed 330x in a row). If it recurs, capture
+output and check the `steady_clock` suffix in `tests/launcher_tests.cpp`.

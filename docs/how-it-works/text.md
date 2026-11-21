@@ -90,7 +90,7 @@ as the original cartridges do ([original quirks](../original-quirks.md)).
 
 ### Interrupt-boundary completion
 
-The number and character printers' DI/EI boundaries now have explicit
+**ROM static.** The number and character printers' DI/EI boundaries now have explicit
 milestone 13 registrations. The processor still executes those final
 instructions itself, preserving pending interrupts and the following protected
 load. Register words saved by the character printer are restored in C++

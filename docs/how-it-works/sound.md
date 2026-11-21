@@ -15,8 +15,9 @@ instruction even inside a piece, and a state a piece cannot render stops the gam
 
 **ROM static.** The code described here is identical at the same addresses
 in the US Rev-A and Brazilian cartridges, as established by the comparison
-in [design, section 5.5](../design.md#55-languages). The runtime observations
-below come from the six existing US recordings.
+in [design, section 5.5](../design.md#55-languages). The initial runtime
+observations below came from the first six US recordings; milestone 13 added
+the `ending`, `sound-flute`, and Pause recordings.
 
 ## Reaching the driver each frame
 
@@ -33,7 +34,8 @@ driver: the pause path calls the silence routine at `00:02F5` instead. The
 voice-selection loop now runs in C++, while its individual calls remain at
 their original boundaries and the host still observes the update entry.
 
-**ROM run.** In the six recordings, the update entry was reached through
+**ROM run.** In the initial six US recordings (and all later checkpoints), the
+update entry was reached through
 the bank-selection routine. Sound-chip writes were observed from the
 driver. These observations establish the recorded routes, not every
 possible frame path.
@@ -100,7 +102,9 @@ uses initialization and silence internally while processing requests
 
 **ROM run.** Initialization and silence both ran on the recorded routes,
 including entries from inside the driver. The main program's direct
-silence routine at `00:02F5` did not run in any of the six recordings.
+silence routine at `00:02F5` was not reached by the initial six recordings,
+and is now covered by the milestone 13 Pause recordings (`pause-gameplay`,
+`pause-walk` and `pause-phase-sweep`).
 
 **ROM static; ROM run.** The initialization and silence routines are partly
 rewritten in C++: they clear the shared controls and prepare the silence
@@ -159,11 +163,11 @@ records hold this progress.
 
 ## What the recordings leave open
 
-**Unknown.** The six routes do not cover the whole driver. In particular,
-they did not reach the main pause-to-silence routine at `00:02F5`, and they
-do not include the ending. Other parts of the driver were present in the
-code inspected but did not execute on these routes.
-Their behavior has no runtime confirmation from these recordings.
+**Unknown.** Even with the milestone 13 additions (which added coverage for
+`ending`, `sound-flute`, and the Pause silence routine at `00:02F5`), the
+recorded routes do not exercise every sound request or sequence command in the
+driver. Other parts of the driver were present in the code inspected and are
+checked by state probes rather than full gameplay recordings.
 
 **Unknown.** This overview does not establish the meaning of every sound
 request or every sequence command. A complete account of sound priorities,
@@ -198,9 +202,10 @@ original output.
 
 **ROM static; ROM run.** Sound execution uses bank `0C`, sound records within
 `$C001–$C1ED`, and PSG writes. Some indirect data reads also reach the fixed
-ROM bank. The separate path therefore keeps the player's complete ROM
-mapping and uses its original CPU and chip implementations. It retains
-oscillator phase and the unsubmitted audio before capture. Native calls
+ROM bank. The separate path therefore keeps the player's complete ROM mapping
+and runs the rewritten C++ sound segments on a private machine and PSG chip
+(with no Z80 CPU core since milestone 14). It retains
+oscillator phase and the unsubmitted audio before capture. Calls
 that generate samples beyond the current playback time retain those samples
 until due, rather than playing them early.
 
@@ -218,7 +223,8 @@ Only surviving external requests consumed at `0C:82EF` are forwarded.
 Internal fades and acknowledgements instead follow the separate sound clock.
 
 **Maintainer decision; inference from the implementation.** Forwarded
-requests run in their observed order using the ROM request handler. They
+requests run in their observed order through the rewritten sound request
+handler. They
 do not wait in a backlog of accelerated frames. Sequence updates remain
 slower, so several effects can arrive between music updates and the ROM's
 shared-channel rules can replace an earlier effect. This deliberately changes

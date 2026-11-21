@@ -34,7 +34,7 @@ forever. The routine checks for that result and replaces it with a fixed
 state taken from its own code at `00:05C5`. Only the all-off state leads
 there: every other state has a successor with at least one switch on.
 
-**ROM run.** In each of the four US recordings that draw numbers, the
+**ROM run.** In each of the four initial US recordings that drew numbers, the
 replacement path ran exactly once; every other call took the usual path.
 
 **Inference (from the rule above, which the tests checked for every
@@ -94,9 +94,9 @@ the whole machine. They cover every state with both values of IFF2, every
 value of R on both paths, R counting past 127 during the call with both
 values of its eighth bit, other cartridge banks and the save chip in the
 upper slot, and stacks in work RAM, its mirror, the cartridge, the save chip
-and on the state itself. The twelve checkpoint recordings also check each
-C++ call against an original call from the same state, and compare all
-frames with routines off and with the reference emulator. The
+and on the state itself. All 27 checkpoint recordings also check every C++
+call against the original in lockstep, and compare all frames against the
+reference emulator. The
 [generated coverage](../coverage.md) records how often C++ runs.
 
 ## Who draws numbers
@@ -109,7 +109,7 @@ changing action order and selecting a response. They are not all damage
 rolls. For example, the battle-order work at `00:18F2` repeatedly draws an
 index and swaps entries in its order list.
 
-**ROM run.** Twelve of those places ran on the six US routes. They
+**ROM run.** Twelve of those places ran on the initial six US routes. They
 include the map and dungeon probability checks, encounter-pool selection,
 enemy-group size and battle processing. The observed callers are only part
 of the static inventory.
@@ -254,8 +254,8 @@ threshold, every flag byte at the conditional returns and every value of the
 other bytes it reads. They also vary the bank in the upper slot (including the
 save chip), the position of R in its seven-bit cycle and the place of the
 stack, and run whole checks piece after piece against the original alone.
-The twelve checkpoint recordings check each C++ call against an original call
-from the same state; the [generated coverage](../coverage.md) records how
+All 27 checkpoint recordings check every C++ call against the original in
+lockstep; the [generated coverage](../coverage.md) records how
 often C++ runs.
 
 ## The encounter-rate option
@@ -305,7 +305,7 @@ The tests force those windows with the option on, and compare the machine with
 the original instruction on the scaled value, also several steps later. With
 the option off such a window still sends the call to the Z80.
 
-**ROM run.** For the four allowed rates, 0, 50, 100 and 200, the
+**ROM run.** For all five allowed rates (`0`, `25`, `50`, `100` and `200`), the
 result of the comparison equals the formula above for all 65,536 pairs of draw
 and threshold, nothing besides the flags differs from the original
 instruction, and at 100 the piece is identical to it.

@@ -3,7 +3,7 @@
 This chapter explains how the first-person dungeons work: how a floor is
 stored, how the party's place and facing are kept, what each button does, how
 chests, fixed fights and events are found, what the 3D view looks at, and how
-how the optional automap reads all of this.
+the optional automap reads all of this.
 
 **Since milestone 14.** The Z80 is no longer in the program. Where this chapter says that a
 stretch stays on the Z80, is left to the original code, runs on the emulated processor, or falls

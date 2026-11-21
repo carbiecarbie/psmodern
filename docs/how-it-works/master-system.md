@@ -286,9 +286,10 @@ both versions.
 
 **Unknown.** The part number of the Brazilian cartridge's save chip.
 
-**Maintainer decision.** PSModern keeps the 8 KiB in one file per game
-version and writes it out at the end of any frame in which it changed; the
-rebuilt console itself never touches files ([saves](../development.md#saves)).
+**Maintainer decision.** PSModern keeps the 8 KiB in one shared save file
+(`shared/phantasy-star.sav`) used by both languages and writes it out at the
+end of any frame in which it changed; the rebuilt console itself never touches
+files ([saves](../development.md#saves)).
 
 ## The controller, Pause and Reset
 
@@ -369,7 +370,7 @@ reach the read of R, preserving that draw.
 the map and dungeon encounter checks, encounter-pool selection and enemy
 group-size draws use this routine. The
 [random-number chapter](random-numbers.md) explains those stages and the
-other established uses, with the limits of the six US recordings.
+other established uses, with the limits of the recordings studied.
 
 **Unknown.** Indirect callers and paths outside those recordings remain
 outside measured coverage.
@@ -379,9 +380,8 @@ reference emulator frame by frame from power-on, on input recordings of
 real play in both versions. At every frame the comparison checks the
 picture, the work RAM, the VRAM, the CRAM, the save chip, the processor's
 registers and the writes to the sound chip, with no allowance for
-differences. As PSModern replaces the game's routines one by one with new
-code, each replacement is checked to spend the same cycles and leave R
-exactly as the original would
+differences. Every C++ replacement is checked to spend the same cycles and
+leave R exactly as the original would
 ([design, section 5.2](../design.md#52-verification-the-heart-of-the-project)).
 
 **Hardware documentation; inference.** The reference is not perfect either: the project
@@ -449,7 +449,8 @@ same ports and the same display settings.
 **Maintainer decision.** PSModern runs both on the same console model, with
 the same clock and start state. It recognizes each file by its SHA-1
 fingerprint, a number computed from the whole file, and refuses any other.
-Each version has its own save file.
+Both versions share one save file (`shared/phantasy-star.sav`), since the
+cartridge save layout is identical.
 
 **ROM static.** The difference lies in the text, not in the rules: the two
 programs are the same code except one operand, and the Brazilian version

@@ -1,4 +1,4 @@
-# Interrupts, reset and frame waits
+# How it works: interrupts, reset and frame waits
 
 Sixty times a second the video chip tells the processor that it has finished
 drawing a picture. The processor stops what it was doing, runs a short routine

@@ -93,7 +93,8 @@ Run `psmodern.exe <rom-path>` with the player's uncompressed `.sms` file, or
 `psmodern.exe` alone for the [start screen](#start-screen).
 The program identifies US Rev-A and Brazilian cartridges by SHA-1; other
 files are refused. Errors appear on stderr and in an SDL message box.
-The window title names the identified version. The picture lives on one
+The window title shows the active language, rates, speed and shortcut bindings
+(localized to the active language). The picture lives on one
 344x192 canvas and texture (milestone 10): the 256x192 original picture uses
 its first 256 columns with nearest-neighbour integer scaling, centred with
 black bars in a resizable window initially 768x576; with the widescreen
@@ -125,11 +126,11 @@ paths with non-ASCII characters work.
 
 With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
-the ROM's font, so labels are uppercase. Entries: `PLAY PHANTASY STAR (US)`
-and `(BR)` (each only if remembered), `CHOOSE ANOTHER ROM`, `CONTROLS`,
-`OPEN SAVES FOLDER` and `QUIT`, and `PSMODERN 1.1.0` in a small window under
-them (tile row 20, as Options' explanation window). The window
-title is `PSModern 1.1.0`.
+the ROM's font, so labels are uppercase. Entries (localized in Portuguese):
+`PLAY`, `ADD ROM`, `CONTROLS`, `LANGUAGE <preference>`, `OPEN SAVES FOLDER`
+(desktop only) and `QUIT`, with `PSMODERN 1.1.0` in a small window under
+them (tile row 20, as Options' explanation window). The window title shows
+the active language (`PSModern - Phantasy Star - Language: <language>`).
 
 Arrows, the d-pad or the left stick move the selection (it wraps, with the
 same key repeat as Options). Z, Enter (without Alt), controller A or Start
@@ -187,8 +188,8 @@ unavailable while a host menu is open.
 
 Cartridge RAM, save lock, companion files and automap use one shared store,
 regardless of language or available ROMs. Native save and companion formats
-are unchanged. Recording uses the startup ROM and never
-write the global language preference; they use the same shared store.
+are unchanged. Recording uses the startup ROM and never writes the global
+language preference; it uses the same shared store.
 
 Host labels, window titles and player-facing dialog summaries are available
 in both languages. Cartridge-font Portuguese is uppercase without accents;
@@ -260,13 +261,39 @@ replace it. Raw saves still work while the unrecognized companion is preserved.
 Copying raw SRAM to a cartridge/emulator retains earned totals but carries no
 options. Importing a raw image without matching metadata defaults original.
 
+**Settings format 2 (automap).** The `.options` companion is written as
+`psmodern-options 2`, each record `<label> <sha256> <encounter> <experience>
+<automap>` with automap `0` or `1`. Format 1 files (no automap field) are
+read with the map off. Release 0.1.0 refuses a format 2 file with a warning
+and plays with the original settings until new ones are applied. An options
+file saved with encounters at 25 is likewise refused by release 0.2.0 or older,
+which warns, plays with the original settings and keeps the file untouched
+until the player applies new options there. The automap switch sits beside the
+routine options, never inside them: it never reaches `register_routines` and
+never makes a change pending.
+
+**Settings format 3 (widescreen).** A record gains a last field,
+`<label> <sha256> <encounter> <experience> <automap> <widescreen>`, both
+switches `0` or `1`; formats 1 and 2 read as widescreen off. The file is
+written as `psmodern-options 3` only while some record (committed, pending or
+backup) has widescreen on; otherwise it is still written as format 2, so
+release 0.4.0 keeps reading it. Like automap, the switch sits beside the
+routine options, never reaches `register_routines` and never makes a change
+pending (`src/app/settings.*`). Details of the option itself are under
+[widescreen](#widescreen) below.
+
+**Settings format 4 (milestone 15 play-test).** The unpublished milestone 15
+play-test wrote format 4 with one extra switch at the end of each record. The
+reader validates and ignores that switch, keeps the other settings in all three
+records, and writes format 2 or 3 on the next settings save.
+
 ## Automap
 
 The automap (milestone 7) records which dungeon cells the party has seen and
 shows a map of the current floor on request. Tracking runs for an identified
 ROM outside recording mode, even while the Automap option
 is off; the option only gates the screen. Recording mode
-neither tracks, show a map nor read or write its file.
+neither tracks, shows a map, nor reads or writes its file.
 
 **Tracking points.** `FrameDriver` owns the dungeon tables (read from the
 player's ROM at start, `src/game/dungeon_tables.cpp`) and an
@@ -319,32 +346,6 @@ session from whatever file is there, a preserved unusable file lasts only
 until the first save of the next session, which replaces that backup with the
 file it finds then. Two games with byte-identical game blocks share one record.
 
-The unpublished milestone 15 play-test wrote format 4 with one extra switch
-at the end of each record. The reader validates and ignores that switch,
-keeps the other settings in all three records, and writes format 2 or 3
-on the next settings save.
-
-**Settings format 3 (widescreen).** A record gains a last field,
-`<label> <sha256> <encounter> <experience> <automap> <widescreen>`, both
-switches `0` or `1`; formats 1 and 2 read as widescreen off. The file is
-written as `psmodern-options 3` only while some record (committed, pending or
-backup) has widescreen on; otherwise it is still written as format 2, so
-release 0.4.0 keeps reading it. Like automap, the switch sits beside the
-routine options, never reaches `register_routines` and never makes a change
-pending (`src/app/settings.*`). Details of the option itself are under
-[widescreen](#widescreen) below.
-
-**Settings format 2.** The `.options` companion is written as
-`psmodern-options 2`, each record `<label> <sha256> <encounter> <experience>
-<automap>` with automap `0` or `1`. Format 1 files (no automap field) are
-read with the map off. Release 0.1.0 refuses a format 2 file with a warning
-and plays with the original settings until new ones are applied. An options
-file saved with encounters at 25 is likewise refused by release 0.2.0 or older,
-which warns, plays with the original settings and keeps the file untouched
-until the player applies new options there. The automap
-switch sits beside the routine options, never inside them: it never reaches
-`register_routines` and never makes a change pending.
-
 **Keys.** The Map binding (M on the keyboard, X on a controller by default) opens the map at the dungeon
 walking wait with the option on (`request_menu(HostMenu::map)`); elsewhere,
 with the option off or while recording, the press is
@@ -374,8 +375,8 @@ empty map, a Continue of another recorded game gives exactly its record, a
 Continue of a game without a record after exploring gives an empty map, a
 dungeon departure forgets the fake-wall sample, and the mode test at
 `00:0F48` refuses mode `$2B`); `rom_<version>_automap_passivity_<recording>`
-(`first-dungeon` and `deep-dungeon` of each version, US `boss` and the three
-US dungeon recordings), in which four drivers play the recording on four
+(`first-dungeon` and `deep-dungeon` of each version, US `boss`, the three
+US dungeon recordings and US `field-menu`), in which four drivers play the recording on four
 threads: recording mode, the option off, the option on but never opened, and
 the original (the test-side oracle machine) with a tracker; their machines must be equal after every frame
 and at the end, and the three trackers must log the same events (samples with
@@ -956,8 +957,7 @@ reference on all seven components at every frame, and require the engine
 census to show no Z80 step and no refused call. Each checkpoint can also leave
 a census of the instruction addresses reached (`PSMODERN_COVERAGE_DIR`). Every
 entry that is called must run in C++; the controller must be called in every
-checkpoint. The controller must be called in every checkpoint and keeps
-the 90% share whatever its call count. The tests write counts to
+checkpoint. The tests write counts to
 `build-rel/routine-census/{us,br}/`. Once all checkpoints pass, regenerate
 [the coverage chapter](coverage.md) with this command.
 
@@ -1020,8 +1020,8 @@ after the cell test in a dungeon; a fixed fight does not pass through them
 (Inference). At recording level the dungeon side proves only that the first
 compares run and no group choice follows with encounters off, because the
 play diverges soon after; the state probes cover the compare and the
-dungeon segments exhaustively. At milestone 11 the complete suite took
-1,045 seconds of real time at `-j 16`.
+dungeon segments exhaustively. At milestone 14 the complete suite of 389 tests
+took 23 minutes 36 seconds at `-j 16` (1,045 seconds at milestone 11).
 
 `RoutineRegistry` is owned by the frame driver or runner and passed to
 `Machine::run_frame`. Tests can pass it to `Machine::step` directly. It keys
@@ -1354,9 +1354,10 @@ ranges justified by the run rather than assuming every high RAM address is stack
 
 Each version has its own inputs under `recordings/us/` or `recordings/br/`.
 The first three checkpoints start at power-on with zero cartridge RAM. The
-other three, the three US-only dungeon recordings, the three US-only map
-recordings (milestone 11) and the two US-only menu recordings (milestone 12)
-load slot 1 from a cartridge RAM image after power-on.
+remaining checkpoints (later-town, boss, deep-dungeon, the milestone 7 dungeon
+recordings, the milestone 11 map recordings, the milestone 12 menu recordings
+and the milestone 13 recordings) load a slot from a cartridge RAM image after
+power-on.
 
 | Recording | Play covered |
 | --- | --- |
@@ -1374,6 +1375,13 @@ load slot 1 from a cartridge RAM image after power-on.
 | `ice` (US) | Continue on Dezoris in the Ice Digger with the ground under part of it ice: the map load's ice presetting, then digging through the ice field. |
 | `field-menu` (US) | Continue in Maharu Cave with 24 items: the field menu, STATS, MAGIC (every answer, including FLY and too little MP), ITEM (three pages, EQUIP, DROP, USE), SEARCH, SAVE into a used and an empty slot, the money chest and the item chest with a full list. |
 | `places` (US) | Continue in Paseo with a wounded party, a dead member and 55 meseta: the hospital, the church, the shop and the buy-or-sell shop (buying, selling, too poor, cannot carry more), then FLY from the field menu. |
+| `ending` (US) | Continue on Governor's Palace B3F, open the sealed door, win the final battle, answer the governor and play through the credits to the title (see [Final battle recordings](#final-battle-recordings)). |
+| `party-defeat` (US) | Enter the Darkfalz battle with a low-HP party and play through full party defeat back to the title (see [Final battle recordings](#final-battle-recordings)). |
+| `sound-flute` (US) | Continue from an edited `field-menu` save, enter battle and use the Flute to exercise the shared-voice stop at `0C:8215` (see [Rare sound recording](#rare-sound-recording)). |
+| `pause-gameplay` (US) | Pause and resume during gameplay in a dungeon. |
+| `pause-walk` (US) | Pause and resume while walking in a dungeon (see [Pause during dungeon exploration](#pause-during-dungeon-exploration)). |
+| `pause-phase-sweep` (US) | 48 Pause transitions across frame phases in a dungeon (see [Pause during dungeon exploration](#pause-during-dungeon-exploration)). |
+| `save-name` (BR) | Continue in a dungeon, save into slot 3, type, erase and confirm a name on the Brazilian keyboard (see [Pause during dungeon exploration](#pause-during-dungeon-exploration)). |
 
 The `field-menu` and `places` images (milestone 12) are edited game-made
 images too: `field-menu` is the `dungeon-walk-2` image with FLY added to
@@ -1939,7 +1947,7 @@ runtime DLLs, `LICENSE.txt`, the player's `README.txt`
 holds ROMs, saves or debug files. Since milestone 14 `psmodern.exe` contains
 no vendored library: the Z80 core and the Zeta headers are built only into the
 test-side oracle, so the package carries no notice for them (see
-[dependencies](dependencies.md#release-package)). See [dependencies](dependencies.md#release-package).
+[dependencies](dependencies.md#release-package)).
 Stripping is not byte-deterministic, so record the zip's SHA-256 instead of
 expecting a rebuild to match. `THIRD-PARTY.txt` names the full commit the
 zip was built from; the script ends by printing it, and the tag `v<version>`

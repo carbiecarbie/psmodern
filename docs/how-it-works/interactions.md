@@ -1,4 +1,4 @@
-# Town and dungeon interactions
+# How it works: town and dungeon interactions
 
 When the party talks to someone, opens a door or reaches a special spot, the
 game starts an "interaction". Some interactions only show a message, some open

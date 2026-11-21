@@ -1,126 +1,87 @@
-PSModern - Phantasy Star for the Sega Master System, rebuilt in C++
+PSModern - Phantasy Star (Sega Master System), rebuilt in C++
 
-PSModern is an unofficial, free fan reimplementation of Phantasy Star for the
-Sega Master System. The whole game runs in C++, reading text, graphics, maps
-and music from your own cartridge dump, with no Z80 interpreter in the program.
-It is not affiliated with, or endorsed by, SEGA or Tec Toy. No game data is
-included in this download.
+PSModern is an unofficial, open-source C++ reimplementation of Phantasy Star
+for the Sega Master System. The entire game is playable from start to finish
+in pure C++ with no Z80 emulator; graphics, maps, text, and music are read from
+your own cartridge dump. It is not affiliated with or endorsed by SEGA or Tec
+Toy, and no game data is included.
 
 WHAT YOU NEED
 
-A dump of your own cartridge: an uncompressed .sms file (not zipped) of one of
-these two releases:
+An uncompressed .sms dump of your own cartridge (unzipped) from one of these
+two releases:
 
   US Rev-A          SHA-1 07fcf297be4f4c9d92cd3f119a7ac48467e06838
   Brazil (Tec Toy)  SHA-1 fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd
 
-Any other file is refused with a message.
+Any other file is refused with an explanation.
 
 HOW TO START
 
-1. Unzip the folder anywhere you like.
+1. Extract this folder anywhere you like.
 2. Double-click psmodern.exe.
-3. The first time, pick your .sms file in the Open dialog. PSModern remembers it.
-4. Choose PLAY on the start screen. ADD ROM adds the other language. LANGUAGE
-   selects English or Portuguese; each language needs its corresponding ROM.
-   The screen also offers CONTROLS, OPEN SAVES FOLDER and QUIT.
+3. On first launch, pick your .sms file in the Open dialog (PSModern remembers
+   it automatically).
+4. Choose PLAY on the start screen. Use ADD ROM to add the other language, and
+   LANGUAGE or CONTROLS to adjust your setup.
 
-Windows SmartScreen may warn about an unknown publisher because the program is
-not digitally signed. Click "More info", then "Run anyway".
+Windows SmartScreen may warn about an unknown publisher because the executable
+is not digitally signed. Click "More info", then "Run anyway".
 
-CONTROLS
+DEFAULT CONTROLS
 
-These are the defaults. Every key and button can be changed on the Controls
-screen: choose CONTROLS on the start screen, or on the Options window while
-playing.
+Keyboard and the first connected controller work together. Every key and button
+can be changed on the in-game Controls screen (from the start screen or
+Options).
 
-  Console              Keyboard        Game controller
-  Directional pad      Arrow keys      D-pad or left stick
-  Button 1 / Button 2  Z / X           A / B
-  Pause                Enter           Start
-  Reset                Backspace       Back
-  Power off and on     F5              not set
-  Speed 1x / 2x / 4x   Tab             Right shoulder (R / RB)
-  Options window       Escape          Y
+  Action               Keyboard        Controller
+  Move                 Arrow keys      D-pad or left stick
+  Button 1 / Button 2  Z / X           A / B (positional)
+  Pause / Reset        Enter / Bksp    Start / Back
+  Power cycle          F5              -
+  Fast-forward         Tab             RB (right shoulder)
+  Options menu         Escape          Y
   Dungeon map          M               X
-  Fullscreen           Alt+Enter       not set (Alt+Enter is fixed)
+  Fullscreen           Alt+Enter       - (Alt+Enter is fixed)
 
-Keyboard and controller work together. The first controller found is used.
-The start screen always uses the defaults (arrows, Z or Enter, Escape; D-pad,
-A or Start), so CONTROLS stays within reach. Controller buttons are named by
-position: A is the bottom button, whatever is printed on your pad. Each press
-of Tab or RB cycles the speed 1x, 2x, 4x, then 1x again; music keeps its
-normal tempo. The picture is the original 256x192 (344x192 with Widescreen),
-scaled in whole steps in a resizable window.
+The start screen always responds to the default navigation keys so Controls
+stays reachable. Fast-forward cycles 1x -> 2x -> 4x -> 1x while keeping music
+and sound effects at normal tempo.
 
-OPTIONS (off by default)
+OPTIONS (all off by default)
 
-Press Escape (or Y on a controller, or the buttons you set) while exploring a
-town, the world map or a dungeon. Left/Right changes a value. Leaving with
-Z/A, X/B or Escape/Y automatically saves the displayed values.
+Press Escape (or Y on a controller) while exploring a town, the world map, or a
+dungeon. Use Left/Right to change values; closing with Z/A, X/B, or Escape/Y
+saves automatically.
 
-  Encounters   0, 25, 50, 100 or 200 percent of the original random fights.
-  EXP / Meseta 100, 200 or 400 percent; battle meseta follows experience.
-  Automap      Off or On; a map of the current dungeon floor (off by default).
-  Widescreen   Off or On; a 344x192 (16:9) view of the world map, towns and
-               spaceship flight (off by default).
-  Controls     Opens the Controls screen.
-  Language     Auto, English or Portugues; saves immediately and switches the
-               game text when Options closes. Each language needs its ROM.
+  Encounters    0, 25, 50, 100, or 200% of original random fights (story/fixed
+                fights never change).
+  EXP / Meseta  100, 200, or 400% battle rewards (still at most 1 level/fight).
+  Automap       Off or On; press M (or X) in a dungeon to view explored rooms.
+                Exploration is tracked even while the option is off.
+  Widescreen    Off or On; widens the world map, towns, and spaceship flights
+                to 344x192 (16:9). Battles, menus, and dungeons stay 256x192.
+  Controls      Opens the Controls remapping screen.
+  Language      Auto, English, or Portugues (requires the matching ROM).
+                Applies as soon as Options closes, without restarting.
 
-100 is the original game. Recommended: encounters 25, experience 400.
-Story and fixed fights never change.
+100% is the original game. Recommended pace: 25% Encounters, 400% EXP / Meseta
+(similar to the Nintendo Switch SEGA AGES easy mode).
 
-With Automap on, press M or controller X while walking in a dungeon to see the
-current floor, labelled at the top FLOOR 1, 2... (FLOOR 1 is the lowest floor
-with an exit outside) or FLOOR B1... below it. The game pauses and music
-continues. The map shows explored places, and is saved with each game.
-Exploration is recorded even while the option is off.
+SAVES & COMMAND LINE
 
-With Widescreen on, the world map, the towns and the spaceship flight show 44
-more pixels on each side, drawn from the game's own map and tiles. The original
-256 pixels stay in the centre; every other screen (battles, menus, dungeons,
-scenes) stays centred with black bars, and the window widens when the game
-starts. In the spaceship flight the stars at the right repeat those at the
-left, as the console's video chip itself would draw them. Widescreen changes
-nothing in the game itself.
+Save through the game's own menu as on the cartridge. Files live in
+%APPDATA%\PSModern\shared: one cartridge-compatible .sav shared by both
+languages, small companions for options and dungeon maps, and a .bak backup
+made before the first write of each session. Only one PSModern window can use
+a save at a time. To forget remembered ROMs, delete %APPDATA%\PSModern\roms.txt.
 
-CHANGING THE CONTROLS
-
-On the Controls screen move with the arrow keys (or D-pad), press Enter, Z or A
-on a cell, then press the new key or button. A key already in use trades places
-with the entry you change. Backspace, Delete or X clears a cell; Escape, X or B
-leaves without saving. Choose RESTORE DEFAULTS, SAVE or CANCEL at the bottom.
-SAVE writes controls.txt in %APPDATA%\PSModern, next to roms.txt; delete it to
-return to the defaults. A damaged file never stops the game: lines it cannot
-use are skipped and the defaults fill the gaps. The full list is in
-docs/player-controls.md of the source.
-
-SAVES
-
-The game saves through its own menu, as on the cartridge. Files are kept in
-%APPDATA%\PSModern\shared: one cartridge-compatible raw save shared by both
-languages, a companion settings file, a dungeon map file, and a .bak copy of
-the previous save made before the first write of each session. Only one copy
-of PSModern may use a save at a time.
-
-On first use, old US and Brazilian saves are preserved and imported. If both
-sets differ, choose which one to continue. New progress is saved to the shared
-folder and is not copied back to old per-version files.
-
-COMMAND LINE
-
-psmodern.exe still accepts a ROM path and the same options:
+Command-line launch (session overrides):
 
   psmodern.exe "game.sms" [--encounter-rate N] [--experience-rate N]
   psmodern.exe --version
 
-To make PSModern forget the remembered ROM, delete %APPDATA%\PSModern\roms.txt.
-
 LICENSE
 
-PSModern is free software under the GNU General Public License, version 3 or
-later. See LICENSE.txt and THIRD-PARTY.txt (libraries, licenses and the source
-this build corresponds to).
-
-Project page and source: https://github.com/carbiecarbie/psmodern
+GNU General Public License v3.0 or later (see LICENSE.txt and THIRD-PARTY.txt).
+Source and full documentation: https://github.com/carbiecarbie/psmodern

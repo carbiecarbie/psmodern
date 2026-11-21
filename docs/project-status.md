@@ -54,8 +54,9 @@ off the game plays and looks as it did.
   Battles, dialogue, shops, houses, dungeons, scenes and the Options,
   Controls, Language and automap screens stay at 256 pixels, centred between
   black bars; the start screen stays 256. While the option is on, the window
-  keeps the wide size on every screen. The choice is saved per profile; it is
-  read-only in recording mode and with `--no-routines`. The machine is the
+  keeps the wide size on every screen. The choice is saved with the shared
+  options; recording mode ignores the Options shortcut and keeps widescreen off.
+  The machine is the
   same either way: the option only changes what is drawn.
 - **Controls:** [controls](player-controls.md) lists every key and button.
   Keyboard and controller work together; the first controller found is used,
@@ -200,7 +201,8 @@ catalog.
 | Instruction execution and interrupts | C++ renders every instruction and accepts every interrupt. The original Z80 runs only in the tests, beside the C++, for comparison. |
 
 See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.md),
-[scenes](how-it-works/scenes.md) and the [per-recording census](coverage.md).
+[scenes](how-it-works/scenes.md), [interrupts](how-it-works/interrupts.md) and
+the [per-recording census](coverage.md).
 
 ## How it is verified
 
@@ -219,8 +221,9 @@ See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.
   recordings with the options on. At 100 the game is byte-identical to the
   original. The default controls are release 0.2.0's, checked over every
   combination of keys and buttons.
-- **The automap and widescreen change nothing in the machine:** on eight
-  recordings (automap) and on all 21 (13 US, 8 Brazilian; widescreen) the
+- **The automap and widescreen change nothing in the machine:** on nine
+  recordings (7 US, 2 Brazilian; automap) and on 23 recordings (15 US, 8
+  Brazilian; widescreen) the
   machine is equal after every frame with the option off and on, and the
   widescreen option-off picture equals release 0.4.0's. The widescreen
   renderer's centre equals the virtual video chip's picture, its bands equal a

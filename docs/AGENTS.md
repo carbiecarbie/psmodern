@@ -26,11 +26,11 @@ exception is `README.pt-BR.md`, the Brazilian Portuguese translation of
 | `docs/playtests.md` | How to prepare a maintainer play-test | Short |
 | `docs/development.md` | Developer entry modes, ROM locations, tests, recordings | As needed |
 | `tools/AGENTS.md` | Complete test-suite protocol | Short |
-| `docs/how-it-works/` | Chapters for a reader who does not program, with evidence labels (below): `master-system.md` for the console, then one per game system | As needed |
+| `docs/how-it-works/` | Chapters for a reader who does not program, with evidence labels (below): `README.md` index, `master-system.md` for the console, then one per game system | As needed |
 | `docs/coverage.md` | Generated census of rewritten vs Z80 routines (`tools/generate_coverage.py`) | Generated |
 | `docs/roadmap.md` | Next milestones and longer-term direction | Short |
 | `docs/original-quirks.md` | Original oddities kept on purpose, US/Brazilian differences, quality-of-life candidates; one short entry each, with evidence and location | As needed |
-| `docs/player-controls.md` | Every button and key for players: defaults, the Controls screen, the `controls.txt` file | As needed |
+| `docs/player-controls.md` | Player guide: default controls, Controls screen, `controls.txt`, in-game options (rates, automap, widescreen, language), fast-forward, saves and command-line flags | As needed |
 
 `docs/roadmap.md` orders the next milestones; `docs/design.md` section 8
 gives the stages they belong to.

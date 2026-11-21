@@ -465,9 +465,14 @@ study base (stage 3) shows how the code is organized.
   kept outside the repository). The Switch release is a reference for feel,
   not exact values, unless the maintainer decides to examine the NSP with
   their own keys. A saved 50 stays valid; it just carries no marker.
-- The exact design of the new interface (its own milestone). The automap's
-  is set by the [milestone 7 plan](milestone-7-plan.md).
+- The exact design of the new interface: the automap's was set by the
+  [milestone 7 plan](milestone-7-plan.md), and PSModern's own Options, Controls
+  and start screens were redone in the cartridge's window style in
+  [milestone 12](milestone-12-plan.md); any optional new look for the game's
+  own menus remains undecided ([roadmap](roadmap.md)).
 - How to store the new features' settings without changing the original save
-  format. The maintainer wants the settings chosen inside the game and saved
-  with it (a later milestone); until then the options are set only by
-  command-line flags and are not saved.
+  format. Settled in [milestone 5](milestone-5-plan.md) (and extended in
+  milestones 7, 9 and 10): settings are chosen inside the game and kept in a
+  versioned `.options` companion file beside the unchanged raw save, with
+  command-line flags available as session overrides
+  ([development](development.md#saves)).

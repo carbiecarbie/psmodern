@@ -219,8 +219,8 @@ draws around them without changing them.
 - **ROM static, Hardware documentation.** The value turns on the left-column
   blank: the first 8 pixels of every line show the backdrop colour instead of
   the map. The background name table has 32 columns, exactly one picture wide.
-- **ROM run.** In the census of all 18 recordings, the leftmost name-table
-  column was stale in every map frame it was checked in.
+- **ROM run.** In the milestone 10 census of 18 recordings, the leftmost
+  name-table column was stale in every map frame it was checked in.
 - **Inference.** The blank hides the column that the scrolling refills, since
   there is no spare column. The reason is not proven; the effect is.
 - With widescreen on, PSModern draws those 8 pixels from the map instead
@@ -728,7 +728,8 @@ here (compared over these ranges). All of it is kept in original mode.
   stood when the fade began (a first step comes after 1 to 4 frames).
 - **ROM run.** The counter is not reset by the fade waits, so every
   recording's fades start from the leftover value; the C++ step matched the
-  original in about 20,000 calls on 14 US and 6 Brazilian recordings.
+  original in about 20,000 calls on the milestone 12 set of 14 US and 6
+  Brazilian recordings.
 
 #### A flash is five blinks, and its colour range differs by spell
 

@@ -48,9 +48,9 @@ call sites are `00:01C5` and `00:0256`.
 **ROM run.** The routine test tries all 65,536 combinations of an old
 held-button byte and a new controller byte against each cartridge. It checks
 the two records, the complete machine state, the read's timestamp, cycles
-and fetches against the original. The twelve checkpoint recordings also
-check each admitted C++ call against an original call from the same state,
-and compare all frames with routines off and with the reference emulator.
+and fetches against the original. All 27 checkpoint recordings also check
+every C++ call against the original in lockstep, and compare all frames
+against the reference emulator.
 The [generated coverage](../coverage.md) records how often C++ runs.
 
 **Maintainer decision.** When an interrupt or frame boundary could fall

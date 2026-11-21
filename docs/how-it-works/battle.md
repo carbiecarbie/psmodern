@@ -281,8 +281,8 @@ execution. These are probes of those prepared cases, not new input recordings.
 **ROM static, ROM run.** All fifty-five slots in the battle command, battle
 effect and field-effect spell tables are accounted for on both cartridges.
 Fifty-two slots point to registered effect families. Three slots point to
-two explicit self-loop placeholders (`00:1AAE`, `00:1E24`), retaining their
-original loops outside these effect replacements.
+two explicit self-loop placeholders (`00:1AAE`, `00:1E24`), registered as C++
+joining segments since milestone 14.
 
 ## Executing a party action
 

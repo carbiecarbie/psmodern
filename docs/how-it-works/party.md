@@ -109,7 +109,7 @@ C++ at the next segment (`00:1710`, `00:171C`, `00:172A`, `00:1739`,
 versions cover every possible reward, every level and eligibility state of
 the helper, every total around each level's threshold and every outcome of
 the two magic comparisons, with the whole machine, cycle count included,
-compared with the original. In the six existing US
+compared with the original. In the initial six US
 recordings, the award ran after a battle in first-battle and in
 deep-dungeon, and a level increment was reached in deep-dungeon; both runs
 are identical with the C++ on and off. Those recordings do not exercise every
@@ -187,9 +187,9 @@ game reuses it.
 
 **What it does not change.** The thresholds, the level table, the rule that
 a record gains one level per award, the top level, who receives the reward,
-the messages and the timing. The option runs at two single instructions that
-the original Z80 still executes itself, so it adds no time: it works inside
-interrupts and frame boundaries as well.
+the messages and the timing. The option acts at two single-instruction sites
+for experience (`00:170D`, `00:1773`) and one for battle meseta (`01:60BC`),
+adding no extra cycles: it works inside interrupts and frame boundaries as well.
 
 **The ceiling with the option on.** Maintainer decision (2026-11-11): when the
 scaled reward overflows the counter, the total is still set to 65,535 as in the

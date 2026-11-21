@@ -1,4 +1,4 @@
-# Title and saved-game choices
+# How it works: title, saved games and story scenes
 
 The title screen first offers a new game or the saved-game menu. The cursor
 position and number of choices are set before the shared menu handles input.

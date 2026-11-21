@@ -7,246 +7,130 @@ English | [Português (Brasil)](README.pt-BR.md)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/carbiecarbie/psmodern)](LICENSE)
 
 > [!IMPORTANT]
-> PSModern is an unofficial fan project. It ships no game
-> data: you need your own dump of the Phantasy Star cartridge for the Sega
-> Master System, either the US Rev-A or the Brazilian Tec Toy release.
+> PSModern is an unofficial fan project and includes **no game data**. You need
+> your own dump of the Sega Master System **Phantasy Star** cartridge (US Rev-A
+> or the Brazilian Tec Toy release).
 
-PSModern is an open-source reimplementation of **Phantasy Star** (Sega Master
-System, 1987/88) in C++. It runs on your own cartridge dump and aims to look,
-sound, play and keep time exactly like the original. Anything the cartridge
-never had, such as adjustable encounters and experience or fast-forward, is
-an option, and the options start off.
+**PSModern** is an open-source C++ reimplementation of **Phantasy Star** (Sega
+Master System, 1987/88). **The entire game is playable from start to finish** in
+English or Portuguese, with the same picture, sound, rules, and timing as the
+original cartridge — plus optional quality-of-life features that all start off.
 
-The project began by running the original program on a virtual Z80 and
-rewriting its routines in C++ one at a time, each checked against the
-original. That work is done: the program now runs C++ only and contains no
-Z80. The original survives in the tests, which run it beside the C++ and
-compare the two instruction by instruction. Along the way the project writes
-down [how the game works inside][how-it-works].
-
-| Start screen (1.1.0) | Options | Widescreen |
+| Start screen | Options | Widescreen |
 | --- | --- | --- |
-| ![The start screen, with the remembered US and Brazilian ROMs](docs/images/start-screen.png) | ![The Options screen over a town: the six options, the choices of the selected one beside them and its explanation below, in the game's own windows](docs/images/options.png) | ![A town in the 344 x 192 widescreen view](docs/images/widescreen.png) |
+| ![PSModern start screen](docs/images/start-screen.png) | ![In-game Options overlay in the cartridge's window style](docs/images/options.png) | ![A town in the 344x192 16:9 widescreen view](docs/images/widescreen.png) |
 
-## What works today
+## Rebuilt in C++, no Z80 emulator
 
-The whole game can be played in English (US) or Portuguese (Brazilian Tec
-Toy release). Everything runs in C++: battles, items, dungeon exploration,
-menus, sound and story scenes through the ending, with no Z80 in the
-program (milestone 14, released in 1.0.0). If the game ever reaches a part
-of the cartridge that PSModern cannot run, it stops with a message and
-keeps your save as it was.
+PSModern started by running the original cartridge on a virtual Z80 and
+rewriting its routines in C++ one by one, checking every change against the
+original. That work is complete: **`psmodern.exe` runs pure C++ and contains no
+Z80 interpreter.** Your ROM is used only as a data source for graphics, maps,
+text, and music.
 
-What you get today:
+The Z80 still lives in the test suite as a referee, running beside the C++ code
+to verify state and cycle timing instruction by instruction. Along the way, we
+documented [how the game works inside][how-it-works] in plain language.
 
-- A Windows (64-bit) version, with a start screen that remembers your ROMs.
-- The original 256x192 picture, scaled in whole steps, in a window or
-  fullscreen, and an optional widescreen view of the world map, the towns and the spaceship flight.
-- The original sound chip, music and effects.
-- Keyboard or game controller, both at the same time if you like, with every
-  key and button changeable on an in-game Controls screen.
-- Four options you set inside the game: how often random fights happen,
-  how much experience and battle money each fight gives, a map of the
-  dungeons, and widescreen on the world map and in towns.
-- 2x and 4x fast-forward, with the music kept at its normal tempo.
-- Switch the game and interface between
-  English and Portuguese from Options during exploration, without restarting.
-  Each language needs its own ROM. One PLAY entry uses the same saved games
-  regardless of language or which ROMs are available.
+## Optional features
 
-The [roadmap][roadmap] orders the remaining work.
+With every option off, PSModern plays identically to the original cartridge.
+Turn on only what you want from the in-game **Options** menu (`Escape` or
+controller `Y` while exploring):
 
-## Download and play
+- **Adjustable encounters & rewards:** scale random encounters (`0%` to `200%`)
+  and battle EXP / Meseta (`100%` to `400%`). Setting **25% encounters** and
+  **400% EXP / Meseta** gives a pace similar to the Nintendo Switch SEGA AGES
+  easy mode. Story and fixed fights never change.
+- **Dungeon automap:** press `M` (or controller `X`) inside a dungeon to view
+  the parts of the current floor you have explored, saved alongside each slot.
+- **16:9 widescreen:** widens the world map, towns, and spaceship flights to
+  `344x192` using the cartridge's own map data and tiles. Battles, menus, and
+  dungeons stay centered in their original `256x192` frame.
+- **Fast-forward (`1x` / `2x` / `4x`):** press `Tab` (or `RB`) to speed up
+  gameplay while keeping music and sound effects at normal tempo and pitch.
+- **Live language switching:** switch between English and Portuguese during
+  exploration without restarting (when both ROMs are added), sharing one save
+  file across both languages.
+- **Full control remapping:** keyboard and gamepad work together, and every key
+  and button can be remapped from the in-game **Controls** screen.
+- **Android support (source build):** the repository also includes a standalone
+  Android port with touch controls and save compatibility with Windows.
 
-You need a dump of your own cartridge: an uncompressed `.sms` file (not
-zipped) of one of these releases.
+## How to install and play
+
+### What you need
+
+An uncompressed `.sms` dump of your own cartridge (unzipped). PSModern checks
+the file and refuses unsupported dumps with an explanation.
 
 | Release | SHA-1 |
 | --- | --- |
 | US Rev-A | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
 | Brazilian (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
 
-PSModern refuses any other file and tells you why.
+### Windows (ready to play)
 
 1. Download `PSModern-<version>-windows-x64.zip` from the
-   [releases page][releases].
-2. Unzip it into a folder of its own.
-3. Double-click `psmodern.exe`. The first time, pick your `.sms` file in the
-   Open dialog; PSModern remembers it.
-4. Choose PLAY on the start screen. ADD ROM adds the other language, and
-   LANGUAGE selects the language. The screen also offers Controls and the saves folder.
+   [Releases page][releases].
+2. Extract the zip into its own folder.
+3. Double-click `psmodern.exe`. On first launch, select your `.sms` file in the
+   Open dialog — PSModern remembers it from then on.
+4. Pick **PLAY** on the start screen. Use **ADD ROM** if you also have the other
+   language's cartridge, and **LANGUAGE** or **CONTROLS** to customize your
+   setup.
 
-The program is not digitally signed, so Windows SmartScreen may warn about an
-unknown publisher. Click **More info**, then **Run anyway**.
+> [!NOTE]
+> Because `psmodern.exe` is not digitally signed, Windows SmartScreen may show
+> an "unknown publisher" warning. Click **More info** and then **Run anyway**.
 
-### Play on Android
+### Android
 
-The personal Android build runs on ARM phones with Android 7.0 or later.
-Install the APK built with the [Android build instructions](docs/dependencies.md#android-family-build).
-Open PSModern and select your cartridge's `.sms` file in the Android file picker.
-The game keeps its own copy. Tap **1** on **PLAY** to start. **ADD ROM** lets you
-import the other language. Rotate the phone to play in portrait or landscape.
+No prebuilt APK is published, but you can build your own for ARM devices
+running Android 7.0+ by following the
+[Android build guide](docs/dependencies.md#android-family-build). Open the app,
+pick your `.sms` file in the Android file picker (it keeps an internal copy),
+and tap **1** on **PLAY** to begin. Both portrait and landscape layouts are
+supported.
 
-On Android, the shared save folder is `Android/data/org.psmodern.game/files/shared/`.
-To move a game between Android and Windows, close PSModern on both devices.
-Back up the destination's `shared` folder before copying the save, options
-and automap files into it. On Windows the folder is `%APPDATA%\PSModern\shared`.
+To move saves between Windows and Android, close PSModern on both devices, back
+up the destination folder, and copy the files inside `shared/`:
 
-## Controls
+- **Windows:** `%APPDATA%\PSModern\shared`
+- **Android:** `Android/data/org.psmodern.game/files/shared/`
 
-The table shows the defaults. Every key and button can be changed on the
-Controls screen, from the start screen or from the Options window, and your
-choice is kept in `controls.txt`. [Controls][controls] has the full list and
-the steps.
+## Quick controls
 
-| Console | Keyboard | Game controller |
+Keyboard and the first connected controller work at the same time. Everything
+can be customized on the **Controls** screen (from the start screen or Options).
+
+| Action | Keyboard | Controller |
 | --- | --- | --- |
-| Directional pad | Arrow keys | D-pad or left stick |
-| Button 1 / Button 2 | Z / X | A / B |
-| Pause | Enter | Start |
-| Reset | Backspace | Back |
-| Power off and on | F5 | - |
-| Speed 1x / 2x / 4x | Tab | Right shoulder (R / RB) |
-| Options window | Escape | Y |
-| Dungeon map (Automap option on) | M | X |
-| Window or fullscreen | Alt+Enter | - |
+| Move | Arrow keys | D-pad or left stick |
+| Button 1 / Button 2 | `Z` / `X` | `A` / `B` (positional) |
+| Pause / Reset | `Enter` / `Backspace` | `Start` / `Back` |
+| Power cycle | `F5` | - |
+| Fast-forward (`1x`/`2x`/`4x`) | `Tab` | `RB` (right shoulder) |
+| Options menu | `Escape` | `Y` |
+| Dungeon map (when Automap is on) | `M` | `X` |
+| Fullscreen | `Alt+Enter` | - |
 
-The first controller found is used, including one plugged in during play.
-The start screen always uses the defaults (arrows, Z or Enter, Escape; D-pad,
-A or Start), so CONTROLS stays within reach whatever you set.
-Controller buttons are named by position: A is the bottom one, whatever is
-printed on your pad.
-
-### Fast-forward
-
-Each press of Tab (or RB) moves to the next speed: 1x, 2x, 4x, then back to
-1x. An indicator shows while the game runs faster. Music and sound effects
-keep their normal tempo and pitch. Every session starts at 1x, and so does
-F5. While the Options window is open, or the window loses focus, the game
-runs at 1x and then goes back to the speed you chose.
-
-## Options
-
-Press Escape (or Y on a controller, or whatever you set) while walking around
-a town, the world map or a dungeon. Every option is on one page, in the
-game's own windows: the list at the left with each current value in grey,
-the choices of the selected row in a small window beside it (the current one
-in yellow), and a window at the bottom that explains that row. Up and down
-pick a row, left and right change its value. Z (or A), X or B, and Escape/Y
-all save the displayed values and close. The last line of the bottom window
-shows whether the choices will be saved on exit, are waiting to take effect,
-or could not be saved. Recording disables Options. The scene stays behind the
-windows and the music keeps playing.
-
-| Option | Values | What it does |
-| --- | --- | --- |
-| Encounters | 0, 25, 50, 100, 200% | How often random fights start. 0 turns them off. Story and fixed fights never change. |
-| EXP / Meseta | 100, 200, 400% | Experience and money from each fight. A character still gains at most one level per fight. |
-| Automap | Off, On | A map of the dungeon floor you are on. Off is the original game. |
-| Widescreen | Off, On | The world map, the towns and the spaceship flight in 16:9. Off is the original game. |
-| CONTROLS | - | Button 1 opens the Controls screen to change keys and buttons. |
-| Language | Auto, English, Portugues | The language of the game text and of these screens, each named in its own words. It switches at once and is saved right away; the game's own text changes when Options closes. Each language needs its ROM; Auto follows the ROM you play. |
-
-100% is the original game. The explanations recommend encounters at 25% and
-experience at 400%; together they give the pace of
-the Nintendo Switch release's easy mode (a quarter of the encounters, four
-times the experience and money). A change applies once the current action
-ends, so a battle in progress, its rewards included, finishes under the old
-rates. The window title shows the active rates and any change still waiting.
-
-The choice is saved for the shared save file, so all five of the
-game's save slots share it.
-
-### Automap
-
-With the Automap option on, press M (or X on a controller) while walking in a
-dungeon to see a map of the floor you are on, with a floor label at the top
-of the map (FLOOR 1 is the lowest floor that has an exit to the outside,
-FLOOR 2 above it, FLOOR B1 below it); M, X, Escape or B close it. The game
-waits while the map is open and the music keeps playing. The map shows
-only what you have seen: corridors, walls, doors (plain, locked and magic),
-stairs, exits to the outside, and chests, opened or not. A pitfall appears
-once you have fallen through it and a hidden passage once you have walked
-through it; the bosses and guardians are never marked. The map is kept with
-each saved game, so Continue brings back the map of that game, and a new game
-starts with an empty one. Exploration is recorded even while the option is
-off, so turning it on later shows what you have already seen.
-
-### Widescreen
-
-With Widescreen on, the world map, the towns and the spaceship flight between
-planets are shown 344x192, 16:9: the
-original 256 pixels in the middle and 44 more on each side, drawn from the map
-with the game's own tiles and colors, including the 8 pixels on the left that
-the cartridge leaves blank. Past the edge of a town you see what the game has
-there; the world maps wrap around. In space the sides repeat the stars, so
-those at the right of the middle match those at the left. Battles, dialogue,
-shops, houses, dungeons and the other screens keep 256 pixels, centered. The
-window is as wide as the wide picture for the whole session, so it never
-changes size during play. Switching the option resizes a normal window to the
-new shape at its current scale (smaller if it would not fit on the screen); a
-maximized or fullscreen window keeps its size. At 1366x768 fullscreen the
-picture is drawn at 3x instead of 4x. Off by default; the game runs the same
-either way. While recording, the row cannot be changed and stays
-off. [How it works](docs/how-it-works/world-map.md) explains what it reads.
-
-## Saves
-
-You save through the game's own menu, as on the cartridge. PSModern keeps
-its files in `%APPDATA%\PSModern`. One shared set in `shared/` is used
-regardless of language (0.3.0 keeps one set per version):
-
-- the save itself, in the cartridge's format, so other emulators can read it;
-- a small companion file with your options;
-- a file with the dungeon maps of your saved games;
-- a `.bak` copy of the previous save, made before the first write of each
-  session.
-
-PSModern preserves old US/BR files and imports them once. If both old
-sets differ, you choose which to continue; both originals remain intact.
-Adding or removing a ROM never removes your saved games. Global `roms.txt`,
-`language.txt` and `controls.txt` stay in the root PSModern folder.
-
-If you copy only the raw save to another emulator, your progress goes with
-it but the options don't; a raw save without its companion file plays with
-the original rules. Turning the options back to 100% keeps the experience
-and money already earned. Only one running copy of PSModern can use a save at
-a time. To make PSModern forget your ROMs, delete `roms.txt` from that folder.
-
-## Command line
-
-`psmodern.exe` also takes a ROM path and the two options, which then apply to
-that session only:
+Saves use the original cartridge format in `%APPDATA%\PSModern\shared` (with a
+`.bak` backup and small companion files for options and dungeon maps), so your
+raw `.sav` remains compatible with Master System emulators. You can also launch
+directly from the command line:
 
 ```sh
 psmodern.exe "path/to/your-game.sms" --encounter-rate 25 --experience-rate 400
-psmodern.exe --version
 ```
 
-`--encounter-rate` takes 0, 25, 50, 100 or 200 and `--experience-rate` takes 100,
-200 or 400. A flag you leave out uses the saved choice, and an explicit 100
-overrides a saved one. Opening and then leaving the Options window saves its
-displayed values, including launch flags. The developer mode `--record`
-always uses the original rules and refuses any other value;
-[development][development] has the details.
+See the [Player guide & controls][controls] for full details on remapping,
+options, automap rules, widescreen, saves, and command-line flags.
 
-## About the project
+## Building from source
 
-- [Project status][status]: what runs now, the architecture and the known
-  gaps.
-- [Roadmap][roadmap]: the next milestones.
-- [Project history][history]: the finished milestones.
-- [How it works][how-it-works]: the console, the controls, the random
-  numbers, the party, the sound, the dungeons, the world map and the menus and
-  windows, explained for readers who don't program.
-- [Original quirks][quirks]: oddities of the original kept on purpose, and
-  the differences between the US and Brazilian versions.
-- [Design][design]: the goals and the decisions behind them.
-
-## Building
-
-Development uses Windows x86-64 with the
-[pinned MSYS2 UCRT64 toolchain][dependencies]. In a UCRT64 shell:
+Windows builds use the [pinned MSYS2 UCRT64 toolchain][dependencies]. From a
+UCRT64 shell:
 
 ```sh
 cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -255,27 +139,40 @@ ctest --test-dir build-rel --output-on-failure
 ./build-rel/psmodern.exe "path/to/your-game.sms"
 ```
 
-Without a ROM path, `psmodern.exe` opens the start screen. Tests that need a
-ROM skip themselves when it is missing. [Development][development] covers the
-ROM test paths, the input recordings, the replay runner and the comparison
-against the original.
+Tests that need a ROM skip automatically if none is configured. See
+[Development][development] for ROM test paths, recordings, and lockstep
+verification.
+
+## Documentation
+
+- [How the game works inside][how-it-works] — plain-language chapters covering
+  the Master System hardware, controls, random numbers, party, sound, dungeons,
+  text, world map, menus, battles, interactions, scenes, and interrupts.
+- [Player guide & controls][controls] — controls, options, automap, widescreen,
+  saves, and CLI flags.
+- [Project status][status] & [Roadmap][roadmap] — current architecture,
+  verification summary, and future ideas.
+- [Project history][history] — milestone-by-milestone log.
+- [Original quirks][quirks] — original cartridge oddities kept on purpose and
+  differences between the US and Brazilian versions.
+- [Design][design] — goals and architectural decisions.
 
 ## Disclaimer and license
 
 PSModern is unofficial and is not affiliated with or endorsed by SEGA or Tec
 Toy. Phantasy Star is a trademark of SEGA.
 
-PSModern is distributed under the GNU General Public License version 3 or, at
-your option, any later version (GPL-3.0-or-later). The release zip's
-`THIRD-PARTY.txt` lists the bundled libraries and their licenses.
+Licensed under the GNU General Public License v3.0 or later
+([GPL-3.0-or-later](LICENSE)). Bundled runtime libraries and their licenses are
+listed in the release zip's `THIRD-PARTY.txt`.
 
 [releases]: https://github.com/carbiecarbie/psmodern/releases
+[how-it-works]: docs/how-it-works/README.md
+[controls]: docs/player-controls.md
 [status]: docs/project-status.md
 [roadmap]: docs/roadmap.md
 [history]: docs/project-history.md
-[how-it-works]: docs/how-it-works/
 [quirks]: docs/original-quirks.md
 [design]: docs/design.md
 [dependencies]: docs/dependencies.md
-[controls]: docs/player-controls.md
 [development]: docs/development.md

@@ -1,8 +1,8 @@
-# Controls
+# Player guide & controls
 
-Every button and key PSModern uses, how to change them and where the choice
-is kept. The tables show the defaults. With no `controls.txt` file the game
-plays with exactly these.
+Controls, in-game options, automap, widescreen, fast-forward, saves, and
+command-line flags. The tables below show the defaults; with no `controls.txt`
+file the game plays with exactly these.
 
 ## Default controls
 
@@ -63,6 +63,58 @@ A controller input hides the touch controls. The first touch brings them back.
   cannot lock yourself out.
 - The six keys of the directions and of Button 1 and Button 2 cannot be left
   empty. Every other key and every controller button can.
+
+## Fast-forward
+
+Each press of Speed (`Tab` or `RB` by default) cycles `1x`, `2x`, `4x`, then
+back to `1x`. An on-screen indicator appears while accelerated. Music and sound
+effects keep their normal tempo and pitch. Every session starts at `1x`, and
+power cycle (`F5`) resets to `1x`. While Options is open or the window loses
+focus, gameplay temporarily runs at `1x` and returns to your chosen speed
+afterward.
+
+## In-game options
+
+Press Options (`Escape` or controller `Y` by default) while walking freely in a
+town, on the world map, or in a dungeon. All six rows fit on one page in the
+game's own window style: the list on the left with each active value in grey,
+the choices for the selected row beside it (current choice in yellow), and a
+description at the bottom whose last line shows the save state (`SAVES ON
+EXIT`, waiting to take effect, or save failed). Up/Down selects a row and
+Left/Right changes its value; leaving with `Z`/`A`, `X`/`B`, or `Escape`/`Y`
+saves automatically. Recording mode disables Options. The scene stays behind
+the windows and the music keeps playing.
+
+| Option | Values | What it does |
+| --- | --- | --- |
+| Encounters | 0, 25, 50, 100, 200% | Frequency of random fights. `0%` turns them off. Story and fixed fights never change. |
+| EXP / Meseta | 100, 200, 400% | Experience and meseta awarded per fight. Characters still gain at most one level per fight. |
+| Automap | Off, On (`NAO`, `SIM`) | Enables the dungeon floor map (`M` / `X`). Off is the original game. |
+| Widescreen | Off, On (`NAO`, `SIM`) | Widens the world map, towns, and spaceship flights to 16:9. Off is the original game. |
+| Controls | - | Button 1 opens the Controls screen to remap keys and buttons. |
+| Language | Auto, English, Portugues | Language of the game text and PSModern's own screens. Saves and switches UI immediately; game text updates when Options closes. Each language needs its ROM; Auto follows the ROM you play. |
+
+`100%` is the original game. Setting **Encounters 25%** and **EXP / Meseta
+400%** gives a pace similar to the Nintendo Switch SEGA AGES easy mode. Rate
+changes apply once the current action ends, so a battle in progress finishes
+under the old rates; the window title shows active rates and any pending
+change. Settings are stored for the shared save file across all five save slots.
+
+## Automap
+
+With Automap on, press Map (`M` or controller `X`) while walking in a dungeon
+to view the current floor. The header shows the floor number (`FLOOR 1` /
+`ANDAR 1` is the lowest floor with an exit to the outside, `FLOOR 2` above it,
+`FLOOR B1` below it). `M`, `X`, `Escape`, or `B` closes the map while the game
+waits and music keeps playing.
+
+The map shows only explored areas: corridors, walls, doors (plain, locked, and
+magic), stairs, exits to the outside, and chests (opened or closed). A pitfall
+appears once you fall through it and a hidden passage once you walk through it;
+bosses and guardians are never marked. Maps are saved per game slot so Continue
+restores that slot's map and a new game starts empty. Exploration is tracked
+even while Automap is off, so turning it on later shows everything you have
+already seen.
 
 ## Language
 
@@ -280,3 +332,45 @@ The keys you choose are turned into the console's buttons before the game
 reads them; see [how it works: reading the controller](how-it-works/controls.md)
 for what the game does next, and [development](development.md#input) for the
 code.
+
+## Saves
+
+Save through the game's own menu, just as on the cartridge. Files are stored in
+`%APPDATA%\PSModern\shared` on Windows (`Android/data/org.psmodern.game/files/shared/`
+on Android) and shared across both languages:
+
+- `phantasy-star.sav` — the raw 8 KiB cartridge save, readable by other Master
+  System emulators;
+- a small companion file storing your options;
+- a companion file storing the dungeon maps for your saved games;
+- a `.bak` backup of the previous save made before the first write of each
+  session.
+
+On first launch, PSModern preserves legacy per-version US/BR saves and imports
+them once (asking which to continue if both differ, leaving both originals
+untouched). Adding or removing a ROM never deletes your saves. Global
+`roms.txt`, `language.txt`, and `controls.txt` stay in the root PSModern
+folder; delete `roms.txt` to make PSModern forget your remembered ROMs.
+
+Copying only the raw `.sav` to another emulator carries your progress without
+the options; a raw save without its companion file runs with original rules.
+Returning rates to `100%` keeps all experience and meseta already earned. Only
+one running copy of PSModern can use a save at a time.
+
+## Command line
+
+`psmodern.exe` accepts a ROM path and session-only rate flags:
+
+```sh
+psmodern.exe "path/to/your-game.sms" --encounter-rate 25 --experience-rate 400
+psmodern.exe --version
+```
+
+- `--encounter-rate` accepts `0`, `25`, `50`, `100`, or `200`.
+- `--experience-rate` accepts `100`, `200`, or `400`.
+
+Omitted flags use your saved preferences, and an explicit `100` overrides a
+saved rate for that session. Opening and closing the Options window saves the
+currently displayed values, including any launch flags. The developer flag
+`--record` enforces original rules and refuses any non-100 rate (see
+[development](development.md#record-mode)).
