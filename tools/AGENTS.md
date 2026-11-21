@@ -6,7 +6,11 @@ milestone or maintenance task, after its final production build (maintainer
 decision, 2026-11-15). During implementation use `ctest -L fast` plus the tests
 of the part being changed; a milestone's parallel parts never run the complete
 suite. Repeat it in the same milestone only when production code changes after
-that run, for example a fix from a review or from the play-test. A complete run needs both ROM paths
+that run, for example a fix from a review or from the play-test. A release
+reuses the last complete run that passed when, between its commit and the
+release commit, only the version number, documentation or README images
+changed; then run the build and `ctest -L fast`. Any other change needs a new
+complete run (maintainer decision, 2026-11-21). A complete run needs both ROM paths
 (`PSMODERN_ROM_US`, `PSMODERN_ROM_BR`) and `PSMODERN_REFERENCE_DIR`,
 `PSMODERN_Z80_TEST_DIR`, `PSMODERN_VDP_TEST_DIR` and
 `PSMODERN_REFERENCE_EXECUTABLE` configured (see `docs/development.md` and

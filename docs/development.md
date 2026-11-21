@@ -1947,7 +1947,10 @@ must point to that commit.
 
 Steps:
 
-1. Run the complete suite on a clean, committed tree.
+1. On a clean, committed tree, run the complete suite, or reuse the last
+   complete run that passed when only the version number, documentation or
+   README images changed since its commit; then the build and `ctest -L fast`
+   suffice ([suite protocol](../tools/AGENTS.md)).
 2. Run `tools/package-release.ps1 -OutputDir <folder outside the repository>`
    (the tag does not have to exist yet; create `v<version>` on the printed
    commit before publishing).
