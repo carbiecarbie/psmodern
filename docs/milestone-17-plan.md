@@ -1,6 +1,7 @@
 # Milestone 17 plan - Japanese FM soundtrack
 
-**Tier A. Status: completed and accepted (2026-11-22).** The maintainer
+**Tier A. Status: completed and accepted (2026-11-22); commit `061ff49`
+(study annotations: `psmodern-re` `e2f25ee`).** The maintainer
 passed all seven play-test items on Windows and on the Galaxy S24 Ultra and
 accepted the milestone.
 

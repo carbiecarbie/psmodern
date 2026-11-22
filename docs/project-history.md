@@ -304,4 +304,4 @@ against the original on the Z80, and the vendored Nuked-OPLL chip; the game,
 its timing and saves are unchanged. Independent reviews approved the plan,
 the backend and the Options row. The maintainer passed the play-test on
 Windows and the Galaxy S24. The Windows suite passed all 430 tests with zero
-skips.
+skips. Implementation and closure: `061ff49`.
