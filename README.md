@@ -52,6 +52,9 @@ controller `Y` while exploring):
 - **Live language switching:** switch between English and Portuguese during
   exploration without restarting (when both ROMs are added), sharing one save
   file across both languages.
+- **Japanese FM soundtrack:** if you also own the Japanese cartridge, hear its
+  FM music and sound effects while you play, switching between `PSG` and `FM`
+  on the **SOUND** row at any time.
 - **Full control remapping:** keyboard and gamepad work together, and every key
   and button can be remapped from the in-game **Controls** screen.
 - **Android support:** official ARM APK for Android 7.0+ with touch controls,
@@ -69,7 +72,7 @@ the file and refuses unsupported dumps with an explanation.
 | US Rev-A | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
 | Brazilian (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
 
-**Japanese FM sound in development builds.** Use **ADD ROM** with your own
+**Japanese FM sound (optional, from 1.3.0).** Use **ADD ROM** with your own
 Japanese cartridge (SHA-1 `c9a40ddd217c58dddcd6b5c0fe66c3a50d3e68e4`).
 It supplies music and sound effects for either playable cartridge. PSG is
 the default; choose FM on the SOUND row of Options. [Sound sources and preferences](docs/player-controls.md#sound).

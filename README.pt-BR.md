@@ -56,6 +56,9 @@ jogo (`Escape` ou botão `Y` no controle durante a exploração):
 - **Troca de idioma ao vivo:** alterne entre inglês e português durante a
   exploração sem reiniciar o jogo (quando tiver as duas ROMs adicionadas),
   usando um único arquivo de save compartilhado.
+- **Trilha sonora FM japonesa:** se você também tiver o cartucho japonês, ouça
+  a música e os efeitos sonoros em FM enquanto joga, alternando entre `PSG` e
+  `FM` na linha **SOM** a qualquer momento.
 - **Controles configuráveis:** teclado e controle funcionam juntos, e todas as
   teclas e botões podem ser alterados na tela **CONTROLES** dentro do jogo.
 - **Versão para Android:** APK oficial para aparelhos ARM com Android 7.0+,
@@ -74,7 +77,7 @@ PSModern valida o arquivo e avisa se a ROM não for uma das versões aceitas.
 | Americana (US Rev-A) | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
 | Brasileira (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
 
-**Som FM japonês nas versões de desenvolvimento.** Use **ADICIONAR ROM**
+**Som FM japonês (opcional, a partir da 1.3.0).** Use **ADICIONAR ROM**
 com a cópia do seu cartucho japonês (SHA-1 `c9a40ddd217c58dddcd6b5c0fe66c3a50d3e68e4`).
 Ele fornece a música e os efeitos sonoros para jogar com o cartucho americano
 ou brasileiro. O PSG é o padrão; escolha FM na linha SOM das Opções. [Fontes e preferências de som](docs/player-controls.md#sound).

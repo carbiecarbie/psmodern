@@ -16,6 +16,11 @@ two releases:
 
 Any other file is refused with an explanation.
 
+Optional: with your own Japanese cartridge dump
+(SHA-1 c9a40ddd217c58dddcd6b5c0fe66c3a50d3e68e4) added through ADD ROM, you
+can hear the Japanese release's FM music and sound effects while playing the
+US or Brazilian game. It is a sound source only, not a playable version.
+
 HOW TO START
 
 1. Extract this folder anywhere you like.
@@ -64,6 +69,9 @@ saves automatically.
   Controls      Opens the Controls remapping screen.
   Language      Auto, English, or Portugues (requires the matching ROM).
                 Applies as soon as Options closes, without restarting.
+  Sound         PSG (the US and Brazilian sound, the default) or FM (the
+                Japanese release's FM sound; requires the Japanese ROM).
+                Switches and saves at once, the music at the same point.
 
 100% is the original game. Recommended pace: 25% Encounters, 400% EXP / Meseta
 (similar to the Nintendo Switch SEGA AGES easy mode).
