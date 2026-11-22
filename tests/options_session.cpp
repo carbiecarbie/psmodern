@@ -41,8 +41,9 @@ app::FrameDriver* tested=nullptr;
 std::filesystem::path recording_path,image_dir;
 class SeededDriver : public app::FrameDriver {
 public:
-    SeededDriver(std::shared_ptr<const Memory::Rom> rom,app::SaveStore store,game::OptionOverrides overrides,bool original)
-        :app::FrameDriver(std::move(rom),std::move(store),overrides,original) {
+    SeededDriver(std::shared_ptr<const Memory::Rom> rom,app::SaveStore store,game::OptionOverrides overrides,bool original,
+                 std::shared_ptr<const Memory::Rom> sound_rom)
+        :app::FrameDriver(std::move(rom),std::move(store),overrides,original,std::move(sound_rom)) {
         const auto rec=replay::read(recording_path);
         for(unsigned i=0;i<3400;++i)run(rec.input_at(i));
         tested=this;
@@ -86,8 +87,8 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
     if(!tested || !tested->menu_active())return {};
     was_active=true;
     if(mode_under_test>=3) {
-        // Two ups reach CONTROLS through LANGUAGE; accept opens Controls. Back in
-        // Options (re-armed by a neutral snapshot), two downs wrap to ENCOUNTERS,
+        // Three ups reach CONTROLS through SOUND and LANGUAGE; accept opens Controls. Back in
+        // Options (re-armed by a neutral snapshot), three downs wrap to ENCOUNTERS,
         // right changes 200 to 0 and either exit binding saves.
         if(mode_under_test==5) {
             switch(stage++) {
@@ -117,11 +118,13 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
         switch(stage++){
             case 1:return {.up=true};
             case 3:return {.up=true};
-            case 5:awaiting_controls=true;return {.accept=true};
-            case 7:return {.down=true};
+            case 5:return {.up=true};
+            case 7:awaiting_controls=true;return {.accept=true};
             case 9:return {.down=true};
-            case 11:return {.right=true};
-            case 13:return mode_under_test==3 ? MenuInput{.cancel=true} : MenuInput{.toggle=true};
+            case 11:return {.down=true};
+            case 13:return {.down=true};
+            case 15:return {.right=true};
+            case 17:return mode_under_test==3 ? MenuInput{.cancel=true} : MenuInput{.toggle=true};
             default:return {};
         }
     }
@@ -344,7 +347,7 @@ int main(int argc,char**argv){
         char* normal[]{argv[0],argv[1],rate,value};char* recording_args[]{argv[0],argv[1],record,recording.data()};
         const auto result=options_app_main(4,mode_under_test==1?recording_args:normal);
         if(result || (mode_under_test==1 ? was_active : !was_active || modal_frames==0 || !restored_speed))throw std::runtime_error("Scripted options app session failed");
-        if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<14))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
+        if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<18))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
         if(mode_under_test==5 && (!checked_options_failure || stage<18 || !saw_wide_after_apply))
             throw std::runtime_error("Failed Options exit did not keep all values for a successful retry");
         if(mode_under_test==4){

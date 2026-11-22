@@ -24,7 +24,8 @@ enum class UiText {
     presentation_language, startup_failed, preferences_warning, automap_warning, audio_unavailable,
     legacy_title, legacy_choice, legacy_unavailable, legacy_us, legacy_br, legacy_failed,
     experience_meseta_short, automatic_short, explain_encounters, explain_experience, explain_automap,
-    explain_widescreen, explain_controls, explain_language, english_needs_rom, portuguese_needs_rom, game_stopped, count
+    explain_widescreen, explain_controls, explain_language, english_needs_rom, portuguese_needs_rom, game_stopped,
+    sound_rom_needs_game, sound, explain_sound, fm_needs_rom, fm_unavailable, saves_when_changed, count
 };
 // The explanation texts hold three lines separated by '\n'; every other
 // ROM-rendered entry is a single line.

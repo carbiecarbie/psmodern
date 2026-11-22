@@ -835,6 +835,22 @@ here (compared over these ranges). All of it is kept in original mode.
 - **ROM run.** Prepared battle and field calls confirm the distinction; this
   does not claim the prepared combination is reachable in ordinary play.
 
+## Sound
+
+### The Japanese victory effect continues into the result message
+
+- **Where.** The victory sequence at `00:1663` requests effect AF. The
+  Japanese driver consumes it at `JP:0C:8466`.
+- **ROM run.** In isolation, the last PSG write was on probe frame 35 and
+  the last Japanese FM write on frame 64. A released FM note can remain
+  audible after its last register write.
+- **ROM run.** In the US first-battle recording the enemy is still visible
+  when the game requests the effect. After 33 frames the result window is
+  drawing text, and by 62 frames it reports the defeat. Replaying the same
+  requests with and without AF puts its FM contribution above 1% of full
+  scale (per-frame RMS difference) through frame 63 after dispatch. The text
+  and the subsequent reward keep the gameplay cartridge's timing.
+
 ## Scenes and saves
 
 ### Cartridge initialization preserves its last four bytes

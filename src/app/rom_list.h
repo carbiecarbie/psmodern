@@ -32,4 +32,14 @@ struct RomListLoad {
 RomListLoad load_rom_list(const std::filesystem::path& folder);
 // Atomically writes folder/roms.txt, creating the folder; throws on failure.
 void save_rom_list(const std::filesystem::path& folder,const RomList& list);
+
+// JP sound sources have a separate file. Older releases continue reading and
+// writing the playable list without affecting the remembered sound ROM.
+inline constexpr const char* sound_rom_path_name="sound-rom.txt";
+struct SoundRomPathLoad {
+    std::optional<std::filesystem::path> path;
+    std::optional<std::string> warning;
+};
+SoundRomPathLoad load_sound_rom_path(const std::filesystem::path& folder);
+void save_sound_rom_path(const std::filesystem::path& folder,const std::filesystem::path& path);
 }

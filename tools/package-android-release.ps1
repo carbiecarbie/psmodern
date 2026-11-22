@@ -173,8 +173,9 @@ try {
 	$src = Join-Path $work 'source'
 	if ($UseWorkingTree) {
 		New-Item -ItemType Directory -Path $src | Out-Null
-		# Copy only tracked/clean source items needed for Android build.
-		foreach ($item in @('CMakeLists.txt', 'LICENSE', 'cmake', 'src', 'android')) {
+		New-Item -ItemType Directory -Path (Join-Path $src 'third_party') | Out-Null
+		# Copy only the source items needed for the Android build.
+		foreach ($item in @('CMakeLists.txt', 'LICENSE', 'cmake', 'src', 'android', 'third_party\nuked-opll')) {
 			$from = Join-Path $repository $item
 			$to = Join-Path $src $item
 			if (Test-Path -LiteralPath $from -PathType Container) {
@@ -197,7 +198,8 @@ try {
 
 	$androidDir = Join-Path $src 'android'
 	$gradlew = Require-File (Join-Path $androidDir 'gradlew.bat')
-	$gradleArgs = @('assembleRelease', '--no-daemon', "-PPSMODERN_COMMIT=$head")
+	$sourceRevision = if ($UseWorkingTree) { "$head-dirty" } else { $head }
+	$gradleArgs = @('assembleRelease', '--no-daemon', "-PPSMODERN_COMMIT=$sourceRevision")
 	if ($VersionOverride) { $gradleArgs += "-PPSMODERN_VERSION_OVERRIDE=$VersionOverride" }
 
 	$buildEnv = @{
@@ -251,6 +253,7 @@ try {
 	# 4. Inspect APK contents: required files, notices, and zero forbidden files.
 	$requiredEntries = @(
 		'assets/PSModern-LICENSE.txt',
+		'assets/Nuked-OPLL-LICENSE.txt',
 		'assets/SDL2-LICENSE.txt',
 		'assets/LIBCXX-LICENSE.txt',
 		'assets/THIRD-PARTY.txt',
@@ -280,6 +283,9 @@ try {
 		if ($thirdParty -notmatch [regex]::Escape("PSModern $version (Android)") -or
 			$thirdParty -notmatch [regex]::Escape("commit $head")) {
 			throw 'assets/THIRD-PARTY.txt does not match expected version and commit'
+		}
+		if ($thirdParty -notmatch [regex]::Escape('assets/Nuked-OPLL-LICENSE.txt')) {
+			throw 'assets/THIRD-PARTY.txt is missing the Nuked-OPLL notice'
 		}
 		foreach ($abi in @('arm64-v8a', 'armeabi-v7a')) {
 			$destSo = Join-Path $verifyDir "packaged-$abi-libmain.so"

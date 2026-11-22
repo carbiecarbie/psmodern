@@ -3,6 +3,7 @@
 #include "app/host.h"
 #include "game/options.h"
 #include "app/language.h"
+#include "app/sound_preference.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -53,11 +54,13 @@ void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row
 // of the selected row in a window beside it that overlaps the list's right
 // border, and the explanation window at the bottom; the scene shows at the
 // right and between them. The cartridge's letters fill their whole tile, so
-// lines are two tile rows apart, as in the game's own windows.
+// lines are two tile rows apart, as in the game's own windows. Milestone 17's
+// seventh row moved the list up to the screen's top tile row (approved
+// mockups, 2026-11-22), as the explanation already reached its bottom one.
 namespace options_layout {
-inline constexpr unsigned rows=6, controls_row=4, language_row=5, explanation_lines=3;
+inline constexpr unsigned rows=7, controls_row=4, language_row=5, sound_row=6, explanation_lines=3;
 inline constexpr int line_step=2;
-inline constexpr menu_style::TileWindow list{1,1,20,13};
+inline constexpr menu_style::TileWindow list{1,0,20,15};
 inline constexpr menu_style::TileWindow explanation{1,15,30,9};
 inline constexpr int values_column=20, values_width=11, state_row=22;
 // The tile row of a list row's line.
@@ -68,18 +71,30 @@ inline constexpr std::size_t line_limit=28;
 // none: nothing to do. apply: save the draft and close. close: close without
 // saving (the automap screen). controls: open the Controls screen over Options.
 // language: the Language row changed language_draft(); the owner saves it at
-// once and calls language_saved() or language_failed().
-enum class MenuAction { none,apply,close,controls,language };
+// once and calls language_saved() or language_failed(). sound: the same for
+// the Sound row's sound_draft(), with sound_saved() or sound_failed().
+enum class MenuAction { none,apply,close,controls,language,sound };
+// Whether FM can be chosen: the Japanese ROM registered and its engine
+// running, no Japanese ROM, or an engine stopped until power cycle.
+enum class SoundAvailability { available,no_rom,failed };
 class OptionsMenu {
 public:
-    // Six rows, all visible: encounters, experience/meseta, automap,
-    // widescreen, Controls and Language. Left and right change the selected
-    // value. (Milestone 14 removed the read-only state: a recording never
-    // opens Options, and the Z80 mode is gone.)
+    // Seven rows, all visible: encounters, experience/meseta, automap,
+    // widescreen, Controls, Language and Sound. Left and right change the
+    // selected value. (Milestone 14 removed the read-only state: a recording
+    // never opens Options, and the Z80 mode is gone.)
     void open(game::Options options,bool pending,bool automap=false,bool widescreen=false);
     // The global language preference and which preferences have a ROM
     // (indexed by LanguagePreference). Defaults: native, all available.
     void set_language(LanguagePreference preference,std::array<bool,3> available);
+    // The installation's sound preference and whether FM can be chosen.
+    // Without FM the row shows PSG and keeps the saved preference untouched.
+    // Default: PSG, no Japanese ROM.
+    void set_sound(SoundPreference preference,SoundAvailability availability);
+    // The game keeps running under Options, so FM can stop while it is open:
+    // the owner refreshes availability before each input and render. The
+    // saved preference and any save failure shown stay as they are.
+    void sound_available(SoundAvailability availability);
     bool visible() const { return visible_; }
     void close() { visible_=false; }
     // Back from Controls: draft and row kept; waits for a neutral snapshot as on opening.
@@ -96,6 +111,9 @@ public:
     // preference comes back and the state line shows the failure.
     void language_saved() { language_failed_=false; }
     void language_failed(LanguagePreference previous) { language_=previous; language_failed_=true; }
+    SoundPreference sound_draft() const { return sound_; }
+    void sound_saved() { sound_failed_=false; }
+    void sound_failed(SoundPreference previous) { sound_=previous; sound_failed_=true; }
     // What render draws, for tests and the session checks.
     static std::string_view label(unsigned row,Language language);
     // A row's choices in order, and the index of the current one; empty for Controls.
@@ -104,9 +122,13 @@ public:
     bool available(unsigned row,std::size_t choice) const;
     std::optional<menu_style::TileWindow> values_window(Language language) const;
     static std::array<std::string_view,options_layout::explanation_lines> explanation(unsigned row,Language language);
-    // The third explanation line of Language, which names a missing ROM when one is.
+    // The third explanation line of Language and Sound, which names what a
+    // choice lacks when one cannot be chosen.
     std::array<std::string,options_layout::explanation_lines> explanation_text(Language language) const;
+    // The state line: a failure, else how the selected row saves.
     std::string_view state(Language language) const;
+    // Grey when it only says how saving works; white for a failure or a pending change.
+    bool state_quiet() const;
     // Inside one of the windows drawn now: render leaves every other pixel alone.
     bool drawn(int x,int y,Language language=Language::english) const;
 private:
@@ -115,7 +137,11 @@ private:
     unsigned selected_=0;
     LanguagePreference language_=LanguagePreference::native;
     std::array<bool,3> language_available_{true,true,true};
-    bool visible_=false,armed_=false,pending_=false,failed_=false,language_failed_=false,automap_=false,widescreen_=false;
+    SoundPreference sound_=SoundPreference::psg;
+    SoundAvailability sound_availability_=SoundAvailability::no_rom;
+    bool visible_=false,armed_=false,pending_=false,failed_=false,language_failed_=false,sound_failed_=false,automap_=false,widescreen_=false;
+    // The row saves when changed rather than when Options closes.
+    bool saves_at_once() const { return selected_==options_layout::language_row || selected_==options_layout::sound_row; }
     double next_repeat_=0;
 };
 // Menu buttons are consumed until every gameplay button is released.

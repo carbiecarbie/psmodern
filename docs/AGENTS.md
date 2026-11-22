@@ -61,7 +61,8 @@ Tier scope, reviews and acceptance are defined in the root `AGENTS.md`.
 - Do not record in-progress work, review transcripts, temporary review state
   or commit readiness in durable docs.
 - Cite original code as `bank:address` of the US Rev-A ROM (for example
-  `02:8A3C`), and name the Brazilian address too where it differs. Never paste
+  `02:8A3C`), and name the Brazilian address too where it differs. Qualify
+  Japanese sound-driver citations with `JP:` as in `JP:0C:8466`. Never paste
   ROM bytes, text, graphics or assembly into the docs; the annotated
   disassembly belongs to the private `psmodern-re` repository.
 - `docs/how-it-works/` explains, it does not command: it is not authority

@@ -76,14 +76,17 @@ double Resampler::bounded_adjustment(double a) {
     if (!std::isfinite(a)) throw std::invalid_argument("Invalid audio rate adjustment.");
     return std::clamp(a,0.995,1.005);
 }
-std::vector<std::int16_t> Resampler::process(std::span<const std::int16_t> input,double a,unsigned speed) {
+std::vector<std::int16_t> Resampler::process(std::span<const std::int16_t> input,double a,unsigned speed,unsigned sample_cycles) {
     if (speed!=1 && speed!=2 && speed!=4) throw std::invalid_argument("Invalid speed.");
+    if (!sample_cycles) throw std::invalid_argument("Invalid sound sample period.");
     const auto next_width=nominal_*bounded_adjustment(a)*speed;
     if (!started_ && !input.empty()) { if (speed!=1) width_=remaining_=next_width; started_=true; }
     std::vector<std::int16_t> output;
     output.reserve(static_cast<std::size_t>(input.size()/next_width)+1);
     for (auto sample:input) {
-        double available=1;
+        // Integrate in PSG-period units, including a partial device period
+        // that straddles a switch between sources of different rates.
+        double available=static_cast<double>(sample_cycles)/Psg::sample_cycles;
         while (available>0) {
             const auto used=std::min(available,remaining_);
             sum_+=sample*used; available-=used; remaining_-=used;

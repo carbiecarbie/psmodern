@@ -71,8 +71,9 @@ int scripted_message_box(const SDL_MessageBoxData* box,int* selected) {
 }
 class SeededDriver : public FrameDriver {
 public:
-    SeededDriver(std::shared_ptr<const Memory::Rom> image,SaveStore store,game::OptionOverrides overrides,bool original)
-        :FrameDriver(std::move(image),std::move(store),overrides,original) {
+    SeededDriver(std::shared_ptr<const Memory::Rom> image,SaveStore store,game::OptionOverrides overrides,bool original,
+                 std::shared_ptr<const Memory::Rom> sound_rom)
+        :FrameDriver(std::move(image),std::move(store),overrides,original,std::move(sound_rom)) {
         if(mode==0) {
             check(prompts==1,"migration chooser was not shown exactly once");
             check(read_bytes(host_folder/"shared"/(std::string(shared_save_name)+".bak"))==br_backup,
@@ -146,7 +147,7 @@ void tap(MenuInput input,Hook hook=Hook::none) {commands.push_back({input,hook})
 void script() {
     commands.clear();commands.push_back({{}}); // arm Options
     tap({.right=true});                      // rates draft 100 -> 200
-    tap({.up=true});                         // the Language row
+    tap({.up=true});tap({.up=true});         // past Sound to the Language row
     // From AUTO, right is ENGLISH and left PORTUGUES: one step, one save.
     const MenuInput step=target_language==Language::english ? MenuInput{.right=true} : MenuInput{.left=true};
     if(mode==2) {
@@ -155,7 +156,7 @@ void script() {
     }
     tap(step);                               // saved at once
     if(mode==1) {
-        tap({.down=true});tap({.right=true});tap({.accept=true}); // parent Apply 200 -> 0
+        tap({.down=true});tap({.down=true});tap({.right=true});tap({.accept=true}); // past Sound; parent Apply 200 -> 0
     } else if(mode!=3)tap({.cancel=true});   // saves parent rates; mode 3 quits with the parent held
 }
 }
@@ -278,5 +279,5 @@ int main(int argc,char** argv) {
         SDL_Quit();
     }
     test::remove_temporary_folder(root);
-    std::cout<<"Actual main UI: the Language row with save on exit, failed save retry, pending exit with clean restart and fixed profile ownership passed.\n";return 0;
+    std::cout<<"Actual main UI: the Language row saved when changed with the parent rates saved on exit, failed save retry, pending exit with clean restart and fixed profile ownership passed.\n";return 0;
 } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';SDL_Quit();return 1;}}

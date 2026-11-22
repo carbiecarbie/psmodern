@@ -154,7 +154,10 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
     OptionsMenu menu;menu.open({25,400},false,true,true);menu.update({},0);
     for(unsigned row=0;row<options_layout::rows;++row) {
         Frame pixels(256*192,0xff123456);menu.render(pixels,font,language);
-        check(shows(pixels,font,16,8*options_layout::state_row,ui_text(UiText::saves_on_exit,language),0xffaaaaaa),"Options explains save on exit in the current language");
+        // Language and Sound save when changed; the other rows when Options closes.
+        const bool at_once=row==options_layout::language_row || row==options_layout::sound_row;
+        check(shows(pixels,font,16,8*options_layout::state_row,ui_text(at_once ? UiText::saves_when_changed : UiText::saves_on_exit,language),0xffaaaaaa),
+            "Options explains when it saves in the current language");
         for(unsigned r=0;r<options_layout::rows;++r)
             check(shows(pixels,font,16,8*options_layout::line_row(r),OptionsMenu::label(r,language)),"every Options row is visible");
         const auto explanation=OptionsMenu::explanation(row,language);
@@ -167,6 +170,7 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
             check(shows(pixels,font,160-8*int(state.size()),8*options_layout::line_row(3),state,0xffaaaaaa),"widescreen value localized");
         }
         if(row==5)preview(output,"options-language",language,pixels);
+        if(row==6)preview(output,"options-sound",language,pixels);
         menu.update({.down=true},2*row+1);menu.update({},2*row+2);
     }
     menu.failed();Frame failed(256*192);menu.render(failed,font,language);

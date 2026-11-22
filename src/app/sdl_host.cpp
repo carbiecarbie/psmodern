@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/sdl_host.h"
+#include "hw/fm.h"
 #ifdef __ANDROID__
 #include "app/android_controls.h"
 #endif
@@ -274,7 +275,7 @@ void Audio::reset() {
     }
     SDL_PauseAudioDevice(device_,0);
 }
-void Audio::submit(std::span<const std::int16_t> input,double now,std::uint64_t frame,std::string_view activity,unsigned speed) {
+void Audio::submit(std::span<const std::int16_t> input,double now,std::uint64_t frame,std::string_view activity,unsigned speed,unsigned sample_cycles) {
     if (!device_) open(now);
     if (!device_) return;
     if(paused_)return;
@@ -298,16 +299,19 @@ void Audio::submit(std::span<const std::int16_t> input,double now,std::uint64_t 
             ++resets_;close();return;
         }
     }
-    auto output=resampler_->process(input,rate_adjustment(queued));
-    submitted_+=output.size();
-    nonzero_+=std::count_if(output.begin(),output.end(),[](auto s) { return s!=0; });
+    auto output=resampler_->process(input,rate_adjustment(queued),1,sample_cycles);
     if (SDL_QueueAudio(device_,output.data(),static_cast<Uint32>(output.size()*sizeof(std::int16_t)))!=0) {
         std::cerr<<"Audio queue failed; retrying device: "<<SDL_GetError()<<'\n'; close();
+    } else {
+        const auto nonzero=std::count_if(output.begin(),output.end(),[](auto s) { return s!=0; });
+        submitted_+=output.size();nonzero_+=nonzero;
+        if(sample_cycles==Fm::sample_cycles) { fm_submitted_+=output.size();fm_nonzero_+=nonzero; }
     }
 }
 void Audio::report() const {
     std::cerr<<"audio_queue_ms="<<queue_min_*1000<<".."<<queue_max_*1000
              <<" underruns="<<underruns_<<" queue_resets="<<resets_
-             <<" submitted="<<submitted_<<" nonzero="<<nonzero_<<'\n';
+             <<" submitted="<<submitted_<<" nonzero="<<nonzero_
+             <<" fm_submitted="<<fm_submitted_<<" fm_nonzero="<<fm_nonzero_<<'\n';
 }
 }

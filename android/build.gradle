@@ -3,6 +3,7 @@ plugins {
 }
 
 def sdl = file(providers.environmentVariable("PSMODERN_SDL2").get())
+def nukedOpllLicense = file("../third_party/nuked-opll/LICENSE")
 def cmakeFile = file("../CMakeLists.txt")
 def cmakeVersionMatch = (cmakeFile.getText("UTF-8") =~ /project\(PSModern VERSION (\d+)\.(\d+)\.(\d+)/)
 if (!cmakeVersionMatch.find()) {
@@ -42,7 +43,9 @@ if (!sourceCommit) {
         def p = new ProcessBuilder("git", "-C", file("..").absolutePath, "rev-parse", "HEAD").start()
         def out = p.inputStream.getText("UTF-8").trim()
         if (p.waitFor() == 0 && out ==~ /^[0-9a-f]{40}$/) {
-            sourceCommit = out
+            def status = new ProcessBuilder("git", "-C", file("..").absolutePath, "status", "--porcelain").start()
+            def changes = status.inputStream.getText("UTF-8").trim()
+            sourceCommit = status.waitFor() == 0 && !changes ? out : out + "-dirty"
         }
     } catch (Exception ignored) {
     }
@@ -50,10 +53,14 @@ if (!sourceCommit) {
 if (!sourceCommit) {
     sourceCommit = "local-build"
 }
+def sourceLocation = (sourceCommit ==~ /^[0-9a-f]{40}$/)
+    ? "https://github.com/carbiecarbie/psmodern/tree/${sourceCommit} (commit ${sourceCommit})"
+    : "Local source snapshot accompanying this build (base commit ${sourceCommit})."
 
 def noticesDir = layout.buildDirectory.dir("generated/notices")
 def notices = tasks.register("prepareNotices") {
     inputs.file(file("../LICENSE"))
+    inputs.file(nukedOpllLicense)
     inputs.file(new File(sdl, "LICENSE.txt"))
     inputs.file(ndkLlvmNotice)
     inputs.property("version", appVersionName)
@@ -68,6 +75,7 @@ def notices = tasks.register("prepareNotices") {
         outDir.mkdirs()
         copy {
             from(file("../LICENSE")) { rename { "PSModern-LICENSE.txt" } }
+            from(nukedOpllLicense) { rename { "Nuked-OPLL-LICENSE.txt" } }
             from(new File(sdl, "LICENSE.txt")) { rename { "SDL2-LICENSE.txt" } }
             from(ndkLlvmNotice) { rename { "LIBCXX-LICENSE.txt" } }
             into(outDir)
@@ -78,14 +86,18 @@ PSModern is free software under the GNU General Public License version 3 or
 later (assets/PSModern-LICENSE.txt).
 
 Corresponding source:
-  PSModern  https://github.com/carbiecarbie/psmodern
-            commit ${sourceCommit}
-            (the tag v${appVersionName} points to this commit for official releases)
+  PSModern  ${sourceLocation}
 
 Credit (not shipped):
   redcode/Z80, a Z80 CPU core (LGPL-3.0-or-later, https://github.com/redcode/Z80),
   is the reference PSModern's tests compare the C++ code against, instruction
   by instruction. This APK contains none of its code.
+
+Built into libmain.so:
+  Nuked-OPLL, Yamaha YM2413 emulation, copyright (C) 2019-2023 Nuke.YKT.
+  GPL version 2 or later (assets/Nuked-OPLL-LICENSE.txt).
+  https://github.com/nukeykt/Nuked-OPLL
+  Source is included under third_party/nuked-opll in the PSModern source.
 
 Bundled libraries (license texts in assets/):
   libSDL2.so        Simple DirectMedia Layer 2.32.10, zlib license (assets/SDL2-LICENSE.txt)

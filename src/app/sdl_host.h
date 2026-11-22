@@ -112,10 +112,13 @@ public:
     ~Audio();
     void removed(SDL_AudioDeviceID device);
     void submit(std::span<const std::int16_t> samples,double now, std::uint64_t frame=0,
-                std::string_view activity="startup",unsigned speed=1);
+                std::string_view activity="startup",unsigned speed=1,unsigned sample_cycles=Psg::sample_cycles);
     void reset();
     void pause(bool paused);
     void report() const;
+    // Samples queued successfully since the device was created, as report() logs them.
+    struct Counters { std::uint64_t submitted=0,nonzero=0,fm_submitted=0,fm_nonzero=0; };
+    Counters counters() const { return {submitted_,nonzero_,fm_submitted_,fm_nonzero_}; }
 private:
     std::function<void(const std::string&)> warning_;
     void open(double now);
@@ -127,7 +130,7 @@ private:
     bool warned_=false;
     bool paused_=false;
     unsigned underruns_=0, resets_=0;
-    std::uint64_t submitted_=0, nonzero_=0;
+    std::uint64_t submitted_=0, nonzero_=0, fm_submitted_=0, fm_nonzero_=0;
     double queue_min_=1, queue_max_=0;
 };
 }

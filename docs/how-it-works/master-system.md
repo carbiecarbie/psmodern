@@ -239,6 +239,17 @@ sound wave) every 16 cycles. Turning samples into what the speakers play
 happens outside the rebuilt console. Details the notes leave open are
 listed in [the development notes](../development.md#psg).
 
+### The Japanese FM sound unit
+
+**Hardware documentation; maintainer decision.** The Yamaha YM2413 makes
+an instrument sound by letting one oscillator vary the pitch of another.
+Its built-in instruments and rhythm sounds are part of the chip. The game
+picks a register with one port write and sends its value with another. The
+time between them matters. PSModern clocks Nuked-OPLL up to each write and
+combines eighteen short outputs into one sample every 72 processor cycles.
+The speaker output integrates either source at the device's sample rate.
+The music itself comes from the player's cartridge. [Sound driver](sound.md#the-japanese-soundtrack).
+
 ## The cartridge
 
 ### The mapper: swapping pieces of the program into view

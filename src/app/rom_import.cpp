@@ -8,6 +8,14 @@ std::filesystem::path import_folder(const std::filesystem::path& root) {
     std::filesystem::create_directories(folder);
     return folder;
 }
+const char* import_name(CartridgeKind kind) {
+    switch (kind) {
+    case CartridgeKind::us_rev_a: return "phantasy-star-us-rev-a.sms";
+    case CartridgeKind::brazilian: return "phantasy-star-brazil.sms";
+    case CartridgeKind::japanese_sound: return "phantasy-star-japan.sms";
+    }
+    throw std::logic_error("Unknown cartridge kind.");
+}
 }
 RomImport::RomImport(const std::filesystem::path& app_folder)
     :folder_(import_folder(app_folder)),lock_(folder_/"import.lock") {
@@ -27,12 +35,12 @@ ImportedRom RomImport::publish(const std::filesystem::path& staged) {
         throw std::invalid_argument("Expected an app-local picker staging file.");
     if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(staged)))
         throw RomUnreadable("Cannot read staged ROM.");
-    const auto version=identify_rom(staged);
-    const auto path=folder_/(version==RomVersion::us_rev_a ? "phantasy-star-us-rev-a.sms" : "phantasy-star-brazil.sms");
+    const auto kind=identify_cartridge(staged);
+    const auto path=folder_/import_name(kind);
     std::filesystem::rename(staged,path);
 #ifndef _WIN32
     sync_directory(folder_);
 #endif
-    return {version,path};
+    return {kind,path};
 }
 }

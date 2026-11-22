@@ -126,9 +126,10 @@ void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row
 }
 namespace {
 using namespace options_layout;
-constexpr UiText row_labels[]{UiText::encounters,UiText::experience_meseta_short,UiText::automap,UiText::widescreen,UiText::controls,UiText::language};
+constexpr UiText row_labels[]{UiText::encounters,UiText::experience_meseta_short,UiText::automap,UiText::widescreen,UiText::controls,UiText::language,UiText::sound};
 constexpr UiText row_explanations[]{UiText::explain_encounters,UiText::explain_experience,UiText::explain_automap,
-    UiText::explain_widescreen,UiText::explain_controls,UiText::explain_language};
+    UiText::explain_widescreen,UiText::explain_controls,UiText::explain_language,UiText::explain_sound};
+static_assert(std::size(row_labels)==rows && std::size(row_explanations)==rows);
 constexpr LanguagePreference language_choices[]{LanguagePreference::native,LanguagePreference::english,LanguagePreference::portuguese};
 // Each language is named in its own words, so that a player who reads only
 // one of them finds it.
@@ -136,11 +137,21 @@ constexpr std::string_view language_names[]{"","ENGLISH","PORTUGUES"};
 }
 void OptionsMenu::open(game::Options options,bool pending,bool automap,bool widescreen) {
     game::validate(options);draft_=options;pending_=pending;automap_=automap;widescreen_=widescreen;
-    visible_=true;armed_=false;failed_=language_failed_=false;selected_=0;previous_={};next_repeat_=0;
+    visible_=true;armed_=false;failed_=language_failed_=sound_failed_=false;selected_=0;previous_={};next_repeat_=0;
 }
 void OptionsMenu::set_language(LanguagePreference preference,std::array<bool,3> available) {
     (void)format_language(preference); // refuse unknown values
     language_=preference;language_available_=available;language_failed_=false;
+}
+void OptionsMenu::set_sound(SoundPreference preference,SoundAvailability availability) {
+    if(preference!=SoundPreference::psg && preference!=SoundPreference::fm)throw std::invalid_argument("Unknown sound preference.");
+    sound_available(availability);
+    sound_=preference;sound_failed_=false;
+}
+void OptionsMenu::sound_available(SoundAvailability availability) {
+    if(availability!=SoundAvailability::available && availability!=SoundAvailability::no_rom && availability!=SoundAvailability::failed)
+        throw std::invalid_argument("Unknown sound availability.");
+    sound_availability_=availability;
 }
 MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(!visible_)return MenuAction::none;
@@ -176,6 +187,12 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
                 if(language_available_[i]) { language_=language_choices[i];return MenuAction::language; }
             }
         }
+        // Two choices: either direction switches, saved at once by the owner.
+        // Without FM the row stays on PSG and the saved preference is kept.
+        if(selected_==sound_row && input.left!=input.right && sound_availability_==SoundAvailability::available) {
+            sound_=sound_==SoundPreference::fm ? SoundPreference::psg : SoundPreference::fm;
+            return MenuAction::sound;
+        }
     }
     if(accept)return selected_==controls_row ? MenuAction::controls : MenuAction::apply;
     return MenuAction::none;
@@ -196,6 +213,7 @@ std::vector<std::string> OptionsMenu::choices(unsigned row,Language language) co
     case 2:case 3:return {std::string(ui_text(UiText::off,language)),std::string(ui_text(UiText::on,language))};
     case controls_row:return {};
     case language_row:return {std::string(ui_text(UiText::automatic_short,language)),std::string(language_names[1]),std::string(language_names[2])};
+    case sound_row:return {"PSG","FM"}; // the chips' names, in both languages
     }
     throw std::out_of_range("No such Options row.");
 }
@@ -209,10 +227,12 @@ std::size_t OptionsMenu::current(unsigned row) const {
     case 2:return automap_ ? 1 : 0;
     case 3:return widescreen_ ? 1 : 0;
     case language_row:return std::size_t(language_);
+    case sound_row:return effective_sound_preference(sound_,sound_availability_==SoundAvailability::available)==SoundPreference::fm ? 1 : 0;
     }
     return 0;
 }
 bool OptionsMenu::available(unsigned row,std::size_t choice) const {
+    if(row==sound_row)return choice==0 || sound_availability_==SoundAvailability::available;
     return row!=language_row || (choice<language_available_.size() && language_available_[choice]);
 }
 std::optional<menu_style::TileWindow> OptionsMenu::values_window(Language language) const {
@@ -245,13 +265,23 @@ std::array<std::string,explanation_lines> OptionsMenu::explanation_text(Language
         if(!language_available_[std::size_t(LanguagePreference::english)])lines[2]=ui_text(UiText::english_needs_rom,language);
         else if(!language_available_[std::size_t(LanguagePreference::portuguese)])lines[2]=ui_text(UiText::portuguese_needs_rom,language);
     }
+    // FM that cannot be chosen: what it needs instead of which is original.
+    if(selected_==sound_row) {
+        if(sound_availability_==SoundAvailability::no_rom)lines[2]=ui_text(UiText::fm_needs_rom,language);
+        else if(sound_availability_==SoundAvailability::failed)lines[2]=ui_text(UiText::fm_unavailable,language);
+    }
     return lines;
 }
 std::string_view OptionsMenu::state(Language language) const {
-    // The pending state concerns the routine options only.
-    if(failed_ || language_failed_)return ui_text(UiText::save_failed,language);
+    // The pending state concerns the routine options only; Language and
+    // Sound say they save when changed, as they do.
+    if(failed_ || language_failed_ || sound_failed_)return ui_text(UiText::save_failed,language);
+    if(saves_at_once())return ui_text(UiText::saves_when_changed,language);
     if(pending_)return ui_text(UiText::saved_waiting,language);
     return ui_text(UiText::saves_on_exit,language);
+}
+bool OptionsMenu::state_quiet() const {
+    return !failed_ && !language_failed_ && !sound_failed_ && (!pending_ || saves_at_once());
 }
 bool OptionsMenu::drawn(int x,int y,Language language) const {
     const auto values=values_window(language);
@@ -282,8 +312,7 @@ void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Lan
     menu_style::window(pixels,font,options_layout::explanation);
     const auto lines=explanation_text(language);
     for(unsigned i=0;i<explanation_lines;++i)menu_style::text(pixels,font,options_layout::explanation.column+1,options_layout::explanation.row+1+line_step*int(i),lines[i],white);
-    const bool quiet=!failed_ && !language_failed_ && !pending_;
-    menu_style::text(pixels,font,options_layout::explanation.column+1,state_row,state(language),quiet ? grey : white);
+    menu_style::text(pixels,font,options_layout::explanation.column+1,state_row,state(language),state_quiet() ? grey : white);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {
     if(!waiting_)return input;

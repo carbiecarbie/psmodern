@@ -71,7 +71,8 @@ public:
     explicit Resampler(int device_hz);
     // Input periods are integrated, including fractional endpoints. State
     // persists across frames; rate changes begin at the next output period.
-    std::vector<std::int16_t> process(std::span<const std::int16_t> input,double adjustment=1,unsigned speed=1);
+    std::vector<std::int16_t> process(std::span<const std::int16_t> input,double adjustment=1,unsigned speed=1,
+                                      unsigned sample_cycles=Psg::sample_cycles);
     static double bounded_adjustment(double adjustment);
 private:
     double nominal_, width_, remaining_, sum_=0;

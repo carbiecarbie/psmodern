@@ -137,11 +137,9 @@ try {
 		$exe = Require-File (Join-Path $buildTree 'psmodern.exe')
 	}
 
-	# Since milestone 14 psmodern.exe contains no vendored library: the Z80
-	# core (redcode/Z80) and the Zeta headers serve only the test oracle.
-
 	$share = Join-Path $ucrtRoot 'share\licenses'
 	$licenseSources = [ordered]@{
+		'Nuked-OPLL.txt'            = Join-Path $src 'third_party\nuked-opll\LICENSE'
 		'SDL2.txt'                  = Join-Path $share 'SDL2\LICENSE.txt'
 		'winpthreads.txt'           = Join-Path $share 'winpthreads\COPYING'
 		'GCC-runtime-exception.txt' = Join-Path $share 'gcc-libs\COPYING.RUNTIME'
@@ -191,6 +189,8 @@ try {
 	New-Item -ItemType Directory -Path $licenses | Out-Null
 	foreach ($key in $licenseSources.Keys) { Copy-Item -LiteralPath $licenseSources[$key] -Destination (Join-Path $licenses $key) }
 
+	$sourceLocation = "$github/tree/$head (commit $head)"
+	if ($BuildDir) { $sourceLocation = "Local test build based on commit $head. Use the matching source snapshot beside the package." }
 @"
 PSModern $version - third-party notices
 
@@ -198,14 +198,18 @@ PSModern is free software under the GNU General Public License version 3 or
 later (LICENSE.txt).
 
 Corresponding source:
-  PSModern  $github
-            commit $head
-            (the tag v$version points to this commit)
+  PSModern  $sourceLocation
 
 Credit (not shipped):
   redcode/Z80, a Z80 CPU core (LGPL-3.0-or-later, https://github.com/redcode/Z80),
   is the reference PSModern's tests compare the C++ code against, instruction
   by instruction. psmodern.exe contains none of its code.
+
+Built into psmodern.exe:
+  Nuked-OPLL, Yamaha YM2413 emulation, copyright (C) 2019-2023 Nuke.YKT.
+  GPL version 2 or later (licenses\Nuked-OPLL.txt).
+  https://github.com/nukeykt/Nuked-OPLL
+  Source is included under third_party/nuked-opll in the PSModern source.
 
 Bundled runtime libraries, MSYS2 UCRT64 builds (license texts in licenses\):
   SDL2.dll             Simple DirectMedia Layer, zlib license (licenses\SDL2.txt)

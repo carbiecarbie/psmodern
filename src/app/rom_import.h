@@ -4,7 +4,7 @@
 
 namespace psmodern::app {
 struct ImportedRom {
-    RomVersion version;
+    CartridgeKind kind;
     std::filesystem::path path;
 };
 

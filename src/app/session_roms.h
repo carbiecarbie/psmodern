@@ -13,6 +13,7 @@ namespace psmodern::app {
 struct SessionRoms {
     RomVersion source_version=RomVersion::us_rev_a;
     std::array<std::shared_ptr<const Memory::Rom>,2> images;
+    std::shared_ptr<const Memory::Rom> sound_rom;
     LanguagePreference preference=LanguagePreference::native;
     Language active=Language::english;
     bool restricted=false,language_unavailable=false;
@@ -24,7 +25,8 @@ struct SessionRoms {
     bool available(LanguagePreference value) const { return available(resolve_language(value,source_version)); }
 };
 // The primary path is mandatory; a failed optional companion is a warning.
-// Restricted sessions neither load the companion nor apply the preference.
+// Restricted sessions load neither extra image and ignore the language preference.
 SessionRoms load_session_roms(const std::filesystem::path& primary,const RomList& remembered,
-                             LanguagePreference preference,bool restricted=false);
+                             LanguagePreference preference,bool restricted=false,
+                             const std::optional<std::filesystem::path>& sound_path={});
 }

@@ -1,11 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <filesystem>
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
+#include <vector>
 
 namespace psmodern {
 enum class RomVersion { us_rev_a, brazilian };
+// The picker also accepts a cartridge that supplies sound only.
+enum class CartridgeKind { us_rev_a, brazilian, japanese_sound };
+constexpr std::optional<RomVersion> playable_version(CartridgeKind kind) {
+    switch (kind) {
+    case CartridgeKind::us_rev_a: return RomVersion::us_rev_a;
+    case CartridgeKind::brazilian: return RomVersion::brazilian;
+    case CartridgeKind::japanese_sound: return {};
+    }
+    return {};
+}
 // The ROM file exists but could not be opened or read (offline share, unplugged
 // drive, access denied). Other identify_rom failures say the file is not a
 // supported ROM.
@@ -13,5 +26,8 @@ struct RomUnreadable : std::runtime_error { using std::runtime_error::runtime_er
 // Classify an already computed digest; throws if it is not supported.
 RomVersion identify_digest(std::string_view digest);
 RomVersion identify_rom(const std::filesystem::path& path);
+CartridgeKind identify_cartridge_digest(std::string_view digest);
+CartridgeKind identify_cartridge(const std::filesystem::path& path);
+std::vector<std::uint8_t> read_rom_image(const std::filesystem::path& path);
 const char* rom_name(RomVersion version);
 }

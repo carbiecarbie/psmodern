@@ -15,7 +15,8 @@ complete run (maintainer decision, 2026-11-21). A complete run needs both ROM pa
 `PSMODERN_Z80_TEST_DIR`, `PSMODERN_VDP_TEST_DIR` and
 `PSMODERN_REFERENCE_EXECUTABLE` configured (see `docs/development.md` and
 `docs/dependencies.md`). On the maintainer's machine a complete run has no
-skipped test: any skip makes the run incomplete. CI without ROMs does not
+skipped test: any skip makes the run incomplete. The Japanese FM tests also
+require the complete sound-source image at `PSMODERN_ROM_JP`. CI without ROMs does not
 replace it. Avoid redundant complete runs; a later production change requires a
 new run.
 

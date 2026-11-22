@@ -99,6 +99,9 @@ public:
     // Read-only host instrumentation, scoped to one frame and never copied
     // into snapshots. Both native and registered-routine writes pass here.
     using WriteObserver = std::function<void(std::uint16_t,std::uint8_t)>;
+    // Optional address check for isolated driver calls. Like the tracing
+    // hooks it belongs to this console and never follows a snapshot.
+    void set_read_guard(void (*guard)(std::uint16_t)) { read_guard_=guard; }
     explicit Console(std::shared_ptr<const Memory::Rom> rom, Memory::CartridgeRam ram = {});
     Console(const Console& other);
     Console& operator=(const Console& other);
@@ -186,5 +189,6 @@ protected:
     std::vector<PortAccess>* port_trace_=nullptr;
     std::vector<MemoryWrite>* write_trace_=nullptr;
     const WriteObserver* write_observer_=nullptr;
+    void (*read_guard_)(std::uint16_t)=nullptr;
 };
 }

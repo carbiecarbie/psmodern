@@ -250,7 +250,7 @@ void language_row(){
  auto tap=[&](MenuInput input){menu.update({},now+=1);auto action=menu.update(input,now+=1);menu.update({},now+=1);return action;};
  menu.open({},false);menu.update({},now);
  check(menu.language_draft()==P::native,"the language defaults to AUTO");
- tap({.up=true});check(menu.selected()==options_layout::language_row,"up wraps to Language");
+ tap({.up=true});tap({.up=true});check(menu.selected()==options_layout::language_row,"up wraps to Sound, then Language");
  check(tap({.right=true})==MenuAction::language && menu.language_draft()==P::english,"right: AUTO to ENGLISH, handed to the owner");
  menu.language_saved();
  check(tap({.right=true})==MenuAction::language && menu.language_draft()==P::portuguese,"right: ENGLISH to PORTUGUES");
@@ -264,7 +264,7 @@ void language_row(){
  tap({.right=true});check(menu.language_draft()==P::english,"draft before the failure");
  menu.language_failed(P::native);
  check(menu.language_draft()==P::native && menu.state(Language::english)=="SAVE FAILED - RETRY","a failed language save reverts and is shown");
- tap({.right=true});menu.language_saved();check(menu.state(Language::english)=="SAVES ON EXIT","a saved retry clears the failure");
+ tap({.right=true});menu.language_saved();check(menu.state(Language::english)=="SAVES WHEN CHANGED" && menu.state_quiet(),"a saved retry clears the failure");
  // A preference without its ROM is skipped, and the explanation names the ROM.
  menu.set_language(P::native,{true,true,false});
  check(tap({.right=true})==MenuAction::language && menu.language_draft()==P::english && tap({.right=true})==MenuAction::language && menu.language_draft()==P::native,
@@ -279,6 +279,68 @@ void language_row(){
  menu.set_language(P::portuguese,{true,true,true});
  check(tap({.cancel=true})==MenuAction::apply && menu.language_draft()==P::portuguese,"leaving keeps the language");
  refuses([&]{menu.set_language(static_cast<P>(7),{true,true,true});});
+}
+// The Sound row (milestone 17): either direction switches PSG and FM when
+// FM can play, handing each change to the owner at once; without FM it shows
+// PSG, keeps the saved preference and says what FM lacks.
+void sound_row(){
+ using S=SoundPreference;using A=SoundAvailability;namespace l=options_layout;
+ OptionsMenu menu;double now=0;
+ auto tap=[&](MenuInput input){menu.update({},now+=1);auto action=menu.update(input,now+=1);menu.update({},now+=1);return action;};
+ menu.open({},false);menu.update({},now);
+ check(menu.sound_draft()==S::psg && menu.current(l::sound_row)==0 && !menu.available(l::sound_row,1),"Sound defaults to PSG without the Japanese ROM");
+ tap({.up=true});check(menu.selected()==l::sound_row,"up wraps to Sound");
+ check(menu.choices(l::sound_row,Language::english)==std::vector<std::string>{"PSG","FM"} &&
+  menu.choices(l::sound_row,Language::portuguese)==std::vector<std::string>{"PSG","FM"},"the chips keep their names in both languages");
+ check(OptionsMenu::label(l::sound_row,Language::english)=="SOUND" && OptionsMenu::label(l::sound_row,Language::portuguese)=="SOM","the Sound label");
+ check(tap({.right=true})==MenuAction::none && tap({.left=true})==MenuAction::none && menu.sound_draft()==S::psg,"no FM without the Japanese ROM");
+ auto lines=menu.explanation_text(Language::english);
+ check(lines[0]=="PSG - US AND BRAZIL SOUND." && lines[1]=="FM - JAPANESE SOUND." && lines[2]=="FM NEEDS THE JAPANESE ROM.","the missing ROM is named");
+ lines=menu.explanation_text(Language::portuguese);
+ check(lines[0]=="PSG - SOM DOS EUA E BRASIL." && lines[1]=="FM - SOM JAPONES." && lines[2]=="FM PRECISA DA ROM JAPONESA.","the missing ROM is named in Portuguese");
+ check(menu.state(Language::english)=="SAVES WHEN CHANGED" && menu.state(Language::portuguese)=="SALVA AO MUDAR" && menu.state_quiet(),"Sound saves when changed");
+ // A saved FM without the ROM shows PSG and is kept.
+ menu.set_sound(S::fm,A::no_rom);
+ check(menu.current(l::sound_row)==0 && menu.sound_draft()==S::fm && tap({.right=true})==MenuAction::none && menu.sound_draft()==S::fm,"a saved FM is kept while it cannot play");
+ menu.set_sound(S::fm,A::failed);
+ check(menu.current(l::sound_row)==0 && !menu.available(l::sound_row,1) && menu.explanation_text(Language::english)[2]=="FM OFF UNTIL POWER CYCLE." &&
+  menu.explanation_text(Language::portuguese)[2]=="FM DESLIGADO ATE REINICIAR.","a stopped engine says FM is off until power cycle");
+ check(tap({.left=true})==MenuAction::none,"no FM while its engine is stopped");
+ // FM stopping while Options is open: the shown value falls back to PSG at
+ // once, the saved FM and a save failure on screen stay.
+ menu.set_sound(S::fm,A::available);menu.sound_failed(S::fm);
+ check(menu.current(l::sound_row)==1 && !menu.state_quiet(),"FM shown, with a failed save on screen");
+ menu.sound_available(A::failed);
+ check(menu.current(l::sound_row)==0 && !menu.available(l::sound_row,1) && menu.sound_draft()==S::fm &&
+  menu.state(Language::english)=="SAVE FAILED - RETRY" && menu.explanation_text(Language::english)[2]=="FM OFF UNTIL POWER CYCLE.","FM stopping inside Options");
+ check(tap({.left=true})==MenuAction::none && tap({.right=true})==MenuAction::none && menu.sound_draft()==S::fm,"no switch, the saved FM kept");
+ menu.sound_available(A::available);
+ check(menu.current(l::sound_row)==1 && menu.sound_draft()==S::fm,"FM shown again when it returns");
+ refuses([&]{menu.sound_available(static_cast<A>(7));});
+ // With FM: either direction switches and is handed to the owner.
+ menu.set_sound(S::psg,A::available);
+ check(menu.explanation_text(Language::english)[2]=="PSG IS THE ORIGINAL." && menu.explanation_text(Language::portuguese)[2]=="O ORIGINAL E PSG.","PSG is the original");
+ check(tap({.right=true})==MenuAction::sound && menu.sound_draft()==S::fm && menu.current(l::sound_row)==1,"right: PSG to FM, handed to the owner");
+ menu.sound_saved();
+ check(tap({.right=true})==MenuAction::sound && menu.sound_draft()==S::psg,"right wraps back to PSG");
+ check(tap({.left=true})==MenuAction::sound && menu.sound_draft()==S::fm,"left switches too");
+ check(menu.draft()==game::Options{} && !menu.automap_draft() && !menu.widescreen_draft() && menu.language_draft()==LanguagePreference::native,"Sound leaves the other values alone");
+ // Held: one change at once, the next after the repeat delay.
+ menu.update({},now+=1);check(menu.update({.left=true},now+=1)==MenuAction::sound && menu.update({.left=true},now+=.1)==MenuAction::none &&
+  menu.update({.left=true},now+=.3)==MenuAction::sound && menu.sound_draft()==S::fm,"a held direction repeats like the other rows");
+ // A failed save restores the previous preference and says so.
+ tap({.right=true});check(menu.sound_draft()==S::psg,"draft before the failure");
+ menu.sound_failed(S::fm);
+ check(menu.sound_draft()==S::fm && menu.current(l::sound_row)==1 && menu.state(Language::english)=="SAVE FAILED - RETRY" && !menu.state_quiet(),"a failed sound save reverts and is shown");
+ tap({.right=true});menu.sound_saved();check(menu.state(Language::english)=="SAVES WHEN CHANGED" && menu.state_quiet(),"a saved retry clears the failure");
+ // The routine options' pending state shows on their rows, not on Sound's.
+ menu.open({},true);menu.set_sound(S::psg,A::available);menu.update({},now+=1);
+ check(menu.state(Language::english)=="SAVED - WAITING" && !menu.state_quiet(),"pending on a routine row");
+ tap({.up=true});check(menu.selected()==l::sound_row && menu.state(Language::english)=="SAVES WHEN CHANGED" && menu.state_quiet(),"Sound says how it saves");
+ tap({.up=true});check(menu.selected()==l::language_row && menu.state(Language::english)=="SAVES WHEN CHANGED","so does Language");
+ check(tap({.cancel=true})==MenuAction::apply && menu.sound_draft()==S::psg,"leaving keeps the sound");
+ refuses([&]{menu.set_sound(static_cast<S>(7),A::available);});
+ refuses([&]{menu.set_sound(S::psg,static_cast<A>(7));});
 }
 // Layout in tiles, both languages, without the ROM: every label and value
 // fits its window, the values window stays on the screen and above the
@@ -298,6 +360,7 @@ void layout(){
  for(bool on:{false,true})for(unsigned preference=0;preference<3;++preference) {
   OptionsMenu menu;menu.open(choices,pending,on,!on);
   menu.set_language(LanguagePreference(preference),{true,preference!=2,preference!=1});
+  menu.set_sound(on ? SoundPreference::fm : SoundPreference::psg,SoundAvailability(preference));
   const auto state=menu.state(language);
   check(!state.empty() && state.size()<=l::line_limit,"the state line fits");
   menu.failed();check(menu.state(language).size()<=l::line_limit,"the failure line fits");
@@ -321,7 +384,7 @@ void layout(){
    }
    for(const auto& line:menu.explanation_text(language)) {
     check(!line.empty() && line.size()<=l::line_limit,"explanation line fits");
-    for(char c:line)check((c>='A'&&c<='Z')||(c>='0'&&c<='9')||std::string_view(" .,%/").find(c)!=std::string_view::npos,"explanations use plain uppercase");
+    for(char c:line)check((c>='A'&&c<='Z')||(c>='0'&&c<='9')||std::string_view(" .,%/-").find(c)!=std::string_view::npos,"explanations use plain uppercase");
    }
    menu.update({.down=true},1+row*2.0);menu.update({},2+row*2.0);
   }
@@ -357,8 +420,13 @@ void navigation(){
  check(menu.automap_draft() && menu.widescreen_draft() && menu.draft()==game::Options{0,200} && menu.language_draft()==LanguagePreference::native,"left and right do nothing on CONTROLS");
  menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==5,"sixth row is Language");
  menu.update({},6.397);check(menu.update({.accept=true},6.398)==MenuAction::apply,"accept on Language saves and leaves, as on the value rows");
- menu.update({},6.399);menu.update({.down=true},6.40);check(menu.selected()==0,"six rows wrap down");
- menu.update({},6.41);menu.update({.up=true},6.42);check(menu.selected()==5,"six rows wrap up");
+ menu.update({},6.399);menu.update({.down=true},6.40);check(menu.selected()==6,"seventh row is Sound");
+ menu.update({},6.401);menu.update({.right=true},6.402);menu.update({},6.403);menu.update({.left=true},6.404);
+ check(menu.sound_draft()==SoundPreference::psg,"without the Japanese ROM left and right leave Sound on PSG");
+ menu.update({},6.405);check(menu.update({.accept=true},6.406)==MenuAction::apply,"accept on Sound saves and leaves, as on the value rows");
+ menu.update({},6.407);menu.update({.down=true},6.408);check(menu.selected()==0,"seven rows wrap down");
+ menu.update({},6.41);menu.update({.up=true},6.42);check(menu.selected()==6,"seven rows wrap up");
+ menu.update({},6.421);menu.update({.up=true},6.422);check(menu.selected()==5,"up reaches Language");
  menu.update({},6.43);menu.update({.up=true},6.44);check(menu.selected()==4,"up reaches Controls");
  menu.update({},6.445);menu.update({.up=true},6.446);
  menu.update({},6.45);menu.update({.up=true},6.46);menu.update({},6.47);menu.update({.up=true},6.48);menu.update({},6.49);menu.update({.up=true},6.50);
@@ -368,7 +436,7 @@ void navigation(){
  menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::apply,"options toggle saves draft on exit");
  // (Milestone 14 removed the read-only Options state with --no-routines.)
  menu.open({},false);menu.update({},10);menu.update({.right=true},10.1);menu.update({},10.2);menu.update({.up=true},10.3);
- menu.update({},10.31);menu.update({.up=true},10.32);
+ menu.update({},10.31);menu.update({.up=true},10.32);menu.update({},10.33);menu.update({.up=true},10.34);
  check(menu.selected()==4 && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on Controls opens Controls");
  menu.resume();check(menu.visible() && menu.selected()==4 && menu.draft().encounter_percent==200,"resume keeps row and draft");
  check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for neutral input");
@@ -376,7 +444,7 @@ void navigation(){
  menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::apply,"Options saves on exit after round trip");
  // Both exit bindings save all three displayed values from every row,
  // including the child-screen entries.
- for(bool toggle:{false,true})for(unsigned row=0;row<6;++row) {
+ for(bool toggle:{false,true})for(unsigned row=0;row<options_layout::rows;++row) {
   menu.open({50,400},false,true,true);menu.update({},20);
   menu.update({.right=true},21);menu.update({},22);
   for(unsigned i=0;i<row;++i){menu.update({.down=true},23+i*2);menu.update({},24+i*2);}
@@ -407,15 +475,18 @@ bool shows(const Frame& frame,const RomFont& font,int column,int row,std::string
 void options_frames(const RomFont& font,const std::filesystem::path& output){
  namespace l=options_layout;using namespace menu_style;
  constexpr std::uint32_t backdrop=0xff123456;
- struct State {const char* name;bool pending,failed,language_failed;};
- constexpr State states[]{{"normal",false,false,false},{"pending",true,false,false},{"failed",false,true,false},{"language-failed",false,false,true}};
+ struct State {const char* name;bool pending,failed,language_failed,sound_failed;};
+ constexpr State states[]{{"normal",false,false,false,false},{"pending",true,false,false,false},{"failed",false,true,false,false},
+  {"language-failed",false,false,true,false},{"sound-failed",false,false,false,true}};
  for(auto language:{Language::english,Language::portuguese}) {
   const std::string suffix=language==Language::english ? "-en" : "-pt";
   for(const auto& state:states)for(unsigned row=0;row<l::rows;++row)for(bool missing:{false,true}) {
    OptionsMenu menu;menu.open({25,400},state.pending,true,false);
    menu.set_language(LanguagePreference::english,{true,true,!missing});
+   menu.set_sound(SoundPreference::fm,missing ? SoundAvailability::no_rom : SoundAvailability::available);
    if(state.failed)menu.failed();
    if(state.language_failed)menu.language_failed(LanguagePreference::english);
+   if(state.sound_failed)menu.sound_failed(SoundPreference::fm);
    menu.update({},0);for(unsigned i=0;i<row;++i){menu.update({.down=true},1+2.0*i);menu.update({},2+2.0*i);}
    Frame pixels(256*192,backdrop);menu.render(pixels,font,language);
    for(int y=0;y<192;++y)for(int x=0;x<256;++x) {
@@ -447,7 +518,8 @@ void options_frames(const RomFont& font,const std::filesystem::path& output){
    } else check(row==l::controls_row,"only Controls has no values window");
    const auto lines=menu.explanation_text(language);
    for(unsigned i=0;i<l::explanation_lines;++i)check(shows(pixels,font,l::explanation.column+1,l::explanation.row+1+l::line_step*int(i),lines[i],white),"explanation line");
-   const bool quiet=!state.pending && !state.failed && !state.language_failed;
+   const bool quiet=!state.failed && !state.language_failed && !state.sound_failed && (!state.pending || row==l::language_row || row==l::sound_row);
+   check(menu.state_quiet()==quiet,"quiet only for how saving works");
    check(shows(pixels,font,l::explanation.column+1,l::state_row,menu.state(language),quiet ? grey : white),"the state line");
    for(const auto& line:lines)for(char c:line)check(font.supports(c),"explanation in the ROM font");
    for(char c:menu.state(language))check(font.supports(c),"state in the ROM font");
@@ -456,6 +528,7 @@ void options_frames(const RomFont& font,const std::filesystem::path& output){
    if(!missing && (std::string_view(state.name)=="normal" || row==0))
     write_frame(output,"options"+suffix+"-row"+std::to_string(row)+(std::string_view(state.name)=="normal" ? "" : "-"+std::string(state.name)),pixels);
    if(missing && row==l::language_row && std::string_view(state.name)=="normal")write_frame(output,"options"+suffix+"-language-no-br",pixels);
+   if(missing && row==l::sound_row && std::string_view(state.name)=="normal")write_frame(output,"options"+suffix+"-sound-no-jp",pixels);
   }
  }
 }
@@ -524,6 +597,6 @@ int main(int argc,char**argv){
     try{
  if(argc==4 && std::string_view(argv[1])=="--crash-worker")return crash_worker(argv[2],argv[3]);
  if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;scaffold.emplace(oracle::Scaffold::originals);rom(argv[1],argc>2?argv[2]:nullptr);}
- else{scaffold.emplace(oracle::Scaffold::authored);codec();persistence();failures();driver();encounter_choices();navigation();language_row();layout();}
+ else{scaffold.emplace(oracle::Scaffold::authored);codec();persistence();failures();driver();encounter_choices();navigation();language_row();sound_row();layout();}
  std::cout<<"Options tests passed.\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -1,11 +1,14 @@
 # PSModern - Project Status
 
-**Milestone 16 was completed and accepted on 2026-11-21.** The latest published
-release, **1.2.0** (2026-11-21), ships both the Windows x64 zip and the first
-official signed Android APK (`PSModern-1.2.0-android-arm.apk`, ARM64 and ARMv7,
-`versionCode 10200`), covering through milestone 16 plus the documentation
-overhaul. The [Android plan](milestone-16-plan.md) records the Samsung
-play-test and verification. See the [project history](project-history.md).
+**Milestone 17 was completed and accepted on 2026-11-22.** A player who also
+owns the Japanese cartridge can hear the game with its FM music and effects;
+the [FM plan](milestone-17-plan.md) records the play-test and verification.
+The latest published release, **1.2.0** (2026-11-21), ships both the Windows
+x64 zip and the first official signed Android APK
+(`PSModern-1.2.0-android-arm.apk`, ARM64 and ARMv7, `versionCode 10200`),
+covering through milestone 16 plus the documentation overhaul; milestone 17
+is in the source and not yet released. See the
+[project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
 The whole game runs in C++ (milestone 14, see its [plan](milestone-14-plan.md)).
@@ -14,9 +17,10 @@ accepted in C++ at the exact instruction, and cartridge code that has no C++
 version stops the game with a message. The Z80 survives only in the tests, as
 the original that the C++ is compared with. Optional features include saved encounter and experience
 rates, a dungeon automap, session-only 2x/4x fast-forward, changeable
-controls, language selection and a widescreen view. Without saved settings,
-rates are original, the automap and widescreen are off and controls follow
-0.2.0; acceleration starts at 1x.
+controls, language selection, a widescreen view and the Japanese cartridge's
+FM sound. Without saved settings, rates are original, the automap and
+widescreen are off, the sound is PSG and controls follow 0.2.0; acceleration
+starts at 1x.
 
 Replacements are checked against the original, call by call and frame by
 frame, with exact state and timing. A private study base explains how the
@@ -46,6 +50,15 @@ off the game plays and looks as it did.
   in a resizable window with black bars (Alt+Enter toggles fullscreen), and the
   original sound chip, resampled for the audio device, at normal tempo and
   pitch also at 2x/4x.
+- **Japanese FM sound (PSG by default):** with the player's Japanese
+  cartridge added through ADD ROM (identified by its digest, a sound source
+  and never a game), the SOUND row of Options switches between PSG, the US
+  and Brazilian sound, and FM, the Japanese release's music and effects on
+  its FM chip. The switch is heard and saved at once, with the music at the
+  same point. A private Japanese sound driver in C++ runs beside the game
+  from power on and hears every request; the game, its timing and its saves
+  do not change. If that engine fails, the sound returns to PSG until power
+  cycle. Recording ignores the choice.
 - **Widescreen (off by default):** the WIDESCREEN row of Options shows the
   world map, the towns and the spaceship flight at 344x192 (16:9): the original
   256 pixels in the centre and 44 more on each side, drawn with the
@@ -72,7 +85,7 @@ off the game plays and looks as it did.
   indicator while accelerated and music at normal tempo. Options and loss of
   focus temporarily use 1x; new sessions, F5 and recording start at 1x.
 - **Language:** on the start screen Language has its own SAVE/CANCEL. In
-  Options it is the last row: Left and Right step through AUTO, ENGLISH and
+  Options it is the sixth row: Left and Right step through AUTO, ENGLISH and
   PORTUGUES (each in its own words; a language without its ROM is skipped), and
   each step is saved and switches PSModern's screens at once; the game's own
   text changes when Options closes, and a failed save restores the previous
@@ -85,7 +98,8 @@ off the game plays and looks as it did.
   companions beside it, a `.bak` of the previous file before the first write
   of a session, and a lock against concurrent use. First use imports old US/BR
   files without modifying them. The parent folder holds `roms.txt`,
-  `controls.txt` and `language.txt`, written only on their own SAVE.
+  `controls.txt`, `language.txt` and `sound.txt` (and on Windows
+  `sound-rom.txt`), each written only when its own choice is saved.
 - **Automap:** with the option on, M or controller X while walking in a
   dungeon opens a map of the current floor (the game waits, the music goes
   on). It shows only what the party has seen; a pitfall appears once stood on,
@@ -104,11 +118,12 @@ off the game plays and looks as it did.
 - **In-game options:** the Options shortcut (Escape or Y) opens one page of
   three windows in the game's own style (cartridge font and borders) during
   free exploration in towns, on the world map and in dungeons; the scene stays
-  behind it and music continues. At the left are the six rows (ENCOUNTERS, EXP
-  / MESETA, AUTOMAP, WIDESCREEN, CONTROLS, LANGUAGE) with their values in grey;
-  beside the selected row a window lists every choice, the current one in
-  yellow; at the bottom a window explains the row, its last line showing the
-  state (SAVES ON EXIT, saved and waiting, or save failed). Left/Right changes a value directly;
+  behind it and music continues. At the left are the seven rows (ENCOUNTERS,
+  EXP / MESETA, AUTOMAP, WIDESCREEN, CONTROLS, LANGUAGE, SOUND) with their
+  values in grey; beside the selected row a window lists every choice, the
+  current one in yellow; at the bottom a window explains the row, its last
+  line showing the state (SAVES ON EXIT, SAVES WHEN CHANGED for Language and
+  Sound, saved and waiting, or save failed). Left/Right changes a value directly;
   button 1 on CONTROLS opens its own screen, which saves independently;
   leaving with button 1, button 2 or the shortcut saves the displayed values.
   Combat, title, dialogue and other menus ignore the shortcut. The
@@ -131,10 +146,10 @@ layer.
 
 | Part | Folder | What it does |
 | --- | --- | --- |
-| Console | `src/hw/`, `src/machine/` | The register file, memory and mapper, cartridge RAM, ports, VDP, PSG, pads, Pause and Reset, driven by one cycle counter |
-| ROM | `src/rom/` | Identifies the two supported cartridges by SHA-1 |
-| Game | `src/game/` | Cartridge-driven C++ game routines, optional game rules, dungeon exploration and map-screen readers |
-| Program | `src/app/` | SDL window, sound, input and its bindings, save files, the start, Options, Controls, Language and map screens (the first three in the game's window style), `WideView` (the widescreen renderer), frame pacing, command-line options |
+| Console | `src/hw/`, `src/machine/` | The register file, memory and mapper, cartridge RAM, ports, VDP, PSG, the FM chip (Nuked-OPLL in `third_party/`), pads, Pause and Reset, driven by one cycle counter |
+| ROM | `src/rom/` | Identifies the two supported cartridges, and the Japanese one as a sound source, by SHA-1 |
+| Game | `src/game/` | Cartridge-driven C++ game routines, the Japanese sound driver, optional game rules, dungeon exploration and map-screen readers |
+| Program | `src/app/` | SDL window, sound (with the private FM engine), input and its bindings, save files, the start, Options, Controls, Language and map screens (the first three in the game's window style), `WideView` (the widescreen renderer), frame pacing, command-line options |
 | Android host | `android/`, `src/app/` | Android activity, document picker, app storage, touch controls and SDL lifecycle |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, lockstep and frame verification, routine censuses |
 | Oracle | `src/oracle/`, `third_party/` | Test-only: the pinned Z80 core and a machine running the original, for lockstep. Not linked into `psmodern.exe` |
@@ -197,7 +212,7 @@ catalog.
 | Walking, vehicles and dungeon exploration | C++ handles movement, map transfers, dungeon loading, the 3D view and animations. |
 | Battles, items, spells and party | C++ chooses actions and targets, resolves effects and awards experience and meseta. |
 | Menus, text, saves and scenes | C++ handles selection, dialogue, name entry, saving and Continue, story events and the ending. Text and graphics come from the player's ROM. |
-| Music, sound effects and display updates | C++ interprets the cartridge's sound commands and schedules chip writes at the original cycles. |
+| Music, sound effects and display updates | C++ interprets the cartridge's sound commands and schedules chip writes at the original cycles. The Japanese cartridge's FM driver is also C++, run privately for the listener. |
 | Instruction execution and interrupts | C++ renders every instruction and accepts every interrupt. The original Z80 runs only in the tests, beside the C++, for comparison. |
 
 See [battles](how-it-works/battle.md), [interactions](how-it-works/interactions.md),
@@ -234,11 +249,17 @@ the [per-recording census](coverage.md).
   recording check the distinct text paths; switching and legacy-import tests
   cover preserved state, cancellation, missing or locked files, concurrency
   and crashes.
+- **FM sound:** each of the Japanese driver's 191 C++ pieces matched the
+  original Japanese driver on the Z80 over every request, which in turn
+  matched the reference emulator's FM writes on the opening. With FM on and
+  off the game is identical at every frame (state, cycles, picture, PSG and
+  saves), and a forced engine failure falls back to PSG.
 - **Review and acceptance.** Independent reviews covered the timing mechanism,
-  game routines and Android host. The maintainer passed the Samsung play-test.
-  The Windows suite passed 390/390 with zero skips. On the S24, the final APK
-  loaded both cartridges and a Windows save with its map, and sustained 1x,
-  2x and 4x in the dungeon. See the [device results](milestone-16-plan.md#verification).
+  game routines, the Android host and the FM sound. The maintainer passed the
+  FM play-test on Windows and the S24. The Windows suite passed 430/430 with
+  zero skips. On the S24, the Android build sustained 1x, 2x and 4x, also
+  with FM ([milestone 16](milestone-16-plan.md#verification),
+  [milestone 17](milestone-17-plan.md#verification)).
 
 ## Known gaps
 
@@ -294,6 +315,11 @@ the [per-recording census](coverage.md).
   undecided, see the [roadmap](roadmap.md)), and the redone Options page covers
   more of the scene than the old window did.
 - **No aspect correction of the picture** yet.
+- **FM sound limits.** The FM engine runs whenever the Japanese image is
+  registered, also while PSG is heard; 4x with FM is measured only on a
+  64-bit phone. Switching can sound an already-held note again, and effect
+  `AF` ends about half a second later in FM than in PSG, as on the Japanese
+  cartridge. FM loudness is a fixed gain, confirmed by ear in the play-test.
 - **Audio under heavy host load.** Windows can delay the game beyond its
   150 ms audio reserve. After an underrun the next samples resume immediately.
   A 30-minute WASAPI session with the revised audio queue recorded zero

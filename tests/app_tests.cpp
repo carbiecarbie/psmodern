@@ -653,6 +653,17 @@ void automap_files() {
         check(!store.flush(memory,true) && order==std::vector<std::string>{map_name} && !store.automap_pending(),"written once the folder is gone");
     }
 }
+void unavailable_fm() {
+    Temporary tmp;
+    const auto image=program();
+    FrameDriver driver(image,SaveStore(tmp.path,RomVersion::us_rev_a),{},false,program());
+    driver.choose_fm(true);
+    check(!driver.fm_available() && !driver.fm_selected(),"invalid sound image enabled FM");
+    const auto first=driver.run({});
+    check(first.audio_error && !first.playback && !driver.stopped(),"bad private driver stopped gameplay or suppressed original sound");
+    check(!driver.run({}).audio_error,"failed private driver retried within the same power cycle");
+    check(!driver.power_cycle() && driver.run({}).audio_error.has_value(),"power cycle did not retry the sound source");
+}
 void resampling() {
     const auto n=static_cast<std::size_t>(Psg::cpu_hz/Psg::sample_cycles);
     std::vector<std::int16_t> dc(n,12345);
@@ -670,6 +681,19 @@ void resampling() {
         joined.insert(joined.end(),out.begin(),out.end());
     }
     check(expected==joined,"frame splits preserve fractional integration and length");
+    // Two FM samples span exactly nine PSG samples. The host's partial
+    // output period must survive changes of source in either direction.
+    Resampler mixed_rates(48000),always_psg(48000);
+    std::vector<std::int16_t> mixed,reference;
+    for(int i=0;i<1000;++i) {
+        const bool fm=(i%3)!=0;
+        const std::int16_t level=i%2 ? 5712 : -9000;
+        auto part=mixed_rates.process(std::vector<std::int16_t>(fm ? 2 : 9,level),1,1,fm ? Fm::sample_cycles : Psg::sample_cycles);
+        auto original=always_psg.process(std::vector<std::int16_t>(9,level));
+        mixed.insert(mixed.end(),part.begin(),part.end());
+        reference.insert(reference.end(),original.begin(),original.end());
+    }
+    check(mixed==reference,"switching FM/PSG lost the device sample phase or changed its gain");
     for (std::size_t i=0;i<n;++i) wave[i]=(i&1) ? -12000 : 12000;
     Resampler anti_alias(48000); auto attenuated=anti_alias.process(wave);
     check(std::all_of(attenuated.begin(),attenuated.end(),[](auto v) { return std::abs(v)<2600; }),"input Nyquist strongly attenuated by averaging");
@@ -851,7 +875,7 @@ int main() {
     // The authored programs' code that no test renders runs on the oracle's core.
     oracle::Scaffold scaffold;
     try { colours(); scaling(); canvas_windows(); compositing(); inputs(); saves(); backups(); driver(); flags(); guard(); observed_segments();
-        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); resampling(); pacing();
-        std::cout<<"App: 16 test groups passed (no SDL or ROM).\n"; return 0;
+        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); unavailable_fm(); resampling(); pacing();
+        std::cout<<"App test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

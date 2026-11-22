@@ -3,6 +3,7 @@
 #include "app/automap_screen.h"
 #include "app/controls_screen.h"
 #include "app/localization.h"
+#include "app/sound_preference.h"
 #include "app/frame_driver.h"
 #include "app/shared_save.h"
 #include "app/start_loop.h"
@@ -63,12 +64,27 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
     if(!store)return play_cancelled;
 #ifdef __ANDROID__
     // SDLActivity runs native code on a Java thread with a small stack.
-    auto owned_driver=std::make_unique<FrameDriver>(rom,std::move(*store),overrides,record_path.has_value());
+    auto owned_driver=std::make_unique<FrameDriver>(rom,std::move(*store),overrides,record_path.has_value(),session.sound_rom);
     auto& driver=*owned_driver;
 #else
-    FrameDriver driver(rom,std::move(*store),overrides,record_path.has_value());
+    FrameDriver driver(rom,std::move(*store),overrides,record_path.has_value(),session.sound_rom);
 #endif
     driver.configure_languages(session);
+    // The installation's sound preference. It is kept as saved even while FM
+    // cannot play (no Japanese ROM, or its engine stopped until power cycle).
+    auto sound_preference=SoundPreference::psg;
+    if(!record_path) {
+        const auto saved=load_sound_preference(production_save_folder());
+        if(saved.warning)std::cerr<<*saved.warning<<'\n';
+        sound_preference=saved.preference;
+        driver.choose_fm(sound_preference==SoundPreference::fm);
+    }
+    // Whether the Sound row can offer FM now: the engine can stop at any
+    // frame, Options open or not, and returns only at power cycle.
+    auto sound_availability=[&] {
+        return driver.fm_available() ? SoundAvailability::available :
+            session.sound_rom ? SoundAvailability::failed : SoundAvailability::no_rom;
+    };
     RomFont font(*rom);OptionsMenu menu;MapScreen map_screen;InputRelease release;
     if(launcher_display) release.consume();
     if(record_path && std::filesystem::exists(*record_path))
@@ -173,7 +189,8 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             const auto elapsed=now()-start;
             std::cerr<<"frames="<<frames<<" elapsed_s="<<elapsed
                      <<" emulation_minus_wall_ms="<<(frames*frame_seconds-elapsed)*1000
-                     <<" lag_rebase_s="<<clock.discarded_seconds()<<'\n';
+                     <<" lag_rebase_s="<<clock.discarded_seconds()
+                     <<" speed="<<clock.speed()<<" sound="<<(driver.fm_selected() ? "fm" : "psg")<<'\n';
             audio.report();
         };
         while (!quit) {
@@ -300,6 +317,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 }
                 if(!controls_screen.visible())menu.resume();
             } else if(menu.visible()) {
+                menu.sound_available(sound_availability());
                 const auto action=menu.update(menu_input,now());
                 if(action==MenuAction::apply) {
                     const auto began=now();
@@ -326,6 +344,16 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                         failure_language=language;
                         menu.language_saved();
                     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';menu.language_failed(preference);}
+                } else if(action==MenuAction::sound) {
+                    // The Sound row (milestone 17) switches what is heard at
+                    // once, the music at the same point, after the file is saved.
+                    try {
+                        save_sound_preference(production_save_folder(),menu.sound_draft());
+                        sound_preference=menu.sound_draft();
+                        driver.choose_fm(sound_preference==SoundPreference::fm);
+                        menu.sound_saved();
+                        std::cerr<<"audio_event=sound frame="<<frames<<" sound="<<(driver.fm_selected() ? "fm" : "psg")<<'\n';
+                    } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';menu.sound_failed(sound_preference);}
                 }
             }
             const auto count=clock.due(now());
@@ -355,13 +383,14 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 audio.submit(output.playback ? output.playback->values : output.samples.values,now(),frames,
                     fullscreen_changed ? "fullscreen" : lost_focus || !menu_input.focused ? "unfocused" :
                     driver.menu_active() ? "host-menu" : options_pressed ? "options-request" :
-                    input.pads[0].one || input.pads[0].two ? "game-button" : "game",clock.speed());
+                    input.pads[0].one || input.pads[0].two ? "game-button" : "game",clock.speed(),output.playback_sample_cycles);
                 if(!was_active && driver.menu_active()) {
                     if(driver.menu_purpose()==HostMenu::map) map_screen.open();
                     else {
                         menu.open(driver.chosen_options(),driver.options_pending(),driver.automap_option(),driver.widescreen_option());
                         menu.set_language(preference,{session.available(LanguagePreference::native),
                             session.available(LanguagePreference::english),session.available(LanguagePreference::portuguese)});
+                        menu.set_sound(sound_preference,sound_availability());
                     }
                     release.consume();
                 }
@@ -407,7 +436,11 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                     driver.menu_active() ? (wide_menu_background ? &*wide_menu_background : nullptr) : wide_picture();
                 centre_pixels(pixels,picture,wide);
                 if(controls_screen.visible())controls_screen.render(pixels,font,language);
-                else if(menu.visible())menu.render(pixels,font,language);
+                else if(menu.visible()) {
+                    // The frames just run may have stopped FM: show what is heard.
+                    menu.sound_available(sound_availability());
+                    menu.render(pixels,font,language);
+                }
                 else if(map_screen.visible() && driver.map_view())render_automap(pixels,font,*driver.map_view(),language);
                 else if(clock.speed()>1) {
                     for(int y=2;y<12;++y) for(int x=234;x<254;++x) pixels[y*256+x]=0xff000000;
@@ -477,7 +510,9 @@ int main(int argc,char** argv) {
         } else {
             const auto preferences=load_language(production_save_folder());
             const auto remembered=load_rom_list(production_save_folder());
-            const auto session=load_session_roms(args.rom,remembered.list,preferences.preference,args.record_path.has_value());
+            const auto sound_path=args.record_path ? SoundRomPathLoad{} : load_sound_rom_path(production_save_folder());
+            if(sound_path.warning)std::cerr<<*sound_path.warning<<'\n';
+            const auto session=load_session_roms(args.rom,remembered.list,preferences.preference,args.record_path.has_value(),sound_path.path);
             failure_language=session.active;
             if(preferences.warning) {std::cerr<<*preferences.warning<<'\n';message(std::string(ui_text(UiText::language_file_warning,session.active)));}
             if(remembered.warning)std::cerr<<*remembered.warning<<'\n';

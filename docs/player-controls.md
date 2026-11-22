@@ -76,11 +76,12 @@ afterward.
 ## In-game options
 
 Press Options (`Escape` or controller `Y` by default) while walking freely in a
-town, on the world map, or in a dungeon. All six rows fit on one page in the
+town, on the world map, or in a dungeon. All seven rows fit on one page in the
 game's own window style: the list on the left with each active value in grey,
 the choices for the selected row beside it (current choice in yellow), and a
 description at the bottom whose last line shows the save state (`SAVES ON
-EXIT`, waiting to take effect, or save failed). Up/Down selects a row and
+EXIT`, waiting to take effect, or save failed; `SAVES WHEN CHANGED` on
+Language and Sound). Up/Down selects a row and
 Left/Right changes its value; leaving with `Z`/`A`, `X`/`B`, or `Escape`/`Y`
 saves automatically. Recording mode disables Options. The scene stays behind
 the windows and the music keeps playing.
@@ -93,6 +94,7 @@ the windows and the music keeps playing.
 | Widescreen | Off, On (`NAO`, `SIM`) | Widens the world map, towns, and spaceship flights to 16:9. Off is the original game. |
 | Controls | - | Button 1 opens the Controls screen to remap keys and buttons. |
 | Language | Auto, English, Portugues | Language of the game text and PSModern's own screens. Saves and switches UI immediately; game text updates when Options closes. Each language needs its ROM; Auto follows the ROM you play. |
+| Sound (`SOM`) | PSG, FM | PSG is the sound of the US and Brazilian cartridges and the original; FM is the Japanese cartridge's FM sound. Saves and switches immediately, the music at the same point. FM needs the Japanese ROM ([Sound](#sound)). |
 
 `100%` is the original game. Setting **Encounters 25%** and **EXP / Meseta
 400%** gives a pace similar to the Nintendo Switch SEGA AGES easy mode. Rate
@@ -128,11 +130,33 @@ and each step is saved at once and switches PSModern's screens at once.
 During play, finish the current dialogue or battle first; the game's own text
 changes language after Options closes, without restarting. If the choice
 cannot be saved, the previous one comes back and the bottom line says SAVE
-FAILED - RETRY. Leaving Options saves its displayed rates, automap and
-widescreen settings.
+FAILED - RETRY; press Left or Right again to retry. Leaving Options saves its
+displayed rates, automap and widescreen settings, but does not retry a
+language or sound choice.
 This preference is global; all languages use the same saved games, options
 and automap. The start screen
 has one PLAY entry; ADD ROM makes another language available.
+
+## Sound
+
+For the Japanese FM music and effects, add your Japanese cartridge dump
+with **ADD ROM** on the start screen. Keep a US Rev-A or Brazilian cartridge
+registered to play. On Android the file picker keeps a copy in app storage.
+On Windows the application remembers the selected path in `sound-rom.txt`.
+
+Choose PSG or FM on the SOUND row of Options. The change is heard at once,
+with the music at the same point, and saved at once. If it cannot be saved,
+the previous sound stays and the bottom line says SAVE FAILED - RETRY; press
+Left or Right again to retry. Without the Japanese
+ROM the row stays on PSG and says that FM needs it; if the FM sound stopped
+with an error, the row says FM is off until the next power cycle.
+
+The default sound is PSG. The installation's choice lives in `sound.txt`
+beside `language.txt`. Its first line is `psmodern-sound 1` and its second
+line is `psg` or `fm`. If the Japanese image becomes unavailable the game
+plays PSG and keeps the preference for the next session. Recording uses the
+playable cartridge's original audio. Both sound modes follow normal musical
+time during fast-forward.
 
 ## Options: widescreen
 

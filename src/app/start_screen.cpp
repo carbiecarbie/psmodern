@@ -87,7 +87,7 @@ std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unre
         const auto path=list.get(version);
         if (!path) continue;
         std::string reason;
-        try { if (platform.identify(*path)!=version) reason="it is now the other version of the game."; }
+        try { if (playable_version(platform.identify(*path))!=version) reason="it is now a different cartridge."; }
         catch (const RomUnreadable& e) {
             unreadable_text+="\n\n"+utf8(*path)+"\n"+e.what();
             unreadable.set(version,*path);list.clear(version);
@@ -106,24 +106,29 @@ std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unre
     if (unreadable_out) *unreadable_out=unreadable;
     return list;
 }
-std::optional<RomVersion> choose_rom(LauncherPlatform& platform,RomList& list,bool first_run,const RomList& unreadable) {
+std::optional<CartridgeKind> choose_rom(LauncherPlatform& platform,RomList& list,bool first_run,const RomList& unreadable) {
     for (;;) {
         std::optional<std::filesystem::path> path;
-        RomVersion version{};
+        ImportedRom imported;
         try {
             path=platform.pick_rom();
             if (!path) return {};
-            const auto imported=platform.import_picked(*path);
-            version=imported.version;
-            list.set(version,imported.path);
+            imported=platform.import_picked(*path);
         } catch (const std::exception& e) {
             if (platform.ask_retry((path ? utf8(path->filename()) : "Document")+" cannot be used: "+e.what()+
-                "\n\nPSModern needs your own uncompressed .sms dump of Phantasy Star, either:"
-                "\n- the US Rev-A cartridge\n- the Brazilian Tec Toy cartridge",first_run ? "Quit" : "Back")) continue;
+                "\n\nChoose your uncompressed .sms dump of the US Rev-A or Brazilian Tec Toy cartridge to play,"
+                " or the Japanese cartridge for FM sound.",first_run ? "Quit" : "Back")) continue;
             return {};
         }
-        remember(platform,list,unreadable);
-        return version;
+        if (const auto version=playable_version(imported.kind)) {
+            list.set(*version,imported.path);
+            remember(platform,list,unreadable);
+            return imported.kind;
+        }
+        try { platform.save_sound_rom(imported.path); }
+        catch (const std::exception& e) { platform.show_notice(UiText::cannot_remember_roms,std::string("PSModern cannot remember the sound ROM: ")+e.what()); }
+        if (!list.empty()) return imported.kind;
+        platform.show_notice(UiText::sound_rom_needs_game,"The Japanese ROM supplies FM sound. Choose a US Rev-A or Brazilian ROM to play.");
     }
 }
 const std::filesystem::path& primary_rom(const RomList& list) {

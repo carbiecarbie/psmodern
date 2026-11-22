@@ -56,8 +56,9 @@ public:
     virtual bool ask_retry(const std::string& text,const char* give_up)=0;
     virtual RomListLoad load_list()=0;
     virtual void save_list(const RomList& list)=0;
+    virtual void save_sound_rom(const std::filesystem::path& path)=0;
     // Throws std::runtime_error with the reason for an unsupported file.
-    virtual RomVersion identify(const std::filesystem::path& path)=0;
+    virtual CartridgeKind identify(const std::filesystem::path& path)=0;
     // Desktop remembers the picked file. Android publishes the validated staging
     // file here and returns its permanent path before the list is updated.
     virtual ImportedRom import_picked(const std::filesystem::path& path) {
@@ -72,11 +73,11 @@ public:
 // message names the forgotten and the unreadable ROMs.
 std::optional<RomList> prepare_launcher(LauncherPlatform& platform,RomList* unreadable=nullptr);
 // Asks for a ROM until a supported one is picked or the player gives up. A
-// pick fills its version's slot and is saved. first_run names the give-up
-// button Quit; otherwise Back (to the start screen). Returns the version of
-// the ROM added, or nothing. Slots of unreadable (see prepare_launcher) that
-// list does not fill are saved too.
-std::optional<RomVersion> choose_rom(LauncherPlatform& platform,RomList& list,bool first_run,const RomList& unreadable={});
+// Japanese pick is stored separately and the picker continues if neither
+// playable slot is filled. first_run names the give-up button Quit; otherwise
+// Back (to the start screen). Returns the last cartridge picked, or nothing
+// on cancellation. Unreadable playable slots stay in the saved list.
+std::optional<CartridgeKind> choose_rom(LauncherPlatform& platform,RomList& list,bool first_run,const RomList& unreadable={});
 // The primary ROM for the launcher and session: US preferred.
 const std::filesystem::path& primary_rom(const RomList& list);
 }

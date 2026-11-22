@@ -6,6 +6,7 @@
 #include <filesystem>
 #include "machine/machine.h"
 #include "app/tempo_audio.h"
+#include "app/fm_audio.h"
 #include "app/session_roms.h"
 #include "game/automap.h"
 #include "game/dungeon_tables.h"
@@ -46,6 +47,7 @@ struct FrameOutput {
     std::optional<std::string> save_error;
     std::optional<PsgSamples> playback;
     std::optional<std::string> audio_error;
+    unsigned playback_sample_cycles=Psg::sample_cycles;
 };
 using game::host_observed_instructions;
 // Check observed entry opt-ins and reject exits that would hide an observation.
@@ -72,7 +74,8 @@ public:
     // original_only: recording mode (the original game, no options, no host
     // menus).
     FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,
-                game::OptionOverrides overrides={},bool original_only=false);
+                game::OptionOverrides overrides={},bool original_only=false,
+                std::shared_ptr<const Memory::Rom> sound_rom={});
     // One frame. Everything the frame hands over (picture, sound, the
     // widescreen capture, the save, the end of a menu request) is taken at
     // the frame end (Machine's frame observer); the machine itself can stop
@@ -109,6 +112,9 @@ public:
     // saved. Commit only queues the last successfully saved choice; the
     // native Options return installs it before the caller's next instruction.
     void configure_languages(const SessionRoms& session);
+    bool fm_available() const { return bool(fm_audio_); }
+    bool fm_selected() const { return fm_available() && prefer_fm_; }
+    void choose_fm(bool selected) { prefer_fm_=!original_only_ && selected; }
     void prepare_language(LanguagePreference preference);
     void commit_language() noexcept;
     Language active_language() const { return language_; }
@@ -178,6 +184,11 @@ private:
     std::uint16_t menu_return_=0;
     std::array<std::uint8_t,6> menu_saved_{};
     std::unique_ptr<TempoAudio> tempo_audio_;
+    std::shared_ptr<const Memory::Rom> sound_rom_;
+    std::unique_ptr<FmAudio> fm_audio_;
+    bool prefer_fm_=false,tempo_consumed_tick_=false;
+    std::optional<std::string> fm_error_;
+    void reset_fm();
     unsigned speed_=1;
     bool audio_failed_=false;
     std::optional<std::uint8_t> sound_request_;

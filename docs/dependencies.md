@@ -97,6 +97,7 @@ reads `versionName` directly from `CMakeLists.txt` and derives `versionCode` as
   backed up safely outside version control; changing keys prevents in-place updates.
 
 Every APK bundles `assets/PSModern-LICENSE.txt` (GPL-3.0-or-later),
+`assets/Nuked-OPLL-LICENSE.txt` (GPL-2.0-or-later),
 `assets/SDL2-LICENSE.txt` (zlib), `assets/LIBCXX-LICENSE.txt` (LLVM `libc++_shared.so`,
 Apache-2.0 with LLVM Exception from the pinned NDK), and `assets/THIRD-PARTY.txt`
 recording the version and source commit.
@@ -129,6 +130,7 @@ from `ucrt64\bin` only, `LICENSE.txt`, `README.txt`, `THIRD-PARTY.txt` and a
 
 | Notice | Source |
 | --- | --- |
+| `Nuked-OPLL.txt` | `third_party/nuked-opll/LICENSE` |
 | `SDL2.txt` | MSYS2 `share\licenses\SDL2\LICENSE.txt` |
 | `winpthreads.txt` | MSYS2 `share\licenses\winpthreads\COPYING` |
 | `GCC-runtime-exception.txt`, `GCC-GPL-3.0.txt` | MSYS2 `share\licenses\gcc-libs\COPYING.RUNTIME`, `COPYING3` |
@@ -139,11 +141,23 @@ neither the Z80 core nor the Zeta headers (see below), so the release carries
 no license file for them and the script no longer checks this file for their
 commits. `THIRD-PARTY.txt` keeps a short credit to the Z80 core as the
 reference the tests compare against, saying the program contains none of its
-code (maintainer decision, 2026-11-19). The package therefore ships exactly:
-`psmodern.exe` (PSModern's own code, GPL-3.0-or-later, linked statically with
-the C++ runtime of GCC under its runtime exception), the four DLLs above (SDL2,
-winpthreads, the GCC runtime), `LICENSE.txt`, `README.txt`, `THIRD-PARTY.txt`
-and the licenses folder with the four notices in the table.
+code (maintainer decision, 2026-11-19). The Windows executable contains
+PSModern's code and Nuked-OPLL. The zip includes the four DLLs and the
+license texts listed above.
+
+## FM sound chip
+
+[Nuked-OPLL](https://github.com/nukeykt/Nuked-OPLL/tree/1269cf5a783b65583b50fa2464d08be75830aaa0)
+emulates the Yamaha YM2413 and is pinned to commit
+`1269cf5a783b65583b50fa2464d08be75830aaa0`, GPL-2.0-or-later. Its `opll.c`,
+`opll.h` and `LICENSE` are vendored verbatim under `third_party/nuked-opll/`.
+The factory instrument tables in upstream `opll.c` describe the sound chip's
+built-in patches. PSModern selects upstream's `opll_type_ym2413`, which uses
+the `patch_ym2413` table. Upstream credits digshadow and John McMaster for
+a VRC VII die photograph. It leaves the origin of individual YM2413 preset
+values unspecified. These are upstream hardware constants. The game scores
+and effects are read from the player's Japanese cartridge. The chip core is
+linked into the Windows executable and Android's `libmain.so`.
 
 ## Z80 core
 
@@ -290,8 +304,8 @@ The callback-domain limitation and workaround are documented in
 [development](development.md#reference-comparison), from CE's
 [ScriptingContext.cpp](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/Debugger/ScriptingContext.cpp)
 and [SmsConsole.cpp](https://github.com/nesdev-org/MesenCE/blob/2.2.1/Core/SMS/SmsConsole.cpp).
-These are reference evidence, not production dependencies. No audio library
-is linked to `psmodern_hw`.
+These are reference evidence. The production FM chip uses the vendored
+Nuked-OPLL core described above.
 
 ## Hardware documentation
 

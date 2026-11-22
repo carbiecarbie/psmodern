@@ -31,6 +31,7 @@ public:
 #endif
     SDL_Window* window=nullptr;
     Language language=Language::english;
+    std::optional<std::filesystem::path> sound_rom;
     std::optional<std::filesystem::path> pick_rom() override { return pick_rom_file(window,language); }
     void show_message(const std::string& text) override {
         show_notice(UiText::rom_refused,text);
@@ -55,19 +56,26 @@ public:
     }
     RomListLoad load_list() override { return load_rom_list(production_save_folder()); }
     void save_list(const RomList& list) override { save_rom_list(production_save_folder(),list); }
-    RomVersion identify(const std::filesystem::path& path) override {
+    void save_sound_rom(const std::filesystem::path& path) override {
+        sound_rom=path;
+        save_sound_rom_path(production_save_folder(),path);
+    }
+    CartridgeKind identify(const std::filesystem::path& path) override {
         // Only a file that is definitely gone is missing; any other failure to
         // look at it (offline share, unplugged drive) may pass.
         std::error_code error;
         const auto status=std::filesystem::status(path,error);
         if (error) throw RomUnreadable(error.message());
         if (status.type()==std::filesystem::file_type::not_found) throw std::runtime_error("The file is missing.");
-        return identify_rom(path);
+        return identify_cartridge(path);
     }
 };
 }
 std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language* current_language) {
     SdlLauncherPlatform platform;
+    const auto remembered_sound=load_sound_rom_path(production_save_folder());
+    platform.sound_rom=remembered_sound.path;
+    if (remembered_sound.warning) std::cerr<<*remembered_sound.warning<<'\n';
     const auto loaded_language=load_language(production_save_folder());
     auto preference=loaded_language.preference;
     const auto remembered_language=load_rom_list(production_save_folder()).list;
@@ -155,7 +163,7 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
             // Back on the start screen it waits for a neutral input again, with the cursor on CONTROLS.
             if (!controls.visible()) screen=start_screen(StartAction::controls);
         } else switch (screen.update(start_input_now(),now())) {
-        case StartAction::play: return load_session_roms(primary_rom(*list),*list,preference);
+        case StartAction::play: return load_session_roms(primary_rom(*list),*list,preference,false,platform.sound_rom);
         case StartAction::quit: return {};
         case StartAction::choose: {
             // The new screen waits for a neutral input again, with the cursor

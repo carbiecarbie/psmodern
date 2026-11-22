@@ -293,3 +293,15 @@ rule, the complete Windows suite was reused from `9736e2c` (390/390); the
 Windows 1.2.0 build was warning-free and all 182 fast tests passed. Both
 packages were verified and published without a separate manual release
 play-test. Published as GitHub release v1.2.0 from `c292948`.
+
+## Milestone 17 - Japanese FM soundtrack (2026-11-22)
+
+A player who also owns the Japanese cartridge can now hear the
+[Japanese release's FM music and effects](milestone-17-plan.md) on Windows
+and Android, chosen on a new SOUND row of Options (PSG by default). A private
+engine runs the Japanese sound driver, rewritten as 191 C++ pieces checked
+against the original on the Z80, and the vendored Nuked-OPLL chip; the game,
+its timing and saves are unchanged. Independent reviews approved the plan,
+the backend and the Options row. The maintainer passed the play-test on
+Windows and the Galaxy S24. The Windows suite passed all 430 tests with zero
+skips.

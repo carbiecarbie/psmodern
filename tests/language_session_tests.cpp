@@ -46,17 +46,21 @@ struct Pair {
     std::vector<MapEvent> changed_map,control_map;
     unsigned frames=0;
     Pair(const SessionRoms& images,const std::filesystem::path& root)
-        :changed(images.image(images.active),SaveStore::shared(root/"changed")),
-         control(images.image(images.active),SaveStore::shared(root/"control")),session(images),
+        :changed(images.image(images.active),SaveStore::shared(root/"changed"),{},false,images.sound_rom),
+         control(images.image(images.active),SaveStore::shared(root/"control"),{},false,images.sound_rom),session(images),
          replacement{Machine::prepare_rom_replacement(images.images[0]),Machine::prepare_rom_replacement(images.images[1])} {
         changed.configure_languages(session);control.configure_languages(session);
+        changed.choose_fm(bool(images.sound_rom));control.choose_fm(bool(images.sound_rom));
+        check(changed.fm_selected()==bool(images.sound_rom),"Language fixture lacks selected sound");
         changed.log_map_events(&changed_map);control.log_map_events(&control_map);
     }
     void run(const FrameInput& input={}) {
         const auto a=changed.run(input),b=control.run(input);++frames;
         check(!a.save_error && !b.save_error,"paired save failure");
         check(!a.audio_error && !b.audio_error,"language transition reported an audio failure");
-        check(a.writes==b.writes && a.samples==b.samples && a.playback==b.playback,
+        check(a.writes==b.writes && a.samples==b.samples && a.playback==b.playback &&
+              a.playback_sample_cycles==b.playback_sample_cycles &&
+              (!session.sound_rom || a.playback_sample_cycles==Fm::sample_cycles),
               "language transition reset or changed PSG / normal-tempo audio at frame "+std::to_string(frames));
         // The independent control changes only its ROM reference once the
         // observed return frame has finished. Later native menu redraws must
@@ -245,7 +249,7 @@ int main(int argc,char** argv) {
     // The original runs of this test (no registry) step the oracle's core.
     oracle::Scaffold scaffold(oracle::Scaffold::originals);
     try {
-    if(argc!=6)return 1;
+    if(argc!=6 && argc!=7)return 1;
     for(unsigned i=1;i<=2;++i)if(!*argv[i] || !std::filesystem::is_regular_file(argv[i]))return 77;
     const auto us=load_rom(argv[1]),br=load_rom(argv[2]);
     check(us.version==RomVersion::us_rev_a && br.version==RomVersion::brazilian,"language test ROMs reversed");
@@ -254,6 +258,10 @@ int main(int argc,char** argv) {
     check(scene=="town" || scene=="world" || scene=="dungeon","expected exploration scene");
     SessionRoms session;session.source_version=brazil ? RomVersion::brazilian : RomVersion::us_rev_a;
     session.images={us.rom,br.rom};session.active=native_language(session.source_version);
+    if(argc==7) {
+        if(!*argv[6] || !std::filesystem::is_regular_file(argv[6]))return 77;
+        session.sound_rom=std::make_shared<Memory::Rom>(read_rom_image(argv[6]));
+    }
     const auto root=std::filesystem::path(argv[3])/(brazil ? "br" : "us");
     const auto recording=replay::read(root/(scene=="dungeon" ? "first-dungeon.psrec" : "first-battle.psrec"));
     check(recording.rom_sha1==sha1(*session.image(session.active)),"recording ROM mismatch");

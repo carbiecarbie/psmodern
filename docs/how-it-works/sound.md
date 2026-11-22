@@ -236,3 +236,34 @@ update boundary; before that boundary accelerated output remains muted.
 Unexpected private memory/port access or a routine exceeding its execution
 bound disables this path until power cycle, logs a diagnostic, and falls back
 to muted acceleration and original audio at 1x. Gameplay continues unchanged.
+
+## The Japanese soundtrack
+
+**ROM static; ROM run.** The Japanese cartridge can play both its music
+and its effects on the YM2413. On startup it probes the unit and leaves the
+result in work RAM (`JP:00:03A4`, `JP:00:03C8`). Its sound unit accepts
+the same one-byte requests as the two playable cartridges. The game can
+send two effects in quick succession. The driver decides which voice each
+one gets, whether it displaces music, and when to restore that instrument.
+
+**ROM run.** Initialization clears the sound controls, deactivates fifteen
+voice records and releases the keys (`JP:0C:8000`, `JP:0C:801F`). At
+each update the driver reads the FM selection, advances timers and fades,
+processes the pending request, and visits the active voices
+(`JP:0C:8052`, `JP:0C:8466`). A voice remembers its place in the
+score. A note can set an instrument, adjust pitch or volume, trigger a
+drum, or start a repeated phrase. Held notes continue sounding between
+updates. Some controls last longer than one update, including the repeated
+mute request used during the opening. One effect also reads the fixed
+area of the cartridge (`JP:0C:8782`), which is why the listener needs the
+whole Japanese image.
+
+**Maintainer decision.** An ordinary session with that image gives the
+listener a private Japanese driver and sound chip at power-on. The game
+keeps its own driver, timing and memory. Both receive the game's requests
+while either source is selected; the SOUND row of Options only chooses
+which one is heard. Switching to FM can therefore reveal an
+already-held note without restarting the song. During fast-forward, fewer
+updates advance the score while the driver still sees each surviving
+external request. Pause can omit updates entirely. Chip time continues.
+Recording uses the playable cartridge alone.

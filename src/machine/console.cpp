@@ -161,6 +161,7 @@ Console::Acceptance Console::pending_acceptance() const {
 }
 std::uint8_t Console::opcode(std::uint16_t addr) { ++opcode_fetches_; return read(addr); }
 std::uint8_t Console::read(std::uint16_t addr) {
+    if(read_guard_)read_guard_(addr);
     if (memory_.mapping(addr).kind!=Memory::Kind::unmapped) open_bus_=memory_.read(addr);
     return open_bus_;
 }

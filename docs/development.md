@@ -6,7 +6,8 @@ UCRT64 shell, from the repository root:
 ```sh
 cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DPSMODERN_ROM_US="/path/to/us-rom.sms" \
-  -DPSMODERN_ROM_BR="/path/to/br-rom.sms"
+  -DPSMODERN_ROM_BR="/path/to/br-rom.sms" \
+  -DPSMODERN_ROM_JP="/path/to/jp-sound-rom.sms"
 cmake --build build-rel
 ctest --test-dir build-rel -j 16 --output-on-failure
 ./build-rel/psmodern.exe "/path/to/game.sms"
@@ -506,28 +507,38 @@ The Options binding (Escape or controller Y by default) opens Options during fre
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Pause remains the original Pause. Up/Down
-selects one of the six rows (the two rates, Automap, Widescreen, CONTROLS and
-LANGUAGE), all on one page; Left/Right changes a value.
+selects one of the seven rows (the two rates, Automap, Widescreen, CONTROLS,
+LANGUAGE and SOUND), all on one page; Left/Right changes a value.
 Button 1, Button 2 or the Options binding persists the four displayed values
 and closes; there is no separate confirmation step. On the CONTROLS row Button
 1 opens the [Controls screen](#controls-screen) instead. On the LANGUAGE row Left/Right
 steps through AUTO, ENGLISH and PORTUGUES, skipping a preference without its
 ROM, and each step is saved and committed at once as the Language screen's
 Save is (`MenuAction::language`); a failed write restores the previous choice.
-Recording sessions cannot change language.
-A failed save keeps the draft open; either exit binding retries the save.
+Recording sessions cannot change language. On the SOUND row (milestone 17)
+Left/Right switches PSG and FM when FM can play (`MenuAction::sound`): the
+host writes `sound.txt`, then calls `FrameDriver::choose_fm`, so the switch is
+heard at once; a failed write restores the previous choice. The host passes
+`SoundAvailability`: without the Japanese ROM, or with its engine stopped
+until power cycle, the row shows PSG, keeps the saved preference and names
+what FM lacks on the third explanation line.
+A failed save of the rates, Automap or Widescreen keeps the draft open;
+either exit binding retries it. A failed Language or Sound save is retried
+by pressing Left or Right again on that row; leaving Options does not retry
+it. The menu refreshes FM's availability before each input and each drawn
+frame, since the game, and so the FM engine, keeps running under Options.
 
 Since milestone 12 the screen is three windows on the 32x24 tile grid
 (`options_layout` and `menu_style` in `src/app/options_menu.h`): the list at
-tile column 1, row 1 (20 by 13 tiles, a line every two tile rows because the
+tile column 1, row 0 (20 by 15 tiles since milestone 17's seventh row, a line every two tile rows because the
 cartridge's letters fill their tile, the current values right-aligned in
 grey); the values of the selected row in a window at column 20 that overlaps
 the list's right border (11 wide, the current choice yellow, the others grey,
 a language without its ROM dark grey; moved up whole lines when it would
 reach below the list); and the explanation window at column 1, row 15 (30 by
 9) with three lines about the selected row and a state line: SAVES ON EXIT,
-SAVED - WAITING (routine options only) or
-SAVE FAILED - RETRY. The 100% original and the recommended 25% and 400% are
+SAVED - WAITING (routine options only), SAVES WHEN CHANGED (Language and
+Sound) or SAVE FAILED - RETRY. The 100% original and the recommended 25% and 400% are
 named in the explanations instead of being marked on the values. The scene
 shows at the right and between the windows.
 
@@ -595,6 +606,22 @@ pass the draft to `Controller::set_bindings`, so the change applies at once,
 and a failed write keeps the screen open. Opened from Options it returns
 there, the game held by the Options bridge throughout; opened from the start
 screen it returns to the start screen.
+
+## Japanese sound tests
+
+`fm_unit` exercises the chip without a ROM. With `PSMODERN_ROM_JP`
+configured, `rom_japanese_sound` compares the C++ driver to the original
+Z80 at segment and instruction boundaries. `rom_fm_timing` compares the
+samples due at each host cutoff to a separately rendered stream of original
+port writes. Run `ctest --test-dir build-rel -L fm_replay` to compare each
+playable recording with the Japanese source absent, registered with PSG
+selected, and selected for FM. Nonzero starting saves come from the same
+external reference directory as the other recording tests.
+
+In the host log, `fm_submitted` counts resampled FM samples successfully
+queued to SDL. `fm_nonzero` counts the nonzero samples among them. For a
+device measurement use the differences between reports while the speed
+and selected source are constant.
 
 ## Audio and pacing
 

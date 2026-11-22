@@ -5,8 +5,8 @@ with the maintainer on 2026-11-13; milestones 10 to 14 renumbered on
 2026-11-14.** It orders the stages of
 [design](design.md) section 8 and names what each needs; it starts nothing.
 The maintainer starts each milestone explicitly, and each gets its own plan.
-It is revised at each milestone closure, most recently that of milestone 16
-(2026-11-21).
+It is revised at each milestone closure, most recently that of milestone 17
+(2026-11-22).
 
 ## Done so far
 
@@ -29,6 +29,7 @@ It is revised at each milestone closure, most recently that of milestone 16
 | [14](milestone-14-plan.md) | Removing the Z80 from the program: the game runs on C++ alone with exact instruction timing and interrupts; the Z80 remains only in the tests as the referee |
 | [15](milestone-15-plan.md) | Recovery from Windows audio stalls without added silence. Five cartridge fixes were tested and withdrawn by maintainer decision |
 | [16](milestone-16-plan.md) | Personal Android APK with touch controls, cartridge import and saves shared with Windows |
+| [17](milestone-17-plan.md) | The Japanese cartridge's FM music and effects as an option, on Windows and Android, from the player's Japanese ROM |
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 2026-11-12), 0.3.0 (adds the changeable controls, 2026-11-13), 0.4.0
@@ -39,11 +40,11 @@ milestones 12 to 14, 2026-11-19), 1.1.0 (Windows audio recovery and the
 Android version in the source, milestones 15 and 16, 2026-11-21) and 1.2.0
 (first official signed Android APK alongside Windows x64 plus the documentation
 refresh, 2026-11-21). The latest published release covers milestone 16 and
-ships both Windows and Android packages.
+ships both Windows and Android packages; milestone 17 is not yet released.
 
 ## Next milestones
 
-Milestones 1 through 16 are complete. The maintainer chooses and starts the
+Milestones 1 through 17 are complete. The maintainer chooses and starts the
 next milestone explicitly.
 
 ## Longer-term direction

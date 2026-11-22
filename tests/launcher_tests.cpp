@@ -220,12 +220,13 @@ void start_screen_input() {
 struct FakePlatform : LauncherPlatform {
     RomListLoad stored;
     std::vector<std::optional<std::filesystem::path>> picks;
-    std::map<std::filesystem::path,RomVersion> roms;
+    std::map<std::filesystem::path,CartridgeKind> roms;
     std::set<std::filesystem::path> offline;
     std::vector<bool> answers;
     std::vector<std::string> messages,questions,give_ups;
     std::vector<UiText> notices;
     std::vector<RomList> saves;
+    std::vector<std::filesystem::path> sound_saves;
     bool save_fails=false;
     std::size_t picked=0;
     std::optional<std::filesystem::path> pick_rom() override {
@@ -239,7 +240,11 @@ struct FakePlatform : LauncherPlatform {
     }
     RomListLoad load_list() override { return stored; }
     void save_list(const RomList& list) override { if (save_fails) throw std::runtime_error("disk full"); saves.push_back(list); }
-    RomVersion identify(const std::filesystem::path& path) override {
+    void save_sound_rom(const std::filesystem::path& path) override {
+        if (save_fails) throw std::runtime_error("disk full");
+        sound_saves.push_back(path);
+    }
+    CartridgeKind identify(const std::filesystem::path& path) override {
         if (offline.count(path)) throw RomUnreadable("Cannot open ROM file.");
         const auto found=roms.find(path);
         if (found==roms.end()) throw std::runtime_error("Unknown ROM dump.");
@@ -247,8 +252,12 @@ struct FakePlatform : LauncherPlatform {
     }
 };
 const std::filesystem::path us_a="C:/roms/us-a.sms",us_b="C:/roms/us-b.sms",br_a="C:/roms/br-a.sms",bad="C:/roms/other.sms";
+const std::filesystem::path jp_a="C:/roms/jp-a.sms",jp_b="C:/roms/jp-b.sms";
 FakePlatform platform() {
-    FakePlatform fake;fake.roms={{us_a,RomVersion::us_rev_a},{us_b,RomVersion::us_rev_a},{br_a,RomVersion::brazilian}};return fake;
+    FakePlatform fake;
+    fake.roms={{us_a,CartridgeKind::us_rev_a},{us_b,CartridgeKind::us_rev_a},{br_a,CartridgeKind::brazilian},
+               {jp_a,CartridgeKind::japanese_sound},{jp_b,CartridgeKind::japanese_sound}};
+    return fake;
 }
 void launcher_flow() {
     {
@@ -291,7 +300,7 @@ void launcher_flow() {
               fake.messages[0].find("could not be read now; still remembered")!=std::string::npos &&
               fake.messages[0].find("forgot")==std::string::npos,"one message says it is still remembered");
         auto list=rom_list(us_a,{});fake.picks={us_b};
-        check(choose_rom(fake,list,false,unreadable)==RomVersion::us_rev_a && fake.saves==std::vector<RomList>{rom_list(us_b,br_a)},
+        check(choose_rom(fake,list,false,unreadable)==CartridgeKind::us_rev_a && fake.saves==std::vector<RomList>{rom_list(us_b,br_a)},
               "a later save keeps the unreadable ROM");
     }
     {
@@ -306,7 +315,7 @@ void launcher_flow() {
     }
     {
         // us-b now holds the Brazilian dump and br-a is gone: both forgotten in one message, then the dialog.
-        auto fake=platform();fake.stored.list=rom_list(us_b,br_a);fake.roms[us_b]=RomVersion::brazilian;fake.roms.erase(br_a);
+        auto fake=platform();fake.stored.list=rom_list(us_b,br_a);fake.roms[us_b]=CartridgeKind::brazilian;fake.roms.erase(br_a);
         fake.picks={std::nullopt};
         check(!prepare_launcher(fake),"with nothing left the dialog opens, and cancel exits");
         check(fake.messages.size()==1 && fake.messages[0].find("us-b.sms")!=std::string::npos && fake.messages[0].find("br-a.sms")!=std::string::npos,
@@ -327,12 +336,12 @@ void launcher_flow() {
     }
     {
         auto fake=platform();fake.picks={br_a};auto list=rom_list(us_a,{});
-        check(choose_rom(fake,list,false)==RomVersion::brazilian && list==rom_list(us_a,br_a),"the other version is added beside");
+        check(choose_rom(fake,list,false)==CartridgeKind::brazilian && list==rom_list(us_a,br_a),"the other version is added beside");
         check(fake.saves==std::vector<RomList>{rom_list(us_a,br_a)},"and remembered");
     }
     {
         auto fake=platform();fake.picks={us_b};auto list=rom_list(us_a,br_a);
-        check(choose_rom(fake,list,false)==RomVersion::us_rev_a && list==rom_list(us_b,br_a),"the same version is replaced");
+        check(choose_rom(fake,list,false)==CartridgeKind::us_rev_a && list==rom_list(us_b,br_a),"the same version is replaced");
     }
     {
         auto fake=platform();fake.picks={bad};fake.answers={false};auto list=rom_list(us_a,{});
@@ -343,12 +352,42 @@ void launcher_flow() {
     }
     {
         const std::filesystem::path relative="relative.sms";
-        auto fake=platform();fake.picks={relative};fake.roms[relative]=RomVersion::us_rev_a;
+        auto fake=platform();fake.picks={relative};fake.roms[relative]=CartridgeKind::us_rev_a;
         RomList list;
         check(choose_rom(fake,list,true) && list.us && list.us->is_absolute(),"the remembered path is absolute");
     }
     check(primary_rom(rom_list(us_a,br_a))==us_a && primary_rom(rom_list({},br_a))==br_a,"the font comes from the US ROM when there is one");
     refuses([] { primary_rom({}); },"no font without a ROM");
+}
+void sound_launcher_flow() {
+    {
+        auto fake=platform();fake.picks={jp_a,std::nullopt};
+        check(!prepare_launcher(fake) && fake.picked==2 && fake.saves.empty(),
+              "JP alone continues to the native picker and cannot open the start screen");
+        check(fake.sound_saves==std::vector{jp_a} && fake.notices==std::vector{UiText::sound_rom_needs_game},
+              "JP alone is remembered when the follow-up picker is cancelled");
+    }
+    {
+        auto fake=platform();fake.picks={jp_a,br_a};
+        check(prepare_launcher(fake)==rom_list({},br_a) && fake.saves==std::vector{rom_list({},br_a)},
+              "picking Japanese first and Brazilian next enables only the Brazilian game");
+        check(fake.sound_saves==std::vector{jp_a},"the Brazilian pick does not redo or overwrite the sound record");
+    }
+    {
+        auto fake=platform();fake.picks={jp_a,jp_b};
+        auto list=rom_list(us_a,br_a);
+        check(choose_rom(fake,list,false)==CartridgeKind::japanese_sound &&
+              choose_rom(fake,list,false)==CartridgeKind::japanese_sound,
+              "the launcher accepts a Japanese add or replacement beside both playable ROMs");
+        check(list==rom_list(us_a,br_a) && fake.saves.empty() && fake.sound_saves==std::vector{jp_a,jp_b},
+              "adding or replacing the sound ROM never rewrites the playable list");
+    }
+    {
+        auto fake=platform();fake.stored.list=rom_list(us_a,br_a);
+        fake.roms[us_a]=CartridgeKind::japanese_sound;
+        check(prepare_launcher(fake)==rom_list({},br_a) && fake.sound_saves.empty(),
+              "a Japanese file replacing a remembered playable path never becomes a game or registers itself");
+    }
 }
 void import_failures() {
     Temporary temp;
@@ -435,7 +474,8 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
         std::filesystem::copy_file(copy,staged);
         picker.picks.push_back(staged);
         RomList list;
-        check(choose_rom(picker,list,true)==expected && picker.saves.back().get(expected)==permanent &&
+        const auto chosen=choose_rom(picker,list,true);
+        check(chosen && playable_version(*chosen)==expected && picker.saves.back().get(expected)==permanent &&
               !std::filesystem::exists(staged),"picker remembers the published copy on first import and replacement");
     }
     for (auto language:{Language::english,Language::portuguese}) {
@@ -506,7 +546,7 @@ int main(int argc,char** argv) {
     try {
         if (argc==3) return rom_checks(argv[1],argv[2]);
         rom_list_round_trip(); rom_list_rejects(); rom_list_crlf(); rom_list_unicode(); rom_list_storage(); rom_list_corrupt(); rom_list_directory();
-        start_screen_entries(); start_screen_input(); launcher_flow(); import_failures();
+        start_screen_entries(); start_screen_input(); launcher_flow(); sound_launcher_flow(); import_failures();
         std::cout<<"Launcher and ROM staging checks passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

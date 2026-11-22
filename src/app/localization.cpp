@@ -39,7 +39,8 @@ constexpr Translation catalog[]{
     {"Cannot remember the chosen ROMs.","Nao foi possivel lembrar as ROMs escolhidas."},
     {"Some remembered ROMs are missing or have changed. Choose them again.","Algumas ROMs lembradas sumiram ou foram alteradas. Escolha os arquivos novamente."},
     {"Some ROMs cannot be read now. They are still remembered; check the drive and try again.","Algumas ROMs nao podem ser lidas agora. Continuam lembradas; verifique a unidade e tente novamente."},
-    {"Choose your own uncompressed .sms dump of the US Rev-A or Brazilian Tec Toy cartridge.","Escolha sua propria ROM .sms descompactada do cartucho US Rev-A ou brasileiro Tec Toy."},
+    {"Choose your uncompressed .sms dump of the US Rev-A or Brazilian Tec Toy cartridge to play, or the Japanese cartridge for FM sound.",
+     "Escolha sua ROM .sms descompactada do cartucho US Rev-A ou brasileiro Tec Toy para jogar, ou do japones para som FM."},
     {"This ROM cannot be used.","Esta ROM nao pode ser usada."},
     {"POWER CYCLE DISABLED","REINICIO DESATIVADO"},{"RECORDING","GRAVANDO"},{"Speed","Velocidade"},
     {"CHANGES SAVED, WAITING FOR GAME","ALTERACOES SALVAS, AGUARDANDO O JOGO"},
@@ -79,7 +80,18 @@ constexpr Translation catalog[]{
     // Milestone 14: the engine met cartridge code with no C++ body or a state
     // a body does not handle; the details follow on their own line.
     {"The game stopped: it reached a part of the cartridge that PSModern cannot run.\nYour saved game was kept as it was just before the stop. Please report this, with the details below:",
-     "O jogo parou: chegou a uma parte do cartucho que o PSModern nao consegue executar.\nSeu jogo salvo foi mantido como estava logo antes da parada. Por favor, informe isto com os detalhes abaixo:"}
+     "O jogo parou: chegou a uma parte do cartucho que o PSModern nao consegue executar.\nSeu jogo salvo foi mantido como estava logo antes da parada. Por favor, informe isto com os detalhes abaixo:"},
+    {"The Japanese ROM supplies FM sound. Choose a US Rev-A or Brazilian ROM to play.",
+     "A ROM japonesa fornece som FM. Escolha uma ROM US Rev-A ou brasileira para jogar."},
+    // Milestone 17: the Options SOUND row (mockups approved 2026-11-22). Its
+    // third line names what FM lacks when it cannot be chosen; Language and
+    // Sound save when changed.
+    {"SOUND","SOM"},
+    {"PSG - US AND BRAZIL SOUND.\nFM - JAPANESE SOUND.\nPSG IS THE ORIGINAL.",
+     "PSG - SOM DOS EUA E BRASIL.\nFM - SOM JAPONES.\nO ORIGINAL E PSG."},
+    {"FM NEEDS THE JAPANESE ROM.","FM PRECISA DA ROM JAPONESA."},
+    {"FM OFF UNTIL POWER CYCLE.","FM DESLIGADO ATE REINICIAR."},
+    {"SAVES WHEN CHANGED","SALVA AO MUDAR"}
 };
 static_assert(std::size(catalog)==std::size_t(UiText::count));
 }

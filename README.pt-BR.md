@@ -74,6 +74,11 @@ PSModern valida o arquivo e avisa se a ROM não for uma das versões aceitas.
 | Americana (US Rev-A) | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
 | Brasileira (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
 
+**Som FM japonês nas versões de desenvolvimento.** Use **ADICIONAR ROM**
+com a cópia do seu cartucho japonês (SHA-1 `c9a40ddd217c58dddcd6b5c0fe66c3a50d3e68e4`).
+Ele fornece a música e os efeitos sonoros para jogar com o cartucho americano
+ou brasileiro. O PSG é o padrão; escolha FM na linha SOM das Opções. [Fontes e preferências de som](docs/player-controls.md#sound).
+
 ### Windows (pronto para jogar)
 
 1. Baixe `PSModern-<versão>-windows-x64.zip` na [página de Releases][releases].

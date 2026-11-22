@@ -3,7 +3,6 @@
 #include "game/routines.h"
 #include "rom/sha1.h"
 #include "app/automap_store.h"
-#include <fstream>
 #include <stdexcept>
 #include <algorithm>
 
@@ -20,12 +19,9 @@ std::string app_usage() {
         "\nRun without arguments for the start screen. Provide an uncompressed US Rev-A or Brazilian .sms file. Omitted rate flags use saved settings; new saved games default to the original game.";
 }
 LoadedRom load_rom(const std::filesystem::path& path) {
-    const auto version=identify_rom(path);
-    std::ifstream file(path,std::ios::binary);
-    auto rom=std::make_shared<Memory::Rom>(std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>());
-    if (file.bad() || rom->size()!=512*1024 || identify_digest(sha1(*rom))!=version)
-        throw std::runtime_error("ROM changed or could not be read completely while loading.");
-    return {version,std::move(rom)};
+    auto rom=read_rom_image(path);
+    const auto version=identify_digest(sha1(rom));
+    return {version,std::make_shared<Memory::Rom>(std::move(rom))};
 }
 AppArguments parse_app_arguments(int argc,const char* const* argv) {
     const auto usage=app_usage();
@@ -78,7 +74,8 @@ void require_observed_entries(const RoutineRegistry& registry) {
         }
     }
 }
-FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,game::OptionOverrides overrides,bool original_only)
+FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,game::OptionOverrides overrides,bool original_only,
+                         std::shared_ptr<const Memory::Rom> sound_rom)
     :rom_(std::move(rom)),store_(std::move(store)),machine_(std::make_unique<Machine>(rom_,store_.load())),original_only_(original_only) {
     chosen_=overrides.apply(store_.load_preferences(machine_->memory().cartridge_ram()));
     game::validate(chosen_);
@@ -93,6 +90,10 @@ FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,
         tracker_=std::make_unique<game::ExplorationTracker>(*tables_);
         store_.load_automap();
         automap_=store_.automap_preference();
+    }
+    if(!options_restricted()) {
+        sound_rom_=std::move(sound_rom);
+        reset_fm();
     }
 }
 void FrameDriver::activate(const game::Options& options) {
@@ -137,6 +138,12 @@ void FrameDriver::configure_languages(const SessionRoms& session) {
     }
     replacements_=std::move(prepared);language_roms_=session.images;
     source_version_=session.source_version;language_=session.active;languages_configured_=true;
+}
+void FrameDriver::reset_fm() {
+    fm_audio_.reset();fm_error_.reset();
+    if(!sound_rom_)return;
+    try { fm_audio_=std::make_unique<FmAudio>(sound_rom_); }
+    catch(const std::exception& e) { fm_error_=std::string("FM unavailable until power cycle: ")+e.what(); }
 }
 void FrameDriver::prepare_language(LanguagePreference preference) {
     prepared_language_.reset();
@@ -229,6 +236,7 @@ void FrameDriver::speed(unsigned value) {
     if(value!=1 && value!=2 && value!=4)throw std::invalid_argument("Invalid speed.");
     speed_=original_only_ ? 1 : value;
     if(tempo_audio_)tempo_audio_->speed(speed_);
+    if(fm_audio_)fm_audio_->speed(speed_,machine_->cycles());
 }
 void FrameDriver::set_widescreen(bool on) {
     if(on && !options_restricted()) { if(!wide_) { wide_=std::make_unique<WideView>(rom_);wide_rom_=rom_.get(); } }
@@ -236,7 +244,12 @@ void FrameDriver::set_widescreen(bool on) {
 }
 FrameOutput FrameDriver::run(const FrameInput& input) {
     if(stopped_)throw std::logic_error("The game stopped; the session cannot continue.");
-    std::optional<std::string> audio_error;
+    std::optional<std::string> audio_error=std::move(fm_error_);
+    fm_error_.reset();
+    auto fm_failure=[&](const std::exception& error) {
+        fm_audio_.reset();
+        audio_error=std::string("FM unavailable until power cycle; using PSG: ")+error.what();
+    };
     auto audio_failure=[&](const std::exception& error) {
         tempo_audio_.reset();audio_failed_=true;
         audio_error=std::string("Normal-tempo audio unavailable; accelerated audio is muted until power cycle: ")+error.what();
@@ -253,24 +266,38 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     };
     Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
         if(tracker_ && mapping==Memory::Mapping{Memory::Kind::rom,0})track(pc);
+        if(fm_audio_)try {
+            if(mapping==Memory::Mapping{Memory::Kind::rom,12}) {
+                if(pc==0x8043)fm_audio_->begin_tick(machine_->cycles());
+                if(pc==0x82ef) {
+                    const auto external=sound_request_ && *sound_request_==machine_->peek(0xc004)
+                        ? sound_request_ : std::nullopt;
+                    fm_audio_->consume(machine_->cycles(),external);
+                }
+            } else if(mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+                if(pc==0x02ed) { fm_audio_->initialize(machine_->cycles());sound_request_.reset(); }
+                if(pc==0x02f5)fm_audio_->silence(machine_->cycles());
+            }
+        } catch(const std::exception& error) {fm_failure(error);}
         if(!original_only_ && !audio_failed_)try {
             if(pc==0x8043 && mapping==Memory::Mapping{Memory::Kind::rom,12}) {
                 if(tempo_audio_)tempo_audio_->update(machine_->cycles(),0x80);
                 else if(speed_>1) {
                     tempo_audio_=std::make_unique<TempoAudio>(*machine_);tempo_audio_->speed(speed_);
-                    sound_request_.reset(); // The captured first tick consumed it.
+                    tempo_consumed_tick_=true; // FM still observes the original dispatch.
                 }
             } else if(tempo_audio_) {
                 if(pc==0x82ef && mapping==Memory::Mapping{Memory::Kind::rom,12}) {
-                    if(sound_request_ && *sound_request_==machine_->peek(0xc004))
+                    if(!tempo_consumed_tick_ && sound_request_ && *sound_request_==machine_->peek(0xc004))
                         tempo_audio_->request(machine_->cycles(),*sound_request_);
-                    sound_request_.reset();
+                    tempo_consumed_tick_=false;
                 } else if(mapping==Memory::Mapping{Memory::Kind::rom,0}) {
                     if(pc==0x02ed) {tempo_audio_->initialize(machine_->cycles());sound_request_.reset();}
                     if(pc==0x02f5)tempo_audio_->silence(machine_->cycles());
                 }
             }
         } catch(const std::exception& error) {audio_failure(error);}
+        if(pc==0x82ef && mapping==Memory::Mapping{Memory::Kind::rom,12})sound_request_.reset();
         auto& cpu=machine_->cpu(); auto& memory=machine_->memory();
         const auto sp=cpu.sp.uint16_value;
         // This token describes the currently executing native field wait, not
@@ -369,6 +396,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     std::vector<PsgWrite> writes;
     PsgSamples samples{};
     std::optional<PsgSamples> playback;
+    unsigned playback_period=Psg::sample_cycles;
     std::optional<Memory> saved;
     const Machine::FrameObserver at_frame=[&] {
         if(wide_) {
@@ -382,6 +410,13 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         samples=machine_->take_samples();
         if(tempo_audio_)try {playback=tempo_audio_->finish(machine_->cycles());}
             catch(const std::exception& error) {audio_failure(error);}
+        if(fm_audio_)try {
+            auto fm=fm_audio_->finish(machine_->cycles());
+            if(prefer_fm_) {
+                playback=std::move(fm);
+                playback_period=Fm::sample_cycles;
+            }
+        } catch(const std::exception& error) {fm_failure(error);}
         // An unsuccessful request never opens later: a wait reached after the
         // frame end belongs to the next frame.
         menu_request_.reset();
@@ -412,7 +447,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         if(saved->cartridge_ram_dirty() || store_.flush_pending())unwritten_=std::move(saved);
         else unwritten_.reset();
     }
-    return {std::move(writes),std::move(samples),std::move(save_error),std::move(playback),std::move(audio_error)};
+    return {std::move(writes),std::move(samples),std::move(save_error),std::move(playback),std::move(audio_error),playback_period};
 }
 // The two exits save different points on purpose (review R3 L3). A normal
 // exit (or a power cycle) saves the machine as it is: the last frame end plus
@@ -430,7 +465,8 @@ std::optional<std::string> FrameDriver::power_cycle() {
     auto error=flush();unwritten_.reset();
     machine_=std::make_unique<Machine>(rom_,machine_->memory().cartridge_ram());
     exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
-    tempo_audio_.reset();audio_failed_=false;sound_request_.reset();speed_=1;
+    tempo_audio_.reset();audio_failed_=tempo_consumed_tick_=false;sound_request_.reset();speed_=1;
+    reset_fm();
     if(tracker_) { tracker_->reset();log({MapEvent::Kind::reset,0}); }
     if(wide_)wide_->reset();
     if(options_pending())activate(chosen_);

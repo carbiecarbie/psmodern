@@ -172,7 +172,12 @@ verifiable milestones.
    - **PSG** (SN76489).
    - **Input** (the controller port).
    - **Sega mapper and cartridge RAM** (saves).
-   - **Optional:** FM (YM2413), if the game uses it. Not built so far; see 9.
+   - **Optional FM sound (YM2413).** A player who supplies the Japanese
+     cartridge can select its music and effects. A private copy of its
+     rewritten sound driver reads the complete Japanese image and drives
+     Nuked-OPLL. The gameplay machine continues to run the sound driver of
+     the selected US or Brazilian cartridge. Switching between PSG and FM
+     during play keeps the music at the same point.
 
    These parts stay in the project for good. The rewritten game keeps
    "talking" to them as the original talks to the hardware, which is what
@@ -390,9 +395,11 @@ explanation in the system's document behind it.
   check of the disassembly belongs to `psmodern-re`.
 - **Input recordings** may be committed: they are button sequences, not game
   data.
-- **ROM identification:** the program takes the ROM path and checks the SHA-1
-  of US Rev-A and of the Brazilian ROM. Unknown versions are refused with a
-  clear message.
+- **ROM identification:** the program identifies the playable US Rev-A and
+  Brazilian cartridges by their full SHA-1. It checks the Japanese cartridge
+  against a separate full SHA-1 and registers it as an optional sound source
+  on Windows and Android. Starting a game requires one of the two playable
+  cartridges. An unrecognized image is refused with a diagnostic.
 - **Platform:** Windows first, followed by the personal [Android build](milestone-16-plan.md).
 - **Stack:** C++, CMake, SDL (as in MMModern).
 - **License:** GPL-3.0-or-later, as in MMModern. Third-party libraries (for
@@ -449,12 +456,13 @@ study base (stage 3) shows how the code is organized.
 - Comparison granularity beyond what 5.2 requires. Settled in milestone 2:
   the whole machine at each C++ call and seven components at each frame
   ([development](development.md#registered-routines)).
-- Whether the US version uses the FM chip (YM2413). If it does, the FM chip
-  joins the virtual hardware. Settled so far in milestone 1: the game used
-  no FM on the observed routes, and the virtual hardware has none
-  ([milestone 1 plan](milestone-1-plan.md#what-the-game-uses),
-  [the console chapter](how-it-works/master-system.md#the-parts)).
-  Whole-game absence is not established.
+- Whether the US version uses the FM chip (YM2413). The US game used the PSG
+  on the routes observed in milestone 1. That observation covers those
+  routes only. Milestone 17 adds the Japanese cartridge's FM sound as a
+  player option on both platforms. PSG is the default. The music and effects
+  come from the selected sound source together. See the
+  [milestone 17 plan](milestone-17-plan.md) and
+  [console chapter](how-it-works/master-system.md#the-parts).
 - Defaults and values of the experience and encounter settings. Settled in
   milestone 4 (Maintainer decision, 2026-11-11): encounters 0, 50, 100 or
   200 percent and experience 100, 200 or 400 percent, with 100 (the original

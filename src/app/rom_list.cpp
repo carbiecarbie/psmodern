@@ -71,4 +71,43 @@ RomListLoad load_rom_list(const std::filesystem::path& folder) {
 void save_rom_list(const std::filesystem::path& folder,const RomList& list) {
     atomic_text(folder/rom_list_name,format_rom_list(list));
 }
+namespace {
+constexpr std::string_view sound_rom_header="psmodern-sound-rom 1";
+std::filesystem::path parse_sound_rom_path(std::string_view text) {
+    auto read_line=[&] {
+        const auto end=text.find('\n');
+        if (end==std::string_view::npos) throw std::runtime_error("Sound ROM path file is truncated.");
+        auto line=text.substr(0,end);
+        text.remove_prefix(end+1);
+        if (!line.empty() && line.back()=='\r') line.remove_suffix(1);
+        return line;
+    };
+    if (read_line()!=sound_rom_header) throw std::runtime_error("Unsupported sound ROM path file format or version.");
+    const auto value=read_line();
+    if (!text.empty() || value.empty() || !clean(value)) throw std::runtime_error("Invalid sound ROM path.");
+    auto path=from_utf8(value);
+    if (!path.is_absolute()) throw std::runtime_error("Sound ROM path is not absolute.");
+    return path;
+}
+}
+SoundRomPathLoad load_sound_rom_path(const std::filesystem::path& folder) {
+    const auto path=folder/sound_rom_path_name;
+    std::error_code error;
+    const auto status=std::filesystem::status(path,error);
+    if (status.type()==std::filesystem::file_type::not_found) return {};
+    try {
+        if (error) throw std::runtime_error(error.message());
+        return {parse_sound_rom_path(read_text_file(path,rom_list_limit,"sound ROM path file")),{}};
+    } catch (const std::exception& e) {
+        return {{}, "Ignoring the remembered sound ROM path: "+utf8(path)+": "+e.what()};
+    }
+}
+void save_sound_rom_path(const std::filesystem::path& folder,const std::filesystem::path& path) {
+    const auto text=utf8(path);
+    if (text.empty() || !clean(text) || !path.is_absolute())
+        throw std::runtime_error("Cannot remember this sound ROM path: "+text);
+    const auto record=std::string(sound_rom_header)+'\n'+text+'\n';
+    if (record.size()>rom_list_limit) throw std::runtime_error("Sound ROM path file is too large.");
+    atomic_text(folder/sound_rom_path_name,record);
+}
 }

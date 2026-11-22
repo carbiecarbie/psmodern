@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/session_roms.h"
 #include "app/frame_driver.h"
+#include "rom/sha1.h"
 #include <stdexcept>
 
 namespace psmodern::app {
 SessionRoms load_session_roms(const std::filesystem::path& primary,const RomList& remembered,
-                             LanguagePreference preference,bool restricted) {
+                             LanguagePreference preference,bool restricted,
+                             const std::optional<std::filesystem::path>& sound_path) {
     auto loaded=load_rom(primary);
     SessionRoms result;
     result.source_version=loaded.version;result.preference=preference;result.restricted=restricted;
@@ -25,6 +27,16 @@ SessionRoms load_session_roms(const std::filesystem::path& primary,const RomList
     const auto wanted=resolve_language(preference,result.source_version);
     if(result.available(wanted))result.active=wanted;
     else result.language_unavailable=true;
+    if (sound_path) {
+        try {
+            auto rom=read_rom_image(*sound_path);
+            if (identify_cartridge_digest(sha1(rom))!=CartridgeKind::japanese_sound)
+                throw std::runtime_error("Expected the Japanese sound ROM.");
+            result.sound_rom=std::make_shared<Memory::Rom>(std::move(rom));
+        } catch (const std::exception& e) {
+            result.warnings.push_back(std::string("Sound ROM unavailable: ")+e.what());
+        }
+    }
     return result;
 }
 }

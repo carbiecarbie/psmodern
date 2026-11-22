@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/sdl_host.h"
+#include "app/frame_driver.h"
 #include "oracle/native_machine.h"
 #include "replay/recording.h"
 #include "rom/sha1.h"
@@ -34,7 +35,9 @@ static psmodern::FrameInput scripted_input(SDL_Window* w,const psmodern::app::Co
     ++sampled;scripted.push_back(input);shadow->run_frame(input);shadow->take_psg_writes();shadow->take_samples();
     pictures.push_back(psmodern::sha1(shadow->picture()));return input;
 }
-static int checked_upload(const psmodern::Machine& app,SDL_Texture* t,const SDL_Rect* r,const void* pixels,int pitch) {
+static int checked_upload(psmodern::app::FrameDriver& driver,SDL_Texture* t,const SDL_Rect* r,const void* pixels,int pitch) {
+    if(driver.fm_available() || driver.fm_selected())throw std::runtime_error("Recording enabled the saved FM soundtrack");
+    const auto& app=driver.machine();
     const auto* rgb=static_cast<const std::uint32_t*>(pixels);
     for(std::size_t i=0;i<shadow->picture().size();++i)if(rgb[i]!=psmodern::app::rgb(shadow->picture()[i]))throw std::runtime_error("App picture differs from replay");
     // The picture is still blank in these first frames, so also require the app's
@@ -62,7 +65,7 @@ static int checked_upload(const psmodern::Machine& app,SDL_Texture* t,const SDL_
 #define main recorded_app_main
 #define SDL_PollEvent scripted_poll
 #define sample_input scripted_input
-#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),t,r,p,pitch)
+#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver,t,r,p,pitch)
 #include "../src/app/main.cpp"
 #undef main
 #undef utf8_arguments
@@ -74,7 +77,7 @@ static int checked_upload(const psmodern::Machine& app,SDL_Texture* t,const SDL_
 int main(int argc,char** argv) {
     // The original runs of this test (no registry) step the oracle's core.
     oracle::Scaffold scaffold(oracle::Scaffold::originals);
-    if(argc!=4)return 1;
+    if(argc!=5)return 1;
     if(!*argv[1]||!std::filesystem::exists(argv[1]))return 77;
     try {
         const std::string_view region=argv[3];
@@ -83,6 +86,9 @@ int main(int argc,char** argv) {
         if(psmodern::identify_rom(argv[1])!=(region=="us"?psmodern::RomVersion::us_rev_a:psmodern::RomVersion::brazilian))throw std::runtime_error("Wrong ROM version.");
         const auto out=std::filesystem::path(argv[2])/std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());std::filesystem::create_directories(out);
         SDL_setenv("APPDATA",out.string().c_str(),1);SDL_setenv("SDL_VIDEODRIVER","dummy",1);SDL_setenv("SDL_AUDIODRIVER","dummy",1);
+        const auto folder=psmodern::app::production_save_folder();
+        psmodern::app::save_sound_preference(folder,psmodern::app::SoundPreference::fm);
+        if(*argv[4])psmodern::app::save_sound_rom_path(folder,argv[4]);
         std::ifstream f(argv[1],std::ios::binary);auto rom=std::make_shared<psmodern::Memory::Rom>(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>());
         shadow=std::make_unique<psmodern::oracle::NativeMachine>(rom);
         std::string rec=(out/"session.psrec").string();char flag[]="--record";char* args[]={argv[0],argv[1],flag,rec.data()};

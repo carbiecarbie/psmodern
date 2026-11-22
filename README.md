@@ -69,6 +69,11 @@ the file and refuses unsupported dumps with an explanation.
 | US Rev-A | `07fcf297be4f4c9d92cd3f119a7ac48467e06838` |
 | Brazilian (Tec Toy) | `fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd` |
 
+**Japanese FM sound in development builds.** Use **ADD ROM** with your own
+Japanese cartridge (SHA-1 `c9a40ddd217c58dddcd6b5c0fe66c3a50d3e68e4`).
+It supplies music and sound effects for either playable cartridge. PSG is
+the default; choose FM on the SOUND row of Options. [Sound sources and preferences](docs/player-controls.md#sound).
+
 ### Windows (ready to play)
 
 1. Download `PSModern-<version>-windows-x64.zip` from the
