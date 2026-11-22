@@ -2,17 +2,18 @@
 
 Last updated: 2026-11-22
 
-Milestone 17 (Japanese FM soundtrack) is completed, accepted and committed:
-`061ff49` here, `e2f25ee` in `psmodern-re`, plus the commit recording those
-hashes. Nothing is pushed. The latest published release is 1.2.0; milestone
-17 is not released. Release packages and signing material stay outside Git
-in `../releases/` and `../android-signing/`.
+Release 1.3.0 (milestone 17, the Japanese FM soundtrack) is published as
+GitHub release v1.3.0 from `8158573`, with
+`PSModern-1.3.0-windows-x64.zip` and the signed
+`PSModern-1.3.0-android-arm.apk` (`versionCode 10300`, same signing key as
+1.2.0). Packages, logs and release notes are in `../releases/`; signing
+material stays in `../android-signing/`. The downloaded assets matched the
+local SHA-256 values.
 
-The complete suite passed 430/430 with zero skips on the final build
-(`build-rel/m17-complete-suite.log`). The play-test builds are in
-`../m17-plan/packages-ui/` and `../m17-device/builds/`.
+Milestone 17 is closed and accepted (`061ff49`). No milestone is in
+progress; the maintainer chooses and starts the next one.
 
 ## Resume here
 
-1. Push both repositories only when the maintainer asks.
-2. A release with milestone 17, or the next milestone, is his call.
+1. Nothing pending. The next milestone, or any maintenance task, starts with
+   the maintainer's explicit request.

@@ -37,10 +37,11 @@ Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 widescreen, 2026-11-14), 0.6.0 (the world map and towns in C++,
 2026-11-15) and 1.0.0 (complete C++ reimplementation with no Z80,
 milestones 12 to 14, 2026-11-19), 1.1.0 (Windows audio recovery and the
-Android version in the source, milestones 15 and 16, 2026-11-21) and 1.2.0
+Android version in the source, milestones 15 and 16, 2026-11-21), 1.2.0
 (first official signed Android APK alongside Windows x64 plus the documentation
-refresh, 2026-11-21). The latest published release covers milestone 16 and
-ships both Windows and Android packages; milestone 17 is not yet released.
+refresh, 2026-11-21) and 1.3.0 (the Japanese FM soundtrack, milestone 17,
+2026-11-22). The latest published release covers milestone 17 and ships both
+Windows and Android packages.
 
 ## Next milestones
 

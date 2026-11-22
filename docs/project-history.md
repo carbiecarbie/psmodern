@@ -305,3 +305,18 @@ its timing and saves are unchanged. Independent reviews approved the plan,
 the backend and the Options row. The maintainer passed the play-test on
 Windows and the Galaxy S24. The Windows suite passed all 430 tests with zero
 skips. Implementation and closure: `061ff49`.
+
+## Release 1.3.0 - Japanese FM soundtrack (2026-11-22)
+
+The release brings milestone 17 to players: with their own Japanese
+cartridge added as a sound source, the SOUND row of Options switches between
+PSG and the Japanese release's FM music and effects, on Windows and Android.
+The READMEs, the release `README.txt` and both README pictures (the start
+screen and the seven-row Options) were updated. Under the release rule the
+complete suite was reused from milestone 17 (430/430 on the tree committed
+as `061ff49`); the 1.3.0 build was warning-free and all 188 fast tests
+passed. Both packages were verified (the zip ran with `PATH` limited to
+System32 from a non-ASCII folder; the APK passed its signature, alignment,
+notice and zero-Z80 checks, with the 1.2.0 signing key) and published
+without a separate manual release play-test, the milestone play-test having
+covered the same sources. Published as GitHub release v1.3.0 from `8158573`.
