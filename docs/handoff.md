@@ -2,32 +2,25 @@
 
 Last updated: 2026-11-23
 
-## Release 1.3.1 (prepared, not published)
+## Release 1.3.1 (published)
 
-Release 1.3.1 fixes the stop at `01:5538`: the interaction code table
-targets `01:5535` and `01:5538` had no segment since milestone 14, so every
-release from 1.0.0 to 1.3.0 stops at the petrified companion of the first
-cave (a mandatory story point) and at five other item places. The fix is
-`1840de2`; its complete suite passed 432 of 432 with no skips
-(`build-rel/hotfix-complete-suite.log`) and is reused. The prepare commit
-`68d8a33` only bumps the version; its build is warning-free and the fast
-group passed 190 of 190.
-
-Packages, built from `68d8a33` and kept in `../releases/`:
-`PSModern-1.3.1-windows-x64.zip` (extracted and `--version` checked with
-`PATH` limited to System32) and `PSModern-1.3.1-android-arm.apk`
-(`versionCode 10301`, same signing certificate as 1.3.0). The notes draft is
-`../releases/release-notes-1.3.1.md`.
+Release 1.3.1 is published as GitHub release v1.3.1 from `68d8a33`, with
+`PSModern-1.3.1-windows-x64.zip` and the signed
+`PSModern-1.3.1-android-arm.apk` (`versionCode 10301`, same signing key as
+1.3.0); both matched their checksums after download. It fixes the stop at
+`01:5538` (fix `1840de2`): two targets of the interaction code table had no
+segment since milestone 14, so releases 1.0.0 to 1.3.0 stopped at the
+petrified companion of the first cave and at five other item places.
+Packages, logs and release notes are in `../releases/`.
 
 Pending:
 
-- The release **waits for the maintainer's word**: then tag `v1.3.1` on
-  `68d8a33` and publish. No tag or GitHub release exists yet.
-- After publishing, record "Release 1.3.1" in `docs/project-history.md`,
-  `docs/project-status.md` and `docs/roadmap.md`.
 - `../psmodern-re` has the two catalog rows and an allow rule for the table
-  uncommitted; its three checkers pass. Its commit waits for the maintainer.
-- No recording walks through the petrified companion's rescue yet.
+  uncommitted; its three checkers pass, the payload check was not run. Its
+  commit waits for the maintainer.
+- No recording walks through the petrified companion's rescue, and nobody
+  has played through it on 1.3.1; it needs a save near that place.
+- `docs/images/start-screen.png` still shows the 1.3.0 footer.
 
 ## Milestone 18
 

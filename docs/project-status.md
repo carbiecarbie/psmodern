@@ -3,9 +3,10 @@
 **Milestone 17 was completed and accepted on 2026-11-22.** A player who also
 owns the Japanese cartridge can hear the game with its FM music and effects;
 the [FM plan](milestone-17-plan.md) records the play-test and verification.
-The latest published release, **1.3.0** (2026-11-22), ships the Windows x64
-zip and the signed Android APK (`PSModern-1.3.0-android-arm.apk`, ARM64 and
-ARMv7, `versionCode 10300`), covering through milestone 17. See the
+The latest published release, **1.3.1** (2026-11-23), ships the Windows x64
+zip and the signed Android APK (`PSModern-1.3.1-android-arm.apk`, ARM64 and
+ARMv7, `versionCode 10301`), covering through milestone 17 plus the fix of
+the stop at the petrified companion. See the
 [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.

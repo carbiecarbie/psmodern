@@ -39,8 +39,9 @@ widescreen, 2026-11-14), 0.6.0 (the world map and towns in C++,
 milestones 12 to 14, 2026-11-19), 1.1.0 (Windows audio recovery and the
 Android version in the source, milestones 15 and 16, 2026-11-21), 1.2.0
 (first official signed Android APK alongside Windows x64 plus the documentation
-refresh, 2026-11-21) and 1.3.0 (the Japanese FM soundtrack, milestone 17,
-2026-11-22). The latest published release covers milestone 17 and ships both
+refresh, 2026-11-21), 1.3.0 (the Japanese FM soundtrack, milestone 17,
+2026-11-22) and 1.3.1 (the fix of the stop at the petrified companion,
+2026-11-23). The latest published release covers milestone 17 and ships both
 Windows and Android packages.
 
 ## Next milestones
