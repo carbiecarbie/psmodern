@@ -360,8 +360,9 @@ code.
 ## Saves
 
 Save through the game's own menu, just as on the cartridge. Files are stored in
-`%APPDATA%\PSModern\shared` on Windows (`Android/data/org.psmodern.game/files/shared/`
-on Android) and shared across both languages:
+`%APPDATA%\PSModern\shared` on Windows, `~/Library/Application Support/PSModern/shared`
+on macOS (`Android/data/org.psmodern.game/files/shared/` on Android) and shared
+across both languages:
 
 - `phantasy-star.sav` — the raw 8 KiB cartridge save, readable by other Master
   System emulators;
@@ -392,6 +393,10 @@ psmodern.exe --version
 
 - `--encounter-rate` accepts `0`, `25`, `50`, `100`, or `200`.
 - `--experience-rate` accepts `100`, `200`, or `400`.
+
+On macOS the program is `PSModern.app/Contents/MacOS/PSModern` and takes the
+same arguments. Started from Finder, its diagnostics go to
+`~/Library/Logs/PSModern.log`.
 
 Omitted flags use your saved preferences, and an explicit `100` overrides a
 saved rate for that session. Opening and closing the Options window saves the

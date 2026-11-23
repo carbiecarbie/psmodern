@@ -17,6 +17,15 @@
 
 using namespace psmodern;
 using namespace psmodern::app;
+// Absolute roots for the made-up ROM paths: the list refuses relative paths,
+// and "C:/" is only absolute on Windows.
+#ifdef _WIN32
+#define ROOT_C "C:/"
+#define ROOT_D "D:/"
+#else
+#define ROOT_C "/C/"
+#define ROOT_D "/D/"
+#endif
 namespace {
 void check(bool ok,const char* text) { if (!ok) throw std::runtime_error(text); }
 template<class F> void refuses(F f,const char* text) {
@@ -31,7 +40,7 @@ struct Temporary {
     Temporary() { check(std::filesystem::create_directory(path),"unique temporary folder"); }
     ~Temporary() { test::remove_temporary_folder(path); }
 };
-std::filesystem::path unicode_rom() { return std::filesystem::path(u8"C:/Jogos/\u00e7\u00e3o/\u65e5\u672c/ps.sms"); }
+std::filesystem::path unicode_rom() { return std::filesystem::path(u8"" ROOT_C "Jogos/\u00e7\u00e3o/\u65e5\u672c/ps.sms"); }
 void write_file(const std::filesystem::path& path,const std::string& text) {
     std::ofstream file(path,std::ios::binary); file.write(text.data(),static_cast<std::streamsize>(text.size()));
     check(bool(file),"writing a test file");
@@ -43,12 +52,12 @@ std::string read_file(const std::filesystem::path& path) {
 const std::string header="psmodern-roms 1\n";
 
 void rom_list_round_trip() {
-    RomList both;both.set(RomVersion::us_rev_a,"C:/Games/ps us.sms");both.set(RomVersion::brazilian,"D:/br.sms");
+    RomList both;both.set(RomVersion::us_rev_a,ROOT_C "Games/ps us.sms");both.set(RomVersion::brazilian,ROOT_D "br.sms");
     const auto text=format_rom_list(both);
-    check(text=="psmodern-roms 1\nus C:/Games/ps us.sms\nbr D:/br.sms\n","format is header, us, br, LF");
+    check(text=="psmodern-roms 1\nus " ROOT_C "Games/ps us.sms\nbr " ROOT_D "br.sms\n","format is header, us, br, LF");
     check(parse_rom_list(text)==both,"round trip with both versions");
-    RomList only_br;only_br.set(RomVersion::brazilian,"D:/br.sms");
-    check(format_rom_list(only_br)=="psmodern-roms 1\nbr D:/br.sms\n" && parse_rom_list(format_rom_list(only_br))==only_br,"one version");
+    RomList only_br;only_br.set(RomVersion::brazilian,ROOT_D "br.sms");
+    check(format_rom_list(only_br)=="psmodern-roms 1\nbr " ROOT_D "br.sms\n" && parse_rom_list(format_rom_list(only_br))==only_br,"one version");
     check(format_rom_list({})==header && parse_rom_list(header).empty(),"empty list is just the header");
     check(both.get(RomVersion::us_rev_a)==both.us && both.get(RomVersion::brazilian)==both.br,"get picks the slot");
     both.clear(RomVersion::us_rev_a);check(!both.us && both.br,"clear empties one slot");
@@ -58,34 +67,39 @@ void rom_list_rejects() {
     refuses([] { parse_rom_list("psmodern-roms 2\n"); },"wrong version");
     refuses([] { parse_rom_list("psmodern-options 1\n"); },"wrong header");
     refuses([] { parse_rom_list("psmodern-roms 1"); },"header without newline is truncated");
-    refuses([] { parse_rom_list(header+"us C:/a.sms"); },"last line without newline is truncated");
-    refuses([] { parse_rom_list(header+"us C:/a.sms\nus C:/b.sms\n"); },"duplicate tag");
-    refuses([] { parse_rom_list(header+"xx C:/a.sms\n"); },"unknown tag");
-    refuses([] { parse_rom_list(header+"br C:/a.sms\nus C:/b.sms\n"); },"out of order");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "a.sms"); },"last line without newline is truncated");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "a.sms\nus " ROOT_C "b.sms\n"); },"duplicate tag");
+    refuses([] { parse_rom_list(header+"xx " ROOT_C "a.sms\n"); },"unknown tag");
+    refuses([] { parse_rom_list(header+"br " ROOT_C "a.sms\nus " ROOT_C "b.sms\n"); },"out of order");
     refuses([] { parse_rom_list(header+"us a.sms\n"); },"relative path");
     refuses([] { parse_rom_list(header+"us ../a.sms\n"); },"relative path with dots");
     refuses([] { parse_rom_list(header+"us \n"); },"empty path");
     refuses([] { parse_rom_list(header+"us\n"); },"tag without path");
-    refuses([] { parse_rom_list(header+"us C:/a\tb.sms\n"); },"control character");
-    refuses([] { parse_rom_list(header+"us C:/a\rb.sms\n"); },"carriage return inside a path");
-    refuses([] { parse_rom_list(header+"us C:/a.sms\n\n"); },"trailing blank line");
-    refuses([] { parse_rom_list(header+"us C:/a.sms\nzzz"); },"trailing data");
-    refuses([] { parse_rom_list(header+"us C:/"+std::string(rom_list_limit,'a')+"\n"); },"oversize");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "a\tb.sms\n"); },"control character");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "a\rb.sms\n"); },"carriage return inside a path");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "\xc0\xaf.sms\n"); },"overlong UTF-8");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "\xed\xa0\x80.sms\n"); },"UTF-8 surrogate");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "\xe6\x97.sms\n"); },"truncated UTF-8 sequence");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "\xf4\x90\x80\x80.sms\n"); },"UTF-8 past U+10FFFF");
+    check(parse_rom_list(header+"us " ROOT_C "\xf0\x9f\x8e\xae.sms\n").us==std::filesystem::path(u8"" ROOT_C "\U0001F3AE.sms"),"four-byte UTF-8 accepted");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "a.sms\n\n"); },"trailing blank line");
+    refuses([] { parse_rom_list(header+"us " ROOT_C "a.sms\nzzz"); },"trailing data");
+    refuses([] { parse_rom_list(header+"us " ROOT_C+std::string(rom_list_limit,'a')+"\n"); },"oversize");
     RomList bad;bad.set(RomVersion::us_rev_a,"relative.sms");
     refuses([&] { format_rom_list(bad); },"format refuses a relative path");
-    bad.set(RomVersion::us_rev_a,"C:/a\nb.sms");
+    bad.set(RomVersion::us_rev_a,ROOT_C "a\nb.sms");
     refuses([&] { format_rom_list(bad); },"format refuses control characters");
-    RomList limit;limit.set(RomVersion::us_rev_a,"C:/"+std::string(rom_list_limit,'a'));
+    RomList limit;limit.set(RomVersion::us_rev_a,ROOT_C+std::string(rom_list_limit,'a'));
     refuses([&] { format_rom_list(limit); },"format refuses an oversize list");
 }
 void rom_list_crlf() {
-    const auto list=parse_rom_list("psmodern-roms 1\r\nus C:/a.sms\r\nbr D:/b.sms\r\n");
-    check(list.us==std::filesystem::path("C:/a.sms") && list.br==std::filesystem::path("D:/b.sms"),"CRLF accepted");
+    const auto list=parse_rom_list("psmodern-roms 1\r\nus " ROOT_C "a.sms\r\nbr " ROOT_D "b.sms\r\n");
+    check(list.us==std::filesystem::path(ROOT_C "a.sms") && list.br==std::filesystem::path(ROOT_D "b.sms"),"CRLF accepted");
 }
 void rom_list_unicode() {
     RomList list;list.set(RomVersion::us_rev_a,unicode_rom());list.set(RomVersion::brazilian,unicode_rom().parent_path()/u8"\u00e9.sms");
     const auto text=format_rom_list(list);
-    check(text.find("C:/Jogos/\xc3\xa7\xc3\xa3o/\xe6\x97\xa5\xe6\x9c\xac/ps.sms")!=std::string::npos,"paths are written as UTF-8");
+    check(text.find(ROOT_C "Jogos/\xc3\xa7\xc3\xa3o/\xe6\x97\xa5\xe6\x9c\xac/ps.sms")!=std::string::npos,"paths are written as UTF-8");
     check(parse_rom_list(text)==list,"non-ASCII round trip through format and parse");
     Temporary folder;
     save_rom_list(folder.path,list);
@@ -100,25 +114,25 @@ void rom_list_storage() {
     loaded=load_rom_list(folder.path/"not-created");
     check(loaded.list.empty() && !loaded.warning,"a missing folder is empty without a warning");
     const auto nested=folder.path/"a"/"b";
-    RomList list;list.set(RomVersion::us_rev_a,"C:/a.sms");
+    RomList list;list.set(RomVersion::us_rev_a,ROOT_C "a.sms");
     save_rom_list(nested,list);
     check(load_rom_list(nested).list==list,"save creates the folder");
-    list.set(RomVersion::brazilian,"D:/b.sms");save_rom_list(nested,list);
+    list.set(RomVersion::brazilian,ROOT_D "b.sms");save_rom_list(nested,list);
     check(load_rom_list(nested).list==list,"save replaces the file");
     for (const auto& entry:std::filesystem::directory_iterator(nested)) check(entry.path().filename()==rom_list_name,"no temporary file is left behind");
 }
 void rom_list_corrupt() {
     Temporary folder;
     const auto file=folder.path/rom_list_name;
-    for (const auto& text:{std::string("garbage"),header+"us relative\n",header+"us C:/a.sms\nus C:/b.sms\n",std::string(rom_list_limit+1,'x')}) {
+    for (const auto& text:{std::string("garbage"),header+"us relative\n",header+"us " ROOT_C "a.sms\nus " ROOT_C "b.sms\n",std::string(rom_list_limit+1,'x')}) {
         write_file(file,text);
         const auto loaded=load_rom_list(folder.path);
         check(loaded.list.empty() && loaded.warning && !loaded.warning->empty(),"a corrupt or oversize file loads empty with one warning");
     }
-    write_file(file,header+"us C:/\xff\xfe.sms\n");
+    write_file(file,header+"us " ROOT_C "\xff\xfe.sms\n");
     const auto invalid=load_rom_list(folder.path);
     check(invalid.list.empty() && invalid.warning && !invalid.warning->empty(),"invalid UTF-8 loads empty with one warning");
-    RomList list;list.set(RomVersion::us_rev_a,"C:/a.sms");
+    RomList list;list.set(RomVersion::us_rev_a,ROOT_C "a.sms");
     save_rom_list(folder.path,list);
     const auto fixed=load_rom_list(folder.path);
     check(fixed.list==list && !fixed.warning,"the next save replaces a corrupt file");
@@ -128,7 +142,7 @@ void rom_list_directory() {
     std::filesystem::create_directory(folder.path/rom_list_name);
     const auto loaded=load_rom_list(folder.path);
     check(loaded.list.empty() && loaded.warning,"a directory named roms.txt is refused with a warning");
-    RomList list;list.set(RomVersion::us_rev_a,"C:/a.sms");
+    RomList list;list.set(RomVersion::us_rev_a,ROOT_C "a.sms");
     refuses([&] { save_rom_list(folder.path,list); },"saving never replaces a directory");
     check(std::filesystem::is_directory(folder.path/rom_list_name),"the directory is untouched");
 }
@@ -144,14 +158,14 @@ void start_screen_entries() {
         entries.insert(entries.end(),{A::choose,A::controls,A::language,A::open_saves,A::quit});check(StartScreen(list).entries()==entries,text);
     };
     expect({},{},"no remembered ROM: choose, controls, saves and quit");
-    expect(rom_list("C:/us.sms",{}),{A::play},"US only");
-    expect(rom_list({},"C:/br.sms"),{A::play},"BR only");
-    expect(rom_list("C:/us.sms","C:/br.sms"),{A::play},"both ROMs have one play entry");
-    check(primary_rom(rom_list("C:/us.sms","C:/br.sms"))==std::filesystem::path("C:/us.sms"),"US is primary when both are present");
-    check(primary_rom(rom_list({},"C:/br.sms"))==std::filesystem::path("C:/br.sms"),"BR is primary when it is the only ROM");
+    expect(rom_list(ROOT_C "us.sms",{}),{A::play},"US only");
+    expect(rom_list({},ROOT_C "br.sms"),{A::play},"BR only");
+    expect(rom_list(ROOT_C "us.sms",ROOT_C "br.sms"),{A::play},"both ROMs have one play entry");
+    check(primary_rom(rom_list(ROOT_C "us.sms",ROOT_C "br.sms"))==std::filesystem::path(ROOT_C "us.sms"),"US is primary when both are present");
+    check(primary_rom(rom_list({},ROOT_C "br.sms"))==std::filesystem::path(ROOT_C "br.sms"),"BR is primary when it is the only ROM");
     check(StartScreen({}).selected()==0,"cursor starts on the first entry");
-    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::play).selected()==0,"cursor can start on PLAY");
-    check(StartScreen(rom_list("C:/us.sms","C:/br.sms"),A::controls).selected()==2,"the cursor can come back to CONTROLS");
+    check(StartScreen(rom_list(ROOT_C "us.sms",ROOT_C "br.sms"),A::play).selected()==0,"cursor can start on PLAY");
+    check(StartScreen(rom_list(ROOT_C "us.sms",ROOT_C "br.sms"),A::controls).selected()==2,"the cursor can come back to CONTROLS");
     check(StartScreen({},A::play).selected()==0,"an absent entry leaves the cursor on the first");
     check(std::string(StartScreen::label(A::play))=="PLAY" && std::string(StartScreen::label(A::play,Language::portuguese))=="JOGAR" &&
           std::string(StartScreen::label(A::choose))=="ADD ROM" && std::string(StartScreen::label(A::choose,Language::portuguese))=="ADICIONAR ROM" &&
@@ -159,7 +173,7 @@ void start_screen_entries() {
           std::string(StartScreen::label(A::quit))=="QUIT" && StartScreen::footer()=="PSMODERN 1.3.0","labels and footer");
 }
 void start_screen_input() {
-    const auto both=rom_list("C:/us.sms","C:/br.sms");
+    const auto both=rom_list(ROOT_C "us.sms",ROOT_C "br.sms");
     {
         StartScreen screen(both);
         check(screen.update(press(&MenuInput::accept),0)==A::none,"accept held when the screen appears is ignored");
@@ -251,8 +265,8 @@ struct FakePlatform : LauncherPlatform {
         return found->second;
     }
 };
-const std::filesystem::path us_a="C:/roms/us-a.sms",us_b="C:/roms/us-b.sms",br_a="C:/roms/br-a.sms",bad="C:/roms/other.sms";
-const std::filesystem::path jp_a="C:/roms/jp-a.sms",jp_b="C:/roms/jp-b.sms";
+const std::filesystem::path us_a=ROOT_C "roms/us-a.sms",us_b=ROOT_C "roms/us-b.sms",br_a=ROOT_C "roms/br-a.sms",bad=ROOT_C "roms/other.sms";
+const std::filesystem::path jp_a=ROOT_C "roms/jp-a.sms",jp_b=ROOT_C "roms/jp-b.sms";
 FakePlatform platform() {
     FakePlatform fake;
     fake.roms={{us_a,CartridgeKind::us_rev_a},{us_b,CartridgeKind::us_rev_a},{br_a,CartridgeKind::brazilian},
@@ -435,7 +449,7 @@ int rom_checks(const std::filesystem::path& rom,std::string_view version) {
         for (const char c:std::string(StartScreen::label(action))) check(font.supports(c),"every start screen label is in the ROM font");
     for (const char c:StartScreen::footer()) check(font.supports(c),"the footer is in the ROM font");
     std::vector<std::uint32_t> pixels(256*192);
-    for (const auto& list:{rom_list("C:/us.sms",{}),rom_list({},"C:/br.sms"),rom_list("C:/us.sms","C:/br.sms")}) {
+    for (const auto& list:{rom_list(ROOT_C "us.sms",{}),rom_list({},ROOT_C "br.sms"),rom_list(ROOT_C "us.sms",ROOT_C "br.sms")}) {
         StartScreen screen(list);screen.update(neutral(),0);
         for (std::size_t i=0;i<screen.entries().size();++i) {
             std::fill(pixels.begin(),pixels.end(),0xff123456);

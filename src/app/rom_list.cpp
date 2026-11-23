@@ -9,7 +9,31 @@ std::string utf8(const std::filesystem::path& path) {
     const auto text=path.u8string();
     return std::string(reinterpret_cast<const char*>(text.data()),text.size());
 }
+// Strict UTF-8: no overlong forms, surrogates or code points past U+10FFFF.
+// Windows refuses such text when converting it to a UTF-16 path; POSIX paths
+// are plain bytes and would take it, so every platform checks it here.
+bool valid_utf8(std::string_view text) {
+    for (std::size_t i=0;i<text.size();) {
+        const auto c=static_cast<unsigned char>(text[i]);
+        std::size_t length; char32_t code;
+        if (c<0x80) { ++i; continue; }
+        else if (c>=0xc2 && c<=0xdf) { length=2; code=c&0x1f; }
+        else if (c>=0xe0 && c<=0xef) { length=3; code=c&0x0f; }
+        else if (c>=0xf0 && c<=0xf4) { length=4; code=c&0x07; }
+        else return false;
+        if (text.size()-i<length) return false;
+        for (std::size_t k=1;k<length;++k) {
+            const auto next=static_cast<unsigned char>(text[i+k]);
+            if ((next&0xc0)!=0x80) return false;
+            code=(code<<6)|(next&0x3f);
+        }
+        if ((length==3 && code<0x800) || (length==4 && (code<0x10000 || code>0x10ffff)) || (code>=0xd800 && code<=0xdfff)) return false;
+        i+=length;
+    }
+    return true;
+}
 std::filesystem::path from_utf8(std::string_view text) {
+    if (!valid_utf8(text)) throw std::runtime_error("ROM path is not valid UTF-8.");
     return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()),text.size()));
 }
 bool clean(std::string_view text) {
