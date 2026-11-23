@@ -12,7 +12,7 @@ material stays in `../android-signing/`.
 Milestone 17 is closed and accepted (`061ff49`). On 2026-11-23 the
 maintainer chose the next subject, the television pixel shape (8:7), asked
 for the plan only and approved its four decisions.
-[Milestone 18 plan](milestone-18-plan.md) is committed on `main` and not
+[Milestone 18 plan](milestone-18-plan.md) is committed (`912cae4`) and
 pushed; no production code changed.
 
 ## Resume here
@@ -20,4 +20,3 @@ pushed; no production code changed.
 1. Milestone 18 waits for the maintainer's explicit start.
 2. Its first task is the Options mockup with the eighth row; production code
    starts only after he approves it.
-3. Push only when the maintainer asks.
