@@ -124,7 +124,8 @@ UniformTypeIdentifiers and the frameworks SDL2 uses). A static SDL2 exports
 only `SDL2::SDL2-static`; `CMakeLists.txt` aliases it to `SDL2::SDL2`.
 
 `src/app/platform_macos.mm` is the platform layer: saves under
-`~/Library/Application Support/PSModern`, the AppKit Open panel for `.sms`
+`~/Library/Application Support/PSModern` (under `$APPDATA/PSModern` when
+`APPDATA` is set, which the tests use to isolate saves as on Windows), the AppKit Open panel for `.sms`
 files, Finder for the saves folder, and `~/Library/Logs/PSModern.log` for
 diagnostics when the app is started from Finder (whose standard streams lead
 to `/dev/null`). Objective-C++ also builds without `NDEBUG`.

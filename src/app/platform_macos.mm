@@ -14,7 +14,15 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 namespace psmodern::app {
+// The tests isolate the save folder by setting %APPDATA%, as on Windows; an
+// absolute APPDATA therefore wins here too, so a test never reaches the
+// player's real saves. Players do not set it on a Mac.
 std::filesystem::path production_save_folder() {
+    if (const char* appdata=std::getenv("APPDATA"); appdata && *appdata) {
+        const std::filesystem::path folder(appdata);
+        if (!folder.is_absolute()) throw std::runtime_error("%APPDATA% must be an absolute folder.");
+        return folder/"PSModern";
+    }
     @autoreleasepool {
         NSArray<NSURL*>* urls=[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
         if (urls.count==0 || !urls.firstObject.fileSystemRepresentation)
