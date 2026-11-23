@@ -222,7 +222,7 @@ the [per-recording census](coverage.md).
 - **Recordings.** All seven reference components matched on 222,246 frames
   from 20 US and seven Brazilian recordings, including the ending, defeat,
   pause, the flute and Brazilian name entry. Together they reached 1,956
-  of 3,154 registered segments. See the [census](coverage.md) and the
+  of 3,156 registered segments. See the [census](coverage.md) and the
   [recording and save provenance](development.md).
 - **Routine checks.** Lockstep comparisons at every instruction boundary
   include CPU state, cycles and ordered port accesses. The 27 recordings and 96 cartridge tests account
@@ -290,7 +290,9 @@ the [per-recording census](coverage.md).
 - **Unreached code stops the game.** Cartridge code that no recording, probe
   or static walk reaches has no C++ version; if it ever runs, the game stops
   with a message and keeps the save of the last frame end
-  ([milestone 14 plan](milestone-14-plan.md)).
+  ([milestone 14 plan](milestone-14-plan.md)). The static walk is a test
+  since 1.3.1, after a player met such a stop at two code-table targets. No
+  recording walks through the rescue of the petrified companion yet.
 - **The program is slower and larger than before milestone 14:** about
   1,720 microseconds per emulated frame against 1,495, and a 9.2 MB
   executable against 5.5 MB, a cost of rendering every instruction. It

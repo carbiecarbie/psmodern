@@ -861,6 +861,11 @@ void register_scenes_quests_walk_joins(RoutineRegistry& registry) {
     kit::add_joining(registry,{1,0x5510},{1,0x550A},{kit::core_final_at(0x5510)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5510); });
     kit::add_joining(registry,{1,0x551E},{1,0x5513},{kit::core_final_at(0x551E)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x551E); });
     kit::add_joining(registry,{1,0x5521},{1,0x5513},{kit::core_final_at(0x5521)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5521); });
+    // Two targets of the interaction table (01:4773) that hold a call each: the
+    // places where an item is used wait for a button (01:5535, five table entries)
+    // and open the field menu (01:5538, also the stone companion's own entry).
+    kit::add_joining(registry,{1,0x5535},{1,0x5535},{kit::core_final_at(0x5535)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5535); });
+    kit::add_joining(registry,{1,0x5538},{1,0x5538},{kit::core_final_at(0x5538)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x5538); });
     kit::add_joining(registry,{1,0x5543},{1,0x553D},{kit::core_final_at(0x5543)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5543); });
     kit::add_joining(registry,{1,0x555A},{1,0x5553},{kit::core_final_at(0x555A)},kit::call_cycles,2,[](auto& z) { return z.final_call(0x555A); });
     kit::add_joining(registry,{1,0x5563},{1,0x555D},{kit::core_final_at(0x5563)},kit::jump_cycles,0,[](auto& z) { return z.final_jump(0x5563); });

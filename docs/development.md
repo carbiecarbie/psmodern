@@ -1151,9 +1151,15 @@ point of a call, a branch target, the target of a code table) is registered as
 small segments of its own, in the file that owns the neighbouring code
 (`kit::add_joining`). Those no recording reaches are catalogued in
 `src/game/joins.h` and tested by `rom_<version>_joins` (every exit taken under
-lockstep, sweeps for the multi-instruction ones). A static walk of every
-declared exit target, call return and fall-through, and of the code tables read
-by the three table dispatchers, found no address without a segment.
+lockstep, sweeps for the multi-instruction ones). The test
+`rom_<version>_static_walk` (`tests/static_walk_tests.cpp`) walks the registry
+against the player's ROM: every declared exit target, call return and
+fall-through, the resumption of every block slice and every word of the code
+tables read by the dispatchers (three of the game, two of the sound driver)
+must begin a segment, and the jumps through a register must be exactly those
+dispatchers. Milestone 14's own walk was a private script that was not kept;
+it missed two targets of the interaction table (`01:5535` and `01:5538`),
+which stopped the game from 1.0.0 to 1.3.0 and were registered in 1.3.1.
 
 **Block copies and port output** run in slices that end at the next interrupt
 or frame end by construction (an LDIR slice is up to 16 transfers, 21 cycles

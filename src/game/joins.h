@@ -332,7 +332,7 @@ inline constexpr std::array<JoinSegment,5> scenes{{
     {{0,0x0997},{0,0x0968}},
     {{0,0x0B07},{0,0x0B07}},
 }};
-inline constexpr std::array<JoinSegment,44> scenes_quests{{
+inline constexpr std::array<JoinSegment,46> scenes_quests{{
     {{1,0x4461},{1,0x51A9}},
     {{1,0x5119},{1,0x510D}},
     {{1,0x517C},{1,0x5177}},
@@ -366,6 +366,8 @@ inline constexpr std::array<JoinSegment,44> scenes_quests{{
     {{1,0x5510},{1,0x550A}},
     {{1,0x551E},{1,0x5513}},
     {{1,0x5521},{1,0x5513}},
+    {{1,0x5535},{1,0x5535}},
+    {{1,0x5538},{1,0x5538}},
     {{1,0x5543},{1,0x553D}},
     {{1,0x555A},{1,0x5553}},
     {{1,0x5563},{1,0x555D}},

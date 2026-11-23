@@ -91,7 +91,12 @@ The fast-forward sound also ran a second, private Z80 on the sound driver.
   found no target without a segment, and every target of the game's jump
   tables is one (ROM static). The 206 places only probes reached were
   converted or identified: 78 are data, not code, and stop the game if
-  executed.
+  executed. **Correction (2026-11-23):** the claim about the jump tables was
+  wrong for the interaction table at `01:4773`: two of its targets,
+  `01:5535` and `01:5538` (six of its 182 entries), had no segment, and the
+  game stopped at the petrified companion of the first cave. Release 1.3.1
+  registers both and keeps the walk as the test `rom_<version>_static_walk`
+  ([development](development.md#registered-routines)).
 - **Complete suite.** 389 of 389 tests pass with both cartridges and the
   reference assets, with no skips, in 23 minutes 36 seconds (milestone 13:
   353 tests in 39 minutes).
