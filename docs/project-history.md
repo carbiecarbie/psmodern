@@ -338,6 +338,6 @@ verified (the zip ran with `PATH` limited to System32 from a non-ASCII
 folder; the APK passed its signature, alignment, notice and zero-Z80 checks,
 with the 1.3.0 signing key) and matched their checksums after download.
 Published without a manual release play-test, and without anyone playing
-through the rescue: no recording reaches it yet. The README start-screen
-picture still shows the 1.3.0 footer. Published as GitHub release v1.3.1
-from `68d8a33`.
+through the rescue: no recording reaches it yet. Published as GitHub release
+v1.3.1 from `68d8a33`; the README start-screen picture was retaken with the
+1.3.1 footer after the release.

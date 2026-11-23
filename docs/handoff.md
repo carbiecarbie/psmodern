@@ -16,11 +16,10 @@ Packages, logs and release notes are in `../releases/`.
 Pending:
 
 - `../psmodern-re` has the two catalog rows and an allow rule for the table
-  uncommitted; its three checkers pass, the payload check was not run. Its
-  commit waits for the maintainer.
+  committed and pushed (`2437608`, all its checks passed). Its own handoff
+  still says "not pushed"; correct that line in its next commit.
 - No recording walks through the petrified companion's rescue, and nobody
   has played through it on 1.3.1; it needs a save near that place.
-- `docs/images/start-screen.png` still shows the 1.3.0 footer.
 
 ## Milestone 18
 
