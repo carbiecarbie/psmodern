@@ -2,26 +2,29 @@
 
 Last updated: 2026-11-23
 
-## Maintenance fix (priority over milestone 18)
+## Release 1.3.1 (prepared, not published)
 
-A player's report showed the game stopping at `01:5538`. Two one-instruction
-targets of the interaction code table, `01:5535` and `01:5538`, had no
-segment since milestone 14, so every release from 1.0.0 to 1.3.0 stops at the
-petrified companion of the first cave (a mandatory story point) and at five
-other item places.
+Release 1.3.1 fixes the stop at `01:5538`: the interaction code table
+targets `01:5535` and `01:5538` had no segment since milestone 14, so every
+release from 1.0.0 to 1.3.0 stops at the petrified companion of the first
+cave (a mandatory story point) and at five other item places. The fix is
+`1840de2`; its complete suite passed 432 of 432 with no skips
+(`build-rel/hotfix-complete-suite.log`) and is reused. The prepare commit
+`68d8a33` only bumps the version; its build is warning-free and the fast
+group passed 190 of 190.
 
-The fix registers both segments, adds the test `rom_<version>_static_walk`
-(every code-table target and every declared exit target, call return and
-fall-through must begin a segment) and a lockstep test of the six event
-routes in the joins tests. The complete suite passed 432 of 432 with no
-skips, run in a background shell and awaited by its completion notice
-(`build-rel/hotfix-complete-suite.log`); the joins tests and the fast group
-(190 of 190) passed again after the test-only route addition.
+Packages, built from `68d8a33` and kept in `../releases/`:
+`PSModern-1.3.1-windows-x64.zip` (extracted and `--version` checked with
+`PATH` limited to System32) and `PSModern-1.3.1-android-arm.apk`
+(`versionCode 10301`, same signing certificate as 1.3.0). The notes draft is
+`../releases/release-notes-1.3.1.md`.
 
 Pending:
 
-- Release 1.3.1 with this fix. The maintainer authorized a Sonnet agent to
-  prepare it, commit and push.
+- The release **waits for the maintainer's word**: then tag `v1.3.1` on
+  `68d8a33` and publish. No tag or GitHub release exists yet.
+- After publishing, record "Release 1.3.1" in `docs/project-history.md`,
+  `docs/project-status.md` and `docs/roadmap.md`.
 - `../psmodern-re` has the two catalog rows and an allow rule for the table
   uncommitted; its three checkers pass. Its commit waits for the maintainer.
 - No recording walks through the petrified companion's rescue yet.
