@@ -1,8 +1,8 @@
 # Milestone 18 plan - Television pixel shape
 
-**Tier B. Status: planned, decisions approved (2026-11-23); not started.**
+**Tier B. Status: started on 2026-11-23. The Options mockup awaits approval.**
 The maintainer chose the subject and approved the four decisions below on
-2026-11-23; he starts the implementation explicitly. Only the host's
+2026-11-23 and started the milestone that day. Only the host's
 presentation changes: no game routine, no virtual hardware and no test
 referee is touched.
 

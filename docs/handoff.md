@@ -2,21 +2,38 @@
 
 Last updated: 2026-11-23
 
-Release 1.3.0 (milestone 17, the Japanese FM soundtrack) is published as
-GitHub release v1.3.0 from `8158573`, with
-`PSModern-1.3.0-windows-x64.zip` and the signed
-`PSModern-1.3.0-android-arm.apk` (`versionCode 10300`, same signing key as
-1.2.0). Packages, logs and release notes are in `../releases/`; signing
-material stays in `../android-signing/`.
+## Maintenance fix (priority over milestone 18)
 
-Milestone 17 is closed and accepted (`061ff49`). On 2026-11-23 the
-maintainer chose the next subject, the television pixel shape (8:7), asked
-for the plan only and approved its four decisions.
-[Milestone 18 plan](milestone-18-plan.md) is committed (`912cae4`) and
-pushed; no production code changed.
+A player's report showed the game stopping at `01:5538`. Two one-instruction
+targets of the interaction code table, `01:5535` and `01:5538`, had no
+segment since milestone 14, so every release from 1.0.0 to 1.3.0 stops at the
+petrified companion of the first cave (a mandatory story point) and at five
+other item places.
 
-## Resume here
+The fix registers both segments, adds the test `rom_<version>_static_walk`
+(every code-table target and every declared exit target, call return and
+fall-through must begin a segment) and a lockstep test of the six event
+routes in the joins tests. The complete suite passed 432 of 432 with no
+skips, run in a background shell and awaited by its completion notice
+(`build-rel/hotfix-complete-suite.log`); the joins tests and the fast group
+(190 of 190) passed again after the test-only route addition.
 
-1. Milestone 18 waits for the maintainer's explicit start.
-2. Its first task is the Options mockup with the eighth row; production code
-   starts only after he approves it.
+Pending:
+
+- Release 1.3.1 with this fix. The maintainer authorized a Sonnet agent to
+  prepare it, commit and push.
+- `../psmodern-re` has the two catalog rows and an allow rule for the table
+  uncommitted; its three checkers pass. Its commit waits for the maintainer.
+- No recording walks through the petrified companion's rescue yet.
+
+## Milestone 18
+
+The maintainer started [milestone 18](milestone-18-plan.md). The bilingual
+Options mockup is ready in `../m18-mockup/`. The `pt-options.png` and
+`en-options.png` previews show the eighth row with square and TV pixels.
+The corresponding `*-open.png` images show the list before scrolling.
+The proposal keeps seven rows visible, adds a scroll hint on the border
+and labels the new row PIXELS DE TV / TV PIXELS.
+
+Next, get the maintainer's feedback on the layout and labels. Once approved,
+start the sizing and stretch functions in the plan.
