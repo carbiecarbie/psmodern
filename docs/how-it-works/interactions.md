@@ -23,6 +23,17 @@ instead. The jumps and calls between these steps are still made by the
 original processor, so the game's timing and its handling of the stack are
 exactly the original's.
 
+**ROM static; ROM run.** Six entries of the list lead to places where the
+player must use or look for an item: the petrified companion in the first
+cave (dungeon 0), and the places where the Polymaterial, the torch, the prism
+and the nuts are used, whose item routines check for these event numbers.
+Their handlers are a single call or two. Five entries first wait for a button at `01:5535` and
+then fall into the sixth entry's handler at `01:5538`, which opens the field
+menu so that the item can be chosen; the event's number stays in memory, and
+the item's own routine checks it. These two calls had no C++ version from
+1.0.0 to 1.3.0, so the game stopped on reaching any of the six places;
+1.3.1 added them, each tested against the original on both cartridges.
+
 The list of handlers lives in the cartridge, and each entry points to code in
 whichever bank is currently selected. **Inference:** an entry being present in
 the list does not prove that ordinary play ever reaches it.

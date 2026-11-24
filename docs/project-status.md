@@ -3,9 +3,10 @@
 **Milestone 17 was completed and accepted on 2026-11-22.** A player who also
 owns the Japanese cartridge can hear the game with its FM music and effects;
 the [FM plan](milestone-17-plan.md) records the play-test and verification.
-The latest published release, **1.3.0** (2026-11-22), ships the Windows x64
-zip and the signed Android APK (`PSModern-1.3.0-android-arm.apk`, ARM64 and
-ARMv7, `versionCode 10300`), covering through milestone 17. See the
+The latest published release, **1.3.1** (2026-11-23), ships the Windows x64
+zip and the signed Android APK (`PSModern-1.3.1-android-arm.apk`, ARM64 and
+ARMv7, `versionCode 10301`), covering through milestone 17 plus the fix of
+the stop at the petrified companion. See the
 [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
@@ -222,7 +223,7 @@ the [per-recording census](coverage.md).
 - **Recordings.** All seven reference components matched on 222,246 frames
   from 20 US and seven Brazilian recordings, including the ending, defeat,
   pause, the flute and Brazilian name entry. Together they reached 1,956
-  of 3,154 registered segments. See the [census](coverage.md) and the
+  of 3,156 registered segments. See the [census](coverage.md) and the
   [recording and save provenance](development.md).
 - **Routine checks.** Lockstep comparisons at every instruction boundary
   include CPU state, cycles and ordered port accesses. The 27 recordings and 96 cartridge tests account
@@ -290,7 +291,9 @@ the [per-recording census](coverage.md).
 - **Unreached code stops the game.** Cartridge code that no recording, probe
   or static walk reaches has no C++ version; if it ever runs, the game stops
   with a message and keeps the save of the last frame end
-  ([milestone 14 plan](milestone-14-plan.md)).
+  ([milestone 14 plan](milestone-14-plan.md)). The static walk is a test
+  since 1.3.1, after a player met such a stop at two code-table targets. No
+  recording walks through the rescue of the petrified companion yet.
 - **The program is slower and larger than before milestone 14:** about
   1,720 microseconds per emulated frame against 1,495, and a 9.2 MB
   executable against 5.5 MB, a cost of rendering every instruction. It

@@ -320,3 +320,24 @@ System32 from a non-ASCII folder; the APK passed its signature, alignment,
 notice and zero-Z80 checks, with the 1.2.0 signing key) and published
 without a separate manual release play-test, the milestone play-test having
 covered the same sources. Published as GitHub release v1.3.0 from `8158573`.
+
+## Release 1.3.1 - Fix of the stop at the petrified companion (2026-11-23)
+
+A player reported the game stopping at `01:5538`. Two one-instruction targets
+of the interaction code table, `01:5535` and `01:5538`, had had no C++
+version since milestone 14, so every release from 1.0.0 to 1.3.0 stopped at
+the petrified companion of the first cave, a mandatory point of the story,
+and at five other places where an item is used; saves were never affected.
+The fix (`1840de2`) registers both and turns the static walk of the registry
+into the test `rom_<version>_static_walk`, which fails with exactly those
+table entries when the fix is removed; the joins tests also run the six
+event routes against the original. The complete suite passed all 432 tests
+with zero skips on the fix and was reused under the release rule; the 1.3.1
+build was warning-free and all 190 fast tests passed. Both packages were
+verified (the zip ran with `PATH` limited to System32 from a non-ASCII
+folder; the APK passed its signature, alignment, notice and zero-Z80 checks,
+with the 1.3.0 signing key) and matched their checksums after download.
+Published without a manual release play-test, and without anyone playing
+through the rescue: no recording reaches it yet. Published as GitHub release
+v1.3.1 from `68d8a33`; the README start-screen picture was retaken with the
+1.3.1 footer after the release.

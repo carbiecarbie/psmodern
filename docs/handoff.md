@@ -2,33 +2,44 @@
 
 Last updated: 2026-11-23
 
-Release 1.3.0 (milestone 17, the Japanese FM soundtrack) is published as
-GitHub release v1.3.0 from `8158573`, with
-`PSModern-1.3.0-windows-x64.zip` and the signed
-`PSModern-1.3.0-android-arm.apk` (`versionCode 10300`, same signing key as
-1.2.0). Packages, logs and release notes are in `../releases/`; signing
-material stays in `../android-signing/`.
+## Release 1.3.1 (published)
 
-Milestone 17 is closed and accepted (`061ff49`). On 2026-11-23 the
-maintainer chose the next subject, the television pixel shape (8:7), asked
-for the plan only and approved its four decisions.
-[Milestone 18 plan](milestone-18-plan.md) is committed (`912cae4`) and
-pushed; no production code changed.
+Release 1.3.1 is published as GitHub release v1.3.1 from `68d8a33`, with
+`PSModern-1.3.1-windows-x64.zip` and the signed
+`PSModern-1.3.1-android-arm.apk` (`versionCode 10301`, same signing key as
+1.3.0); both matched their checksums after download. It fixes the stop at
+`01:5538` (fix `1840de2`): two targets of the interaction code table had no
+segment since milestone 14, so releases 1.0.0 to 1.3.0 stopped at the
+petrified companion of the first cave and at five other item places.
+Packages, logs and release notes are in `../releases/`.
 
-A contributor pull request proposes version 1.3.1, a universal macOS app
+A contributor pull request (#2) adds a universal macOS app of 1.3.1
 (Apple silicon and Intel, macOS 11+) with no gameplay change: the platform
 layer `src/app/platform_macos.mm`, the app bundle and a static SDL2 in
 `CMakeLists.txt`, `tools/package-macos.sh`, a macOS CI job, a portable
 `launcher_tests` and strict UTF-8 checking of remembered ROM paths
 (`rom_list.cpp`; Windows already refused invalid UTF-8). On macOS the
-data-free suite passed 122/122 and the Brazilian ROM was played from the
-packaged app; the ROM-dependent suite was not run there.
+data-free suite passed and the Brazilian ROM was played from the packaged
+app; the ROM-dependent suite was not run there.
 
-## Resume here
+Pending:
 
-1. Milestone 18 waits for the maintainer's explicit start.
-2. Its first task is the Options mockup with the eighth row; production code
-   starts only after he approves it.
-3. Review the macOS pull request. `rom_list.cpp` changed, so a complete
-   Windows suite is due before 1.3.1 is published; its project-history entry
-   is written at publication.
+- Review the macOS pull request (#2): its branch now includes 1.3.1 and its
+  ZIP is rebuilt from the merged revision.
+- `../psmodern-re` has the two catalog rows and an allow rule for the table
+  committed and pushed (`2437608`, all its checks passed). Its own handoff
+  still says "not pushed"; correct that line in its next commit.
+- No recording walks through the petrified companion's rescue, and nobody
+  has played through it on 1.3.1; it needs a save near that place.
+
+## Milestone 18
+
+The maintainer started [milestone 18](milestone-18-plan.md). The bilingual
+Options mockup is ready in `../m18-mockup/`. The `pt-options.png` and
+`en-options.png` previews show the eighth row with square and TV pixels.
+The corresponding `*-open.png` images show the list before scrolling.
+The proposal keeps seven rows visible, adds a scroll hint on the border
+and labels the new row PIXELS DE TV / TV PIXELS.
+
+Next, get the maintainer's feedback on the layout and labels. Once approved,
+start the sizing and stretch functions in the plan.
