@@ -12,7 +12,8 @@
 #
 # Usage: [PSMODERN_ICON=<icon.png|icon.icns>] tools/package-macos.sh <output-dir>
 #   <output-dir> must be outside the repository; it receives the SDL2 build,
-#   the PSModern build, the staging folder and the zip.
+#   the PSModern build and the zip. The app is staged in a new temporary folder
+#   inside it, removed at the end, so nothing else in <output-dir> is touched.
 # Needs Xcode Command Line Tools, cmake and ninja (brew install cmake ninja).
 set -eu
 
@@ -58,9 +59,10 @@ cmake -S "$repo" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_PREFIX_PATH="$sdl_prefix" -DPSMODERN_ROM_TESTS=OFF -DBUILD_TESTING=OFF
 cmake --build "$build" --target psmodern
 
-# 3. Stage: stripped, ad-hoc signed app plus licenses.
-stage="$out/$name"
-rm -rf "$stage"
+# 3. Stage in a fresh temporary folder: stripped, ad-hoc signed app plus licenses.
+work=$(mktemp -d "$out/.package.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+stage="$work/$name"
 mkdir -p "$stage/licenses"
 ditto "$build/PSModern.app" "$stage/PSModern.app"
 exe="$stage/PSModern.app/Contents/MacOS/PSModern"
@@ -74,8 +76,8 @@ if [ -n "${PSMODERN_ICON:-}" ]; then
     case "$PSMODERN_ICON" in
     *.icns) cp "$PSMODERN_ICON" "$icns";;
     *)
-        iconset="$out/PSModern.iconset"
-        rm -rf "$iconset"; mkdir -p "$iconset"
+        iconset="$work/PSModern.iconset"
+        mkdir "$iconset"
         for size in 16 32 128 256 512; do
             sips -s format png -z $size $size "$PSMODERN_ICON" --out "$iconset/icon_${size}x${size}.png" >/dev/null
             sips -s format png -z $((size*2)) $((size*2)) "$PSMODERN_ICON" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
@@ -136,7 +138,7 @@ The C++ runtime (libc++) and every other library come with macOS.
 No Phantasy Star data is included; bring your own cartridge dump.
 EOF
 
-(cd "$out" && ditto -c -k --norsrc --noextattr --noacl --keepParent "$name" "$zip.partial")
+(cd "$work" && ditto -c -k --norsrc --noextattr --noacl --keepParent "$name" "$zip.partial")
 mv "$zip.partial" "$zip"
 echo "Package: $zip"
 echo "Built from commit $head$suffix"

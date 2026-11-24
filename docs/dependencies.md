@@ -148,7 +148,9 @@ ad hoc, checks both slices with `--version` and that nothing outside macOS is
 linked, and writes `PSModern-<version>-macos-universal.zip` with
 `PSModern.app`, `LICENSE.txt`, `README.txt` (`tools/release/README-macOS.txt`),
 `THIRD-PARTY.txt` and `licenses/` (Nuked-OPLL and SDL2). A dirty tree adds
-`-dirty` to the name. The app is not notarized. The repository holds no icon
+`-dirty` to the name. It refuses to overwrite an existing zip, and it stages
+the app in a new temporary folder that it removes at the end, so a second run
+never deletes anything already in the output folder. The app is not notarized. The repository holds no icon
 (no art from the game, see the root `AGENTS.md`); `PSMODERN_ICON=<png|icns>`
 embeds a local one into the packaged app.
 
