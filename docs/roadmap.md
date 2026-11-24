@@ -78,6 +78,10 @@ Recorded so that they are not raised again without a new reason.
   current floor only.
 - **Keeping an unusable map file under its own name** (2026-11-13): the
   `.automap.bak` behaviour stays.
+- **Television pixel shape** (2026-11-24): the picture keeps square pixels.
+  [Milestone 18](milestone-18-plan.md) was withdrawn before any code: an
+  eighth Options row needs a scrolling list, and the 8/7 stretch blends
+  columns at 1920 x 1080 and takes columns from Widescreen.
 
 ## Throughout
 

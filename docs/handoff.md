@@ -1,6 +1,6 @@
 # Session handoff
 
-Last updated: 2026-11-23
+Last updated: 2026-11-24
 
 ## Release 1.3.1 (published)
 
@@ -18,17 +18,22 @@ Pending:
 - `../psmodern-re` has the two catalog rows and an allow rule for the table
   committed and pushed (`2437608`, all its checks passed). Its own handoff
   still says "not pushed"; correct that line in its next commit.
-- No recording walks through the petrified companion's rescue, and nobody
-  has played through it on 1.3.1; it needs a save near that place.
+- A save near the petrified companion is still needed to record the rescue
+  on the official release. A player got past `01:5538` on the Brazilian ROM
+  using the contributor's fixed macOS build. The duplicate fix was closed.
+  [Player follow-up in PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)
+- The macOS port awaits a new ZIP built from current `main` with the dungeon
+  fix, and a packaging change to preserve an existing staging folder.
+  [Requested changes in PR #2](https://github.com/carbiecarbie/psmodern/pull/2#pullrequestreview-6034626295)
 
 ## Milestone 18
 
-The maintainer started [milestone 18](milestone-18-plan.md). The bilingual
-Options mockup is ready in `../m18-mockup/`. The `pt-options.png` and
-`en-options.png` previews show the eighth row with square and TV pixels.
-The corresponding `*-open.png` images show the list before scrolling.
-The proposal keeps seven rows visible, adds a scroll hint on the border
-and labels the new row PIXELS DE TV / TV PIXELS.
+The maintainer withdrew [milestone 18](milestone-18-plan.md) (television
+pixel shape) on 2026-11-24 after seeing the Options mockup, before any
+production code. The plan records the reasons and the
+[roadmap](roadmap.md#decided-against) lists it as decided against. The
+Options page stays at seven rows.
 
-Next, get the maintainer's feedback on the layout and labels. Once approved,
-start the sizing and stretch functions in the plan.
+The mockup in `../m18-mockup/` is outside the repository and can be deleted.
+
+No milestone is active. The maintainer chooses and starts the next one.
