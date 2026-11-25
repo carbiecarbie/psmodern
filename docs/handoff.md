@@ -1,45 +1,42 @@
 # Session handoff
 
-Last updated: 2026-11-23
+Last updated: 2026-11-24
 
-## Release 1.3.1 (published)
+## Milestone 19 (planned, not started)
 
-Release 1.3.1 is published as GitHub release v1.3.1 from `68d8a33`, with
-`PSModern-1.3.1-windows-x64.zip` and the signed
-`PSModern-1.3.1-android-arm.apk` (`versionCode 10301`, same signing key as
-1.3.0); both matched their checksums after download. It fixes the stop at
-`01:5538` (fix `1840de2`): two targets of the interaction code table had no
-segment since milestone 14, so releases 1.0.0 to 1.3.0 stopped at the
-petrified companion of the first cave and at five other item places.
-Packages, logs and release notes are in `../releases/`.
+The maintainer approved the [milestone 19](milestone-19-plan.md) plan
+(playthrough to the ending, Tier A) on 2026-11-24, with its acceptance
+figures. No code or tests changed. Agents make the recordings, and only
+strength and money may be edited between links. Each cartridge gets its own
+playthrough. The new recordings run only at milestone closure, under the
+`playthrough` label, behind a CMake option that is off by default. The Tier A
+plan review is done (Opus, read-only). Its required changes are in the plan:
+a chain test, an allow-list of the fields that may be edited, values a player
+could reach, the stated limits of one route, the CMake option and measurable
+acceptance terms. The maintainer approved those changes the same day. He
+starts the milestone explicitly.
 
-A contributor pull request (#2) adds a universal macOS app of 1.3.1
-(Apple silicon and Intel, macOS 11+) with no gameplay change: the platform
-layer `src/app/platform_macos.mm`, the app bundle and a static SDL2 in
-`CMakeLists.txt`, `tools/package-macos.sh`, a macOS CI job, a portable
-`launcher_tests` and strict UTF-8 checking of remembered ROM paths
-(`rom_list.cpp`; Windows already refused invalid UTF-8). On macOS the
-data-free suite passed and the Brazilian ROM was played from the packaged
-app; the ROM-dependent suite was not run there.
+The plan builds on an earlier stop sweep, `../sweep-2026-11-23/report.md`,
+and its unapplied `proposed-tests.patch`. Both are outside the repository.
+They are an agent's report that part 0 must re-verify. The figures in the
+plan come from the census of 2026-11-23: 1,200 probe-only segments, so the
+1,198 in `project-status.md` is two short. That gets corrected at closure.
 
-Pending:
+Milestone 18 was withdrawn on 2026-11-24. Its mockup in `../m18-mockup/` can
+be deleted.
 
-- Review the macOS pull request (#2): its branch now includes 1.3.1 and its
-  ZIP is rebuilt from the merged revision.
-- `../psmodern-re` has the two catalog rows and an allow rule for the table
-  committed and pushed (`2437608`, all its checks passed). Its own handoff
-  still says "not pushed"; correct that line in its next commit.
-- No recording walks through the petrified companion's rescue, and nobody
-  has played through it on 1.3.1; it needs a save near that place.
+## Pending
 
-## Milestone 18
-
-The maintainer started [milestone 18](milestone-18-plan.md). The bilingual
-Options mockup is ready in `../m18-mockup/`. The `pt-options.png` and
-`en-options.png` previews show the eighth row with square and TV pixels.
-The corresponding `*-open.png` images show the list before scrolling.
-The proposal keeps seven rows visible, adds a scroll hint on the border
-and labels the new row PIXELS DE TV / TV PIXELS.
-
-Next, get the maintainer's feedback on the layout and labels. Once approved,
-start the sizing and stretch functions in the plan.
+- `../psmodern-re` is pushed at `2437608`. Its own handoff still says "not
+  pushed"; correct that line in its next commit.
+- A save near the petrified companion is still welcome
+  ([player follow-up in PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)).
+  Milestone 19's playthroughs record the rescue without it.
+- The macOS port (PR #2: a universal app of 1.3.1, Apple silicon and Intel,
+  macOS 11+, no gameplay change) has the
+  [requested changes](https://github.com/carbiecarbie/psmodern/pull/2#pullrequestreview-6034626295):
+  its branch includes current `main` with the dungeon fix,
+  `tools/package-macos.sh` stages in a fresh temporary folder and leaves the
+  output folder's other files alone, and the ZIP was rebuilt from `b3c4d8c`
+  ([contributor reply](https://github.com/carbiecarbie/psmodern/pull/2#issuecomment-7131446820)).
+  It awaits review.
