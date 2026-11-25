@@ -1,0 +1,26 @@
+psmodern-recording 1
+rom 07fcf297be4f4c9d92cd3f119a7ac48467e06838
+cart-ram e347a6a4aef09e2fbd54af2b4d6ac7ca07b14575
+input 100 p1=D p2=- pause=0 reset=0
+input 102 p1=- p2=- pause=0 reset=0
+input 104 p1=1 p2=- pause=0 reset=0
+input 106 p1=- p2=- pause=0 reset=0
+input 235 p1=2 p2=- pause=0 reset=0
+input 237 p1=- p2=- pause=0 reset=0
+input 303 p1=2 p2=- pause=0 reset=0
+input 305 p1=- p2=- pause=0 reset=0
+input 332 p1=2 p2=- pause=0 reset=0
+input 334 p1=- p2=- pause=0 reset=0
+input 456 p1=U p2=- pause=0 reset=0
+input 650 p1=- p2=- pause=0 reset=0
+input 816 p1=2 p2=- pause=0 reset=0
+input 818 p1=- p2=- pause=0 reset=0
+input 871 p1=2 p2=- pause=0 reset=0
+input 873 p1=- p2=- pause=0 reset=0
+input 923 p1=2 p2=- pause=0 reset=0
+input 925 p1=- p2=- pause=0 reset=0
+input 942 p1=2 p2=- pause=0 reset=0
+input 944 p1=- p2=- pause=0 reset=0
+input 1064 p1=D p2=- pause=0 reset=0
+input 1274 p1=- p2=- pause=0 reset=0
+end 1509

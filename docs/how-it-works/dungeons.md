@@ -181,7 +181,10 @@ one side of a fake wall to the other in two steps.
 **ROM static.** A pitfall is an object cell with no object record. The handler
 tests the cell under the party: when it is 8, it scans the object table for
 this floor and cell. A record found means a chest, fight or event and the
-handler goes on to the directions. The end of the table without a record
+handler goes on to the directions. The scan runs on every pass
+while the party stands on such a cell, done or not, and lasts longer the further
+down the table the record is (see
+[the original quirks](../original-quirks.md#a-finished-object-cell-lengthens-every-pass-of-the-dungeon-loop)). The end of the table without a record
 starts the fall: a scrolling animation, the floor number goes down by one
 (floor 0 would stay 0, but no floor-0 cell is a pitfall), the floor is reloaded
 and redrawn, and the object check runs. The party keeps its cell and facing, so

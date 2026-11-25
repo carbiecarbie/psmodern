@@ -1,0 +1,5 @@
+psmodern-extra-start 1
+from link-09
+byte 040c d8
+byte 040d 15
+byte 0416 0b

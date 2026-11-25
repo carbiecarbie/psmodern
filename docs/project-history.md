@@ -341,3 +341,18 @@ Published without a manual release play-test, and without anyone playing
 through the rescue: no recording reaches it yet. Published as GitHub release
 v1.3.1 from `68d8a33`; the README start-screen picture was retaken with the
 1.3.1 footer after the release.
+
+## Milestone 19 - Playthrough to the ending (2026-11-25)
+
+The tests now [play each cartridge](milestone-19-plan.md) from a new game to
+the title after the credits, one route each: 25 US links (673,967 frames) and
+27 Brazilian links (685,128 frames), continued from in-game saves with only
+strength and money edited, through the rescue of the petrified companion and
+both last bosses. 89 shorter recordings reach shops, healing places and rare
+branches. No stop was found and no game code changed. Segments reached by no
+recording fell from 1,200 to 362 and those reached by US recordings only from
+587 to 64. A fourth MesenCE patch fixed a flag difference in the reference.
+The independent review approved with eight required changes, all made. The
+complete suite passed 438/438 with zero skips; the closure-only `playthrough`
+group passed 378 of 378 with no skip in 2,409.73 s. Implementation:
+`88aa2cc`; review changes: `d8cc530`; closure: `3b6e970`.

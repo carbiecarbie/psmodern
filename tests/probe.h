@@ -91,6 +91,24 @@ inline void randomize(Z80& cpu, std::uint64_t seed) {
 struct SweepResult {
     unsigned runs=0, irq_deliveries=0, nmi_deliveries=0, outside=0;
 };
+// Evidence that one sweep run's interrupt was taken (milestone 19 review,
+// 2026-11-25: a sweep that counts its attempts passes even when nothing is
+// injected). Only filled when the caller asks for it (sweep_interrupts'
+// `accepted`); every other sweep runs as before.
+struct SweepAcceptance {
+    int kind=0;                 // 0 IRQ, 1 NMI
+    std::uint64_t offset=0;     // cycles from the entry's state
+    bool inside_body=false;     // delivered inside the segment's body
+    // For an interrupt accepted at a top-level boundary: how many top-level
+    // steps had completed since the entry (0: before the segment ran), the
+    // PC the response pushed and SP before it, and whether the handler
+    // returned to that PC with SP restored (the interrupted code resumed).
+    // `top` is the word at SP before the response (the interrupted code's
+    // own stack top, a CALL's return address right after a CALL).
+    unsigned boundary=0;
+    std::uint16_t resume=0, sp=0, vector=0, top=0;
+    bool returned=false;
+};
 // The positions of a sweep. Stride 1 is every cycle of the body's run. Any
 // other stride (`auto_stride`: about `sampled_positions` positions per kind
 // spread over the whole body, starting at a phase that depends on the entry)
@@ -255,8 +273,18 @@ public:
     // segment's run. Each run must reach the segment's C++ call and match the
     // oracle at every instruction boundary; an interrupt landing at the entry
     // is accepted first and the segment runs after its handler.
+    //
+    // With `accepted` (opt-in; nullptr leaves the sweep exactly as before),
+    // each run goes on under the same lockstep after the segment's C++ call
+    // until its interrupt has been taken: delivered inside the body, or
+    // accepted at a top-level boundary (the response step: PC at the vector,
+    // the interrupted PC pushed at SP-2) and then returned from (the handler
+    // back at the pushed PC with SP restored). A run in which neither happens
+    // within the step limit fails, so suppressed injection fails the sweep.
+    // One record per run is appended.
     SweepResult sweep_interrupts(RoutineEntry entry, const Setup& setup,
-                                 const std::function<void(Machine&)>& adjust = {}, unsigned stride=1) {
+                                 const std::function<void(Machine&)>& adjust = {}, unsigned stride=1,
+                                 std::vector<SweepAcceptance>* accepted=nullptr) {
         auto base=prepare(entry,setup);
         if (adjust) adjust(base);
         auto plain=base;
@@ -308,10 +336,54 @@ public:
                 const auto before=routine(entry).counters;
                 oracle::Lockstep lockstep(m,"sweep "+describe(entry,m)+(kind ? " NMI +" : " IRQ +")+std::to_string(k),
                                           oracle::Mode::instructions);
+                SweepAcceptance evidence{kind,k};
+                const auto& census=registry_.census();
+                bool responded=false;
+                unsigned drain=0;
+                // One top-level step under lockstep; with evidence asked for,
+                // a response of the run's kind is recognized and checked.
+                auto step=[&] {
+                    const auto pc=m.cpu().pc.uint16_value, sp=m.cpu().sp.uint16_value;
+                    const auto top=kind ? census.top_nmi : census.top_irq;
+                    const auto word=static_cast<std::uint16_t>(m.peek(sp) | m.peek(static_cast<std::uint16_t>(sp+1))<<8);
+                    lockstep.step(m,&registry_);
+                    if (!accepted) return;
+                    if (++drain%256==0) {      // a long run (a whole handler) drains the sound queues as a frame would
+                        (void)m.take_psg_writes(); (void)m.take_samples();
+                        (void)lockstep.oracle().take_psg_writes(); (void)lockstep.oracle().take_samples();
+                    }
+                    if (responded) {
+                        if (!evidence.returned && m.depth()==0 && m.cpu().pc.uint16_value==evidence.resume &&
+                            m.cpu().sp.uint16_value==evidence.sp) evidence.returned=true;
+                        return;
+                    }
+                    if ((kind ? census.top_nmi : census.top_irq)==top) { ++evidence.boundary; return; }
+                    responded=true;
+                    evidence.resume=pc; evidence.sp=sp; evidence.vector=m.cpu().pc.uint16_value; evidence.top=word;
+                    const auto pushed=static_cast<std::uint16_t>(m.peek(static_cast<std::uint16_t>(sp-2)) |
+                                                                 m.peek(static_cast<std::uint16_t>(sp-1))<<8);
+                    check(m.cpu().sp.uint16_value==static_cast<std::uint16_t>(sp-2) && pushed==pc &&
+                          evidence.vector==(kind ? 0x0066 : 0x0038),
+                          "sweep: the response did not push the interrupted PC and jump to the vector: "+describe(entry,m));
+                };
                 for (unsigned steps=0;routine(entry).counters.cpp_calls==before.cpp_calls;++steps) {
                     check(steps<200000 && routine(entry).counters.fallback_calls==before.fallback_calls,
                           "sweep did not reach the segment in C++: "+describe(entry,m));
-                    lockstep.step(m,&registry_);
+                    step();
+                }
+                if (accepted) {
+                    const auto& body=routine(entry).counters;
+                    evidence.inside_body=(kind ? body.nmi_deliveries-before.nmi_deliveries : body.irq_deliveries-before.irq_deliveries)>0;
+                    for (unsigned steps=0;!evidence.inside_body && !responded;++steps) {
+                        check(steps<200000,"sweep: the interrupt was never taken (not injected?): "+describe(entry,m)+
+                                               (kind ? " NMI +" : " IRQ +")+std::to_string(k));
+                        step();
+                    }
+                    for (unsigned steps=0;responded && !evidence.returned;++steps) {
+                        check(steps<200000,"sweep: the handler never returned to the interrupted code: "+describe(entry,m));
+                        step();
+                    }
+                    accepted->push_back(evidence);
                 }
                 const auto& after=routine(entry).counters;
                 check(registry_.census().scaffold_steps==0,"a sweep of the game ran test scaffolding: "+describe(entry,m));

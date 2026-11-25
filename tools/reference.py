@@ -81,7 +81,7 @@ def main():
         (out/'reference.json').write_text(json.dumps(identity,indent=2,sort_keys=True)+'\n',encoding='ascii')
         # CE's CLI silently ignores numeric settings without a MinMax attribute
         # (including ScriptTimeout). Set the intended limit through its config.
-        settings={'Debug':{'ScriptWindow':{'ScriptTimeout':1200,'AllowIoOsAccess':True}}}
+        settings={'Debug':{'ScriptWindow':{'ScriptTimeout':7200,'AllowIoOsAccess':True}}}
         (home/'settings.json').write_text(json.dumps(settings),encoding='ascii')
         (home/'Saves').mkdir();(home/'Saves'/(rom.stem+'.sav')).write_bytes(cart)
         (out/'initial-cart-ram.bin').write_bytes(cart)
@@ -97,10 +97,10 @@ def main():
             inputs.append('{'+','.join(pads)+'}')
         config=out/'config.lua';config.write_text('return {out='+quote('../')+',cart='+quote('../initial-cart-ram.bin')+',frames='+str(total)+',inputs={'+','.join(inputs)+'}}',encoding='ascii')
         script=out/'capture.lua';script.write_text(Path(__file__).with_suffix('.lua').read_text().replace('CONFIG_PATH','../config.lua'),encoding='ascii')
-        command=[str(home/exe.name),'--testRunner','--timeout=600','--debug.ScriptWindow.AllowIoOsAccess=true','--sms.Region=Ntsc','--sms.Revision=Sms1','--sms.RamPowerOnState=AllZeros','--sms.EnableFmAudio=false','--sms.Port1.Type=SmsController','--sms.Port2.Type=SmsController',str(rom),str(script)]
+        command=[str(home/exe.name),'--testRunner','--timeout=7200','--debug.ScriptWindow.AllowIoOsAccess=true','--sms.Region=Ntsc','--sms.Revision=Sms1','--sms.RamPowerOnState=AllZeros','--sms.EnableFmAudio=false','--sms.Port1.Type=SmsController','--sms.Port2.Type=SmsController',str(rom),str(script)]
         env=dict(os.environ,TEMP=str(out),TMP=str(out),DOTNET_BUNDLE_EXTRACT_BASE_DIR=str(out/'bundle'))
         with (out/'console.log').open('w') as log:
-            result=subprocess.run(command,cwd=home,env=env,stdout=log,stderr=log,check=False,timeout=660)
+            result=subprocess.run(command,cwd=home,env=env,stdout=log,stderr=log,check=False,timeout=7300)
         if (out/'capture-error.txt').exists():
             raise ValueError('Reference callback failed: '+(out/'capture-error.txt').read_text(encoding='utf-8',errors='replace'))
         result.check_returncode()

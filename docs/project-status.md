@@ -1,12 +1,14 @@
 # PSModern - Project Status
 
-**Milestone 17 was completed and accepted on 2026-11-22.** A player who also
-owns the Japanese cartridge can hear the game with its FM music and effects;
-the [FM plan](milestone-17-plan.md) records the play-test and verification.
-The latest published release, **1.3.1** (2026-11-23), ships the Windows x64
-zip and the signed Android APK (`PSModern-1.3.1-android-arm.apk`, ARM64 and
-ARMv7, `versionCode 10301`), covering through milestone 17 plus the fix of
-the stop at the petrified companion. See the
+**Milestone 19 was completed and accepted on 2026-11-25.** It changed
+nothing the player sees: the tests now play each cartridge from a new game to
+the title after the credits, through the rescue of the petrified companion,
+and no stop was found; the [plan](milestone-19-plan.md) records the results
+and the route's limits. The latest published release, **1.3.1** (2026-11-23),
+ships the Windows x64 zip and the signed Android APK
+(`PSModern-1.3.1-android-arm.apk`, ARM64 and ARMv7, `versionCode 10301`),
+covering through milestone 17 plus the fix of the stop at the petrified
+companion; milestone 19 changed no game code and needs no release. See the
 [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
@@ -32,7 +34,8 @@ The whole game, as on the cartridge, plus saved rate settings, a dungeon
 automap, fast-forward, changeable controls, live language selection and an
 optional widescreen view. Milestone 12 changed how PSModern's own screens
 look (Options, Controls, start) and no feature of the game: with every option
-off the game plays and looks as it did.
+off the game plays and looks as it did. Milestone 19 played the whole story
+on both cartridges in the tests, one route each, without a stop.
 
 - **On Android**, open PSModern and select a supported cartridge in the system
   file picker. The app remembers an imported copy. Play in portrait or
@@ -152,8 +155,8 @@ layer.
 | Android host | `android/`, `src/app/` | Android activity, document picker, app storage, touch controls and SDL lifecycle |
 | Recordings | `src/replay/` | Input recordings, the headless replay runner, lockstep and frame verification, routine censuses |
 | Oracle | `src/oracle/`, `third_party/` | Test-only: the pinned Z80 core and a machine running the original, for lockstep. Not linked into `psmodern.exe` |
-| Reference | `tools/` | The driver that replays recordings in a patched MesenCE, and the comparison tool |
-| Tests | `tests/` | Unit, conformance, ROM, probe and checkpoint tests |
+| Reference | `tools/` | The driver that replays recordings in a patched MesenCE, the comparison tool and the coverage census |
+| Tests | `tests/` | Unit, conformance, ROM, probe, checkpoint, stop-sweep and playthrough tests |
 
 Some properties matter for the next milestones:
 
@@ -221,10 +224,29 @@ the [per-recording census](coverage.md).
 ## How it is verified
 
 - **Recordings.** All seven reference components matched on 222,246 frames
-  from 20 US and seven Brazilian recordings, including the ending, defeat,
-  pause, the flute and Brazilian name entry. Together they reached 1,956
-  of 3,156 registered segments. See the [census](coverage.md) and the
+  from 20 US and seven Brazilian checkpoint recordings, including the ending,
+  defeat, pause, the flute and Brazilian name entry. They run in the complete
+  suite. See the [census](coverage.md) and the
   [recording and save provenance](development.md).
+- **The playthrough (milestone 19).** One chain of recordings per cartridge
+  goes from power-on with an empty save to the title after the credits: 25 US
+  links (673,967 frames) and 27 Brazilian (685,128), each continued from the
+  previous link's save with only strength and money edited, and a chain test
+  over every step, the rescue, the bosses, the credits and the title. 89
+  shorter recordings (44 US, 45 Brazilian) add shops, healing places and rare
+  branches; 6 start from an unchanged chain save, 79 from an edited save not
+  verified as reachable by play, 4 from known artificial states. Each matches
+  the reference at every frame, under per-instruction lockstep, and runs once
+  as the plain game. These 378 tests, the `playthrough` group, are off by
+  default and run only at a milestone closure: about 42 minutes at `-j 16`
+  ([development](development.md#playthrough-chain)).
+- **Four kinds of evidence** are told apart in the [census](coverage.md):
+  checkpoints, the playthrough group, prepared-state routes and state probes.
+  Recordings reach 2,794 of 3,156 segments; 362 are reached by none (4 of
+  them by a route) and 64 by US recordings only, each with a reason in
+  `tools/coverage-reasons.tsv`. The reference is MesenCE 2.2.1 with four
+  patches; the fourth (milestone 19) sets bit 3 of F after `LD A,I` and
+  `LD A,R` as the Z80 does.
 - **Routine checks.** Lockstep comparisons at every instruction boundary
   include CPU state, cycles and ordered port accesses. The 27 recordings and 96 cartridge tests account
   for the 14,195 listed instruction addresses through measured execution or
@@ -254,10 +276,11 @@ the [per-recording census](coverage.md).
   off the game is identical at every frame (state, cycles, picture, PSG and
   saves), and a forced engine failure falls back to PSG.
 - **Review and acceptance.** Independent reviews covered the timing mechanism,
-  game routines, the Android host and the FM sound. The maintainer passed the
-  FM play-test on Windows and the S24. The Windows suite passed 430/430 with
-  zero skips. On the S24, the Android build sustained 1x, 2x and 4x, also
-  with FM ([milestone 16](milestone-16-plan.md#verification),
+  game routines, the Android host, the FM sound and the playthrough harness.
+  The maintainer passed the FM play-test on Windows and the S24. At milestone
+  19 the Windows suite passed 438/438 with zero skips in 1,735 seconds, and
+  the playthrough group passed 378 of 378 with no skip in 2,409.73 s. On the S24, the Android build
+  sustained 1x, 2x and 4x, also with FM ([milestone 16](milestone-16-plan.md#verification),
   [milestone 17](milestone-17-plan.md#verification)).
 
 ## Known gaps
@@ -268,10 +291,23 @@ the [per-recording census](coverage.md).
   first controller is used, and there is no second pad or shortcut back to the
   start screen during play. A damaged `controls.txt` is reported only on the
   console; a trigger held when a controller connects is ignored best-effort.
-- **Recording coverage.** The recordings reach 1,956 registered segments.
-  The remaining 1,198 are exercised by state probes. The Brazilian recordings
-  include name entry and Continue. Several late-game journeys, including
-  the ending, have US recording evidence only. See [coverage](coverage.md).
+- **Recording coverage.** 362 segments are reached by no recording and 64 by
+  US recordings only; state probes exercise them. Of their 426 reasons, 161
+  rest on a run (the segment runs inside another's body, which the census
+  does not count), 10 on a reading of the code and 153 on inference; 102 say
+  the trigger is unknown ([coverage](coverage.md)).
+- **One route per cartridge.** Unsaved work RAM restarts at every link;
+  other routes and optional places are visited only by the shorter
+  recordings, mostly from edited saves. Edits are checked field by field, not
+  as whole saves (a raised level keeps its earlier spell counts until the
+  game refreshes them). A boss link shows one winning sequence, not a win
+  rate. Between closures a maintenance fix runs only the complete suite.
+- **Playthrough tooling.** The group takes about 42 minutes, near the plan's
+  mark of 45. The reference capture failed twice inside `tools/reference.lua`
+  and passed when repeated (heavy load suspected, not established); it fails
+  loudly and writes no manifest. MesenCE also lacks the rule that an interrupt
+  right after `LD A,I` or `LD A,R` resets P/V; no recording has shown it, and
+  it stays unpatched (Maintainer decision, 2026-11-24).
 - **An unusable map file is kept only briefly.** `.automap` that cannot be
   read becomes `.automap.bak` at the next save, and the first save of the next
   session replaces that backup ([development](development.md#automap)).
@@ -292,8 +328,8 @@ the [per-recording census](coverage.md).
   or static walk reaches has no C++ version; if it ever runs, the game stops
   with a message and keeps the save of the last frame end
   ([milestone 14 plan](milestone-14-plan.md)). The static walk is a test
-  since 1.3.1, after a player met such a stop at two code-table targets. No
-  recording walks through the rescue of the petrified companion yet.
+  since 1.3.1, after a player met such a stop at two code-table targets, and
+  stricter since milestone 19.
 - **The program is slower and larger than before milestone 14:** about
   1,720 microseconds per emulated frame against 1,495, and a 9.2 MB
   executable against 5.5 MB, a cost of rendering every instruction. It

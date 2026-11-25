@@ -27,7 +27,9 @@ std::vector<std::uint8_t> read_bytes(const std::filesystem::path& path) {
     if (in.bad()) throw std::runtime_error("Cannot read checkpoint input.");
     return bytes;
 }
-int compare(const char* rom_path, const char* recording_path, const char* manifest_path,const char* census_path) {
+// link: a playthrough link (milestone 19, label playthrough). It never skips:
+// a missing ROM, manifest or start image fails, and no call may be refused.
+int compare(const char* rom_path, const char* recording_path, const char* manifest_path,const char* census_path,bool link=false) {
     // A census left by an earlier run must never satisfy the census tests that
     // read it, so remove it first and write it again only after a clean match.
     if(census_path) {std::error_code ignored; std::filesystem::remove(census_path,ignored);}
@@ -110,6 +112,8 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     if (have_rom && !have_recording)
         throw std::runtime_error("Checkpoint recording is missing: "+std::string(recording_path));
     if (!have_rom || !have_manifest || (!have_image && sha1(cart)!=recording.cart_ram_sha1)) {
+        if (link) throw std::runtime_error(std::string("Playthrough links never skip: ")+
+            (!have_rom?"ROM missing":!have_manifest?"reference manifest missing":"start image missing"));
         std::cout<<"Skipping: "<<(!have_rom?"ROM missing":!have_manifest?"reference manifest missing":"initial cartridge RAM image missing")<<".\n";
         return 77;
     }
@@ -127,8 +131,16 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     // PSMODERN_LOCKSTEP_STRICT=0, and as whole machines at every frame
     // observer. With PSMODERN_COVERAGE_DIR the instruction addresses reached
     // are written there (the run-time half of the rendered-address census).
+    // A playthrough link (--link) is always compared at every instruction
+    // boundary: the variable is ignored there and the output says so (review
+    // 2026-11-25: CTest passes the environment on, and with the variable at 0
+    // a link reported top-level comparisons only). Ignoring rather than
+    // refusing keeps a developer's shell setting for quick checkpoint runs
+    // from failing the closure run, while the link's evidence stays strict.
     const char* strict_variable=std::getenv("PSMODERN_LOCKSTEP_STRICT");
-    const bool strict=!(strict_variable && std::string_view(strict_variable)=="0");
+    const bool relaxed=strict_variable && std::string_view(strict_variable)=="0";
+    const bool strict=link || !relaxed;
+    if (link && relaxed) std::cout<<"PSMODERN_LOCKSTEP_STRICT=0 is ignored: a playthrough link always runs strict lockstep.\n";
     const char* coverage_dir=std::getenv("PSMODERN_COVERAGE_DIR");
     if (coverage_dir && *coverage_dir) oracle::coverage().enabled=true;
     const auto checks_before=oracle::opcode_checks();
@@ -213,6 +225,9 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
         for(const auto& problem:problems) text+="\n  "+problem;
         throw std::runtime_error(text);
     }
+    // A link's run makes no refused call at all (a refused call stops the program).
+    if(link) for(const auto& [entry,routine]:routines.entries())
+        if(routine.counters.fallback_calls) throw std::runtime_error("Refused calls in a playthrough link.");
     const bool matched=std::none_of(failures.begin(), failures.end(), [](auto n) { return n != 0; });
     if(census_path && matched) {
         const std::filesystem::path path(census_path);
@@ -231,7 +246,8 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 4 && argc != 5) throw std::runtime_error("Expected ROM, recording, manifest and optional census path.");
+        if (argc == 6 && std::string_view(argv[1]) == "--link") return compare(argv[2], argv[3], argv[4], argv[5], true);
+        if (argc != 4 && argc != 5) throw std::runtime_error("Expected [--link] ROM, recording, manifest and (required with --link) census path.");
         return compare(argv[1], argv[2], argv[3],argc==5 ? argv[4] : nullptr);
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

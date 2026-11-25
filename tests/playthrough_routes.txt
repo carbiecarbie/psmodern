@@ -1,0 +1,17 @@
+# Milestone 19: prepared-state routes that join the playthrough group (label
+# playthrough, only with PSMODERN_PLAYTHROUGH_TESTS=ON). Part 3 decides which
+# routes belong here: only those that reach what no recording does.
+# One route per line: <us|br> <name> <route>, where <route> is the argument
+# list of `psmodern_stop_sweep_tests <rom> <us|br> route <recordings> <census>`:
+#   object <floor> <cell hex>      a dungeon object, from the first-dungeon fixture
+#   interaction <event hex>        an interaction event (01-B6), from the same fixture
+# Each registers rom_<us|br>_playthrough_route_<name> and writes its census to
+# <build>/route-census/<us|br>/<name>.tsv. Lines starting with # are comments.
+# Part 3 (2026-11-24): interactions 125 and 169 (handlers 01:5157 and 01:55E1). A scan of the map,
+# dungeon and code records found none that selects them (ROM static), so play probably never reaches
+# them (Inference: a computed selection is not excluded). The routes show that they run without a
+# stop on both cartridges.
+us interaction-125 interaction 7D
+us interaction-169 interaction A9
+br interaction-125 interaction 7D
+br interaction-169 interaction A9

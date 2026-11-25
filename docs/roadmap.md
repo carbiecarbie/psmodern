@@ -5,8 +5,8 @@ with the maintainer on 2026-11-13; milestones 10 to 14 renumbered on
 2026-11-14.** It orders the stages of
 [design](design.md) section 8 and names what each needs; it starts nothing.
 The maintainer starts each milestone explicitly, and each gets its own plan.
-It is revised at each milestone closure, most recently that of milestone 17
-(2026-11-22).
+It is revised at each milestone closure, most recently that of milestone 19
+(2026-11-25).
 
 ## Done so far
 
@@ -30,6 +30,7 @@ It is revised at each milestone closure, most recently that of milestone 17
 | [15](milestone-15-plan.md) | Recovery from Windows audio stalls without added silence. Five cartridge fixes were tested and withdrawn by maintainer decision |
 | [16](milestone-16-plan.md) | Personal Android APK with touch controls, cartridge import and saves shared with Windows |
 | [17](milestone-17-plan.md) | The Japanese cartridge's FM music and effects as an option, on Windows and Android, from the player's Japanese ROM |
+| [19](milestone-19-plan.md) | A recorded playthrough to the ending on each cartridge, checked against the original and the reference; no stop found, nothing playable changed, no release needed. Milestone 18 was withdrawn |
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 2026-11-12), 0.3.0 (adds the changeable controls, 2026-11-13), 0.4.0
@@ -46,8 +47,22 @@ Windows and Android packages.
 
 ## Next milestones
 
-Milestones 1 through 17 are complete. The maintainer chooses and starts the
-next milestone explicitly.
+Milestones 1 through 17 and 19 are complete; 18 was withdrawn. The
+maintainer chooses and starts the next milestone explicitly.
+
+Candidates left by milestone 19, none decided and none needing a release:
+
+- **Narrowing the reasons.** 102 of the 426 reasons for segments no recording
+  reaches, or only US recordings reach, say the trigger is unknown; a later
+  study could settle some by a run or a reading of the code.
+- **The reference capture's intermittent failure.** It failed twice inside
+  `tools/reference.lua` under heavy load and passed when repeated.
+- **The extras' start class in their `.start` files,** instead of the
+  separate `tools/extra-start-classes.tsv`.
+- **The playthrough group's duration,** 40 to 43 minutes against the plan's
+  mark of 45; any new recording added to the group brings it closer.
+- **Trimming [project status](project-status.md)** back to its size target;
+  the maintainer chose on 2026-11-25 to update it now and trim it later.
 
 ## Longer-term direction
 

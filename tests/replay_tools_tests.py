@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -14,7 +15,7 @@ def check(condition,detail='Test check failed'):
     if not condition:raise RuntimeError(detail)
 
 runner=Path(sys.argv[1])
-reference_sha256=sys.argv[4] if len(sys.argv)>4 else '1ba3e21c1008ffd71fd94fd9c3ab9bd23bb65c750e5c7f3e9d0260c4d93984b5'
+reference_sha256=sys.argv[4] if len(sys.argv)>4 else '4f9168fa95b17979bababe777a42ac270f3d6399e35a6a45ef6be80528ea4511'
 with tempfile.TemporaryDirectory() as folder:
     root=Path(folder);rom=root/'synthetic.sms';rom.write_bytes(bytes(512*1024))
     rec=root/'test.psrec';header='psmodern-recording 1\nrom '+hashlib.sha1(rom.read_bytes()).hexdigest()+'\ncart-ram '+hashlib.sha1(bytes([1])*8192).hexdigest()+'\n'
@@ -137,6 +138,16 @@ with tempfile.TemporaryDirectory() as folder:
         check(result.returncode==code, (result.stdout,result.stderr))
     checkpoint(runner_rows,1)
     checkpoint(rows,0)
+    # A playthrough link (--link) is compared at every instruction boundary even
+    # with PSMODERN_LOCKSTEP_STRICT=0 (review 2026-11-25), and says so; the
+    # variable still selects top-level comparison for an ordinary checkpoint.
+    expected.write_text('\n'.join(rows)+'\n',encoding='ascii')
+    relaxed=dict(os.environ,PSMODERN_LOCKSTEP_STRICT='0')
+    link=subprocess.run([sys.argv[2],'--link',rom,rec,expected,root/'link-census'/'link.tsv'],capture_output=True,text=True,env=relaxed)
+    check(link.returncode==0 and 'Lockstep (every instruction boundary)' in link.stdout and 'is ignored' in link.stdout,
+          (link.stdout,link.stderr))
+    ordinary=subprocess.run([sys.argv[2],rom,rec,expected],capture_output=True,text=True,env=relaxed)
+    check(ordinary.returncode==0 and 'Lockstep (every top-level segment boundary)' in ordinary.stdout,(ordinary.stdout,ordinary.stderr))
     wrong=rows.copy();wrong[2]='build-sha256 '+('0'*64 if reference_sha256!='0'*64 else 'f'*64);checkpoint(wrong,1)
     for missing in range(1,5):checkpoint(rows[:missing]+rows[missing+1:],1)
     wrong=rows.copy();wrong[1]='reference psmodern 1';checkpoint(wrong,1)
@@ -219,7 +230,7 @@ with tempfile.TemporaryDirectory() as folder:
         check('out="../"' in (work/'config.lua').read_text(),'Lua output path must be relative')
         check('dofile([[../config.lua]])' in (work/'capture.lua').read_text(),'Lua config path must be relative')
         settings=json.loads((work/'home/settings.json').read_text())
-        check(settings['Debug']['ScriptWindow']['ScriptTimeout']==1200,'Numeric Lua timeout must be set through configuration')
+        check(settings['Debug']['ScriptWindow']['ScriptTimeout']==7200,'Numeric Lua timeout must be set through configuration')
         for n in (1,2):
             for component,size in zip(reference.COMPONENTS,reference.SIZES):
                 (work/f'frame-{n:06d}.{component}.bin').write_bytes(bytes(size or 0))

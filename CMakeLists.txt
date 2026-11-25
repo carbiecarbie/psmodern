@@ -16,11 +16,15 @@ option(PSMODERN_ROM_TESTS "Register tests requiring external ROMs" ON)
 # instead of the default sample (one position per instruction interval plus the test's own stride).
 # Off by default: the complete suite does not run them; run them with `ctest -L full_sweep`.
 option(PSMODERN_FULL_SWEEP_TESTS "Register the full interrupt sweeps (label full_sweep)" OFF)
+# Milestone 19: the playthrough group (the chain links, their chain test and the
+# prepared-state routes, label playthrough). Off by default: the complete suite
+# does not run it; it runs at milestone closure with `ctest -L playthrough`.
+option(PSMODERN_PLAYTHROUGH_TESTS "Register the playthrough group (label playthrough)" OFF)
 set(PSMODERN_ROM_US "" CACHE FILEPATH "US Rev-A ROM for tests")
 set(PSMODERN_ROM_BR "" CACHE FILEPATH "Brazilian ROM for tests")
 set(PSMODERN_ROM_JP "" CACHE FILEPATH "Japanese sound-source ROM for tests")
 set(PSMODERN_REFERENCE_DIR "" CACHE PATH "External reference emulator output")
-set(PSMODERN_REFERENCE_SHA256 "1ba3e21c1008ffd71fd94fd9c3ab9bd23bb65c750e5c7f3e9d0260c4d93984b5"
+set(PSMODERN_REFERENCE_SHA256 "4f9168fa95b17979bababe777a42ac270f3d6399e35a6a45ef6be80528ea4511"
     CACHE STRING "Expected reference executable SHA-256 for checkpoints")
 string(LENGTH "${PSMODERN_REFERENCE_SHA256}" _reference_sha256_length)
 if(NOT _reference_sha256_length EQUAL 64 OR NOT PSMODERN_REFERENCE_SHA256 MATCHES "^[0-9a-f]+$")
@@ -424,6 +428,9 @@ if(BUILD_TESTING)
   target_link_libraries(psmodern_joins_tests PRIVATE psmodern_replay)
   add_executable(psmodern_static_walk_tests tests/static_walk_tests.cpp)
   target_link_libraries(psmodern_static_walk_tests PRIVATE psmodern_replay)
+  # Milestone 19: the re-verified stop sweep (guards, positive control) and the prepared-state routes.
+  add_executable(psmodern_stop_sweep_tests tests/stop_sweep_tests.cpp)
+  target_link_libraries(psmodern_stop_sweep_tests PRIVATE psmodern_replay)
   target_link_libraries(psmodern_money_tests PRIVATE psmodern_replay)
   add_executable(psmodern_money_display tests/money_display_tests.cpp)
   target_link_libraries(psmodern_money_display PRIVATE psmodern_replay)
@@ -724,6 +731,12 @@ if(BUILD_TESTING)
       set_tests_properties("${name}_joins" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       add_test(NAME "${name}_static_walk" COMMAND psmodern_static_walk_tests "${path}" "${version}")
       set_tests_properties("${name}_static_walk" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+      # Milestone 19 (plan decision 6): both sides of every explicit entry guard, and the
+      # positive control (the route through 01:5538 that stopped 1.0.0 to 1.3.0).
+      add_test(NAME "${name}_stop_guards" COMMAND psmodern_stop_sweep_tests "${path}" "${version}" guards)
+      add_test(NAME "${name}_stop_control" COMMAND psmodern_stop_sweep_tests "${path}" "${version}" control
+        "${CMAKE_CURRENT_SOURCE_DIR}/recordings")
+      set_tests_properties("${name}_stop_guards" "${name}_stop_control" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
       set_tests_properties("${name}_sound" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
       psmodern_sweep_test("${name}_text" psmodern_text_tests "${path}" "${version}")
       set_tests_properties("${name}_text" PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
@@ -987,4 +1000,83 @@ if(BUILD_TESTING)
   endif()
   psmodern_rom_test(rom_us "${PSMODERN_ROM_US}" us)
   psmodern_rom_test(rom_br "${PSMODERN_ROM_BR}" br)
+  # ---- Milestone 19: the playthrough group (label playthrough). The chain test, the
+  # developer tool that writes each link's start image and the plain run share one
+  # executable (tests/playthrough_tests.cpp); it is always built, the tests are
+  # registered only with PSMODERN_PLAYTHROUGH_TESTS. Every link found under
+  # recordings/<us|br>/playthrough/ (and every part 3 recording under its extra/)
+  # runs as a checkpoint (strict lockstep whatever PSMODERN_LOCKSTEP_STRICT says, the
+  # seven components at every frame, no refused call, its census under
+  # playthrough-census/) and once as the program plays it (its save folder under
+  # playthrough-work/, made and reused by the run, never one it did not make). The group never
+  # skips: a missing ROM, manifest or start image fails. It runs at milestone
+  # closure (tools/AGENTS.md).
+  add_executable(psmodern_playthrough_tests tests/playthrough_tests.cpp)
+  target_link_libraries(psmodern_playthrough_tests PRIVATE psmodern_app)
+  # The rules' own test (normal suite, seconds): each chain rule, the experience
+  # rule and the plain runner's folder ownership and final flush, shown refusing
+  # their negative cases on synthetic images and one-frame links (review
+  # 2026-11-25). It skips without the ROM like the other ROM tests.
+  foreach(_region us br)
+    string(TOUPPER "${_region}" _region_upper)
+    add_test(NAME rom_${_region}_playthrough_rules COMMAND psmodern_playthrough_tests rules
+      "${PSMODERN_ROM_${_region_upper}}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-rules/${_region}")
+    set_tests_properties(rom_${_region}_playthrough_rules PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+  endforeach()
+  if(PSMODERN_PLAYTHROUGH_TESTS)
+    # The committed inventory: the links, part 3's recordings and the routes found
+    # must be exactly those listed (a removed pair or chain suffix fails).
+    add_test(NAME playthrough_inventory COMMAND psmodern_playthrough_tests inventory
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_inventory.txt" "${CMAKE_CURRENT_SOURCE_DIR}/recordings"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_routes.txt")
+    set_tests_properties(playthrough_inventory PROPERTIES LABELS "playthrough")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_routes.txt" _playthrough_routes REGEX "^[^#]")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_routes.txt")
+    foreach(_region us br)
+      string(TOUPPER "${_region}" _region_upper)
+      set(_rom "${PSMODERN_ROM_${_region_upper}}")
+      set(_links_dir "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${_region}/playthrough")
+      set(_reference "${PSMODERN_REFERENCE_DIR}/${_region}/playthrough")
+      add_test(NAME rom_${_region}_playthrough_chain COMMAND psmodern_playthrough_tests chain "${_rom}" "${_links_dir}" "${_reference}")
+      set_tests_properties(rom_${_region}_playthrough_chain PROPERTIES LABELS "playthrough;rom")
+      file(GLOB _links CONFIGURE_DEPENDS "${_links_dir}/link-*.psrec")
+      foreach(_link IN LISTS _links)
+        get_filename_component(_stem "${_link}" NAME_WE)
+        add_test(NAME rom_${_region}_playthrough_${_stem} COMMAND psmodern_checkpoint_tests --link
+          "${_rom}" "${_link}" "${_reference}/${_stem}/manifest.txt"
+          "${CMAKE_CURRENT_BINARY_DIR}/playthrough-census/${_region}/${_stem}.tsv")
+        add_test(NAME rom_${_region}_playthrough_${_stem}_plain COMMAND psmodern_playthrough_tests plain
+          "${_rom}" "${_link}" "${_reference}/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-work/${_region}/${_stem}")
+        # A 40,000-frame link under strict lockstep takes several minutes.
+        set_tests_properties(rom_${_region}_playthrough_${_stem} rom_${_region}_playthrough_${_stem}_plain PROPERTIES
+          LABELS "playthrough;rom" TIMEOUT 7200)
+      endforeach()
+      # Part 3's recordings (extra/<name>.psrec, not part of the chain) start from a link's
+      # end with the bytes their <name>.start file lists. Each runs as a link does (strict
+      # lockstep, plain run; its census under playthrough-census/<region>/extra/) and its
+      # start image is rebuilt from the link and checked against its header (_start).
+      file(GLOB _extras CONFIGURE_DEPENDS "${_links_dir}/extra/*.psrec")
+      foreach(_extra IN LISTS _extras)
+        get_filename_component(_stem "${_extra}" NAME_WE)
+        set(_test rom_${_region}_playthrough_extra_${_stem})
+        add_test(NAME ${_test} COMMAND psmodern_checkpoint_tests --link
+          "${_rom}" "${_extra}" "${_reference}/extra/${_stem}/manifest.txt"
+          "${CMAKE_CURRENT_BINARY_DIR}/playthrough-census/${_region}/extra/${_stem}.tsv")
+        add_test(NAME ${_test}_plain COMMAND psmodern_playthrough_tests plain
+          "${_rom}" "${_extra}" "${_reference}/extra/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-work/${_region}/extra/${_stem}")
+        add_test(NAME ${_test}_start COMMAND psmodern_playthrough_tests extra "${_rom}" "${_extra}" "${_reference}")
+        set_tests_properties(${_test} ${_test}_plain ${_test}_start PROPERTIES LABELS "playthrough;rom" TIMEOUT 7200)
+      endforeach()
+      foreach(_route IN LISTS _playthrough_routes)
+        string(REGEX REPLACE "[ \t]+" ";" _route "${_route}")
+        list(POP_FRONT _route _route_region _route_name)
+        if(_route_region STREQUAL _region)
+          add_test(NAME rom_${_region}_playthrough_route_${_route_name} COMMAND psmodern_stop_sweep_tests
+            "${_rom}" ${_region} route "${CMAKE_CURRENT_SOURCE_DIR}/recordings"
+            "${CMAKE_CURRENT_BINARY_DIR}/route-census/${_region}/${_route_name}.tsv" ${_route})
+          set_tests_properties(rom_${_region}_playthrough_route_${_route_name} PROPERTIES LABELS "playthrough;rom")
+        endif()
+      endforeach()
+    endforeach()
+  endif()
 endif()

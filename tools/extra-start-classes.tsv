@@ -1,0 +1,90 @@
+region	name	class	basis
+us	battle	artificial	Link 08's save with Myau's MP at zero and the inventory replaced: it holds the Alsulin, which the story has already used by then, and story items from later in the story.
+us	br-04w	edited	Link 19's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	br-07	edited	Link 19's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	br-08	edited	Link 19's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	dungeon-f01-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f01	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f04-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f06-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f07-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f08-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f19	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f20-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f21-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f21	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f22	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f25-late	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f42-late	edited	Link 18's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f43-late	edited	Link 18's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f52-late	edited	Link 18's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	dungeon-f58-late	edited	Link 18's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	items	artificial	Link 08's save moved onto a dungeon floor the route visits, with the inventory replaced by 24 chosen items, among them story items from later in the story.
+us	lassic-nocrystal	edited	Link 23's save before the last boss's door with the Crystal removed from the inventory; a player who never took it might stand there, but that was not verified, so this is not called artificial.
+us	lose-myau	edited	Link 09's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	medusa	edited	Link 21's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+us	misc	chain-save	Link 08's saved game with no byte changed.
+us	nuts-plaza	chain-save	Link 22's saved game with no byte changed.
+us	paseo	edited	Link 08's save moved to a town the route had visited, with Odin's record zeroed as a defeat leaves it and two items added; the items are sold in shops, but that the party could have bought them by then, and that a defeat leaves no other trace, was not verified.
+us	talk-04	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	talk-07	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	talk-08	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	title	chain-save	Link 08's saved game with no byte changed.
+us	town-04	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-06	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-07	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-08	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-09	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-0a	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-0b	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-0c	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-0d	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-0f	edited	Link 13's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-11	edited	Link 13's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-12	edited	Link 13's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+us	town-16	edited	Link 18's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	battle	artificial	Link 08's save with Myau's MP at zero and the inventory replaced: it holds the Alsulin, which the story has already used by then, and story items from later in the story.
+br	br-04w	edited	Link 20's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	br-07	edited	Link 20's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	br-08	edited	Link 20's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	dungeon-f01-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f01	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f04-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f06-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f07-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f08-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f19	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f20-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f21-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f21	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f22	edited	Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f25-late	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f42-late	edited	Link 19's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f43-late	edited	Link 19's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f52-late	edited	Link 19's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	dungeon-f58-late	edited	Link 19's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	items	artificial	Link 08's save moved onto a dungeon floor the route visits, with the inventory replaced by 24 chosen items, among them story items from later in the story.
+br	lassic-nocrystal	edited	Link 25's save before the last boss's door with the Crystal removed from the inventory; a player who never took it might stand there, but that was not verified, so this is not called artificial.
+br	lose-myau	edited	Link 09's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	medusa	edited	Link 22's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
+br	misc	chain-save	Link 08's saved game with no byte changed.
+br	nuts-plaza	chain-save	Link 23's saved game with no byte changed.
+br	paseo	edited	Link 08's save moved to a town the route had visited, with Odin's record zeroed as a defeat leaves it and two items added; the items are sold in shops, but that the party could have bought them by then, and that a defeat leaves no other trace, was not verified.
+br	places	edited	Link 13's save moved to a town the route had visited, with Odin's record zeroed as a defeat leaves it and the inventory filled with one shop item; that a defeat leaves no other trace was not verified.
+br	talk-04	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	talk-07	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	talk-08	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	title	chain-save	Link 08's saved game with no byte changed.
+br	town-04	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-06	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-07	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-08	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-09	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-0a	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-0b	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-0c	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-0d	edited	Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-0f	edited	Link 13's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-11	edited	Link 13's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-12	edited	Link 13's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
+br	town-16	edited	Link 19's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
