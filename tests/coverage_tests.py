@@ -244,3 +244,79 @@ with tempfile.TemporaryDirectory() as directory:
         check(f'Refused calls in the recordings: {CTRL}' in str(error), f'Wrong refusal: {error}')
     else:
         raise RuntimeError('A census with a refused call was accepted')
+
+# Milestone 19: the evidence categories, the kept group figures and the reasons file.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)/'checkpoints'
+    root.mkdir()
+    # The checkpoints reach CTRL on both versions and UNIT on the US one only;
+    # OPT and PROBE are reached by no checkpoint.
+    both = row(CTRL, CTRL, 99)
+    write_all(root, both + row(UNIT, UNIT) + row(OPT, UNIT) + row(PROBE, UNIT),
+              {('us', 'opening'): both + row(UNIT, UNIT, 5) + row(OPT, UNIT) + row(PROBE, UNIT)})
+    reasons = Path(directory)/'reasons.tsv'
+    reasons.write_text('segment\tgap\treason\n', encoding='utf-8', newline='\n')
+
+    def census_tree(name, files):
+        """A group census root: {(version, file): text}."""
+        tree = Path(directory)/name
+        for (version, file), text in files.items():
+            (tree/version).mkdir(parents=True, exist_ok=True)
+            (tree/version/file).write_text(HEADER+text, encoding='ascii')
+        return tree
+    none = {'playthrough': 'none', 'routes': 'none'}
+    report = {}
+    output = strict_generate(root, groups=none, reasons_path=reasons, report=report)
+    check('| Checkpoint recordings | 2 | 1 | 2 |' in output, 'Checkpoint category wrong')
+    check('- Reached by no recording: 2 (0 of them by a prepared-state route, 2 by state probes only).' in output,
+          'Probe-only count wrong')
+    check('- Reached by a US recording and by no Brazilian one: 1.' in output, 'US-only count wrong')
+    check(output.count('no census recorded yet') == 2, 'Absent groups must say so')
+    check(report['missing'] == {'probe-only': sorted([OPT, PROBE]), 'us-only': [UNIT]}, 'Missing reasons wrong')
+    def rejects_with(fragment, **options):
+        rejects(root, fragment, **options)
+    rejects_with('Segments without a reason', groups=none, reasons_path=reasons, require_reasons=True)
+    # The playthrough group reaches OPT on both versions and UNIT on the Brazilian one.
+    links = census_tree('links', {('us', 'link-01.tsv'): both + row(UNIT, UNIT) + row(OPT, UNIT, 3) + row(PROBE, UNIT),
+                                  ('br', 'link-01.tsv'): both + row(UNIT, UNIT, 1) + row(OPT, UNIT, 2) + row(PROBE, UNIT)})
+    routes = census_tree('routes', {('us', 'object-0-E3.tsv'): both + row(UNIT, UNIT) + row(OPT, UNIT) + row(PROBE, UNIT, 1)})
+    fresh = {'playthrough': links, 'routes': routes}
+    output = strict_generate(root, groups=fresh, reasons_path=reasons, report=report)
+    check('| Any recording | 3 | 3 | 3 |' in output and
+          '- Reached by no recording: 1 (1 of them by a prepared-state route, 0 by state probes only).' in output and
+          '- Reached by a US recording and by no Brazilian one: 0.' in output, 'Group categories wrong')
+    check('from 1 censuses of this run' in output, 'Group source not stated')
+    check(f'- {PROBE} (unit {UNIT})' in output and f'- {OPT} (unit' not in output, 'Probe-only list must use every recording')
+    previous = Path(directory)/'previous.md'
+    previous.write_text(output, encoding='utf-8', newline='\n')
+    # Without the group census the previous figures are kept, and the output says so.
+    kept = strict_generate(root, groups={'playthrough': ('keep', previous), 'routes': ('keep', previous)}, reasons_path=reasons)
+    check(kept.count('figures kept from the previous generated file (previous.md)') == 2, 'Kept figures not stated')
+    def figures(text):
+        return [line for line in text.splitlines() if not line.startswith(('- Playthrough group', '- Prepared-state'))]
+    check(figures(kept) == figures(output), 'Kept figures differ from the previous ones')
+    # Never a silent fallback: nothing to keep is an error.
+    previous.write_text('# Rewritten routine coverage\n', encoding='utf-8', newline='\n')
+    rejects_with('No playthrough figures to keep', groups={'playthrough': ('keep', previous), 'routes': 'none'}, reasons_path=reasons)
+    rejects_with('No census found', groups={'playthrough': Path(directory)/'missing', 'routes': 'none'}, reasons_path=reasons)
+    refused = census_tree('refused', {('us', 'link-01.tsv'): row(CTRL, CTRL, 99, 1, reasons={'irq': 1}) + row(UNIT, UNIT) +
+                                      row(OPT, UNIT) + row(PROBE, UNIT)})
+    rejects_with('Refused calls', groups={'playthrough': refused, 'routes': 'none'}, reasons_path=reasons)
+    # The reasons file: one reason per segment and gap, no stale entry, a strict format.
+    def with_reasons(text):
+        reasons.write_text('segment\tgap\treason\n' + text, encoding='utf-8', newline='\n')
+    with_reasons(f'{PROBE}\tprobe-only\tThe rare branch: an inn with a full party.\n')
+    strict_generate(root, groups=fresh, reasons_path=reasons, require_reasons=True)
+    with_reasons(f'{PROBE}\tprobe-only\tOne.\n{PROBE}\tprobe-only\tTwo.\n')
+    rejects_with('Two probe-only reasons', groups=fresh, reasons_path=reasons)
+    with_reasons(f'{PROBE}\tprobe-only\tOne.\n{OPT}\tprobe-only\tA recording reaches it now.\n')
+    rejects_with('Stale reasons', groups=fresh, reasons_path=reasons)
+    with_reasons(f'{UNIT}\tus-only\tThe Brazilian chain reaches it now.\n')
+    rejects_with('Stale reasons', groups=fresh, reasons_path=reasons)
+    for bad, fragment in ((f'{PROBE}\tprobe-only\t \n', 'Invalid reason'), (f'{PROBE}\tsometimes\tR.\n', 'Invalid reason'),
+                          (f'{FAR}\tprobe-only\tR.\n', 'not registered'), (f'{PROBE} probe-only R.\n', 'Invalid reason')):
+        with_reasons(bad)
+        rejects_with(fragment, groups=fresh, reasons_path=reasons)
+    reasons.write_text('segment\tgap\treason\r\n', encoding='utf-8', newline='\n')
+    rejects_with('Invalid reasons file', groups=fresh, reasons_path=reasons)
+print('Evidence category fixtures passed')

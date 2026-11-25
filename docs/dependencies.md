@@ -271,28 +271,49 @@ fixed start are in [development](development.md#reference-driver) and
 [development](development.md#fixed-machine-start-and-frame-input).
 
 The primary reference is a build of MesenCE tag `2.2.1` (commit
-`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with three patches applied in
+`20ba206cef5ba207c21203176d02cb9f43dda9fb`) with four patches applied in
 order: the six Z80 instruction-duration corrections in
 [mesence-2.2.1-durations.patch](../tools/mesence/mesence-2.2.1-durations.patch),
 then INT sampling at the start of the final T-state with port transfers at
 the start of T3 in
 [mesence-2.2.1-int-boundary.patch](../tools/mesence/mesence-2.2.1-int-boundary.patch),
 then block I/O flags (including repeat-phase flags) in
-[mesence-2.2.1-block-io.patch](../tools/mesence/mesence-2.2.1-block-io.patch).
+[mesence-2.2.1-block-io.patch](../tools/mesence/mesence-2.2.1-block-io.patch),
+then the undocumented flag bit 3 of `LD A,I` and `LD A,R` in
+[mesence-2.2.1-ld-a-ir.patch](../tools/mesence/mesence-2.2.1-ld-a-ir.patch).
+Stock CE leaves bit 3 of F unchanged after those two loads instead of copying
+bit 3 of the loaded value; a US playthrough recording showed the difference,
+and the fourth patch was adopted (maintainer decision, 2026-11-24).
 The changes and their [Zilog UM0080](https://map.grauw.nl/resources/cpu/z80.pdf)
-basis, plus the block-flag sources, are described in
+basis, plus the block-flag and `LD A,I/R` sources, are described in
 [development](development.md#reference-comparison). Emulicious is the
 independent timing check. SMS Reset remains unsupported through Lua.
 
-To rebuild, check out that upstream tag, apply all three patches in that
+To rebuild, check out that upstream tag, apply all four patches in that
 order, build the native core (`InteropDLL/InteropDLL.vcxproj`, `Release|x64`) and publish the UI
 (`UI/UI.csproj`, `win-x64`, framework-dependent single file) following the
 upstream build instructions. This requires the .NET 8 SDK and MSVC toolset
-`v145` or newer. The UI embeds `MesenCore.dll` in `Dependencies.zip`: publish
+`v145` or newer; the current build used .NET SDK 8.0.428 (installed with
+`winget install --id Microsoft.DotNet.SDK.8`) and the MSBuild 18 Build Tools.
+The UI embeds `MesenCore.dll` in `Dependencies.zip`: publish
 the UI again after changing the native core, and force `Rebuild` of both
 projects to avoid stale objects or archives. Replacing an adjacent DLL alone
 does not apply the patch. The upstream UI pre-build command does not quote its
-source path, so use a path without spaces for that build. Keep binaries, build
+source path, so use a path without spaces for that build. The UI project
+writes its output under `$(SolutionDir)bin`, so when building the projects
+rather than the solution, pass the same `SolutionDir` (the source root with a
+trailing backslash) to both. The current build ran, from that root:
+
+```text
+MSBuild InteropDLL\InteropDLL.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v145 /p:SolutionDir=<root>\
+dotnet build UI\UI.csproj -t:Rebuild -c Release -r win-x64 -p:SolutionDir=<root>\
+dotnet publish UI\UI.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:SolutionDir=<root>\ -o <publish-folder>
+```
+
+The published `Mesen.exe` reports product version
+`2.2.1+20ba206cef5ba207c21203176d02cb9f43dda9fb`, and its SHA-256 is the
+default `PSMODERN_REFERENCE_SHA256` (see
+[development](development.md#reference-driver)). Keep binaries, build
 output and captures outside this repository. Each run's `reference.json`
 identifies the executable build used.
 

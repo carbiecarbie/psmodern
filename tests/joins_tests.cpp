@@ -60,8 +60,24 @@ int main(int argc,char** argv) {
             ++routes;
         }
         probe::check(routes==6,"expected six interaction events at the item places");
+        // Milestone 19 (the re-verified stop sweep): the two item-place calls
+        // with an IRQ and, separately, an NMI raised at every cycle of the
+        // call's run, always (not a sample): each run takes the interrupt before
+        // or after the call and must still reach the call in C++ and match the
+        // original at every instruction boundary.
+        unsigned item_place_runs=0;
+        for (const std::uint16_t pc:{std::uint16_t{0x5535},std::uint16_t{0x5538}}) {
+            const RoutineEntry entry{1,pc};
+            probe::Setup setup; setup.seed=pc;
+            auto plain=h.prepare(entry,setup);
+            const auto cycles=h.run_cpp(plain,entry).cycles;
+            const auto sweep=h.sweep_interrupts(entry,setup,{},1);
+            probe::check(sweep.runs==2*cycles,"an item-place call was not swept at every cycle");
+            item_place_runs+=sweep.runs;
+        }
         std::cout<<segments<<" joining segments, "<<runs<<" lockstep runs, every exit taken; "<<routes
-                 <<" item-place events reach their call.\n";
+                 <<" item-place events reach their call; "<<item_place_runs
+                 <<" interrupt runs over every cycle of the two item-place calls.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

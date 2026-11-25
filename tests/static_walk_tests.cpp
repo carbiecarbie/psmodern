@@ -10,6 +10,19 @@
 //      block-copy or port-output slice resumes at its own instruction.
 //   3. The jumps through a register are exactly the known dispatchers, so a
 //      new one cannot be registered without its tables being listed here.
+// Milestone 19 (the re-verified stop sweep) makes the walk stricter:
+//   4. A target in slot 2 (8000h-BFFFh) must begin a segment of the bank that
+//      is really mapped there, not of any bank. Code in a paged bank keeps
+//      its own bank mapped (the engine refuses a fetch after a remap). Code
+//      in the fixed banks reaches slot 2 only through the three sound
+//      bridges, and each one must write its bank to the slot-2 register
+//      (FFFFh) in its own straight-line body before the jump; that bank is
+//      the one the target must belong to.
+//   5. The continuations the original pushes itself (an address loaded into a
+//      register and pushed, so that a later RET goes there) must begin
+//      segments; the push is checked in the ROM, so the list cannot go stale.
+//   6. A block-copy or port-output slice must be that instruction, and the
+//      instruction after it (where the slice completes) must begin a segment.
 // Addresses only; the tables and instructions are read from the player's ROM.
 #include "probe.h"
 #include <map>
@@ -35,6 +48,18 @@ constexpr Table tables[]{
 const std::set<std::pair<RoutineEntry,std::uint16_t>> dispatchers{
     {{0,0x00E6},0x00F0},{{0,0x0131},0x0142},{{1,0x4769},0x4772},
     {{12,0x830A},0x8318},{{12,0x8519},0x852B},{{12,0x851C},0x852B}};
+// The jumps from a fixed bank into slot 2 (the sound driver's bridges), by
+// the address of the jump.
+const std::set<std::uint16_t> slot2_bridges{0x02EA,0x02F2,0x02FA};
+// Continuations the original pushes itself. `site` is the instruction that
+// loads the address into a register pair; the next instruction pushes that
+// pair, or, when `push` is set, jumps there and its first instruction does.
+struct Pushed { unsigned bank; std::uint16_t site, continuation; std::uint16_t push=0; };
+constexpr Pushed pushed[]{
+    {0,0x0A6D,0x0A8C},{0,0x0A85,0x0A8C},{0,0x0EEE,0x0EF5},
+    {12,0x8416,0x841D},{12,0x8519,0x852C},
+    {12,0x8723,0x8729,0x851C},              // jumps to 851C, whose first instruction pushes HL
+};
 
 std::string name(unsigned bank, std::uint16_t address) {
     std::ostringstream text;
@@ -66,6 +91,26 @@ unsigned plain_length(std::uint8_t op, std::uint8_t next) {
         default: return 0;
     }
 }
+// The bank a fixed-bank bridge maps into slot 2 before its jump at `jump`:
+// its body, from the segment entry to the jump, must be straight-line loads
+// and stores, the last store to FFFFh (the slot-2 register) writing a known
+// constant. Anything else stops the test: extend it rather than guess.
+unsigned slot2_written_before(const Memory::Rom& image, std::uint16_t entry, std::uint16_t jump, const std::string& from) {
+    std::optional<std::uint16_t> hl;
+    std::optional<std::uint8_t> a, slot2;
+    auto word=[&](std::uint16_t at) { return static_cast<std::uint16_t>(image.at(at) | image.at(at+1u)<<8); };
+    for (std::uint16_t pc=entry;pc!=jump;) {
+        probe::check(pc<jump,"A bridge into slot 2 does not run straight to its jump"+from);
+        const auto op=image.at(pc);
+        if (op==0x21) { hl=word(pc+1); pc+=3; }                                   // LD HL,nn
+        else if (op==0x3E) { a=image.at(pc+1); pc+=2; }                           // LD A,n
+        else if (op==0x36) { if (hl==0xFFFF) slot2=image.at(pc+1); pc+=2; }       // LD (HL),n
+        else if (op==0x32) { if (word(pc+1)==0xFFFF) slot2=a; pc+=3; }           // LD (nn),A
+        else probe::check(false,"A bridge into slot 2 has an instruction this test does not follow"+from);
+    }
+    probe::check(slot2.has_value(),"A bridge into slot 2 does not write a constant bank to FFFFh before its jump"+from);
+    return *slot2%32u;                                                            // a 512 KiB cartridge has 32 banks
+}
 }
 
 int main(int argc,char** argv) {
@@ -82,14 +127,13 @@ int main(int argc,char** argv) {
         auto word=[&](unsigned bank, std::uint16_t address) {
             return static_cast<std::uint16_t>(byte(bank,address) | byte(bank,address+1)<<8);
         };
-        std::set<std::uint16_t> paged;           // addresses at 8000h and above that begin a segment in some bank
-        for (const auto& [entry,routine]:registry.entries()) if (entry.address>=0x8000) paged.insert(entry.address);
-        // The bank an address belongs to, seen from code in `bank`: the two
-        // fixed slots, or the bank paged at 8000h (the code's own).
-        auto begins_segment=[&](unsigned bank, std::uint16_t address) {
+        // Whether `address` begins a segment when `slot2` is the bank mapped at
+        // 8000h. Below 8000h the bank is fixed; a fixed bank in slot 2 (0 or 1)
+        // means the caller knows of no paged bank there.
+        auto begins_segment=[&](unsigned slot2, std::uint16_t address) {
             if (address>=0xC000) return false;
             if (address<0x8000) return registry.find({address<0x4000 ? 0u : 1u,address})!=nullptr;
-            return bank>=2 ? registry.find({bank,address})!=nullptr : paged.contains(address);
+            return slot2>=2 && registry.find({slot2,address})!=nullptr;
         };
         std::vector<std::string> missing;
         auto need=[&](unsigned bank, std::uint16_t address, const std::string& what) {
@@ -102,7 +146,22 @@ int main(int argc,char** argv) {
             need(table.bank,word(table.bank,static_cast<std::uint16_t>(table.address+2*i)),
                  "entry "+std::to_string(i)+" of the code table at "+name(table.bank,table.address));
 
+        // 5. The pushed continuations: the load and the push are checked in the ROM.
+        for (const auto& p:pushed) {
+            const auto site=name(p.bank,p.site);
+            const auto load=byte(p.bank,p.site);
+            probe::check((load==0x01 || load==0x11 || load==0x21) && word(p.bank,static_cast<std::uint16_t>(p.site+1))==p.continuation,
+                         "No longer loads its pushed continuation: "+site);
+            const std::uint8_t push=static_cast<std::uint8_t>(load+0xC4);   // PUSH BC, DE or HL for LD BC, DE or HL
+            const auto next=static_cast<std::uint16_t>(p.site+3);
+            if (!p.push) probe::check(byte(p.bank,next)==push,"The pushed continuation's push moved: "+site);
+            else probe::check(byte(p.bank,next)==0xC3 && word(p.bank,static_cast<std::uint16_t>(next+1))==p.push &&
+                              byte(p.bank,p.push)==push,"The pushed continuation's push moved: "+site);
+            need(p.bank,p.continuation,"the continuation pushed at "+site);
+        }
+
         unsigned exits=0;
+        std::set<std::uint16_t> bridges;
         std::set<std::pair<RoutineEntry,std::uint16_t>> through_register;
         for (const auto& [entry,routine]:registry.entries()) for (const auto& exit:routine.spec.exits) {
             const auto at=exit.address;
@@ -111,14 +170,30 @@ int main(int argc,char** argv) {
             probe::check(at<0x8000 || entry.bank>=2,"An exit in a paged bank belongs to a fixed-bank segment:"+from);
             ++exits;
             if (exit.kind==RoutineExit::returned) continue;
-            if (exit.kind!=RoutineExit::core_final) { need(bank,at,"the resumption of a slice"+from); continue; }
             const auto op=byte(bank,at), next=byte(bank,static_cast<std::uint16_t>(at+1));
+            if (exit.kind!=RoutineExit::core_final) {
+                // 6. A slice stops inside LDIR or OTIR and resumes at it; the
+                // instruction after it is where the whole block completes.
+                const bool copy=exit.kind==RoutineExit::copy_repeat;
+                probe::check(op==0xED && next==(copy ? 0xB0 : 0xB3),
+                             std::string("A ")+(copy ? "block-copy" : "port-output")+" slice is not at that instruction"+from);
+                need(bank,at,"the resumption of a slice"+from);
+                need(bank,static_cast<std::uint16_t>(at+2),"the completion of a slice"+from);
+                continue;
+            }
             const auto operand=word(bank,static_cast<std::uint16_t>(at+1));
             const auto relative=static_cast<std::uint16_t>(at+2+static_cast<std::int8_t>(next));
             auto after=[&](unsigned length) { return static_cast<std::uint16_t>(at+length); };
-            if (op==0xC3) need(bank,operand,"the jump target"+from);
-            else if ((op&0xC7)==0xC2) { need(bank,operand,"the jump target"+from); need(bank,after(3),"the instruction after a conditional jump"+from); }
-            else if (op==0xCD || (op&0xC7)==0xC4) { need(bank,operand,"the call target"+from); need(bank,after(3),"the return point of the call"+from); }
+            // 4. The bank in slot 2 when an absolute JP or CALL takes this exit.
+            auto slot2_at_transfer=[&]() -> unsigned {
+                if (entry.bank>=2 || operand<0x8000 || operand>=0xC000) return entry.bank;
+                probe::check(slot2_bridges.contains(at),"A fixed-bank jump or call into slot 2 that is not a known bridge"+from);
+                bridges.insert(at);
+                return slot2_written_before(image,entry.address,at,from);
+            };
+            if (op==0xC3) need(slot2_at_transfer(),operand,"the jump target"+from);
+            else if ((op&0xC7)==0xC2) { need(slot2_at_transfer(),operand,"the jump target"+from); need(bank,after(3),"the instruction after a conditional jump"+from); }
+            else if (op==0xCD || (op&0xC7)==0xC4) { need(slot2_at_transfer(),operand,"the call target"+from); need(bank,after(3),"the return point of the call"+from); }
             else if (op==0x18) need(bank,relative,"the jump target"+from);
             else if (op==0x10 || op==0x20 || op==0x28 || op==0x30 || op==0x38) {
                 need(bank,relative,"the jump target"+from); need(bank,after(2),"the instruction after a conditional jump"+from);
@@ -133,6 +208,7 @@ int main(int argc,char** argv) {
                 need(bank,after(length),"the instruction after the final one"+from);
             }
         }
+        probe::check(bridges==slot2_bridges,"A known fixed-bank bridge into slot 2 is no longer a declared exit");
         probe::check(through_register==dispatchers,
             "The jumps through a register differ from the known dispatchers: list the new one's code tables in this test");
 
@@ -141,8 +217,9 @@ int main(int argc,char** argv) {
             for (const auto& line:missing) std::cerr<<"  "<<line<<'\n';
             return 1;
         }
-        std::cout<<registry.entries().size()<<" segments, "<<exits<<" declared exits and "<<targets
-                 <<" code-table targets: every one continues in a segment.\n";
+        std::cout<<registry.entries().size()<<" segments, "<<exits<<" declared exits, "<<targets
+                 <<" code-table targets, "<<std::size(pushed)<<" pushed continuations and "<<bridges.size()
+                 <<" slot-2 bridges (exact bank): every one continues in a segment.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

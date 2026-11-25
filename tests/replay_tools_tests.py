@@ -14,7 +14,7 @@ def check(condition,detail='Test check failed'):
     if not condition:raise RuntimeError(detail)
 
 runner=Path(sys.argv[1])
-reference_sha256=sys.argv[4] if len(sys.argv)>4 else '1ba3e21c1008ffd71fd94fd9c3ab9bd23bb65c750e5c7f3e9d0260c4d93984b5'
+reference_sha256=sys.argv[4] if len(sys.argv)>4 else '4f9168fa95b17979bababe777a42ac270f3d6399e35a6a45ef6be80528ea4511'
 with tempfile.TemporaryDirectory() as folder:
     root=Path(folder);rom=root/'synthetic.sms';rom.write_bytes(bytes(512*1024))
     rec=root/'test.psrec';header='psmodern-recording 1\nrom '+hashlib.sha1(rom.read_bytes()).hexdigest()+'\ncart-ram '+hashlib.sha1(bytes([1])*8192).hexdigest()+'\n'
@@ -219,7 +219,7 @@ with tempfile.TemporaryDirectory() as folder:
         check('out="../"' in (work/'config.lua').read_text(),'Lua output path must be relative')
         check('dofile([[../config.lua]])' in (work/'capture.lua').read_text(),'Lua config path must be relative')
         settings=json.loads((work/'home/settings.json').read_text())
-        check(settings['Debug']['ScriptWindow']['ScriptTimeout']==1200,'Numeric Lua timeout must be set through configuration')
+        check(settings['Debug']['ScriptWindow']['ScriptTimeout']==7200,'Numeric Lua timeout must be set through configuration')
         for n in (1,2):
             for component,size in zip(reference.COMPONENTS,reference.SIZES):
                 (work/f'frame-{n:06d}.{component}.bin').write_bytes(bytes(size or 0))

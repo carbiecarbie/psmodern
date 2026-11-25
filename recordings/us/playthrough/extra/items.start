@@ -1,0 +1,31 @@
+psmodern-extra-start 1
+from link-08
+byte 040a 01
+byte 040c 13
+byte 040d 02
+byte 0416 0b
+byte 05c0 03
+byte 05c1 04
+byte 05c2 24
+byte 05c3 27
+byte 05c4 35
+byte 05c5 2a
+byte 05c6 2b
+byte 05c7 2c
+byte 05c8 2d
+byte 05c9 2e
+byte 05ca 2f
+byte 05cb 30
+byte 05cc 32
+byte 05cd 33
+byte 05ce 34
+byte 05cf 36
+byte 05d0 37
+byte 05d1 38
+byte 05d2 23
+byte 05d3 3e
+byte 05d4 26
+byte 05d5 31
+byte 05d6 28
+byte 05d7 29
+byte 05e2 18

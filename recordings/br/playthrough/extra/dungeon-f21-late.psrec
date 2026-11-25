@@ -1,0 +1,44 @@
+psmodern-recording 1
+rom fd8dad6acb6fa75dc8e9bbaea2a7e9fd486fc2dd
+cart-ram 08fbc53906cc7402b483f6959f70fd27b4c088fe
+input 100 p1=D p2=- pause=0 reset=0
+input 102 p1=- p2=- pause=0 reset=0
+input 104 p1=1 p2=- pause=0 reset=0
+input 106 p1=- p2=- pause=0 reset=0
+input 236 p1=2 p2=- pause=0 reset=0
+input 238 p1=- p2=- pause=0 reset=0
+input 303 p1=2 p2=- pause=0 reset=0
+input 305 p1=- p2=- pause=0 reset=0
+input 329 p1=2 p2=- pause=0 reset=0
+input 331 p1=- p2=- pause=0 reset=0
+input 424 p1=L p2=- pause=0 reset=0
+input 426 p1=- p2=- pause=0 reset=0
+input 474 p1=2 p2=- pause=0 reset=0
+input 476 p1=- p2=- pause=0 reset=0
+input 511 p1=D p2=- pause=0 reset=0
+input 513 p1=- p2=- pause=0 reset=0
+input 515 p1=D p2=- pause=0 reset=0
+input 517 p1=- p2=- pause=0 reset=0
+input 519 p1=2 p2=- pause=0 reset=0
+input 521 p1=- p2=- pause=0 reset=0
+input 543 p1=L p2=- pause=0 reset=0
+input 545 p1=- p2=- pause=0 reset=0
+input 566 p1=U p2=- pause=0 reset=0
+input 568 p1=- p2=- pause=0 reset=0
+input 570 p1=U p2=- pause=0 reset=0
+input 572 p1=- p2=- pause=0 reset=0
+input 574 p1=2 p2=- pause=0 reset=0
+input 576 p1=- p2=- pause=0 reset=0
+input 584 p1=2 p2=- pause=0 reset=0
+input 586 p1=- p2=- pause=0 reset=0
+input 611 p1=2 p2=- pause=0 reset=0
+input 613 p1=- p2=- pause=0 reset=0
+input 685 p1=U p2=- pause=0 reset=0
+input 687 p1=- p2=- pause=0 reset=0
+input 811 p1=2 p2=- pause=0 reset=0
+input 813 p1=- p2=- pause=0 reset=0
+input 873 p1=2 p2=- pause=0 reset=0
+input 875 p1=- p2=- pause=0 reset=0
+input 894 p1=2 p2=- pause=0 reset=0
+input 896 p1=- p2=- pause=0 reset=0
+end 1103

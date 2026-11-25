@@ -1,7 +1,9 @@
 # Milestone 19 plan - Playthrough to the ending
 
-**Tier A. Status: approved by the maintainer on 2026-11-24, including the
-changes from the independent plan review; not started.** Nineteenth milestone. Number 18
+**Tier A. Status: implemented on 2026-11-25; the independent implementation
+review and the maintainer's acceptance are pending.** The plan was approved
+by the maintainer on 2026-11-24, including the changes from the independent
+plan review. Nineteenth milestone. Number 18
 belongs to the withdrawn [television pixel shape](milestone-18-plan.md) and
 is not reused.
 

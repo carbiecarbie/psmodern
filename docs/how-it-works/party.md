@@ -243,7 +243,9 @@ those cases; they do not measure every recovery route in a complete game.
 whose activity bit 0 is clear is preserved. An active record resets flags to
 1 and blocking to 0, copies maximum HP/MP and the two spell counts from its
 eight-byte level row, and adds equipment boosts to attack and defense with
-the original byte arithmetic. Current HP/MP, level, experience and equipment
+the original byte arithmetic. The boosts are one byte per item number in a
+64-entry table at `00:183A`: the weapon's entry goes to attack, the armor's
+and the shield's to defense. Current HP/MP, level, experience and equipment
 are preserved. Actor lookup (`00:187A`, `00:187D`) preserves the actor number
 and returns its record and bit-0 activity result. The warning helper
 (`00:188E`) also preserves its caller's other registers while showing the

@@ -207,6 +207,45 @@ US Rev-A ROM (the Brazilian tables are identical here).
 - **ROM static, ROM run.** The object check reads the cell ahead, not the one
   stood on, so a fixed fight or event begins when the party faces it.
 
+### A finished object cell lengthens every pass of the dungeon loop
+
+- **Where:** the handler `01:65EE` and its scan of the object table
+  (`01:660A`-`01:6619`), called once per pass by the dungeon loop `00:0F3C`
+  after its frame wait (which returns to `00:0F48`).
+- **What a player sees:** nothing. The loop still runs once a frame and the
+  pad is read as usual. Only a tool that looks at the processor at the end of
+  each frame and waits to find it at `00:0F48` notices: on such a cell it never
+  does.
+- **ROM static.** Whenever the cell under the party holds the object marker
+  (value 8), the handler walks the object table from its first record,
+  comparing floor and then cell, before it reads the pad. It never looks at
+  the done flag, so the cell of a chest already opened or a fight already won
+  repeats the walk on every pass. A skipped record costs about 64 processor
+  cycles, and the table is ordered by floor, so the walk is longer the further
+  down the table the record sits.
+- **ROM run.** In a 44,471-frame US recording the party ends on floor 37,
+  cell 29 (a fight whose done flag reads FFh), the 146th of the table's 186
+  records, and stays there for 5,978 frames. At 5,885 of their frame ends the
+  processor is inside the scan and at 84 more at the loop's seams (`00:0F43`,
+  `00:0F4B`); at none is it at the wait. On the plain cell next to it a replay finds the wait at 300 of
+  300 idle frame ends. The loop still runs once per frame (2,000 passes in
+  2,000 frames, with about 1,466 turns of the wait loop per frame), and a
+  replay from the end of the recording shows the pad read: Left held for two
+  frames turned the party.
+- **Reference emulator.** All seven components matched MesenCE at every one of
+  the 44,471 frames, so the original does the same.
+- **Inference.** A turn of the wait loop is about 29 cycles, so the processor
+  spends about 17,200 of a frame's 59,736 cycles working, about 9,300 of them
+  in the scan. A frame ends about 16,000 cycles after the frame interrupt (the
+  interrupt comes at line 192 of 262, 228 cycles a line; Hardware
+  documentation), so this pass is still
+  at work when the frame ends and a plain one is not. The same sampling point
+  explains [the walking loop's wait](#the-walking-loops-frame-wait-is-rarely-found-at-a-frame-end)
+  on the world map. This was not tested by changing the record's place.
+- **Unknown.** Which other object cells do this: the scan is short for a record
+  near the start of the table and likely too short to matter there, but no
+  other cell was measured.
+
 ## The world map and the towns
 
 How these work is in [the world map and the towns](how-it-works/world-map.md).
@@ -475,6 +514,50 @@ Quirks of `00:0B08`, `00:0B6A` and the road `00:0E8B`.
   entering a map whose tune is the one already playing does not restart it.
 - **ROM run.** The state probes ran both outcomes (the same request and a new
   one) against the original.
+
+### Found in the playthroughs (milestone 19)
+
+Quirks of the walking loop `00:0B08` met by the playthrough agents, whose
+driver looks at the processor at the end of each frame and waits to find it
+at the frame wait before it presses a button.
+
+#### The walking loop's frame wait is rarely found at a frame end
+
+- **Where:** the walking loop `00:0B08`, whose frame wait (`00:0055`) returns to
+  `00:0B14`; the object engine `01:576A` and its sprite drawing `01:5853`.
+- **What a player sees:** nothing. The loop runs once a frame and the party
+  walks at the usual pace. Only a tool that looks at the processor at the end
+  of each frame sees something odd: with a party of four it finds the
+  processor at the wait only a handful of times in a thousand frames, and
+  elsewhere inside the sprite drawing or the frame interrupt's routine. The
+  two cases below are one behaviour.
+- **ROM run, Reference emulator.** A 1,709-frame Brazilian recording, party of
+  four on Motavia: the walking loop runs 1,256 passes in the 1,256 frames from
+  its first pass, and the wait is found at a frame end only at frames 453, 497
+  and 1649. The party's steps take 16 frames each and the scroll moves a pixel
+  a frame. A 16,655-frame Brazilian recording, at cell (37, 91) of the Motavia
+  desert after walking back to a cave mouth (its last 1,000 frames are idle),
+  shows the same: 2,000 passes in
+  every 2,000 frames, the wait found at 15 frame ends in all, the longest
+  stretch without one 5,039 frames; the party walks when an arrow is held, and
+  a replay from its end with button 2 pressed for two frames ends the walking
+  mode and opens the field menu. Both recordings matched MesenCE on all seven
+  components at every frame.
+- **Inference.** About 1,340 turns of the wait loop per frame (1,349 counted
+  over 500 frames of the first recording, 1,333 over 2,000 of the second) at
+  about 29 cycles each leaves the
+  processor idle for about 39,000 of a frame's 59,736 cycles, so the frame
+  interrupt's routine and the pass together keep it busy for about 20,600. A
+  frame ends about 16,000 cycles after the frame interrupt (line 192 of 262,
+  228 cycles a line), so the processor is still at work then. Not tested by
+  changing the party's size.
+- **Unknown.** Why the wait is found on the few frames where it is; whether
+  the US cartridge, which shares this code, behaves the same with four members
+  (not run). The agent's note counts more than 20,000 frames without a
+  sighting in the live run; the recording above shows 5,039.
+- PSModern's own watches at the wait (the Options window, the dungeon automap)
+  act on the instruction after the wait, not at frame ends, so they do not
+  depend on this.
 
 ## Menus and windows
 

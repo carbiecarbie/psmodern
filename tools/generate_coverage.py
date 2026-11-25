@@ -1,8 +1,19 @@
-"""Generate ROM-free routine coverage from the checkpoint censuses."""
+"""Generate ROM-free routine coverage from the checkpoint censuses.
+
+Milestone 19 adds the evidence categories: the checkpoints, the playthrough
+group (the chain links and part 3's recordings, CTest label playthrough), the
+prepared-state routes and probes only. The group's and the routes' censuses are
+optional inputs. Without one, the figures recorded in the previous generated
+file are kept and the output says so; --no-playthrough-yet and --no-routes-yet
+state instead that none exist yet. It never falls back silently. The reasons
+file (coverage-reasons.tsv beside this script) gives the reason for every
+segment that no recording reaches or that only US recordings reach.
+"""
 import argparse
 import csv
 from pathlib import Path
 import re
+import sys
 
 CHECKPOINTS = ('opening', 'first-battle', 'first-dungeon', 'later-town', 'boss', 'deep-dungeon')
 # Milestone 7's dungeon recordings, milestone 11's map recordings (the road, the
@@ -171,6 +182,144 @@ def transition_lines(transitions):
     return lines
 
 
+# ---- Milestone 19: evidence categories ----------------------------------------
+REASONS_FILE = Path(__file__).resolve().parent/'coverage-reasons.tsv'
+REASON_GAPS = ('probe-only', 'us-only')
+GROUPS = {'playthrough': 'Playthrough group (chain links and part 3 recordings)',
+          'routes': 'Prepared-state routes'}
+CATEGORY_HEADING = '## Evidence categories'
+REACHED_HEADING = '### Reached by the {group} census ({version})'
+
+
+def read_group(root, entries):
+    """The segments each version's censuses under root/us and root/br reach
+    (every *.tsv at any depth except the transition censuses). The censuses
+    must name the checkpoints' segments and hold no refused call; finding
+    none is an error."""
+    reached = {'us': set(), 'br': set()}
+    count = 0
+    for version in ('us', 'br'):
+        folder = root/version
+        for path in sorted(folder.rglob('*.tsv')) if folder.is_dir() else ():
+            if path.name.endswith('.transition.tsv'):
+                continue
+            rows, _ = read_census(path)
+            if sorted(rows) != entries:
+                raise ValueError(f'Census with another routine set: {path}')
+            for entry, counts in rows.items():
+                if counts['fallback']:
+                    raise ValueError(f'Refused calls in {path}: {entry}')
+                if counts['cpp']:
+                    reached[version].add(entry)
+            count += 1
+    if not count:
+        raise ValueError(f'No census found under {root}')
+    return reached, count
+
+
+def previous_group(previous, group):
+    """The reached sets a previous generated file recorded for a group, or None
+    when it records none (an older file, or no such file)."""
+    if previous is None or not Path(previous).exists():
+        return None
+    text = Path(previous).read_text(encoding='utf-8')
+    if CATEGORY_HEADING not in text:
+        return None
+    reached = {}
+    for version in ('us', 'br'):
+        heading = REACHED_HEADING.format(group=group, version=version.upper()) + '\n'
+        if heading not in text:
+            return None
+        block = text.split(heading, 1)[1].split('\n#', 1)[0]
+        reached[version] = set(re.findall(ENTRY, block))
+    return reached
+
+
+def read_reasons(path, entries):
+    """The reasons file: a header, then segment, gap (probe-only or us-only) and
+    prose separated by tabs; at most one reason per segment and gap, for
+    registered segments only. Addresses and prose only, never ROM data."""
+    text = Path(path).read_bytes().decode('utf-8')
+    lines = text.split('\n')
+    if lines[0] != 'segment\tgap\treason' or lines[-1] != '' or '\r' in text:
+        raise ValueError(f'Invalid reasons file header or line endings: {path}')
+    reasons = {gap: {} for gap in REASON_GAPS}
+    for number, line in enumerate(lines[1:-1], 2):
+        fields = line.split('\t')
+        if len(fields) != 3 or not re.fullmatch(ENTRY, fields[0]) or fields[1] not in REASON_GAPS or not fields[2].strip():
+            raise ValueError(f'Invalid reason on line {number}: {path}')
+        segment, gap, reason = fields
+        if segment not in entries:
+            raise ValueError(f'Reason for a segment that is not registered: {segment}')
+        if segment in reasons[gap]:
+            raise ValueError(f'Two {gap} reasons for {segment}')
+        reasons[gap][segment] = reason
+    return reasons
+
+
+def categories(entries, checkpoints, groups, notes, reasons):
+    """The evidence section, the segments still lacking a reason per gap, and
+    the segments no recording reaches."""
+    def either(reached):
+        return reached['us'] | reached['br']
+    recordings = {version: checkpoints[version] | groups['playthrough'][version] for version in ('us', 'br')}
+    probe_only = set(entries) - either(recordings)
+    by_route = either(groups['routes']) & probe_only
+    us_only = recordings['us'] - recordings['br']
+    need = {'probe-only': probe_only, 'us-only': us_only}
+    stale = [f'{gap} {segment}' for gap in REASON_GAPS for segment in sorted(reasons[gap]) if segment not in need[gap]]
+    if stale:
+        raise ValueError('Stale reasons (the segment no longer has that gap): ' + ', '.join(stale))
+    missing = {gap: sorted(need[gap] - set(reasons[gap])) for gap in REASON_GAPS}
+
+    def row(name, reached):
+        return f"| {name} | {len(reached['us']):,} | {len(reached['br']):,} | {len(either(reached)):,} |"
+    lines = ['', CATEGORY_HEADING, '',
+             f'Segments reached, of {len(entries):,} registered. Recordings are the checkpoints and the playthrough',
+             'group; prepared-state routes and state probes are not recordings.', '',
+             *table('| Evidence | US | Brazilian | Either |', [
+                 row('Checkpoint recordings', checkpoints),
+                 row(GROUPS['playthrough'], groups['playthrough']),
+                 row('Any recording', recordings),
+                 row(GROUPS['routes'], groups['routes'])]), '',
+             f'- Reached by no recording: {len(probe_only):,} ({len(by_route):,} of them by a prepared-state route, '
+             f'{len(probe_only - by_route):,} by state probes only).',
+             f'- Reached by a US recording and by no Brazilian one: {len(us_only):,}.',
+             f'- With a reason in `tools/coverage-reasons.tsv`: {len(probe_only) - len(missing["probe-only"]):,} of the '
+             f'{len(probe_only):,} reached by no recording and {len(us_only) - len(missing["us-only"]):,} of the '
+             f'{len(us_only):,} reached by US recordings only.']
+    lines += [f'- {GROUPS[group]}: {notes[group]}.' for group in GROUPS]
+    for group in GROUPS:
+        for version in ('us', 'br'):
+            members = sorted(groups[group][version])
+            lines += ['', REACHED_HEADING.format(group=group, version=version.upper()), '']
+            lines += [' '.join(members[i:i + 12]) for i in range(0, len(members), 12)] or ['None.']
+    return lines, missing, probe_only
+
+
+def group_figures(groups, units, entries):
+    """The reached sets and the source note of each group (see generate)."""
+    reached, notes = {}, {}
+    for group in GROUPS:
+        source = groups.get(group, 'none')
+        if source == 'none':
+            reached[group] = {'us': set(), 'br': set()}
+            notes[group] = 'no census recorded yet'
+        elif isinstance(source, tuple) and source[0] == 'keep':
+            kept = previous_group(source[1], group)
+            if kept is None:
+                raise ValueError(f'No {group} figures to keep in {source[1]}: give its census, or state that none exists yet')
+            if any(entry not in units for version in kept for entry in kept[version]):
+                raise ValueError(f'The kept {group} figures name a segment that is not registered')
+            reached[group] = kept
+            notes[group] = (f'figures kept from the previous generated file ({Path(source[1]).name}); '
+                            'this run was not given its census')
+        else:
+            reached[group], count = read_group(Path(source), entries)
+            notes[group] = f'from {count} censuses of this run'
+    return reached, notes
+
+
 def share(counts):
     total = counts['cpp'] + counts['fallback']
     return f"{100*counts['cpp']/total:.3f}%" if total else 'n/a'
@@ -208,7 +357,12 @@ def check_rules(censuses, totals, reached, allowed, allow_forced, allow_refusals
             raise ValueError(f'Allow-list entry has C++ calls: {entry}')
 
 
-def generate(root, allowed=None, allow_forced=False, allow_refusals=False):
+def generate(root, allowed=None, allow_forced=False, allow_refusals=False, groups=None, reasons_path=None,
+             require_reasons=False, report=None):
+    """groups (milestone 19) maps 'playthrough' and 'routes' each to a census
+    root, to ('keep', previous generated file) or to 'none' (no census yet).
+    Without groups the output is the checkpoints-only form of milestone 14.
+    report, a dict, receives the segments still lacking a reason."""
     # allow_forced and allow_refusals are for the tests of the older rules only:
     # the real censuses run in original mode with no refusal.
     allowed = NO_CPP_ALLOWED if allowed is None else allowed
@@ -277,9 +431,24 @@ def generate(root, allowed=None, allow_forced=False, allow_refusals=False):
     if transitions:
         lines += transition_lines(transitions)
     unreached = [entry for entry in entries if entry not in reached]
+    probe_text = 'No checkpoint recording reaches these segments; the ROM probe tests exercise them.'
+    if groups is not None:
+        checkpoint_reached = {version: {entry for entry in entries
+                                        if any(rows[entry]['cpp'] for (v, _), rows in censuses.items() if v == version)}
+                              for version in ('us', 'br')}
+        group_reached, notes = group_figures(groups, units, entries)
+        category_lines, missing, probe_only = categories(
+            entries, checkpoint_reached, group_reached, notes, read_reasons(reasons_path or REASONS_FILE, set(entries)))
+        if report is not None:
+            report['missing'] = missing
+        if require_reasons and any(missing.values()):
+            raise ValueError('Segments without a reason: ' + ', '.join(
+                f'{gap} {segment}' for gap in REASON_GAPS for segment in missing[gap]))
+        lines += category_lines
+        unreached = sorted(probe_only)
+        probe_text = 'No recording (checkpoint or playthrough group) reaches these segments; the ROM probe tests exercise them.'
     if unreached:
-        lines += ['', '## Covered by state probes only', '',
-                  'No checkpoint recording reaches these segments; the ROM probe tests exercise them.', '',
+        lines += ['', '## Covered by state probes only', '', probe_text, '',
                   *(f'- {entry} (unit {units[entry]})' for entry in unreached)]
     return '\n'.join(lines) + '\n'
 
@@ -288,8 +457,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('censuses', type=Path, help='Root containing us/ and br/ checkpoint TSVs')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--previous', type=Path, help='generated file whose group figures are kept (default: --out)')
+    for group, what in (('playthrough', 'the playthrough group'), ('routes', 'the prepared-state routes')):
+        choice = parser.add_mutually_exclusive_group()
+        choice.add_argument(f'--{group}', type=Path, metavar='DIR', help=f'census root (us/, br/) of {what}')
+        choice.add_argument(f'--no-{group}-yet', action='store_true', help=f'state that {what} has no census yet')
+    parser.add_argument('--reasons', type=Path, help=f'reasons file (default: {REASONS_FILE.name} beside this script)')
+    parser.add_argument('--require-reasons', action='store_true',
+                        help='fail when a segment no recording reaches, or only US recordings reach, has no reason')
+    parser.add_argument('--missing-reasons', action='store_true',
+                        help='print the segments still lacking a reason (gap, tab, segment) instead of writing --out')
     args = parser.parse_args()
-    result = generate(args.censuses)
+    groups = {}
+    for group in GROUPS:
+        if getattr(args, group):
+            groups[group] = getattr(args, group)
+        elif getattr(args, f'no_{group}_yet'):
+            groups[group] = 'none'
+        else:
+            groups[group] = ('keep', args.previous or args.out)
+            print(f'{group}: no census given, keeping the figures recorded in {args.previous or args.out}', file=sys.stderr)
+    report = {}
+    result = generate(args.censuses, groups=groups, reasons_path=args.reasons, require_reasons=args.require_reasons, report=report)
+    if args.missing_reasons:
+        sys.stdout.writelines(f'{gap}\t{segment}\n' for gap in REASON_GAPS for segment in report['missing'][gap])
+        return
     args.out.write_text(result, encoding='utf-8', newline='\n')
 
 

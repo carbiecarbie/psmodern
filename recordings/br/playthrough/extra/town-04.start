@@ -1,0 +1,10 @@
+psmodern-extra-start 1
+from link-08
+byte 0401 40
+byte 0402 06
+byte 0405 50
+byte 0408 04
+byte 0409 04
+byte 0411 50
+byte 0413 40
+byte 0414 06

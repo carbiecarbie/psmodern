@@ -1,0 +1,18 @@
+diff --git a/Core/SMS/SmsCpu.cpp b/Core/SMS/SmsCpu.cpp
+index 22a32b1..baa7dc4 100644
+--- a/Core/SMS/SmsCpu.cpp
++++ b/Core/SMS/SmsCpu.cpp
+@@ -1033,7 +1033,12 @@ void SmsCpu::LD_IR(uint8_t& dst, uint8_t value)
+ {
+ 	dst = value;
+ 
+-	SetStandardFlags<0xE4>(value);
++	//Sean Young, The Undocumented Z80 Documented v0.91, section 2.3 (YF and XF
++	//are copies of bits 5 and 3 of the result) and the LD A,I and LD A,R rows
++	//of the 8-bit load table in section 8.1:
++	//https://www.smspower.org/uploads/Development/z80-documented.pdf
++	//S, Z, F5 and F3 all come from the loaded value.
++	SetStandardFlags<0xEC>(value);
+ 	SetFlagState(SmsCpuFlags::Parity, _state.IFF2);
+ 	ClearFlag(SmsCpuFlags::HalfCarry);
+ 	ClearFlag(SmsCpuFlags::AddSub);
