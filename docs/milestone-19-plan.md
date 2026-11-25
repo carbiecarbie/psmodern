@@ -1,11 +1,12 @@
 # Milestone 19 plan - Playthrough to the ending
 
 **Tier A. Status: completed and accepted on 2026-11-25; commits
-`88aa2cc` (implementation) and `d8cc530` (review changes); study:
-`psmodern-re` `21cfd16` and `67299de`.** The maintainer approved the plan on
-2026-11-24 and accepted the milestone after reading the closing summary;
-nothing playable changed, so there was no play-test. Number 18 belongs to the withdrawn
-[television pixel shape](milestone-18-plan.md) and is not reused.
+`88aa2cc` (implementation), `d8cc530` (review changes) and `3b6e970`
+(closure); study: `psmodern-re` `21cfd16` and `67299de`.** The maintainer
+approved the plan on 2026-11-24 and accepted the milestone after reading the
+closing summary; nothing playable changed, so there was no play-test. Number
+18 belongs to the withdrawn [television pixel shape](milestone-18-plan.md)
+and is not reused.
 
 ## Scope
 

@@ -11,9 +11,9 @@ its eight required changes. The plan is condensed, and
 and the [roadmap](roadmap.md) are updated. Nothing playable changed, so no
 release follows.
 
-- Commits: `88aa2cc` (implementation), `d8cc530` (review changes), then the
-  closure. The branch `milestone-19` was merged into `main`; the maintainer
-  authorized the push of both repositories on 2026-11-25.
+- Commits: `88aa2cc` (implementation), `d8cc530` (review changes) and
+  `3b6e970` (closure). The branch `milestone-19` was merged into `main`; the
+  maintainer authorized the push of both repositories on 2026-11-25.
 - `build-rel` is configured with `PSMODERN_PLAYTHROUGH_TESTS=OFF` (438 tests),
   the four-patch reference executable
   (`../m19-reference/mesen-publish/Mesen.exe`) and the reference folder

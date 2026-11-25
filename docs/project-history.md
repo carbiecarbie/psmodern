@@ -355,4 +355,4 @@ recording fell from 1,200 to 362 and those reached by US recordings only from
 The independent review approved with eight required changes, all made. The
 complete suite passed 438/438 with zero skips; the closure-only `playthrough`
 group passed 378 of 378 with no skip in 2,409.73 s. Implementation:
-`88aa2cc`; review changes: `d8cc530`.
+`88aa2cc`; review changes: `d8cc530`; closure: `3b6e970`.
