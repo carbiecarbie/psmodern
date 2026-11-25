@@ -11,15 +11,30 @@
 //     image computed from the previous link and its edits and checked against
 //     the link's cart-ram header. No link, a gap, a stray file or a refused
 //     edit fails. With the reference folder (<reference>/<us|br>/playthrough)
-//     the links replay side by side from their reference start images.
+//     the links replay side by side from their reference start images. Then
+//     what the route shows is asserted (route_assertions below): the
+//     companion's rescue, the party after the first final boss and at the
+//     finale, and the last link through the credits' end marker to the title.
+//   playthrough_tests links <rom> <folder> [<reference folder>]
+//     The chain test without the route assertions (synthetic chains).
 //   playthrough_tests apply <rom> <link-N.psrec> <start image|empty> <link-(N+1).edits> <new image>
 //     The developer tool: replays link N from its start image, applies the next
 //     link's edits with the chain test's own checks and writes the next start
 //     image (never over an existing file); prints its SHA-1.
-//   playthrough_tests plain <rom> <link.psrec> <reference link folder> <new work folder>
+//   playthrough_tests plain <rom> <link.psrec> <reference link folder> <work folder>
 //     The link as psmodern.exe plays it: the app's frame driver with its save
-//     folder, the original settings and no verification. A stop fails; the
-//     last frame's seven components must equal the reference manifest's.
+//     folder, the original settings and no verification. A stop, a failed
+//     save or a failed final flush fails; the last frame's seven components
+//     must equal the reference manifest's. The work folder must be new or one
+//     this tool made (own_work_folder): nothing else is ever removed.
+//   playthrough_tests rules <rom> <work folder>
+//     The rules' own test (normal suite, no long replay): synthetic save
+//     images built from the player's ROM and one-frame links, each rule shown
+//     refusing its negative case and admitting its positive one; the plain
+//     runner's folder ownership and final flush check. Exit 77 without a ROM.
+//   playthrough_tests inventory <inventory> <recordings folder> <routes file>
+//     The group's committed inventory (tests/playthrough_inventory.txt) must
+//     list exactly the links, part 3 recordings and routes found.
 //   playthrough_tests records <rom> <image>
 //     Prints the used save slots of an image and, for each active party record,
 //     its values and whether they satisfy the reachable-value rule.
@@ -33,8 +48,16 @@
 //     the recording's cart-ram header. With a new image path the image is
 //     written there (never over a file). A stray file in extra/ fails.
 //
-// Every missing input fails: this group never skips (exit 77 is not used).
-// Offsets and addresses only; the level tables are read from the player's ROM.
+// Every missing input fails: this group never skips (exit 77 is used only by
+// `rules`, which belongs to the normal suite). Offsets and addresses only; the
+// level tables and the experience awards are read from the player's ROM.
+//
+// What the checks establish (review of 2026-11-25). Every check below is a
+// necessary condition on INDIVIDUAL EDITED FIELDS: a value no play could
+// produce is refused. None of them shows that a real play path produces the
+// COMPLETE SAVE IMAGE an edit makes (for example the spell counts of a raised
+// level, which the allow-list keeps as link N left them; development.md,
+// "Playthrough chain", states the image-level limits).
 #include "app/frame_driver.h"
 #include "app/save_store.h"
 #include "game/dungeon.h"
@@ -47,6 +70,7 @@
 #include <atomic>
 #include <cstdio>
 #include <exception>
+#include <functional>
 #include <thread>
 #include <filesystem>
 #include <fstream>
@@ -110,6 +134,16 @@ Game load_game(const std::filesystem::path& path) {
     return game;
 }
 
+// A byte or word of the ROM at bank:address (slots 0 and 1 hold banks 0 and 1;
+// an address from 8000h is in `bank`).
+std::uint8_t rom_at(const Memory::Rom& rom, unsigned bank, std::uint16_t address) {
+    const std::size_t offset = address < 0x8000 ? address : bank * 0x4000u + (address - 0x8000u);
+    return rom.at(offset);
+}
+std::uint16_t rom_word(const Memory::Rom& rom, unsigned bank, std::uint16_t address) {
+    return static_cast<std::uint16_t>(rom_at(rom, bank, address) | rom_at(rom, bank, static_cast<std::uint16_t>(address + 1)) << 8);
+}
+
 // What the stat refresh at 00:17BA reads (party.md, "Recovering health"): the
 // level rows of each character in one bank, eight bytes a level, and the
 // equipment boosts. The operands are read from the refresh's own instructions.
@@ -138,16 +172,73 @@ public:
     std::uint8_t boost(std::uint8_t item) const { return at(0, static_cast<std::uint16_t>(0x183A + item)); }
 
 private:
-    std::uint8_t at(unsigned bank, std::uint16_t address) const {
-        const std::size_t offset = address < 0x8000 ? address : bank * 0x4000u + (address - 0x8000u);
-        return rom_.at(offset);
-    }
-    std::uint16_t word(unsigned bank, std::uint16_t address) const {
-        return static_cast<std::uint16_t>(at(bank, address) | at(bank, static_cast<std::uint16_t>(address + 1)) << 8);
-    }
+    std::uint8_t at(unsigned bank, std::uint16_t address) const { return rom_at(rom_, bank, address); }
+    std::uint16_t word(unsigned bank, std::uint16_t address) const { return rom_word(rom_, bank, address); }
     const Memory::Rom& rom_;
     unsigned bank_ = 0, top_ = 0;
     std::array<std::uint16_t, 4> base_{};
+};
+
+// The experience awards the game can give (party.md, "Giving experience after
+// a battle"; ROM static, the same code in both cartridges). The only store to
+// the reward at C2D0 is the battle setup 01:5FFE: it selects the enemy's
+// 32-byte record (the bank is the operand of the store at 01:6001, the table
+// base that of the load at 01:602C, the identifier is 1-127), takes the count
+// from the record's byte 20 (bit 7 set: the fixed count in the low four bits,
+// 01:6065; clear: a random count from 1 to the low four bits, at most twice the
+// party size and at most 8, 01:6069-607F), multiplies the record's experience
+// word (bytes 28-29) by the count (01:60D0 calls the multiplication at
+// 00:044C, which keeps the low 16 bits) and stores the product (01:60D3). The
+// award (00:170D) gives that whole reward to every active record, not a share
+// (00:1754), and the addition at 00:1773 stops at 65,535; each award raises
+// the level by one at most (00:1774). So a record's experience grows only by
+// sums of these products (every count from 1 to the cap is taken: a superset
+// of what a party of any size meets, so the check is a necessary condition).
+class Awards {
+public:
+    explicit Awards(const Memory::Rom& rom) {
+        auto at = [&](std::uint16_t address) { return rom_at(rom, 1, address); };
+        auto word = [&](std::uint16_t address) { return rom_word(rom, 1, address); };
+        check(at(0x6001) == 0x36 && at(0x602C) == 0x11 && at(0x6027) == 0x29 && at(0x6028) == 0x29 && at(0x6029) == 0x29 &&
+                  at(0x602A) == 0x29 && at(0x602B) == 0x29,
+              "01:5FFE no longer selects a 32-byte enemy record");
+        check(at(0x6065) == 0xCB && at(0x6066) == 0x7F && at(0x6069) == 0xE6 && at(0x606A) == 0x0F && at(0x6078) == 0xE6 &&
+                  at(0x6079) == 0x07 && at(0x607F) == 0xE6 && at(0x6080) == 0x0F,
+              "01:6065 no longer chooses the enemy count");
+        check(at(0x60D0) == 0xCD && word(0x60D1) == 0x044C && at(0x60D3) == 0x22 && word(0x60D4) == 0xC2D0,
+              "01:60D0 no longer multiplies the experience by the count and stores the reward at C2D0");
+        const unsigned bank = at(0x6002);
+        const std::uint16_t base = word(0x602D);
+        std::set<unsigned> values;
+        for (unsigned id = 1; id < 128; ++id) {
+            const auto record = static_cast<std::uint16_t>(base + 32 * id);
+            const std::uint8_t count = rom_at(rom, bank, static_cast<std::uint16_t>(record + 20));
+            const unsigned experience = rom_word(rom, bank, static_cast<std::uint16_t>(record + 28));
+            const unsigned low = count & 0x0F;
+            const unsigned first = count & 0x80 ? low : 1, last = count & 0x80 ? low : std::min(low, 8u);
+            for (unsigned n = first; n >= 1 && n <= last; ++n)
+                if (const unsigned reward = experience * n & 0xFFFF) values.insert(reward);
+        }
+        check(!values.empty(), "No experience award found in the enemy records");
+        awards_.assign(values.begin(), values.end());
+        // most_[s]: the largest number of awards whose sum is exactly s, or -1.
+        most_.assign(0x10000, -1);
+        most_[0] = 0;
+        for (unsigned s = 1; s < most_.size(); ++s)
+            for (const auto a : awards_) {
+                if (a > s) break;
+                if (most_[s - a] >= 0) most_[s] = std::max(most_[s], most_[s - a] + 1);
+            }
+    }
+    // The largest number of awards whose sum is exactly `gain`, or -1 when no
+    // sum of awards is `gain`.
+    int most(unsigned gain) const { return gain < most_.size() ? most_[gain] : -1; }
+    unsigned smallest() const { return awards_.front(); }
+    std::size_t count() const { return awards_.size(); }
+
+private:
+    std::vector<unsigned> awards_;
+    std::vector<int> most_;
 };
 
 // ---- the save slots and the party records ----------------------------------------
@@ -162,10 +253,23 @@ std::uint8_t field(const Image& image, unsigned slot, unsigned k, unsigned f) {
 }
 bool active(const Image& image, unsigned slot, unsigned k) { return field(image, slot, k, flags) & 1; }
 
-// The reachable-value rule for one record (interface: m19-wt/interface.md and
-// development.md, "Playthrough"). Empty when it holds.
+// The reachable-value rule for one record (development.md, "Playthrough
+// chain"). Empty when it holds. Each line checks one field (or the fields one
+// table row fixes); what each establishes:
+// - level within 1 and the top level, never lower than link N's: the game has
+//   no other levels and never lowers one;
+// - experience never lower than link N's, and the gain from link N's zero or
+//   a sum of awards the game gives (Awards): the gain is not one the game
+//   cannot give. It does not show that those battles were fought, nor that
+//   their order allowed the levels gained (one an award at most);
+// - experience inside the level's band (at least the threshold of the level,
+//   below the next one): a policy stricter than the game, which keeps any
+//   surplus of a large award until the next award (party.md);
+// - maximum HP and MP, attack and defense equal what the refresh 00:17BA
+//   computes for that level and equipment: what any refresh leaves;
+// - current HP from 1 to the maximum, MP from 0 to the maximum.
 std::vector<std::string> unreachable(const Levels& levels, const Image& image, unsigned slot, unsigned k,
-                                     const Image* before = nullptr) {
+                                     const Image* before = nullptr, const Awards* awards = nullptr) {
     std::vector<std::string> problems;
     auto f = [&](unsigned n) -> unsigned { return field(image, slot, k, n); };
     const unsigned lv = f(level), exp = f(exp_low) | f(exp_high) << 8;
@@ -178,6 +282,12 @@ std::vector<std::string> unreachable(const Levels& levels, const Image& image, u
         const unsigned old_exp = field(*before, slot, k, exp_low) | field(*before, slot, k, exp_high) << 8;
         if (lv < old_level) problems.push_back("the level went down from " + std::to_string(old_level));
         if (exp < old_exp) problems.push_back("the experience went down from " + std::to_string(old_exp));
+        // An award that passes 65,535 stores 65,535 (00:1773): the ceiling is
+        // reachable from any lower total once anything is gained.
+        if (awards && exp > old_exp && exp != 0xFFFF && awards->most(exp - old_exp) < 0)
+            problems.push_back("the experience gained since link N, " + std::to_string(exp - old_exp) +
+                               ", is not a sum of awards the game gives (enemy experience times the count; the smallest is " +
+                               std::to_string(awards->smallest()) + ")");
     }
     if (exp < levels.reaches(k, lv))
         problems.push_back("experience " + std::to_string(exp) + " is below the " + std::to_string(levels.reaches(k, lv)) +
@@ -236,31 +346,46 @@ Edits read_edits(const std::filesystem::path& path, const std::string& header = 
     return edits;
 }
 
+// The save slots whose bytes differ between two images.
+std::vector<unsigned> changed_slots(const Image& start, const Image& end) {
+    std::vector<unsigned> changed;
+    for (unsigned slot = 1; slot <= d::save_slots; ++slot)
+        if (!std::equal(start.begin() + d::slot_offset(slot), start.begin() + d::slot_offset(slot + 1), end.begin() + d::slot_offset(slot)))
+            changed.push_back(slot);
+    return changed;
+}
+// The one-slot rule of a link that another link continues: link N must write
+// exactly one save slot (the save link N+1 continues from), marked used. It
+// holds for every nonterminal link, whether or not the next edits file is
+// empty (review 2026-11-25: two one-frame links from the empty image joined
+// by an empty edits file were accepted). Returns the slot.
+unsigned written_slot(const Image& start, const Image& end) {
+    const auto changed = changed_slots(start, end);
+    check(changed.size() == 1, "A link that the next link continues must write exactly one save slot; " +
+                                   std::to_string(changed.size()) + " were written");
+    const unsigned slot = changed.front();
+    check(end[d::slot_used_flag(slot)] != 0, "The save slot written (" + std::to_string(slot) + ") is not marked used");
+    return slot;
+}
+
 // The start image of link N+1 from link N's start and end images and the
 // edits, or an exception naming the first refused edit. The rule:
 // - the slot in use is the one save slot whose bytes changed during link N;
-//   its used flag must be set;
+//   its used flag must be set (written_slot, checked even with no edits);
 // - only its meseta (C4E0-C4E1) and, in its ACTIVE party records (bit 0 of the
 //   flags set in link N's output), current HP and MP, experience, level, maximum
 //   HP and MP, attack and defense may change; a dead member's record is
 //   inactive (zero HP clears the flags), so it is never revived;
 // - every edited record must satisfy the reachable-value rule, with no level
-//   or experience lower than in link N's output.
-Image apply_edits(const Levels& levels, const Image& start, const Image& end, const Edits& edits) {
+//   or experience lower than in link N's output and the experience gained a
+//   sum of awards (unreachable above).
+Image apply_edits(const Levels& levels, const Awards& awards, const Image& start, const Image& end, const Edits& edits) {
+    const unsigned slot = written_slot(start, end);
     Image next = end;
     for (const auto& [offset, value] : edits) {
         check(end[offset] != value, "Edit at " + hex(offset, 4) + " repeats link N's own value " + hex(value, 2));
         next[offset] = value;
     }
-    if (edits.empty()) return next;
-    std::vector<unsigned> changed;
-    for (unsigned slot = 1; slot <= d::save_slots; ++slot)
-        if (!std::equal(start.begin() + d::slot_offset(slot), start.begin() + d::slot_offset(slot + 1), end.begin() + d::slot_offset(slot)))
-            changed.push_back(slot);
-    check(changed.size() == 1, "Edits need exactly one save slot written during link N; " +
-                                   std::to_string(changed.size()) + " were written");
-    const unsigned slot = changed.front();
-    check(end[d::slot_used_flag(slot)] != 0, "The save slot in use (" + std::to_string(slot) + ") is not marked used");
     std::set<unsigned> edited_records;
     for (const auto& [offset, value] : edits) {
         const auto where = "Edit at " + hex(offset, 4) + " (slot " + std::to_string(slot) + "): ";
@@ -276,7 +401,7 @@ Image apply_edits(const Levels& levels, const Image& start, const Image& end, co
         edited_records.insert(k);
     }
     for (const auto k : edited_records) {
-        const auto problems = unreachable(levels, next, slot, k, &end);
+        const auto problems = unreachable(levels, next, slot, k, &end, &awards);
         if (!problems.empty()) {
             std::string text = "Party record " + std::to_string(k) + " after the edits is not reachable:";
             for (const auto& p : problems) text += "\n  " + p;
@@ -293,23 +418,132 @@ Image start_image_of(const replay::Recording& recording, const std::optional<Ima
                                                                 " is not the link's cart-ram header " + recording.cart_ram_sha1);
     return image;
 }
+// ---- what the route shows ---------------------------------------------------------
+// Machine-state observations of one link's replay, taken at every frame end
+// from the work RAM and from the link's own registry (calls of a segment
+// entry, or of one of its exits), never from frame numbers: the same criteria
+// hold for both cartridges. The entries (scenes.md, interactions.md,
+// battle.md): 01:5538 the item place's call of the field menu (the petrified
+// companion's place is one of its six events); 00:2435 Alsulin, which unlocks
+// the companion's record; 01:5524 the store of the won flag C516 after the
+// fixed encounter of 01:5502, the first of the two final bosses (its enemy
+// record is the one named Lassic: Inference from the player's ROM, the name
+// is not stored here), reached only when the battle did not end in defeat
+// (01:54F2 leaves the interaction on a defeat); 01:454E the finale (its final
+// conversation, then the credits route); 01:4668 the credits route's end
+// marker; 01:4676 the finale storing the title's game mode.
+constexpr RoutineEntry item_place{1, 0x5538}, alsulin{0, 0x2435}, first_boss_won{1, 0x5524}, finale_entry{1, 0x454E},
+    credits_end_marker{1, 0x4668}, finale_done{1, 0x4676};
+constexpr unsigned companion = 2;               // the third party record (records from C400, 16 bytes each)
+constexpr std::uint8_t title_mode = 3;          // the title waiting for its menu (as the party-defeat checkpoint observes it)
+struct LinkEvents {
+    std::optional<std::uint64_t> companion;     // the first frame end with the companion's record active
+    bool companion_place = false, companion_item = false;   // 01:5538 and 00:2435 had run by then
+    std::optional<std::uint64_t> boss;          // the first frame end after the first final boss was won
+    bool boss_party = false;                    // all four records active with HP above zero there
+    std::optional<std::uint64_t> finale;        // the first frame end after the finale began
+    bool finale_party = false;
+    std::optional<std::uint64_t> end_marker;    // the first frame end after the credits' end marker
+    std::optional<std::uint64_t> title;         // the first frame end after that in the title mode
+};
+bool party_of_four(const Machine& m) {
+    for (std::uint16_t k = 0; k < 4; ++k) {
+        const auto record = static_cast<std::uint16_t>(records + record_bytes * k);
+        if (!(m.peek(record) & 1) || !m.peek(static_cast<std::uint16_t>(record + hp))) return false;
+    }
+    return true;
+}
+
 // The cartridge RAM at the last frame end of a plain replay (C++ segments
 // only, no oracle): where the program saves it and the reference samples it.
-Image replay_end(const Game& game, const replay::Recording& recording, const Image& start) {
+Image replay_end(const Game& game, const replay::Recording& recording, const Image& start, LinkEvents* events = nullptr) {
     check(recording.rom_sha1 == game.sha1, "The link was recorded on another cartridge");
     check(recording.frames > 0, "A link has at least one frame");
     RoutineRegistry routines;
     check(game::register_routines(routines, game.sha1), "The ROM is not an identified game image");
+    auto entry = [&](RoutineEntry at) -> const RegisteredRoutine& {
+        const auto* found = routines.find(at);
+        check(found != nullptr, "The route assertions need the registered entry " + hex(at.bank, 2) + ":" + hex(at.address, 4));
+        return *found;
+    };
+    const auto &place = entry(item_place), &item = entry(alsulin), &boss = entry(first_boss_won), &finale = entry(finale_entry),
+               &marker = entry(credits_end_marker), &done = entry(finale_done);
+    // The shape of the first final boss's encounter in the player's ROM: 01:54FB
+    // reads the won flag C516, 01:5502 stores the enemy group and calls the
+    // battle setup 01:5FFE, 01:5524 sets the flag.
+    {
+        auto at = [&](std::uint16_t address) { return rom_at(*game.rom, 1, address); };
+        check(at(0x54FB) == 0x3A && rom_word(*game.rom, 1, 0x54FC) == 0xC516 && at(0x5502) == 0x3E && at(0x5504) == 0x32 &&
+                  rom_word(*game.rom, 1, 0x5505) == 0xC2E6 && at(0x5507) == 0xCD && rom_word(*game.rom, 1, 0x5508) == 0x5FFE &&
+                  at(0x5526) == 0x32 && rom_word(*game.rom, 1, 0x5527) == 0xC516,
+              "01:54FB-5528 is no longer the fixed encounter with its won flag C516");
+    }
     Machine machine(game.rom, start);
     Image end{};
+    const auto companion_record = static_cast<std::uint16_t>(records + record_bytes * companion);
     for (std::uint64_t n = 0; n < recording.frames; ++n) {
         const bool last = n + 1 == recording.frames;
         machine.run_frame(recording.input_at(n), routines, {}, {}, [&] {
             (void)machine.take_psg_writes(); (void)machine.take_samples();
             if (last) end = machine.memory().cartridge_ram();
+            if (!events) return;
+            const auto frame = n + 1;
+            auto& e = *events;
+            if (!e.companion && (machine.peek(companion_record) & 1)) {
+                e.companion = frame;
+                e.companion_place = place.counters.cpp_calls > 0;
+                e.companion_item = item.counters.cpp_calls > 0;
+            }
+            if (!e.boss && boss.counters.cpp_calls > 0) { e.boss = frame; e.boss_party = party_of_four(machine); }
+            if (!e.finale && finale.counters.cpp_calls > 0) { e.finale = frame; e.finale_party = party_of_four(machine); }
+            if (!e.end_marker && marker.counters.cpp_calls > 0) e.end_marker = frame;
+            if (e.end_marker && !e.title && done.counters.cpp_calls > 0 && machine.peek(d::game_mode) == title_mode) e.title = frame;
         });
     }
     return end;
+}
+
+// The committed assertions of what the route shows (review 2026-11-25,
+// optional hardening), over the links in order:
+// - the companion's rescue: the first link in which the companion's record is
+//   active at a frame end had run the item place 01:5538 and Alsulin 00:2435
+//   before it (a save that merely holds the companion would not);
+// - the victory over the first of the two final bosses (01:5524) leaves all
+//   four records active with HP above zero, and so does the start of the
+//   finale (after the second);
+// - the last link, and only it, runs the credits route to its end marker and
+//   then reaches the title mode after the finale stores it: a defeat that
+//   returns to the title, or a chain cut at a valid save, fails.
+void route_assertions(const std::vector<LinkEvents>& events, const std::vector<std::string>& labels) {
+    const unsigned count = static_cast<unsigned>(events.size()) - 1;
+    auto first = [&](auto has) -> unsigned {
+        for (unsigned n = 1; n <= count; ++n) if (has(events[n])) return n;
+        return 0;
+    };
+    const auto rescue = first([](const LinkEvents& e) { return e.companion.has_value(); });
+    check(rescue != 0, "Route: the companion's record never becomes active");
+    check(events[rescue].companion_place && events[rescue].companion_item,
+          "Route: " + labels[rescue] + " has the companion active without the item place 01:5538 and Alsulin 00:2435 before it");
+    std::cout << "Route: the companion joins in " << labels[rescue] << " at frame " << *events[rescue].companion
+              << ", after the item place 01:5538 and Alsulin.\n";
+    const auto boss = first([](const LinkEvents& e) { return e.boss.has_value(); });
+    check(boss != 0, "Route: the first final boss (01:5502) is never won");
+    check(events[boss].boss_party, "Route: after the first final boss in " + labels[boss] +
+                                       " not all four records are active with HP above zero");
+    std::cout << "Route: the first final boss (01:5502) won in " << labels[boss] << " (frame " << *events[boss].boss
+              << "), all four members active with HP above zero.\n";
+    const auto finale = first([](const LinkEvents& e) { return e.finale.has_value(); });
+    check(finale != 0, "Route: the finale 01:454E never begins");
+    check(events[finale].finale_party, "Route: at the finale in " + labels[finale] +
+                                           " not all four records are active with HP above zero");
+    for (unsigned n = 1; n < count; ++n)
+        check(!events[n].end_marker, "Route: " + labels[n] + " reaches the credits' end marker but is not the last link");
+    const auto& end = events[count];
+    check(end.end_marker.has_value(), "Route: the last link, " + labels[count] + ", does not reach the credits' end marker 01:4668");
+    check(end.title.has_value(), "Route: the last link does not reach the title after the credits");
+    std::cout << "Route: the finale begins in " << labels[finale] << " (frame " << *events[finale].finale
+              << ") with all four members active; " << labels[count] << " reaches the credits' end marker at frame "
+              << *end.end_marker << " and the title at frame " << *end.title << ".\n";
 }
 
 // ---- modes ---------------------------------------------------------------------
@@ -317,7 +551,12 @@ Image replay_end(const Game& game, const replay::Recording& recording, const Ima
 // by side, each from its reference start image (whose SHA-1 must be the link's
 // header); the chain is then checked in order exactly as without it, since an
 // image with the header's SHA-1 is the image the chain computes.
-int chain(const Game& game, const std::filesystem::path& folder, const std::optional<std::filesystem::path>& reference) {
+// The last link has no next link: it may end without saving (the real chains
+// end on the title after the credits, the cartridge RAM unchanged); a save it
+// does make must still be one slot (written_slot). Every other link must write
+// one slot whether or not the next edits file is empty.
+int chain(const Game& game, const std::filesystem::path& folder, const std::optional<std::filesystem::path>& reference,
+          bool assert_route) {
     check(std::filesystem::is_directory(folder), "The playthrough folder is missing: " + folder.string());
     static const std::regex link_name("link-([0-9]{2})[.](psrec|edits)");
     std::map<unsigned, std::filesystem::path> links, edit_files;
@@ -345,6 +584,7 @@ int chain(const Game& game, const std::filesystem::path& folder, const std::opti
     check(recordings[1].cart_ram_sha1 == psmodern::sha1(Image{}),
           "link-01.psrec: its cart-ram header is not the empty image " + psmodern::sha1(Image{}));
     std::vector<Image> starts(count + 1), ends(count + 1);
+    std::vector<LinkEvents> events(count + 1);
     if (reference) {
         for (unsigned n = 2; n <= count; ++n) {
             char stem[8];
@@ -358,7 +598,7 @@ int chain(const Game& game, const std::filesystem::path& folder, const std::opti
         for (unsigned t = 0; t < threads; ++t)
             workers.emplace_back([&] {
                 for (unsigned n; (n = next++) <= count;) {
-                    try { ends[n] = replay_end(game, recordings[n], starts[n]); }
+                    try { ends[n] = replay_end(game, recordings[n], starts[n], &events[n]); }
                     catch (...) { errors[n] = std::current_exception(); }
                 }
             });
@@ -366,13 +606,19 @@ int chain(const Game& game, const std::filesystem::path& folder, const std::opti
         for (const auto& error : errors) if (error) std::rethrow_exception(error);
     }
     const Levels levels(*game.rom);
+    const Awards awards(*game.rom);
+    std::vector<std::string> labels(count + 1);
     for (unsigned n = 1; n <= count; ++n) {
-        const auto label = links[n].filename().string();
-        if (!reference) ends[n] = replay_end(game, recordings[n], starts[n]);
+        const auto label = labels[n] = links[n].filename().string();
+        if (!reference) ends[n] = replay_end(game, recordings[n], starts[n], &events[n]);
         std::cout << label << ": " << recordings[n].frames << " frames from " << recordings[n].cart_ram_sha1 << ", ends "
                   << psmodern::sha1(ends[n]) << '\n';
-        if (n == count) break;
-        const auto next = apply_edits(levels, starts[n], ends[n], edits[n + 1]);
+        if (n == count) {
+            if (changed_slots(starts[n], ends[n]).empty()) std::cout << "  the last link: the cartridge RAM is unchanged\n";
+            else std::cout << "  the last link: save slot " << written_slot(starts[n], ends[n]) << " written\n";
+            break;
+        }
+        const auto next = apply_edits(levels, awards, starts[n], ends[n], edits[n + 1]);
         check(psmodern::sha1(next) == recordings[n + 1].cart_ram_sha1,
               links[n + 1].filename().string() + ": its cart-ram header " + recordings[n + 1].cart_ram_sha1 +
                   " is not link " + std::to_string(n) + "'s end with its edits, " + psmodern::sha1(next));
@@ -380,6 +626,7 @@ int chain(const Game& game, const std::filesystem::path& folder, const std::opti
         if (!reference) starts[n + 1] = next;
     }
     std::cout << "The chain of " << count << " links holds.\n";
+    if (assert_route) route_assertions(events, labels);
     return 0;
 }
 
@@ -391,7 +638,8 @@ int apply(const Game& game, const std::filesystem::path& link, const std::string
     const auto start = start_image_of(recording, given);
     const auto end = replay_end(game, recording, start);
     const Levels levels(*game.rom);
-    const auto next = apply_edits(levels, start, end, read_edits(edits_path));
+    const Awards awards(*game.rom);
+    const auto next = apply_edits(levels, awards, start, end, read_edits(edits_path));
     write_new_image(out, next);
     std::cout << psmodern::sha1(next) << '\n';
     return 0;
@@ -463,21 +711,58 @@ replay::Manifest last_reference_frame(const std::filesystem::path& manifest_path
     return expected;
 }
 
-int plain(const Game& game, const std::filesystem::path& link, const std::filesystem::path& reference,
-          const std::filesystem::path& work) {
-    const auto recording = replay::read(link);
-    check(recording.rom_sha1 == game.sha1, "The link was recorded on another cartridge");
-    const auto expected = last_reference_frame(reference / "manifest.txt", recording.frames);
-    std::optional<Image> given;
-    if (recording.cart_ram_sha1 != psmodern::sha1(Image{}) || std::filesystem::exists(reference / "cart-ram.bin"))
-        given = read_image(reference / "cart-ram.bin");
+// ---- the plain run's work folder ----------------------------------------------------
+// The plain run (and the rules test) never removes a folder it did not make
+// (review 2026-11-25: `plain` removed whatever path it was given). A new path
+// is created with the marker file below, written before anything else. An
+// existing path is reused only when it is a folder this tool made, holding
+// the marker: then everything in it but the marker is removed (a link is
+// removed, never followed). Anything else (a file, a folder without the
+// marker) is refused with nothing removed. CTest reruns use the same path,
+// which the first run made.
+constexpr const char* work_marker = "psmodern-playthrough-work";
+constexpr const char* work_marker_text = "psmodern-playthrough-work 1\n";
+bool marked(const std::filesystem::path& folder) {
+    const auto marker = folder / work_marker;
+    if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(marker))) return false;
+    std::ifstream in(marker, std::ios::binary);
+    const std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    return text == work_marker_text;
+}
+void own_work_folder(const std::filesystem::path& work) {
+    const auto status = std::filesystem::symlink_status(work);
+    if (status.type() == std::filesystem::file_type::not_found) {
+        std::filesystem::create_directories(work);
+    } else {
+        check(std::filesystem::is_directory(status), "The work folder " + work.string() + " exists and is not a folder");
+        check(marked(work), "The work folder " + work.string() + " exists and was not made by this tool (no " + work_marker +
+                                " marker): it is never removed or reused");
+        for (const auto& item : std::filesystem::directory_iterator(work))
+            if (item.path().filename() != work_marker) std::filesystem::remove_all(item.path());
+    }
+    std::ofstream out(work / work_marker, std::ios::binary);
+    out << work_marker_text;
+    out.close();
+    check(bool(out), "Cannot write the marker of the work folder " + work.string());
+}
+
+// Test seams of the plain run, for the rules test only: the save writer and a
+// step just before the final flush. The program's own writer by default.
+struct PlainSeams {
+    app::SaveStore::Writer writer = app::atomic_save;
+    std::function<void(app::FrameDriver&)> before_final_flush;
+};
+// The link played as psmodern.exe plays it, in an owned work folder; the
+// seven components of the last frame. A stop, a failed save of any frame or
+// a failed final flush fails.
+replay::Manifest play_plain(const Game& game, const replay::Recording& recording, const std::optional<Image>& given,
+                            const std::filesystem::path& work, const PlainSeams& seams = {}) {
     const auto start = start_image_of(recording, given);
-    std::filesystem::remove_all(work);
-    std::filesystem::create_directories(work);
+    own_work_folder(work);
     if (given) write_new_image(work / app::save_name(game.version), start);
     // As psmodern.exe plays: the frame driver with its save folder and the
     // original settings (no options file), routines and the host's hooks on.
-    app::FrameDriver driver(game.rom, app::SaveStore(work, game.version));
+    app::FrameDriver driver(game.rom, app::SaveStore(work, game.version, seams.writer));
     replay::FrameWrites writes;
     std::optional<replay::Manifest> at;
     for (std::uint64_t n = 0; n < recording.frames; ++n) {
@@ -493,7 +778,22 @@ int plain(const Game& game, const std::filesystem::path& link, const std::filesy
             (*at)[6] = psmodern::sha1(frame_writes);
         }
     }
-    (void)driver.flush();
+    if (seams.before_final_flush) seams.before_final_flush(driver);
+    // The flush the program makes at exit: whatever the last frame end left
+    // unwritten (review 2026-11-25: its error was ignored).
+    if (const auto error = driver.flush()) fail("The final save flush failed: " + *error);
+    return *at;
+}
+
+int plain(const Game& game, const std::filesystem::path& link, const std::filesystem::path& reference,
+          const std::filesystem::path& work) {
+    const auto recording = replay::read(link);
+    check(recording.rom_sha1 == game.sha1, "The link was recorded on another cartridge");
+    const auto expected = last_reference_frame(reference / "manifest.txt", recording.frames);
+    std::optional<Image> given;
+    if (recording.cart_ram_sha1 != psmodern::sha1(Image{}) || std::filesystem::exists(reference / "cart-ram.bin"))
+        given = read_image(reference / "cart-ram.bin");
+    const auto at = std::optional<replay::Manifest>(play_plain(game, recording, given, work));
     constexpr const char* names[]{"picture", "ram", "vram", "cram", "cart-ram", "cpu", "psg"};
     std::string differing;
     for (std::size_t i = 0; i < expected.size(); ++i)
@@ -501,6 +801,227 @@ int plain(const Game& game, const std::filesystem::path& link, const std::filesy
     check(differing.empty(), "The last frame differs from the reference in:" + differing);
     std::cout << link.filename().string() << ": " << recording.frames << " frames played as the program plays them, no stop; "
               << "the last frame matches the reference (cart-ram " << (*at)[4] << ").\n";
+    return 0;
+}
+
+// ---- the rules' own test --------------------------------------------------------------
+// Each rule refuses its negative case for its own reason and admits its
+// positive case, on synthetic save images built at run time from the
+// player's ROM (nothing of the ROM is stored) and on one-frame links.
+void expect_refused(const std::string& what, const std::function<void()>& run, const std::string& reason) {
+    try { run(); }
+    catch (const std::exception& e) {
+        const std::string message = e.what();
+        check(message.find(reason) != std::string::npos,
+              "rules: " + what + " was refused for another reason than '" + reason + "': " + message);
+        std::cout << "rules: " << what << ": refused (" << message.substr(0, message.find('\n')) << ")\n";
+        return;
+    }
+    fail("rules: " + what + " was admitted; it must be refused (" + reason + ")");
+}
+void expect_admitted(const std::string& what, const std::function<void()>& run) {
+    try { run(); }
+    catch (const std::exception& e) { fail("rules: " + what + " was refused; it must be admitted: " + e.what()); }
+    std::cout << "rules: " << what << ": admitted\n";
+}
+void set_field(Image& image, unsigned slot, unsigned k, unsigned f, unsigned value) {
+    image[slot_offset(slot, static_cast<std::uint16_t>(records + record_bytes * k + f))] = static_cast<std::uint8_t>(value);
+}
+// A record of character k at `lv` with the level's experience threshold plus
+// `surplus`, no equipment, full HP and MP: what the game's refresh leaves.
+void set_record(const Levels& levels, Image& image, unsigned slot, unsigned k, unsigned lv, unsigned surplus) {
+    const unsigned exp = levels.reaches(k, lv) + surplus;
+    set_field(image, slot, k, flags, 1);
+    set_field(image, slot, k, level, lv);
+    set_field(image, slot, k, exp_low, exp & 255);
+    set_field(image, slot, k, exp_high, exp >> 8);
+    set_field(image, slot, k, max_hp, levels.row(k, lv, 0));
+    set_field(image, slot, k, hp, levels.row(k, lv, 0));
+    set_field(image, slot, k, max_mp, levels.row(k, lv, 3));
+    set_field(image, slot, k, mp, levels.row(k, lv, 3));
+    set_field(image, slot, k, attack, (levels.row(k, lv, 1) + levels.boost(0)) & 255);
+    set_field(image, slot, k, defense, (levels.row(k, lv, 2) + levels.boost(0) + levels.boost(0)) & 255);
+}
+// The edits that make record k of slot 1 of `from` equal that of `to`.
+Edits record_edits(const Image& from, const Image& to, unsigned k) {
+    Edits edits;
+    for (unsigned f = hp; f <= defense; ++f) {
+        const auto offset = static_cast<std::uint16_t>(slot_offset(1, static_cast<std::uint16_t>(records + record_bytes * k + f)));
+        if (from[offset] != to[offset]) edits.emplace_back(offset, to[offset]);
+    }
+    return edits;
+}
+void write_one_frame_link(const Game& game, const std::filesystem::path& path) {
+    replay::Recording recording;
+    recording.rom_sha1 = game.sha1;
+    recording.cart_ram_sha1 = psmodern::sha1(Image{});
+    recording.frames = 1;
+    std::ofstream out(path, std::ios::binary);
+    out << replay::write(recording);
+    out.close();
+    check(bool(out), "Cannot write " + path.string());
+}
+void write_file(const std::filesystem::path& path, const std::string& text) {
+    std::ofstream out(path, std::ios::binary);
+    out << text;
+    out.close();
+    check(bool(out), "Cannot write " + path.string());
+}
+
+int rules(const std::filesystem::path& rom, const std::filesystem::path& work) {
+    if (rom.empty() || !std::filesystem::exists(rom)) {
+        std::cout << "Skipping: ROM missing.\n";
+        return 77;
+    }
+    const auto game = load_game(rom);
+    const Levels levels(*game.rom);
+    const Awards awards(*game.rom);
+    std::cout << "rules: " << awards.count() << " distinct experience awards in the enemy records, the smallest "
+              << awards.smallest() << '\n';
+    // Link N's start (the empty image) and end: slot 1 saved and used, the
+    // first character active at level 1.
+    const Image start{};
+    Image end{};
+    end[d::slot_used_flag(1)] = 1;
+    set_record(levels, end, 1, 0, 1, 0);
+    check(unreachable(levels, end, 1, 0).empty(), "rules: the synthetic record does not satisfy the rule");
+    expect_admitted("a link that writes one used slot, no edits", [&] { (void)apply_edits(levels, awards, start, end, {}); });
+    // (1a) The one-slot rule holds with an empty edits file too.
+    expect_refused("a link that writes no slot, empty edits", [&] { (void)apply_edits(levels, awards, start, start, {}); },
+                   "must write exactly one save slot; 0 were written");
+    Image two = end;
+    two[d::slot_offset(2)] = 1;
+    expect_refused("a link that writes two slots, empty edits", [&] { (void)apply_edits(levels, awards, start, two, {}); },
+                   "must write exactly one save slot; 2 were written");
+    Image unused = end;
+    unused[d::slot_used_flag(1)] = 0;
+    expect_refused("a link whose written slot is not marked used", [&] { (void)apply_edits(levels, awards, start, unused, {}); },
+                   "is not marked used");
+    // (1b) Experience: the smallest gain no sum of awards makes (1 on both
+    // cartridges: the smallest award is 2) is refused, the smallest award admitted.
+    unsigned gap = 1;
+    while (awards.most(gap) >= 0) ++gap;
+    check(levels.reaches(0, 1) + gap < levels.reaches(0, 2) && levels.reaches(0, 1) + awards.smallest() < levels.reaches(0, 2),
+          "rules: the experience cases do not fit below level 2");
+    Image after = end;
+    set_record(levels, after, 1, 0, 1, gap);
+    expect_refused("experience gained " + std::to_string(gap) + " (no sum of awards)",
+                   [&] { (void)apply_edits(levels, awards, start, end, record_edits(end, after, 0)); }, "is not a sum of awards");
+    set_record(levels, after, 1, 0, 1, awards.smallest());
+    expect_admitted("experience gained " + std::to_string(awards.smallest()) + " (the smallest award)",
+                    [&] { (void)apply_edits(levels, awards, start, end, record_edits(end, after, 0)); });
+    set_record(levels, after, 1, 0, 5, 0);
+    expect_admitted("level 5 at its threshold", [&] { (void)apply_edits(levels, awards, start, end, record_edits(end, after, 0)); });
+    set_record(levels, after, 1, 0, 1, 0);
+    set_field(after, 1, 0, max_hp, levels.row(0, 1, 0) + 1);
+    expect_refused("maximum HP above the level's", [&] { (void)apply_edits(levels, awards, start, end, record_edits(end, after, 0)); },
+                   "maximum HP");
+
+    // The chain: every nonterminal link writes one slot, even with empty edits;
+    // the last link may end with the cartridge RAM unchanged.
+    own_work_folder(work);
+    const auto two_links = work / "two-one-frame-links";   // inside the owned folder, which removes it on the next run
+    std::filesystem::create_directories(two_links);
+    write_one_frame_link(game, two_links / "link-01.psrec");
+    write_one_frame_link(game, two_links / "link-02.psrec");
+    write_file(two_links / "link-02.edits", "psmodern-link-edits 1\n");
+    expect_refused("two one-frame links from the empty image, empty edits (the review's chain)",
+                   [&] { (void)chain(game, two_links, std::nullopt, false); }, "must write exactly one save slot; 0 were written");
+    std::filesystem::remove(two_links / "link-02.psrec");
+    std::filesystem::remove(two_links / "link-02.edits");
+    expect_admitted("one one-frame link (the last link may leave the cartridge RAM unchanged)",
+                    [&] { (void)chain(game, two_links, std::nullopt, false); });
+
+    // (4) The plain run's folder: a folder it did not make is refused and kept.
+    const auto foreign = work / "foreign";
+    std::filesystem::create_directories(foreign);
+    write_file(foreign / "keep.sav", "keep\n");
+    expect_refused("reusing a folder the tool did not make", [&] { own_work_folder(foreign); }, "was not made by this tool");
+    check(std::filesystem::exists(foreign / "keep.sav"), "rules: the refused folder lost its file");
+    std::filesystem::remove_all(foreign);   // made by this test above
+    const auto owned = work / "owned";
+    own_work_folder(owned);
+    write_file(owned / "old.sav", "old\n");
+    expect_admitted("reusing a folder the tool made", [&] { own_work_folder(owned); });
+    check(!std::filesystem::exists(owned / "old.sav") && marked(owned), "rules: the reused folder was not emptied");
+    write_file(work / "a-file", "x\n");
+    expect_refused("a work folder path that is a file", [&] { own_work_folder(work / "a-file"); }, "is not a folder");
+    std::filesystem::remove(work / "a-file");
+
+    // (4) The final flush's error fails the plain run. A one-frame link from
+    // the empty image saves nothing; the cartridge RAM is then changed after
+    // the last frame, so only the final flush writes, through a failing writer.
+    replay::Recording one;
+    one.rom_sha1 = game.sha1;
+    one.cart_ram_sha1 = psmodern::sha1(Image{});
+    one.frames = 1;
+    PlainSeams seams;
+    seams.writer = [](const std::filesystem::path&, const Memory::CartridgeRam&) { throw std::runtime_error("injected write failure"); };
+    expect_admitted("a plain run with nothing to flush, through the failing writer",
+                    [&] { (void)play_plain(game, one, std::nullopt, work / "plain", seams); });
+    seams.before_final_flush = [](app::FrameDriver& driver) {
+        auto& memory = driver.machine().memory();
+        memory.write(0xFFFC, 0x08);                                       // cartridge RAM in slot 2
+        memory.write(0x8000, static_cast<std::uint8_t>(~memory.cartridge_ram()[0]));
+        check(memory.cartridge_ram_dirty(), "rules: the cartridge RAM change did not mark it unwritten");
+    };
+    expect_refused("a plain run whose final flush fails", [&] { (void)play_plain(game, one, std::nullopt, work / "plain", seams); },
+                   "The final save flush failed");
+    std::cout << "The rules hold their cases.\n";
+    return 0;
+}
+
+// ---- the committed inventory --------------------------------------------------------------
+// tests/playthrough_inventory.txt: ASCII, LF, lines starting with # and blank
+// lines ignored; every other line `<us|br> link <NN>`, `<us|br> extra <name>`
+// or `<us|br> route <name>`, each once. The links (link-NN.psrec), part 3's
+// recordings (extra/<name>.psrec) and the routes (tests/playthrough_routes.txt)
+// found must be exactly those listed: a missing or an unlisted item fails.
+int inventory(const std::filesystem::path& list, const std::filesystem::path& recordings, const std::filesystem::path& routes) {
+    const auto text = read_text(list, "The inventory");
+    check(text.find('\r') == std::string::npos && (text.empty() || text.back() == '\n'),
+          list.string() + ": ASCII with LF line endings and a final LF");
+    static const std::regex item("(us|br) (link [0-9]{2}|(extra|route) [a-z0-9]+(-[a-z0-9]+)*)");
+    std::set<std::string> listed, found;
+    std::istringstream lines(text);
+    std::string line;
+    for (unsigned number = 1; std::getline(lines, line); ++number) {
+        if (line.empty() || line.front() == '#') continue;
+        check(std::regex_match(line, item), list.string() + " line " + std::to_string(number) + ": expected '<us|br> link <NN>', "
+                                                "'<us|br> extra <name>' or '<us|br> route <name>'");
+        check(listed.insert(line).second, list.string() + " line " + std::to_string(number) + ": listed twice: " + line);
+    }
+    static const std::regex link_name("link-([0-9]{2})[.]psrec"), extra_name("([a-z0-9]+(-[a-z0-9]+)*)[.]psrec");
+    for (const std::string region : {"us", "br"}) {
+        const auto folder = recordings / region / "playthrough";
+        if (std::filesystem::is_directory(folder))
+            for (const auto& file : std::filesystem::directory_iterator(folder)) {
+                const auto name = file.path().filename().string();
+                std::smatch m;
+                if (std::regex_match(name, m, link_name)) found.insert(region + " link " + m[1].str());
+            }
+        if (std::filesystem::is_directory(folder / "extra"))
+            for (const auto& file : std::filesystem::directory_iterator(folder / "extra")) {
+                const auto name = file.path().filename().string();
+                std::smatch m;
+                if (std::regex_match(name, m, extra_name)) found.insert(region + " extra " + m[1].str());
+            }
+    }
+    std::istringstream route_lines(read_text(routes, "The routes file"));
+    while (std::getline(route_lines, line)) {
+        if (line.empty() || line.front() == '#') continue;
+        std::istringstream words(line);
+        std::string region, name;
+        words >> region >> name;
+        found.insert(region + " route " + name);
+    }
+    std::string missing, unlisted;
+    for (const auto& x : listed) if (!found.contains(x)) missing += "\n  " + x;
+    for (const auto& x : found) if (!listed.contains(x)) unlisted += "\n  " + x;
+    check(missing.empty() && unlisted.empty(), "The playthrough group differs from its inventory " + list.string() +
+                                                   (missing.empty() ? "" : "\nlisted but not found:" + missing) +
+                                                   (unlisted.empty() ? "" : "\nfound but not listed:" + unlisted));
+    std::cout << "The playthrough inventory lists exactly the " << found.size() << " items found.\n";
     return 0;
 }
 
@@ -532,16 +1053,21 @@ int describe(const Game& game, const std::filesystem::path& image_path) {
 int main(int argc, char** argv) {
     try {
         const std::string mode = argc > 1 ? argv[1] : "";
-        if (mode == "chain" && (argc == 4 || argc == 5))
-            return chain(load_game(argv[2]), argv[3], argc == 5 ? std::optional<std::filesystem::path>(argv[4]) : std::nullopt);
+        if ((mode == "chain" || mode == "links") && (argc == 4 || argc == 5))
+            return chain(load_game(argv[2]), argv[3], argc == 5 ? std::optional<std::filesystem::path>(argv[4]) : std::nullopt,
+                         mode == "chain");
+        if (mode == "rules" && argc == 4) return rules(argv[2], argv[3]);
+        if (mode == "inventory" && argc == 5) return inventory(argv[2], argv[3], argv[4]);
         if (mode == "apply" && argc == 7) return apply(load_game(argv[2]), argv[3], argv[4], argv[5], argv[6]);
         if (mode == "plain" && argc == 6) return plain(load_game(argv[2]), argv[3], argv[4], argv[5]);
         if (mode == "records" && argc == 4) return describe(load_game(argv[2]), argv[3]);
         if (mode == "extra" && (argc == 5 || argc == 6))
             return extra(load_game(argv[2]), argv[3], argv[4], argc == 6 ? std::optional<std::filesystem::path>(argv[5]) : std::nullopt);
-        throw std::runtime_error("usage: playthrough_tests chain <rom> <folder> [<reference folder>] | apply <rom> <link> <start|empty> <edits> <new image> | "
+        throw std::runtime_error("usage: playthrough_tests chain|links <rom> <folder> [<reference folder>] | "
+                                 "apply <rom> <link> <start|empty> <edits> <new image> | "
                                  "plain <rom> <link> <reference folder> <work folder> | records <rom> <image> | "
-                                 "extra <rom> <extra recording> <reference folder> [<new image>]");
+                                 "extra <rom> <extra recording> <reference folder> [<new image>] | rules <rom> <work folder> | "
+                                 "inventory <inventory> <recordings folder> <routes file>");
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
         return 1;

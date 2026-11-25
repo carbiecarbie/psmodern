@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from generate_coverage import ALL, COLUMNS, COUNTERS, checkpoints, generate as strict_generate
+from generate_coverage import ALL, COLUMNS, COUNTERS, EVIDENCE, checkpoints, generate as strict_generate, read_extra_classes
 
 
 def generate(root, **options):
@@ -255,7 +255,7 @@ with tempfile.TemporaryDirectory() as directory:
     write_all(root, both + row(UNIT, UNIT) + row(OPT, UNIT) + row(PROBE, UNIT),
               {('us', 'opening'): both + row(UNIT, UNIT, 5) + row(OPT, UNIT) + row(PROBE, UNIT)})
     reasons = Path(directory)/'reasons.tsv'
-    reasons.write_text('segment\tgap\treason\n', encoding='utf-8', newline='\n')
+    reasons.write_text('segment\tgap\tevidence\treason\n', encoding='utf-8', newline='\n')
 
     def census_tree(name, files):
         """A group census root: {(version, file): text}."""
@@ -268,8 +268,9 @@ with tempfile.TemporaryDirectory() as directory:
     report = {}
     output = strict_generate(root, groups=none, reasons_path=reasons, report=report)
     check('| Checkpoint recordings | 2 | 1 | 2 |' in output, 'Checkpoint category wrong')
-    check('- Reached by no recording: 2 (0 of them by a prepared-state route, 2 by state probes only).' in output,
-          'Probe-only count wrong')
+    check('- Reached by no recording: 2 (0 of them dispatched only by a prepared-state route, 2 by neither a recording '
+          'nor a route).' in output, 'Probe-only count wrong')
+    check('| No reason yet | 0 | 2 | 1 | 3 |' in output, 'Rows without a reason not counted')
     check('- Reached by a US recording and by no Brazilian one: 1.' in output, 'US-only count wrong')
     check(output.count('no census recorded yet') == 2, 'Absent groups must say so')
     check(report['missing'] == {'probe-only': sorted([OPT, PROBE]), 'us-only': [UNIT]}, 'Missing reasons wrong')
@@ -283,10 +284,16 @@ with tempfile.TemporaryDirectory() as directory:
     fresh = {'playthrough': links, 'routes': routes}
     output = strict_generate(root, groups=fresh, reasons_path=reasons, report=report)
     check('| Any recording | 3 | 3 | 3 |' in output and
-          '- Reached by no recording: 1 (1 of them by a prepared-state route, 0 by state probes only).' in output and
+          '- Reached by no recording: 1 (1 of them dispatched only by a prepared-state route, 0 by neither a recording '
+          'nor a route).' in output and
           '- Reached by a US recording and by no Brazilian one: 0.' in output, 'Group categories wrong')
     check('from 1 censuses of this run' in output, 'Group source not stated')
-    check(f'- {PROBE} (unit {UNIT})' in output and f'- {OPT} (unit' not in output, 'Probe-only list must use every recording')
+    check(f'- {PROBE} (unit {UNIT}' in output and f'- {OPT} (unit' not in output, 'Probe-only list must use every recording')
+    # A segment only a route dispatches is listed under the routes, not under the probes (review 2026-11-25).
+    check('## Reached by prepared-state routes only' in output and '## Covered by state probes only' not in output,
+          'A route-only segment listed as probe-only')
+    check(output.index('## Reached by prepared-state routes only') < output.index(f'- {PROBE} (unit {UNIT}; reason: no reason yet)'),
+          'Route-only segment not in its section')
     previous = Path(directory)/'previous.md'
     previous.write_text(output, encoding='utf-8', newline='\n')
     # Without the group census the previous figures are kept, and the output says so.
@@ -304,19 +311,111 @@ with tempfile.TemporaryDirectory() as directory:
     rejects_with('Refused calls', groups={'playthrough': refused, 'routes': 'none'}, reasons_path=reasons)
     # The reasons file: one reason per segment and gap, no stale entry, a strict format.
     def with_reasons(text):
-        reasons.write_text('segment\tgap\treason\n' + text, encoding='utf-8', newline='\n')
-    with_reasons(f'{PROBE}\tprobe-only\tThe rare branch: an inn with a full party.\n')
-    strict_generate(root, groups=fresh, reasons_path=reasons, require_reasons=True)
-    with_reasons(f'{PROBE}\tprobe-only\tOne.\n{PROBE}\tprobe-only\tTwo.\n')
+        reasons.write_text('segment\tgap\tevidence\treason\n' + text, encoding='utf-8', newline='\n')
+    with_reasons(f'{PROBE}\tprobe-only\tInference\tThe rare branch: an inn with a full party.\n')
+    output = strict_generate(root, groups=fresh, reasons_path=reasons, require_reasons=True)
+    check('| Inference | 1 | 0 | 0 | 1 |' in output and '| No reason yet | 0 | 0 | 0 | 0 |' in output,
+          'Reasons by evidence wrong')
+    check(f'- {PROBE} (unit {UNIT}; reason: Inference)' in output, 'Evidence label not listed')
+    with_reasons(f'{PROBE}\tprobe-only\tUnknown\tOne.\n{PROBE}\tprobe-only\tUnknown\tTwo.\n')
     rejects_with('Two probe-only reasons', groups=fresh, reasons_path=reasons)
-    with_reasons(f'{PROBE}\tprobe-only\tOne.\n{OPT}\tprobe-only\tA recording reaches it now.\n')
+    with_reasons(f'{PROBE}\tprobe-only\tUnknown\tOne.\n{OPT}\tprobe-only\tROM run\tA recording reaches it now.\n')
     rejects_with('Stale reasons', groups=fresh, reasons_path=reasons)
-    with_reasons(f'{UNIT}\tus-only\tThe Brazilian chain reaches it now.\n')
+    with_reasons(f'{UNIT}\tus-only\tROM run\tThe Brazilian chain reaches it now.\n')
     rejects_with('Stale reasons', groups=fresh, reasons_path=reasons)
-    for bad, fragment in ((f'{PROBE}\tprobe-only\t \n', 'Invalid reason'), (f'{PROBE}\tsometimes\tR.\n', 'Invalid reason'),
-                          (f'{FAR}\tprobe-only\tR.\n', 'not registered'), (f'{PROBE} probe-only R.\n', 'Invalid reason')):
+    for bad, fragment in ((f'{PROBE}\tprobe-only\tUnknown\t \n', 'Invalid reason'),
+                          (f'{PROBE}\tsometimes\tUnknown\tR.\n', 'Invalid reason'),
+                          (f'{FAR}\tprobe-only\tUnknown\tR.\n', 'not registered'),
+                          (f'{PROBE} probe-only Unknown R.\n', 'Invalid reason'),
+                          (f'{PROBE}\tprobe-only\tR.\n', 'Invalid reason'),
+                          (f'{PROBE}\tprobe-only\tProbably\tR.\n', 'Invalid evidence label'),
+                          (f'{PROBE}\tprobe-only\tInference\tE26: town/area 4 row 27 col 21 (scene record).\n', 'Location data'),
+                          (f'{PROBE}\tprobe-only\tInference\tA dungeon event on cell C8.\n', 'Location data'),
+                          (f'{PROBE}\tprobe-only\tInference\tSEARCH at (28,1E).\n', 'Location data')):
         with_reasons(bad)
         rejects_with(fragment, groups=fresh, reasons_path=reasons)
-    reasons.write_text('segment\tgap\treason\r\n', encoding='utf-8', newline='\n')
+    check(EVIDENCE == ('ROM run', 'ROM static', 'Inference', 'Unknown'), 'Evidence vocabulary changed')
+    reasons.write_text('segment\tgap\treason\n', encoding='utf-8', newline='\n')
     rejects_with('Invalid reasons file', groups=fresh, reasons_path=reasons)
+    reasons.write_text('segment\tgap\tevidence\treason\r\n', encoding='utf-8', newline='\n')
+    rejects_with('Invalid reasons file', groups=fresh, reasons_path=reasons)
+
+    # The inventory (optional hardening, review 2026-11-25): a fresh group census
+    # directory must hold exactly the censuses the inventory lists.
+    with_reasons(f'{PROBE}\tprobe-only\tInference\tR.\n')
+    inventory = Path(directory)/'inventory.txt'
+
+    def with_inventory(text):
+        inventory.write_bytes(text.encode('utf-8'))
+    with_inventory('# expected\n\nus link 01\nbr link 01\nus route object-0-E3\n')
+    rejects_with('Invalid inventory line 5', groups=fresh, reasons_path=reasons, inventory=inventory)
+    # Route names are lowercase like recording names: the fixture route is renamed.
+    (routes/'us'/'object-0-E3.tsv').rename(routes/'us'/'object-0-e3.tsv')
+    with_inventory('# expected\n\nus link 01\nbr link 01\nus route object-0-e3\n')
+    output = strict_generate(root, groups=fresh, reasons_path=reasons, inventory=inventory)
+    check(output.count(', as the inventory lists') == 2, 'Inventory match not stated')
+    with_inventory('us link 01\nbr link 01\nus link 02\nus route object-0-e3\n')
+    rejects_with('Census missing', groups=fresh, reasons_path=reasons, inventory=inventory)
+    # The reviewer's case: one of the route censuses removed from a fresh directory.
+    with_inventory('us link 01\nbr link 01\nus route object-0-e3\nbr route object-0-e3\n')
+    rejects_with('Census missing under', groups=fresh, reasons_path=reasons, inventory=inventory)
+    with_inventory('us link 01\nus route object-0-e3\n')
+    rejects_with('not in the inventory: br/link-01.tsv', groups=fresh, reasons_path=reasons, inventory=inventory)
+    # An extra recording's census lives under extra/.
+    (links/'us'/'extra').mkdir()
+    census_tree('links', {('us', 'extra/battle.tsv'): both + row(UNIT, UNIT) + row(OPT, UNIT) + row(PROBE, UNIT)})
+    with_inventory('us link 01\nbr link 01\nus route object-0-e3\n')
+    rejects_with('not in the inventory: us/extra/battle.tsv', groups=fresh, reasons_path=reasons, inventory=inventory)
+    with_inventory('us link 01\nbr link 01\nus extra battle\nus route object-0-e3\n')
+    strict_generate(root, groups=fresh, reasons_path=reasons, inventory=inventory)
+    (links/'us'/'extra'/'battle.tsv').unlink()
+    # A group stated to have no census yet may have no inventory line.
+    with_inventory('us link 01\nbr link 01\nus route object-0-e3\n')
+    rejects_with('states that none exists yet', groups={'playthrough': links, 'routes': 'none'}, reasons_path=reasons,
+                 inventory=inventory)
+    for bad, fragment in (('us link 1\n', 'Invalid inventory line 1'), ('us chain 01\n', 'Invalid inventory line'),
+                          ('jp link 01\n', 'Invalid inventory line'), ('us extra Battle\n', 'Invalid inventory line'),
+                          ('us link 01\nus link 01\n', 'Repeated inventory line 2'), ('us link 01', 'LF line endings'),
+                          ('us link 01\r\n', 'LF line endings'), ('us extra caf\u00e9\n', 'not ASCII')):
+        with_inventory(bad)
+        rejects_with(fragment, groups=fresh, reasons_path=reasons, inventory=inventory)
 print('Evidence category fixtures passed')
+
+# The class of each part 3 recording's start image (review 2026-11-25): synthetic
+# fixtures, then the committed file against the recordings present.
+with tempfile.TemporaryDirectory() as directory:
+    recordings = Path(directory)/'recordings'
+    for version in ('us', 'br'):
+        (recordings/version/'playthrough'/'extra').mkdir(parents=True)
+    extra = recordings/'us'/'playthrough'/'extra'
+    (extra/'misc.start').write_text('psmodern-extra-start 1\nfrom link-08\n', encoding='ascii', newline='\n')
+    (extra/'town-04.start').write_text('psmodern-extra-start 1\nfrom link-08\nbyte 0401 40\n', encoding='ascii', newline='\n')
+    classes = Path(directory)/'classes.tsv'
+
+    def with_classes(text):
+        classes.write_bytes(('region\tname\tclass\tbasis\n' + text).encode('ascii'))
+    good = 'us\tmisc\tchain-save\tUnchanged.\nus\ttown-04\tedited\tMoved to a town.\n'
+    with_classes(good)
+    check(read_extra_classes(classes, recordings) == {'chain-save': 1, 'edited': 1, 'artificial': 0}, 'Class counts wrong')
+
+    def refuses(fragment):
+        try:
+            read_extra_classes(classes, recordings)
+        except ValueError as error:
+            check(fragment in str(error), f'Wrong refusal: {error}')
+        else:
+            raise RuntimeError(f'Invalid extra classes accepted (expected {fragment})')
+    for bad, fragment in (('us\tmisc\tchain-save\tUnchanged.\n', 'without a class: us town-04'),
+                          (good + 'br\tmisc\tchain-save\tNone.\n', 'no .start file'),
+                          (good + 'us\tmisc\tedited\tTwice.\n', 'Two classes'),
+                          ('us\tmisc\tedited\tSaid edited.\nus\ttown-04\tedited\tMoved.\n', 'chain-save is exactly'),
+                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tchain-save\tWrong.\n', 'chain-save is exactly'),
+                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tlikely\tMoved.\n', 'Invalid extra class'),
+                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tedited\t \n', 'Invalid extra class'),
+                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tedited\tTo row 27 col 21.\n', 'Location data')):
+        with_classes(bad)
+        refuses(fragment)
+counts = read_extra_classes()
+check(sum(counts.values()) == len(list(Path(__file__).resolve().parents[1].glob('recordings/*/playthrough/extra/*.start'))),
+      'The committed extra classes do not cover the recordings present')
+print('Extra start classes passed:', ', '.join(f'{count} {name}' for name, count in counts.items()))

@@ -983,14 +983,31 @@ if(BUILD_TESTING)
   # executable (tests/playthrough_tests.cpp); it is always built, the tests are
   # registered only with PSMODERN_PLAYTHROUGH_TESTS. Every link found under
   # recordings/<us|br>/playthrough/ (and every part 3 recording under its extra/)
-  # runs as a checkpoint (strict lockstep, the
+  # runs as a checkpoint (strict lockstep whatever PSMODERN_LOCKSTEP_STRICT says, the
   # seven components at every frame, no refused call, its census under
-  # playthrough-census/) and once as the program plays it. The group never
+  # playthrough-census/) and once as the program plays it (its save folder under
+  # playthrough-work/, made and reused by the run, never one it did not make). The group never
   # skips: a missing ROM, manifest or start image fails. It runs at milestone
   # closure (tools/AGENTS.md).
   add_executable(psmodern_playthrough_tests tests/playthrough_tests.cpp)
   target_link_libraries(psmodern_playthrough_tests PRIVATE psmodern_app)
+  # The rules' own test (normal suite, seconds): each chain rule, the experience
+  # rule and the plain runner's folder ownership and final flush, shown refusing
+  # their negative cases on synthetic images and one-frame links (review
+  # 2026-11-25). It skips without the ROM like the other ROM tests.
+  foreach(_region us br)
+    string(TOUPPER "${_region}" _region_upper)
+    add_test(NAME rom_${_region}_playthrough_rules COMMAND psmodern_playthrough_tests rules
+      "${PSMODERN_ROM_${_region_upper}}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-rules/${_region}")
+    set_tests_properties(rom_${_region}_playthrough_rules PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
+  endforeach()
   if(PSMODERN_PLAYTHROUGH_TESTS)
+    # The committed inventory: the links, part 3's recordings and the routes found
+    # must be exactly those listed (a removed pair or chain suffix fails).
+    add_test(NAME playthrough_inventory COMMAND psmodern_playthrough_tests inventory
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_inventory.txt" "${CMAKE_CURRENT_SOURCE_DIR}/recordings"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_routes.txt")
+    set_tests_properties(playthrough_inventory PROPERTIES LABELS "playthrough")
     file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_routes.txt" _playthrough_routes REGEX "^[^#]")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/playthrough_routes.txt")
     foreach(_region us br)
@@ -1007,7 +1024,7 @@ if(BUILD_TESTING)
           "${_rom}" "${_link}" "${_reference}/${_stem}/manifest.txt"
           "${CMAKE_CURRENT_BINARY_DIR}/playthrough-census/${_region}/${_stem}.tsv")
         add_test(NAME rom_${_region}_playthrough_${_stem}_plain COMMAND psmodern_playthrough_tests plain
-          "${_rom}" "${_link}" "${_reference}/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-plain/${_region}/${_stem}")
+          "${_rom}" "${_link}" "${_reference}/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-work/${_region}/${_stem}")
         # A 40,000-frame link under strict lockstep takes several minutes.
         set_tests_properties(rom_${_region}_playthrough_${_stem} rom_${_region}_playthrough_${_stem}_plain PROPERTIES
           LABELS "playthrough;rom" TIMEOUT 7200)
@@ -1024,7 +1041,7 @@ if(BUILD_TESTING)
           "${_rom}" "${_extra}" "${_reference}/extra/${_stem}/manifest.txt"
           "${CMAKE_CURRENT_BINARY_DIR}/playthrough-census/${_region}/extra/${_stem}.tsv")
         add_test(NAME ${_test}_plain COMMAND psmodern_playthrough_tests plain
-          "${_rom}" "${_extra}" "${_reference}/extra/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-plain/${_region}/extra/${_stem}")
+          "${_rom}" "${_extra}" "${_reference}/extra/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-work/${_region}/extra/${_stem}")
         add_test(NAME ${_test}_start COMMAND psmodern_playthrough_tests extra "${_rom}" "${_extra}" "${_reference}")
         set_tests_properties(${_test} ${_test}_plain ${_test}_start PROPERTIES LABELS "playthrough;rom" TIMEOUT 7200)
       endforeach()

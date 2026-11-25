@@ -7,7 +7,9 @@
 // are swept with an IRQ and an NMI at every cycle.
 #include "probe.h"
 #include "game/joins.h"
+#include <array>
 #include <iostream>
+#include <set>
 
 using namespace psmodern;
 int main(int argc,char** argv) {
@@ -62,22 +64,47 @@ int main(int argc,char** argv) {
         probe::check(routes==6,"expected six interaction events at the item places");
         // Milestone 19 (the re-verified stop sweep): the two item-place calls
         // with an IRQ and, separately, an NMI raised at every cycle of the
-        // call's run, always (not a sample): each run takes the interrupt before
-        // or after the call and must still reach the call in C++ and match the
-        // original at every instruction boundary.
-        unsigned item_place_runs=0;
+        // call's run, always (not a sample): each run must reach the call in
+        // C++, match the original at every instruction boundary, and show its
+        // interrupt accepted and returned from (the evidence below).
+        unsigned item_place_runs=0, accepted_runs=0;
         for (const std::uint16_t pc:{std::uint16_t{0x5535},std::uint16_t{0x5538}}) {
             const RoutineEntry entry{1,pc};
             probe::Setup setup; setup.seed=pc;
             auto plain=h.prepare(entry,setup);
             const auto cycles=h.run_cpp(plain,entry).cycles;
-            const auto sweep=h.sweep_interrupts(entry,setup,{},1);
-            probe::check(sweep.runs==2*cycles,"an item-place call was not swept at every cycle");
+            // The evidence that each run's interrupt was taken where it must be
+            // (review 2026-11-25: with injection suppressed the sweep still
+            // passed). The call is one instruction, so there is no boundary
+            // inside it: an IRQ raised at any of its cycles is sampled at its
+            // last one and an NMI edge is latched, and both are accepted at
+            // the boundary right after it (the first top-level boundary after
+            // the entry), at the callee with the call's return address on top
+            // of the stack; the handler then returns there with SP restored.
+            probe::check(rom->byte(1,pc)==0xCD,"an item-place handler is no longer a CALL");
+            const auto callee=static_cast<std::uint16_t>(rom->byte(1,static_cast<std::uint16_t>(pc+1)) |
+                                                         rom->byte(1,static_cast<std::uint16_t>(pc+2))<<8);
+            std::vector<probe::SweepAcceptance> taken;
+            const auto sweep=h.sweep_interrupts(entry,setup,{},1,&taken);
+            probe::check(sweep.runs==2*cycles && taken.size()==sweep.runs,"an item-place call was not swept at every cycle");
+            std::array<std::set<std::uint64_t>,2> offsets;
+            for (const auto& e:taken) {
+                const auto run=std::string(e.kind ? "NMI" : "IRQ")+" at +"+std::to_string(e.offset)+" of 01:"+std::to_string(pc);
+                probe::check(!e.inside_body && e.boundary==1,"the "+run+" was not accepted at the boundary after the call");
+                probe::check(e.resume==callee && e.sp==static_cast<std::uint16_t>(setup.sp-2) && e.top==pc+3,
+                             "the "+run+" did not interrupt the callee with the call's return address on the stack");
+                probe::check(e.returned,"after the "+run+" the handler did not return to the callee");
+                offsets[e.kind].insert(e.offset);
+            }
+            for (const auto& kind:offsets)
+                probe::check(kind.size()==cycles && *kind.rbegin()==cycles-1,"an item-place call's sweep missed a cycle");
             item_place_runs+=sweep.runs;
+            accepted_runs+=static_cast<unsigned>(taken.size());
         }
         std::cout<<segments<<" joining segments, "<<runs<<" lockstep runs, every exit taken; "<<routes
                  <<" item-place events reach their call; "<<item_place_runs
-                 <<" interrupt runs over every cycle of the two item-place calls.\n";
+                 <<" interrupt runs over every cycle of the two item-place calls, "<<accepted_runs
+                 <<" with the interrupt accepted after the call and its handler returned.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

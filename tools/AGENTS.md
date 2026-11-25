@@ -42,7 +42,10 @@ build, beside the complete run. It is not run before a release. Configure
 build-rel -L playthrough -j 16 --output-on-failure --no-tests=error` in the
 same way, with output redirected to `build-rel/playthrough.log`. It needs both
 ROM paths and `PSMODERN_REFERENCE_DIR`. It holds the chain links and part 3's
-recordings (`recordings/<us|br>/playthrough/extra/`, three tests each). It never
+recordings (`recordings/<us|br>/playthrough/extra/`, three tests each), the
+routes, the two chain tests and `playthrough_inventory`, which fails when the
+files found differ from `tests/playthrough_inventory.txt`. Its lockstep is
+always per instruction, whatever `PSMODERN_LOCKSTEP_STRICT` says. It never
 skips: a missing ROM, link, recording, reference manifest or start image fails
 the run, and a skipped or missing test makes it incomplete. The runner reports it like the complete run. Its
 censuses (`build-rel/playthrough-census/`, `build-rel/route-census/`) feed the

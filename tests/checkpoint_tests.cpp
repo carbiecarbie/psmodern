@@ -131,8 +131,16 @@ int compare(const char* rom_path, const char* recording_path, const char* manife
     // PSMODERN_LOCKSTEP_STRICT=0, and as whole machines at every frame
     // observer. With PSMODERN_COVERAGE_DIR the instruction addresses reached
     // are written there (the run-time half of the rendered-address census).
+    // A playthrough link (--link) is always compared at every instruction
+    // boundary: the variable is ignored there and the output says so (review
+    // 2026-11-25: CTest passes the environment on, and with the variable at 0
+    // a link reported top-level comparisons only). Ignoring rather than
+    // refusing keeps a developer's shell setting for quick checkpoint runs
+    // from failing the closure run, while the link's evidence stays strict.
     const char* strict_variable=std::getenv("PSMODERN_LOCKSTEP_STRICT");
-    const bool strict=!(strict_variable && std::string_view(strict_variable)=="0");
+    const bool relaxed=strict_variable && std::string_view(strict_variable)=="0";
+    const bool strict=link || !relaxed;
+    if (link && relaxed) std::cout<<"PSMODERN_LOCKSTEP_STRICT=0 is ignored: a playthrough link always runs strict lockstep.\n";
     const char* coverage_dir=std::getenv("PSMODERN_COVERAGE_DIR");
     if (coverage_dir && *coverage_dir) oracle::coverage().enabled=true;
     const auto checks_before=oracle::opcode_checks();

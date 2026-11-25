@@ -804,8 +804,11 @@ offsets and values only, never ROM data.
 **What may change** (maintainer decision, plan decision 3). Save slot `s` (1-5)
 is the copy of work RAM `$C300`-`$C6FF` at offset `s` x 400h, and its used
 flag is at 200h + `s` (ROM static, `00:0634`-`00:073A`). There is no checksum.
-The slot in use is the one slot whose bytes changed during link N, and its used
-flag must be set. Inside it, only these may change:
+Every link that another link continues must write exactly one slot, whose used
+flag is set, whether or not the next edits file is empty; that is the slot in
+use. Only the last link may end with the cartridge RAM unchanged (both real
+chains end on the title with no save); a save it makes must still be one slot.
+Inside the slot in use, only these may change:
 
 - the meseta at `$C4E0`-`$C4E1`;
 - offsets 1 to 9 of an active party record (`$C400` + 16 x k; active means
@@ -826,29 +829,109 @@ number. The rules are:
 - the level is at least link N's and at most the top level;
 - the experience is at least link N's and at least the amount that reaches
   the level, and below the amount for the next level unless at the top;
+- the experience gained since link N is zero or a sum of awards the game can
+  give, or the total is the ceiling 65,535;
 - maximum HP and MP equal the level row's values;
 - attack and defense are the row's values plus the boosts of the weapon, and
   of the armor and shield, modulo 256, as `00:17BA` computes them;
 - current HP is 1 to the maximum, and current MP 0 to the maximum.
+
+**The awards** (ROM static, the same code on both cartridges). The only store to
+the battle reward `$C2D0` is the battle setup `01:5FFE`. It takes the enemy's
+32-byte record (identifier 1-127; the bank and the table base are operands at
+`01:6001` and `01:602C`), the count from the record's byte 20 (bit 7 set: the
+fixed count in the low four bits; clear: a random count from 1 to the low four
+bits, at most twice the party size and at most 8, `01:6065`-`01:607F`), and
+stores the record's experience word (bytes 28-29) times the count, low 16
+bits, at `01:60D3`. The award at `00:170D` gives that whole reward to every
+active record and the addition at `00:1773` stops at 65,535. The test reads
+the records from the player's ROM, takes every count from 1 to the cap, and
+works out by dynamic programming which gains are sums of these rewards. On
+both cartridges there are 219 distinct rewards and the smallest is 2, so the
+only gain refused below 65,535 is 1, the case the review found (`byte 0503 01`
+after US link 01).
+
+**What the checks establish.** Each rule is a necessary condition on an
+individual edited field: it refuses a value no play could produce in that
+field. The band rule is stricter than the game, which keeps the surplus of a
+large award until the next award. None of the rules shows that a real play
+path produces the complete save image an edit makes: not the battles behind a
+gain, nor their order.
+
+**What they do not guarantee about the whole image.** Every edited byte is on
+the allow-list and every edited record matches its level row, yet the start
+image as a whole need not be one that play would write. The game derives
+some fields of a record from others in its stat refresh (`00:17BA`, see the
+[party chapter](how-it-works/party.md)), and an edit leaves the derived fields
+it may not touch as link N left them. When an edit raises a level, the record
+keeps link N's two spell counts (offsets `$0E` and `$0F`). The refresh would
+copy them from the new level's row, the allow-list forbids editing them, and
+the next refresh in play sets them. Both link-02 starts, for example, give
+Alis level 5 with the counts of her previous level. In the committed chains
+this leaves stale counts in 18 records of 13 start images: US links 02 to 08
+and Brazilian links 02, 03, 04, 06, 07 and 08 (the reference start images read
+against the level rows of each ROM). The refresh also sets the processing
+flags to 1 and the turn-blocking counter to 0; every active record of every
+chain and part 3 start image already holds those values. **Inference:** no
+other field of the save is known to derive from an edited one (experience,
+maximum HP and MP, attack and defense are checked against the row; the meseta
+has no copy).
 
 **Tool and tests.** `psmodern_playthrough_tests` (`tests/playthrough_tests.cpp`)
 holds the checks. The playthrough agents use the same code:
 
 ```text
 psmodern_playthrough_tests apply <rom> <link-N.psrec> <start image|empty> <link-(N+1).edits> <new image>
-psmodern_playthrough_tests chain <rom> recordings/<us|br>/playthrough
-psmodern_playthrough_tests plain <rom> <link.psrec> <reference link folder> <new work folder>
+psmodern_playthrough_tests chain <rom> recordings/<us|br>/playthrough [<reference>/<us|br>/playthrough]
+psmodern_playthrough_tests links <rom> <folder> [<reference folder>]
+psmodern_playthrough_tests plain <rom> <link.psrec> <reference link folder> <work folder>
 psmodern_playthrough_tests records <rom> <image>
+psmodern_playthrough_tests rules <rom> <work folder>
+psmodern_playthrough_tests inventory tests/playthrough_inventory.txt recordings tests/playthrough_routes.txt
 ```
 
 `apply` replays link N from its start image and applies the next edits with
 the chain test's checks. It writes the next start image, never over an
 existing file, and prints its SHA-1. `chain` is the chain test, and fails on
-an empty folder, a gap or a stray file. `plain` plays a link as `psmodern.exe`
-does: the frame driver, a save folder and the original settings. It fails on
-a stop and compares the last frame's seven components with the reference.
-`records` prints the active party records of each used slot and checks them
-against the rules.
+an empty folder, a gap or a stray file. After the chain it asserts what the
+route shows, from the machine state and the calls of registered entries at
+each frame end, never from frame numbers:
+
+- the first link in which the companion's record (the third) is active must
+  have run the item place `01:5538` and Alsulin (`00:2435`) before;
+- when the first of the two final bosses is won (the won flag stored at
+  `01:5524` after the fixed encounter of `01:5502`), all four records are
+  active with HP above zero, and so they are when the finale (`01:454E`)
+  begins;
+- the last link, and no other, reaches the credits route's end marker
+  (`01:4668`) and then the title mode after the finale stores it (`01:4676`).
+
+A defeat that returns to the title, or a chain cut at a valid save, fails. Both
+chains show the rescue in link 04, the first final boss in US link 24 and
+Brazilian link 26, and the finale, the end marker and the title in the last
+link. `links` is the same chain test without these assertions, for synthetic
+chains.
+
+`plain` plays a link as `psmodern.exe` does: the frame driver, a save folder
+and the original settings. It fails on a stop, a failed save of any frame or a
+failed final flush, and compares the last frame's seven components with the
+reference. It never removes a folder it did not make: a new work folder is
+created with the marker file `psmodern-playthrough-work`, and an existing path
+is reused (emptied except for the marker) only when it is a folder holding
+that marker; anything else is refused with nothing removed. `records` prints
+the active party records of each used slot and checks them against the rules.
+
+`rules` is the rules' own test, in the normal suite as
+`rom_<us|br>_playthrough_rules` (labels `fast` and `rom`; it skips without the
+ROM). It builds save images at run time from the player's ROM and shows each
+rule refusing its negative case for its own reason: no slot or two slots
+written with empty edits, a slot not marked used, a gain of 1 experience, a
+maximum HP off the level row, the review's chain of two one-frame links from
+the empty image joined by an empty edits file, the plain run on a folder it
+did not make and on a path that is a file, and a final flush through a failing
+writer. It shows the positive cases too: the smallest award, level 5 at its
+threshold, a one-link chain ending with the cartridge RAM unchanged and a
+folder the tool made being reused.
 
 Each link's reference lives beside its start image, as for the checkpoints
 that start from a saved game:
@@ -861,15 +944,27 @@ found registers three kinds of test, all labelled `playthrough`:
 
 - `rom_<us|br>_playthrough_link-NN` runs `psmodern_checkpoint_tests --link`:
   strict lockstep, the seven components at every frame and no refused call.
-  It writes its census to `build-rel/playthrough-census/<us|br>/`.
-- `rom_<us|br>_playthrough_link-NN_plain` is the plain run.
-- `rom_<us|br>_playthrough_chain` is one chain test per cartridge.
+  `--link` always compares at every instruction boundary: it ignores
+  `PSMODERN_LOCKSTEP_STRICT=0`, which CTest would pass on, and says so in its
+  output (the `replay_tools` test checks both). It writes its census to
+  `build-rel/playthrough-census/<us|br>/`.
+- `rom_<us|br>_playthrough_link-NN_plain` is the plain run, with its save
+  folder under `build-rel/playthrough-work/<us|br>/`.
+- `rom_<us|br>_playthrough_chain` is one chain test per cartridge, with the
+  route assertions.
+- `playthrough_inventory` compares the group with the committed inventory
+  `tests/playthrough_inventory.txt` (ASCII, LF, lines starting with `#` are
+  comments): one line per expected item, `<us|br> link <NN>`,
+  `<us|br> extra <name>` or `<us|br> route <name>`. A listed item not found
+  (a removed recording pair or chain suffix) or a found item not listed fails.
+  Adding or removing a link, a part 3 recording or a route updates the
+  inventory in the same change.
 
 **Part 3's recordings.** Short recordings that reach rare branches live in
 `recordings/<us|br>/playthrough/extra/<name>.psrec` (lowercase letters, digits
 and hyphens). They are not links: the chain test skips the `extra` folder, and
 the FM session glob does not look into subfolders. Each starts from a chain
-link's saved game with bytes edited, and those edits are not bound by the
+link's saved game, most with bytes edited, and those edits are not bound by the
 link allow-list, since these recordings exist to reach what one route cannot
 (a dead member, items the route never carries, a save in another town). Every
 edit is written down in `<name>.start` beside the recording, in ASCII with LF
@@ -879,6 +974,28 @@ the link's own byte). The start image is link NN's cartridge RAM at its last
 frame end with those bytes set; its SHA-1 must be the recording's `cart-ram`
 header. The extra folder holds only these pairs: a recording without its
 `.start` file, or any other file, fails.
+
+**Where each start image comes from.** `tools/extra-start-classes.tsv` gives
+every extra recording one class and a one-line basis, and the coverage report
+counts them. `tests/coverage_tests.py` checks the file against the `.start`
+files present: one line each, no other, and `chain-save` exactly when the
+`.start` file has no `byte` line. The classes are:
+
+- `chain-save`, a chain link's saved game with no byte changed: `misc`,
+  `nuts-plaza` and `title` on each cartridge (6);
+- `edited`, a chain save moved or changed to a state that play was not shown
+  to reach: the town, talk and dungeon relocations, `paseo` and `places` with
+  Odin's record zeroed as a defeat leaves it, and `lassic-nocrystal` without
+  the Crystal (79);
+- `artificial`, a state known not to occur in play: `battle`, which gives back
+  the Alsulin after the story has used it, and `items`, whose inventory holds
+  story items from later in the story, on each cartridge (4).
+
+A recording shows how the code runs from its start image. For an `edited` or
+`artificial` image it does not show that a player can reach that state. Where
+the choice between those two was unsure, the file says `edited` and gives the
+reason. Only `chain-save` is checked mechanically; the other two rest on the
+written basis.
 
 ```text
 psmodern_playthrough_tests extra <rom> <extra/<name>.psrec> <reference>/<us|br>/playthrough [<new image>]
@@ -901,7 +1018,8 @@ The routes listed in `tests/playthrough_routes.txt` also register
 `rom_<us|br>_playthrough_route_<name>`. That file is empty until part 3 adds
 routes. These tests never skip: a missing ROM, manifest, start image or link
 fails. The group runs at milestone closure (`tools/AGENTS.md`). With the
-option off, the complete suite's test list is unchanged.
+option off, the complete suite holds none of the group's tests; it does hold
+the two `rom_<us|br>_playthrough_rules` tests, which need no reference.
 
 ## Replay runner
 
@@ -1139,14 +1257,35 @@ output says they were kept. If that file has none, the run fails.
 yet. The group's censuses must name the same segments as the checkpoints' and
 hold no refused call.
 
+A segment reached by no recording is listed under `Reached by prepared-state
+routes only` when a route dispatches it at its own entry, and under `Covered by
+state probes only` when nothing but the probes does.
+
+`--inventory <file>` names the committed list of expected recordings and
+routes (`tests/playthrough_inventory.txt`; lines `<us|br> link <NN>`,
+`<us|br> extra <name>` and `<us|br> route <name>`, `#` comments). A fresh
+`--playthrough` or `--routes` directory must then hold exactly the censuses it
+lists (`<us|br>/link-NN.tsv`, `<us|br>/extra/<name>.tsv`,
+`<us|br>/<name>.tsv`): a missing census or one not listed fails the run, so a
+recording or route dropped from the build cannot shrink the figures silently.
+
 `tools/coverage-reasons.tsv` gives the reason for each segment that no
 recording reaches (`probe-only`) or that only US recordings reach (`us-only`).
-It is UTF-8 with LF line endings. The header is `segment`, `gap`, `reason`,
-separated by tabs. Each line gives a `bank:address`, the gap and a reason in
-prose. A segment has at most one reason per gap. A reason for a segment that
-no longer has that gap fails as stale. `--missing-reasons` prints the segments
-still without a reason instead of writing the file. `--require-reasons` (at
-closure) fails while any is missing. Part 3 of milestone 19 fills the file.
+It is UTF-8 with LF line endings. The header is `segment`, `gap`, `evidence`,
+`reason`, separated by tabs. Each line gives a `bank:address`, the gap, the
+evidence label of the reason's weakest claim about why the segment has that
+gap (`ROM run`, `ROM static`, `Inference` or `Unknown`, as in
+[docs/AGENTS.md](AGENTS.md#evidence-labels)) and a reason in prose. A reason
+describes behaviour in player terms; event numbers, town coordinates and
+dungeon cells stay in the private study, and the generator refuses a reason
+that holds them. A segment has at most one reason per gap. A reason for a
+segment that no longer has that gap fails as stale. The report counts the
+reasons by evidence label, and lists each probe-only segment with its label.
+A reason existing is not evidence of a rare trigger or of unreachability:
+`Unknown` says the trigger was not established. `--missing-reasons` prints the
+segments still without a reason instead of writing the file.
+`--require-reasons` (at closure) fails while any is missing. Part 3 of
+milestone 19 fills the file.
 
 **Controls tests.** `bindings_unit` (ROM- and SDL-free) covers the names,
 the defaults, the swap and refusal rules, the `controls.txt` round trip with
@@ -1326,12 +1465,27 @@ checks stricter. Each was shown to fail when the thing it guards is broken.
   be at its LDIR or OTIR, and the instruction after it, where the block
   completes, must begin a segment.
 - `rom_<version>_joins` sweeps an IRQ and an NMI at every cycle of the two
-  item-place calls (`01:5535`, `01:5538`), not a sample.
+  item-place calls (`01:5535`, `01:5538`), not a sample. Each run must show
+  its interrupt taken: the sweep goes on after the call until the response
+  (the interrupted PC pushed, the vector reached) and the handler's return to
+  that PC with SP restored. The call is one instruction, so every run must be
+  accepted at the boundary right after it, at the callee with the call's
+  return address on the stack. With the injection suppressed the test fails
+  (a run whose interrupt is never taken, or taken later, fails). The
+  evidence is an opt-in argument of `probe::Harness::sweep_interrupts`; the
+  other sweeps are unchanged.
 - `rom_<version>_stop_guards` (`tests/stop_sweep_tests.cpp`) tests both sides of
   each of the 71 explicit entry guards. The test lists states read from each
-  guard's predicate, at the edges of every range it checks. Each guard must
-  admit or refuse them as expected. The engine must refuse the entry with the
-  reason `guard`. A new guard or a changed count fails until the test lists it.
+  guard's predicate, at the edges of every range it checks, and each refused
+  state fails one condition alone, so removing any one check fails the test.
+  The money addition's guard (`00:297A`) gets states with its variables mapped
+  and the stack word unmapped, each byte of it alone (the cartridge disabled,
+  the variables then read through the open bus as a work RAM address), and the
+  reverse. The register-and-stack guards get SP 0001, whose word under it wraps
+  into work RAM, so the lower bound of SP is refused alone. Each guard must
+  admit or refuse its states as expected. The engine must refuse the entry
+  with the reason `guard`. A new guard or a changed count fails until the test
+  lists it.
 - `rom_<version>_stop_control` is the positive control. It replays the
   first-dungeon recording to the dungeon loop and places the party before the
   object of dungeon 0 cell E3. It then runs the object check under strict

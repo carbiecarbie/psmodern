@@ -32,7 +32,9 @@
 #include "probe.h"
 #include "game/dungeon.h"
 #include "game/dungeon_tables.h"
+#include "oracle/native_machine.h"
 #include "replay/recording.h"
+#include <array>
 #include <functional>
 #include <iomanip>
 #include <set>
@@ -84,13 +86,65 @@ std::vector<State> register_and_stack(void (*reg)(Machine&, std::uint16_t), cons
         return [=](Machine& m) { reg(m, r); set_sp(m, sp); };
     };
     const std::string n = name;
+    // Each refused state fails exactly one of the predicate's conditions
+    // (review 2026-11-25: conditions tested only together). "SP below" alone
+    // does not do that where the word under SP then leaves work RAM too (SP
+    // C001 with the word at SP-2), so "SP 0001" fails the lower bound alone:
+    // the word under it wraps to FFFD-FFFF, which is work RAM.
     return {{"register lowest, SP lowest", both(low, sp_low), true},
             {"register highest, SP highest", both(high, sp_high), true},
             {"register below", both(static_cast<std::uint16_t>(low - 1), sp_low), false},
             {"register above", both(static_cast<std::uint16_t>(high + 1), sp_low), false},
             {"SP below", both(low, static_cast<std::uint16_t>(sp_low - 1)), false},
+            {"SP 0001, the word under it in work RAM", both(low, 0x0001), false},
             {"SP above", both(low, static_cast<std::uint16_t>(sp_high + 1)), false},
             {"work RAM off", [=](Machine& m) { both(low, sp_high)(m); work_ram_off(m); }, false}};
+}
+
+// The open bus holds the last byte the processor read or wrote; with the
+// cartridge disabled (memory control bit 6, 0000h-BFFFh unmapped) a guard that
+// reads its operands from the ROM reads that byte instead. The state sets it
+// as the processor does: LD A,(C100) run from work RAM by the oracle's core
+// (no rewritten code takes part), the registers and the bytes used restored.
+void set_open_bus(Machine& m, std::uint8_t value) {
+    oracle::Scaffold scaffold(oracle::Scaffold::originals);
+    const auto cpu = m.cpu();
+    const std::array<std::uint16_t, 4> used{0xC000, 0xC001, 0xC002, 0xC100};
+    std::array<std::uint8_t, 4> kept{};
+    for (std::size_t i = 0; i < used.size(); ++i) kept[i] = m.peek(used[i]);
+    m.memory().write(0xC000, 0x3A);
+    m.memory().write(0xC001, 0x00);
+    m.memory().write(0xC002, 0xC1);
+    m.memory().write(0xC100, value);
+    m.cpu().pc.uint16_value = 0xC000;
+    m.cpu().iff1 = m.cpu().iff2 = 0;
+    (void)m.step();
+    probe::check(m.open_bus() == value && m.cpu().pc.uint16_value == 0xC003, "the open bus was not set");
+    for (std::size_t i = 0; i < used.size(); ++i) m.memory().write(used[i], kept[i]);
+    m.cpu() = cpu;
+}
+void cartridge_off(Machine& m) { m.memory().set_memory_control(m.memory().memory_control() | 0x40); }
+// The money addition's guard: its two variables (operands of the routine,
+// read through the bus) and the word at SP are mapped. Each refused state
+// fails one condition group alone: the variables (work RAM off, the stack in
+// ROM), the stack word (the cartridge off with the variables still read as
+// C4C4h, in work RAM), each byte of the stack word, and the variables' high
+// byte. The variables' own two operands are always read through the same
+// mapping (the ROM, or the one open bus byte), so no state separates them.
+std::vector<State> money_states() {
+    auto stack_off = [](std::uint16_t sp) {
+        return [=](Machine& m) { set_open_bus(m, 0xC4); cartridge_off(m); set_sp(m, sp); };
+    };
+    return {{"work RAM on", [](Machine&) {}, true},
+            {"work RAM off", work_ram_off, false},
+            {"the stack in slot 2 ROM", [](Machine& m) { set_sp(m, 0x9000); }, true},
+            {"work RAM off, the stack in slot 2 ROM", [](Machine& m) { work_ram_off(m); set_sp(m, 0x9000); }, false},
+            {"cartridge off, variables C4C4, stack in work RAM", stack_off(0xDF00), true},
+            {"cartridge off, variables C4C4, stack word unmapped", stack_off(0x9000), false},
+            {"cartridge off, variables C4C4, SP BFFF (only its low byte unmapped)", stack_off(0xBFFF), false},
+            {"cartridge off, variables C4C4, SP FFFF (only its high byte, at 0000, unmapped)", stack_off(0xFFFF), false},
+            {"cartridge off, variables FFFF (their high byte at 0000, unmapped), stack in work RAM",
+             [](Machine& m) { set_open_bus(m, 0xFF); cartridge_off(m); set_sp(m, 0xDF00); }, false}};
 }
 
 struct Family {
@@ -142,9 +196,8 @@ std::vector<Family> families() {
          {{"bank 1", [](Machine& m) { m.memory().write(0xFFFE, 1); }, true},
           {"bank 2", [](Machine& m) { m.memory().write(0xFFFE, 2); }, false}}},
         // The money addition's two variables (operands read from the ROM by
-        // the guard) are in work RAM, and so is the stack.
-        {"the money variable and the stack are mapped memory", {},
-         {{"work RAM on", [](Machine&) {}, true}, {"work RAM off", work_ram_off, false}}},
+        // the guard) and the stack word, each refused alone (money_states).
+        {"the money variable and the stack are mapped memory", {}, money_states()},
     };
 }
 

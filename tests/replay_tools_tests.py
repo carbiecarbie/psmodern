@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -137,6 +138,16 @@ with tempfile.TemporaryDirectory() as folder:
         check(result.returncode==code, (result.stdout,result.stderr))
     checkpoint(runner_rows,1)
     checkpoint(rows,0)
+    # A playthrough link (--link) is compared at every instruction boundary even
+    # with PSMODERN_LOCKSTEP_STRICT=0 (review 2026-11-25), and says so; the
+    # variable still selects top-level comparison for an ordinary checkpoint.
+    expected.write_text('\n'.join(rows)+'\n',encoding='ascii')
+    relaxed=dict(os.environ,PSMODERN_LOCKSTEP_STRICT='0')
+    link=subprocess.run([sys.argv[2],'--link',rom,rec,expected,root/'link-census'/'link.tsv'],capture_output=True,text=True,env=relaxed)
+    check(link.returncode==0 and 'Lockstep (every instruction boundary)' in link.stdout and 'is ignored' in link.stdout,
+          (link.stdout,link.stderr))
+    ordinary=subprocess.run([sys.argv[2],rom,rec,expected],capture_output=True,text=True,env=relaxed)
+    check(ordinary.returncode==0 and 'Lockstep (every top-level segment boundary)' in ordinary.stdout,(ordinary.stdout,ordinary.stderr))
     wrong=rows.copy();wrong[2]='build-sha256 '+('0'*64 if reference_sha256!='0'*64 else 'f'*64);checkpoint(wrong,1)
     for missing in range(1,5):checkpoint(rows[:missing]+rows[missing+1:],1)
     wrong=rows.copy();wrong[1]='reference psmodern 1';checkpoint(wrong,1)
