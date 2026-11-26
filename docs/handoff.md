@@ -2,6 +2,29 @@
 
 Last updated: 2026-11-26
 
+## macOS port merged (PR #2)
+
+With the maintainer's word on 2026-11-26,
+[PR #2](https://github.com/carbiecarbie/psmodern/pull/2) (a universal
+`PSModern.app` for Apple silicon and Intel, macOS 11+) was squash-merged into
+`main` as `972cf08`. Its branch conflicted with 1.3.2 only on the version
+line of `CMakeLists.txt`; the resolution (`bce44a2`, keeping 1.3.2) was pushed
+to the contributor's branch. On `bce44a2`, whose tree `972cf08` matches: the
+complete suite 439 of 439, no skip, 1,690.68 s (`build-rel/pr2-suite.log`,
+background shell awaited through its notification), and the PR's CI run with
+both jobs passed (the first run of `build-and-test-macos`; GitHub holds a
+fork's runs until the maintainer approves them).
+
+- **No macOS package on the Releases page yet**, although the README points
+  there. The test ZIP on the contributor's fork (`v1.3.1-macos-2`) is built
+  from `b3c4d8c`, 1.3.1 code. A package of a release commit needs a Mac: the
+  contributor's, or a CI job that builds it.
+- `docs/project-status.md` does not mention macOS; it changes at a milestone
+  closure or with the maintainer's word.
+- With no ROM configured, the ROM tests fail instead of skipping (reported in
+  the PR on macOS, two cases reproduced by the maintainer on Windows); not
+  tracked anywhere yet.
+
 ## Release 1.3.2 published
 
 The maintainer asked for 1.3.2 on 2026-11-26. `main` was fast-forwarded and
@@ -130,14 +153,6 @@ plan; the widescreen switch is a 0/1 token of the shared settings file
   the player's offer in
   [PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)
   can be answered.
-- The macOS port (PR #2: a universal app of 1.3.1, Apple silicon and Intel,
-  macOS 11+, no gameplay change) has the
-  [requested changes](https://github.com/carbiecarbie/psmodern/pull/2#pullrequestreview-6034626295):
-  its branch includes current `main` (with the dungeon fix and milestone 19),
-  `tools/package-macos.sh` stages in a fresh temporary folder and leaves the
-  output folder's other files alone, and the ZIP was rebuilt from `b3c4d8c`
-  ([contributor reply](https://github.com/carbiecarbie/psmodern/pull/2#issuecomment-7131446820)).
-  Later merges of `main` changed no game code, so that ZIP still matches. It
-  awaits review.
+- The macOS package and the no-ROM test failures above.
 - `../m18-mockup/` can be deleted.
 - The maintainer chooses and starts the next milestone explicitly.
