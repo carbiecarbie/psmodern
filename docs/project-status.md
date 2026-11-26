@@ -4,11 +4,12 @@
 nothing the player sees: the tests now play each cartridge from a new game to
 the title after the credits, through the rescue of the petrified companion,
 and no stop was found; the [plan](milestone-19-plan.md) records the results
-and the route's limits. The latest published release, **1.3.1** (2026-11-23),
+and the route's limits. The latest published release, **1.3.2** (2026-11-26),
 ships the Windows x64 zip and the signed Android APK
-(`PSModern-1.3.1-android-arm.apk`, ARM64 and ARMv7, `versionCode 10301`),
+(`PSModern-1.3.2-android-arm.apk`, ARM64 and ARMv7, `versionCode 10302`),
 covering through milestone 17 plus the fix of the stop at the petrified
-companion; milestone 19 changed no game code and needs no release. See the
+companion (1.3.1), Android's hidden bars, the touch controls kept hidden with
+a controller and even fast-forward at 2x and 4x (1.3.2). See the
 [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.

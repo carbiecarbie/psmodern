@@ -2,16 +2,34 @@
 
 Last updated: 2026-11-26
 
-## Maintenance committed on a branch: three Android issues
+## Release 1.3.2 published
+
+The maintainer asked for 1.3.2 on 2026-11-26. `main` was fast-forwarded and
+pushed to `a090fa9` ("Prepare release 1.3.2", after `0bae9a7` and `44c14e7`
+below); the complete suite of `44c14e7` (439 of 439) is reused under the
+release rule, and `a090fa9` ran the build and the fast group (193 of 193).
+Packages from `a090fa9`, made by the two packaging scripts, are in
+`../release-1.3.2/`: the Windows zip (SHA-256 `3899db47...02c9`; its
+`--version` prints `PSModern 1.3.2` from a clean folder with a non-ASCII
+name) and the release-signed APK (SHA-256 `9acf7464...fd4a`, versionCode
+10302, both ABIs checked by the script). Release notes draft:
+`../releases/release-notes-1.3.2.md`.
+
+Published on 2026-11-26 with the maintainer's word: annotated tag `v1.3.2` on
+`a090fa9`, GitHub release "PSModern 1.3.2" (Latest) with both packages; the
+downloaded copies match the checksums. Recorded in the
+[project history](project-history.md). Nobody played 2x or 4x on Windows with
+the new clock before the release.
+
+**Waiting for the maintainer:** the three issue comments (drafts first). The S24 holds a debug-signed test build and will not
+take the official APK without a backup, an uninstall and a restore.
+
+## The three Android issues (in `main` since `a090fa9`)
 
 A player on a Retroid Pocket 5 opened issues
 [6](https://github.com/carbiecarbie/psmodern/issues/6),
 [7](https://github.com/carbiecarbie/psmodern/issues/7) and
-[8](https://github.com/carbiecarbie/psmodern/issues/8) on 2026-11-25. The
-fixes are committed on the local branch `maintenance-android-issues` (two
-commits, with the maintainer's word, 2026-11-26); `main` is still the pushed
-state, and nothing was pushed, merged or posted on GitHub. The maintainer
-wants the three issue comments only after the fixes, as drafts first.
+[8](https://github.com/carbiecarbie/psmodern/issues/8) on 2026-11-25.
 
 ### Done and checked on the maintainer's S24
 
@@ -66,15 +84,12 @@ wants the three issue comments only after the fixes, as drafts first.
   of the remainder was not studied, and only about 40 seconds were played.
   The maintainer has not yet said how the scrolling looked.
 
-### Next steps
+### For later test builds
 
-1. Show the maintainer the three issue comments as drafts; post them only
-   with his word.
-2. Merging the branch into `main`, the push and a 1.3.2 release each need
-   the maintainer's word. The S24 still has the debug-signed test build.
-3. A new test APK is built with `tools/package-android-release.ps1 -AllowDirty
-   -UseWorkingTree -VersionOverride 1.3.2` and re-signed with the debug key,
-   as `../android-fixes-playtest/build.txt` records.
+A test APK of an uncommitted tree is built with
+`tools/package-android-release.ps1 -AllowDirty -UseWorkingTree
+-VersionOverride <version>` and re-signed with the debug key for the S24, as
+`../android-fixes-playtest/build.txt` records.
 
 ### Decided, not started: filling the screen (issue 8)
 
