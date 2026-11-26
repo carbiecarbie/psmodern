@@ -21,8 +21,12 @@ downloaded copies match the checksums. Recorded in the
 [project history](project-history.md). Nobody played 2x or 4x on Windows with
 the new clock before the release.
 
-**Waiting for the maintainer:** the three issue comments (drafts first). The S24 holds a debug-signed test build and will not
-take the official APK without a backup, an uninstall and a restore.
+**Issue comments posted** on 2026-11-26 with the maintainer's word, one on
+each of issues 6, 7 and 8, pointing to 1.3.2. All three stay open: 6 and 7
+until the reporter says whether 1.3.2 helps on his device (7 asks whether
+left and right were always smooth), 8 until the fill choice exists. The S24
+holds a debug-signed test build and will not take the official APK without a
+backup, an uninstall and a restore.
 
 ## The three Android issues (in `main` since `a090fa9`)
 
