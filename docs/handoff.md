@@ -130,8 +130,14 @@ plan; the widescreen switch is a 0/1 token of the shared settings file
   the player's offer in
   [PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)
   can be answered.
-- The macOS port awaits a new ZIP built from current `main` with the dungeon
-  fix, and a packaging change that preserves an existing staging folder
-  ([requested changes in PR #2](https://github.com/carbiecarbie/psmodern/pull/2#pullrequestreview-6034626295)).
+- The macOS port (PR #2: a universal app of 1.3.1, Apple silicon and Intel,
+  macOS 11+, no gameplay change) has the
+  [requested changes](https://github.com/carbiecarbie/psmodern/pull/2#pullrequestreview-6034626295):
+  its branch includes current `main` (with the dungeon fix and milestone 19),
+  `tools/package-macos.sh` stages in a fresh temporary folder and leaves the
+  output folder's other files alone, and the ZIP was rebuilt from `b3c4d8c`
+  ([contributor reply](https://github.com/carbiecarbie/psmodern/pull/2#issuecomment-7131446820)).
+  Later merges of `main` changed no game code, so that ZIP still matches. It
+  awaits review.
 - `../m18-mockup/` can be deleted.
 - The maintainer chooses and starts the next milestone explicitly.

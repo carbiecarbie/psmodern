@@ -112,6 +112,48 @@ unstripped counterpart under `android/build/intermediates/cxx/<Release|Debug>/`,
 and inspect the unstripped library with `llvm-nm --demangle` for `SDL_main` and
 the absence of the Z80 interpreter and test oracle.
 
+## macOS build
+
+Validated on macOS 27.2.1 (Apple silicon) with Apple clang 21.0.0 from the
+Xcode Command Line Tools, CMake 4.5.1 and Ninja 1.13.2 (Homebrew). The app is
+universal (`arm64` and `x86_64`) with a minimum of macOS 11.0; the `x86_64`
+slice was also run under Rosetta. SDL2 2.32.10 is built from the same source
+archive as the Android build (SHA-256 above) as a static universal library, so
+`PSModern.app` links only libraries that ship with macOS (AppKit,
+UniformTypeIdentifiers and the frameworks SDL2 uses). A static SDL2 exports
+only `SDL2::SDL2-static`; `CMakeLists.txt` aliases it to `SDL2::SDL2`.
+
+`src/app/platform_macos.mm` is the platform layer: saves under
+`~/Library/Application Support/PSModern` (under `$APPDATA/PSModern` when
+`APPDATA` is set, which the tests use to isolate saves as on Windows), the AppKit Open panel for `.sms`
+files, Finder for the saves folder, and `~/Library/Logs/PSModern.log` for
+diagnostics when the app is started from Finder (whose standard streams lead
+to `/dev/null`). Objective-C++ also builds without `NDEBUG`.
+
+Development build and data-free tests, with SDL2 installed to `<sdl2-prefix>`
+(as `tools/package-macos.sh` does):
+
+```sh
+cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF \
+  -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+  -DCMAKE_PREFIX_PATH=<sdl2-prefix>
+cmake --build build-macos
+ctest --test-dir build-macos -j "$(sysctl -n hw.ncpu)" --output-on-failure --no-tests=error
+open build-macos/PSModern.app
+```
+
+`tools/package-macos.sh <output-folder>` (outside the checkout) downloads and
+verifies SDL2, builds it and the `psmodern` target, strips the app, signs it
+ad hoc, checks both slices with `--version` and that nothing outside macOS is
+linked, and writes `PSModern-<version>-macos-universal.zip` with
+`PSModern.app`, `LICENSE.txt`, `README.txt` (`tools/release/README-macOS.txt`),
+`THIRD-PARTY.txt` and `licenses/` (Nuked-OPLL and SDL2). A dirty tree adds
+`-dirty` to the name. It refuses to overwrite an existing zip, and it stages
+the app in a new temporary folder that it removes at the end, so a second run
+never deletes anything already in the output folder. The app is not notarized. The repository holds no icon
+(no art from the game, see the root `AGENTS.md`); `PSMODERN_ICON=<png|icns>`
+embeds a local one into the packaged app.
+
 ## Windows libraries and version header
 
 `psmodern.exe` also links the Windows system libraries `comdlg32` (Open
@@ -358,6 +400,11 @@ credentials, the token is read-only, and no secrets or ROMs are used. The
 hosted run covers data-free tests only and does not replace the local complete
 suite. Old package files or the pinned Actions may become unavailable; update
 the package list and hashes together when maintaining the toolchain.
+
+A second job builds on hosted macOS 15 (Apple silicon): it verifies and
+builds the SDL2 2.32.10 source as a static universal library, then configures
+the universal app with `PSMODERN_ROM_TESTS=OFF` and the same Z80 conformance
+programs, checks for `NDEBUG`, builds and runs CTest.
 
 ## Replay and reference scripts
 

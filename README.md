@@ -59,6 +59,8 @@ controller `Y` while exploring):
   and button can be remapped from the in-game **Controls** screen.
 - **Android support:** official ARM APK for Android 7.0+ with touch controls,
   gamepad support, and saves compatible with Windows.
+- **macOS support:** one universal app for Apple silicon and Intel Macs
+  (macOS 11+), with saves compatible with Windows and Android.
 
 ## How to install and play
 
@@ -92,6 +94,20 @@ the default; choose FM on the SOUND row of Options. [Sound sources and preferenc
 > Because `psmodern.exe` is not digitally signed, Windows SmartScreen may show
 > an "unknown publisher" warning. Click **More info** and then **Run anyway**.
 
+### macOS (Apple silicon and Intel, macOS 11+)
+
+1. Download `PSModern-<version>-macos-universal.zip` from the
+   [Releases page][releases] and open it.
+2. Drag `PSModern.app` to your Applications folder.
+3. Start it as on Windows: select your `.sms` file in the Open dialog on first
+   launch, then pick **PLAY** on the start screen.
+
+> [!NOTE]
+> The app is not notarized by Apple, so macOS blocks the first launch.
+> Control-click `PSModern.app`, choose **Open**, then **Open** again. On
+> macOS 15 or later, try to open it once, then click **Open Anyway** in
+> **System Settings > Privacy & Security**.
+
 ### Android (ARM, Android 7.0+)
 
 1. Download `PSModern-<version>-android-arm.apk` from the
@@ -105,10 +121,11 @@ the default; choose FM on the SOUND row of Options. [Sound sources and preferenc
 *(Want to build the APK yourself? Follow the
 [Android build guide](docs/dependencies.md#android-family-build).)*
 
-To move saves between Windows and Android, close PSModern on both devices, back
-up the destination folder, and copy the files inside `shared/`:
+To move saves between Windows, macOS and Android, close PSModern on both
+devices, back up the destination folder, and copy the files inside `shared/`:
 
 - **Windows:** `%APPDATA%\PSModern\shared`
+- **macOS:** `~/Library/Application Support/PSModern/shared`
 - **Android:** `Android/data/org.psmodern.game/files/shared/`
 
 ## Quick controls
@@ -127,14 +144,19 @@ can be customized on the **Controls** screen (from the start screen or Options).
 | Dungeon map (when Automap is on) | `M` | `X` |
 | Fullscreen | `Alt+Enter` | - |
 
-Saves use the original cartridge format in `%APPDATA%\PSModern\shared` (with a
-`.bak` backup and small companion files for options and dungeon maps), so your
+On a Mac keyboard, `Enter`, `Backspace` and `Alt` are `Return`, `Delete` and
+`Option`.
+
+Saves use the original cartridge format in `shared/` inside the folders above
+(with a `.bak` backup and small companion files for options and dungeon maps), so your
 raw `.sav` remains compatible with Master System emulators. You can also launch
 directly from the command line:
 
 ```sh
 psmodern.exe "path/to/your-game.sms" --encounter-rate 25 --experience-rate 400
 ```
+
+On macOS, run `PSModern.app/Contents/MacOS/PSModern` with the same arguments.
 
 See the [Player guide & controls][controls] for full details on remapping,
 options, automap rules, widescreen, saves, and command-line flags.
@@ -150,6 +172,11 @@ cmake --build build-rel
 ctest --test-dir build-rel --output-on-failure
 ./build-rel/psmodern.exe "path/to/your-game.sms"
 ```
+
+On macOS, with the Xcode Command Line Tools, CMake and Ninja,
+`tools/package-macos.sh <output-folder>` builds SDL2 and the universal
+`PSModern.app` and packages it; the [macOS build](docs/dependencies.md#macos-build)
+section covers development builds and tests.
 
 Tests that need a ROM skip automatically if none is configured. See
 [Development][development] for ROM test paths, recordings, and lockstep

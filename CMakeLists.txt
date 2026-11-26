@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # Keep assertions in the optimized validation build, as in MMModern.
 set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
+set(CMAKE_OBJCXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")  # macOS platform layer
 project(PSModern VERSION 1.3.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -41,6 +42,10 @@ if(ANDROID)
   add_compile_options(-O2)
 else()
   find_package(SDL2 CONFIG REQUIRED)
+  # A static SDL2 (the macOS universal build) only exports SDL2::SDL2-static.
+  if(NOT TARGET SDL2::SDL2 AND TARGET SDL2::SDL2-static)
+    add_library(SDL2::SDL2 ALIAS SDL2::SDL2-static)
+  endif()
   add_library(redcode_z80 STATIC third_party/redcode-z80/sources/Z80.c)
   target_include_directories(redcode_z80 PUBLIC third_party/redcode-z80/API third_party/zeta/API)
   target_compile_definitions(redcode_z80 PUBLIC Z80_STATIC)
@@ -127,9 +132,24 @@ endif()
 add_executable(psmodern_replay_runner src/replay/main.cpp)
 set_target_properties(psmodern_replay_runner PROPERTIES OUTPUT_NAME psmodern_replay)
 target_link_libraries(psmodern_replay_runner PRIVATE psmodern_replay psmodern_oracle)
-add_library(psmodern_platform STATIC src/app/platform_windows.cpp)
+if(APPLE)
+  enable_language(OBJCXX)
+  add_library(psmodern_platform STATIC src/app/platform_macos.mm)
+  target_compile_options(psmodern_platform PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+  target_link_libraries(psmodern_platform PRIVATE "-framework AppKit" "-framework UniformTypeIdentifiers")
+else()
+  add_library(psmodern_platform STATIC src/app/platform_windows.cpp)
+endif()
 target_link_libraries(psmodern_platform PUBLIC psmodern_app SDL2::SDL2)
 add_executable(psmodern src/app/main.cpp src/app/sdl_host.cpp src/app/start_loop.cpp)
+if(APPLE)
+  # PSModern.app: double-click from Finder. The bare executable inside
+  # (Contents/MacOS/psmodern) still takes the command-line flags.
+  set_target_properties(psmodern PROPERTIES MACOSX_BUNDLE TRUE OUTPUT_NAME PSModern
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in
+    MACOSX_BUNDLE_BUNDLE_NAME PSModern MACOSX_BUNDLE_GUI_IDENTIFIER org.psmodern.game
+    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION} MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION})
+endif()
 target_link_libraries(psmodern PRIVATE psmodern_platform)
 if(WIN32)
   # A GUI program: no console window on double-click. attach_parent_console()
@@ -137,8 +157,10 @@ if(WIN32)
   set_target_properties(psmodern PROPERTIES WIN32_EXECUTABLE TRUE)
   target_link_libraries(psmodern_platform PRIVATE comdlg32 shell32 ole32)
 endif()
-add_custom_command(TARGET psmodern POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:psmodern>)
+if(NOT APPLE)
+  add_custom_command(TARGET psmodern POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:psmodern>)
+endif()
 if(MINGW)
   # The GUI must also start from Explorer without the UCRT64 directory on PATH.
   get_filename_component(_compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
