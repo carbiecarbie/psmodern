@@ -1,59 +1,109 @@
 # Session handoff
 
-Last updated: 2026-11-25
+Last updated: 2026-11-26
 
-## Maintenance done: the playthrough group's harness
+## Maintenance committed on a branch: three Android issues
 
-After [milestone 19](milestone-19-plan.md) closed (accepted on 2026-11-25),
-the maintainer asked on 2026-11-25 for two of the candidates it left. Both
-are done, reviewed and merged into `main`; he authorized the push.
+A player on a Retroid Pocket 5 opened issues
+[6](https://github.com/carbiecarbie/psmodern/issues/6),
+[7](https://github.com/carbiecarbie/psmodern/issues/7) and
+[8](https://github.com/carbiecarbie/psmodern/issues/8) on 2026-11-25. The
+fixes are committed on the local branch `maintenance-android-issues` (two
+commits, with the maintainer's word, 2026-11-26); `main` is still the pushed
+state, and nothing was pushed, merged or posted on GitHub. The maintainer
+wants the three issue comments only after the fixes, as drafts first.
 
-- **Each extra's start class is inside its `.start` file** (format version
-  2, with `class` and `basis` lines). `tools/extra-start-classes.tsv` is
-  gone. [Coverage](coverage.md) still reports 6 chain saves, 79 edited and 4
-  artificial start images.
-- **The playthrough group is shorter.** The 89 start-image tests no longer
-  replay a chain link: the mode `start` rebuilds the link's end from images
-  already in the reference folder and uses it only once its SHA-1 is the one
-  in the link's reference manifest. A start-image test alone says nothing
-  about the C++ game; the link's strict test in the same run does. The whole
-  group, option on, `-j 16`: 378 of 378 passed, no skip, 1,926 s
-  (`build-rel/playthrough-harness-pkg.log`); before, 2,410 s. The long
-  strict link tests now set its length.
-- The negative cases run in the normal suite as `playthrough_start_rules`
-  (439 tests now) and in the coverage tool tests.
-- The independent review (an agent with a fresh context) approved with two
-  required changes, both made: the search for a byte that the next link also
-  edited covers one byte, with a test at its limit; and the maintainer
-  authorized the correction of the group's duration in
-  [project status](project-status.md). After them, the 237 playthrough tests
-  that use the changed test program passed, and the 193 fast tests.
-- No game code changed, and the complete suite was not run again: only test
-  code, tools, recordings' recipes and documents changed.
+### Done and checked on the maintainer's S24
+
+- **Issue 8, the bars.** The Android window is fullscreen from creation and
+  the layout ignores the system bars' insets while it is (the camera cutout is
+  still respected).
+- **Issue 6, the touch controls.** No new option (maintainer decision). They
+  start hidden when a controller is already connected, keep their state from
+  the start screen into the game, and a touch wakes them only when no
+  controller input is held and two seconds after the last one. Mouse buttons
+  no longer become touches.
+- **A measurement line.** The 10-second report prints `present_frames`: how
+  many game frames each presented picture carried.
+- Evidence: `ctest -L fast` 193 of 193; the complete suite 439 of 439, no
+  skip, 1,688.86 s (`build-rel/android-fixes-suite.log`), before the pacing
+  change below. On the S24 (`../android-fixes-playtest/`: APK, guide, notes,
+  log, captures) the maintainer ran the guide and said everything looked
+  correct; captures show the bars hidden in landscape, none shows the app in
+  portrait; the touch rule passed with a virtual gamepad
+  (`virtual-pad-test.sh`), since he has no controller for the phone.
+- The phone held the personal build of milestone 16, signed with this PC's
+  Android debug key, so the test APK was re-signed with that key and installed
+  over it. An official release will not install over that app without a
+  backup, an uninstall and a restore, which needs the maintainer's word.
+
+### Issue 7, even pacing at 2x and 4x
+
+- **Measured** on the S24 at 60 Hz: of 601 pictures in 10 seconds, 43 and 51
+  carried one or three game frames instead of two at 2x, and 74 carried three
+  or five instead of four at 4x. Why the reporter sees it only vertically is
+  still unknown.
+- **Maintainer decision (2026-11-26):** at 2x and 4x the clock may follow the
+  screen, and the speed may differ by up to 1%; 1x does not change.
+- **Design and reviews:** `../issue7-pacing/` holds `design.md`,
+  `plan-review.md` and `implementation-review.md`. The independent plan
+  review approved with four required changes, all taken. The independent
+  implementation review (a fresh agent) approved with one: the audio margin
+  must hold for the queue's peak, not its mean. Taken by lowering the slew to
+  0.2%, which locks screens from 59.80 to 60.04 Hz (and twice that).
+- **Implemented** in `FrameClock` (`src/app/host.h`, `src/app/host.cpp`), with
+  tests in `tests/app_tests.cpp` and the fast-forward paragraphs of
+  [player controls](player-controls.md) and [development](development.md).
+  On the final code: `ctest -L fast` 193 of 193 (`build-rel/pacing-fast2.log`),
+  the four tests that use the clock (`build-rel/pacing-named2.log`), the
+  citation checker and `git diff --check`.
+- **Complete suite on the final build** (background shell, awaited through its
+  notification): 439 of 439, no skip, 1,782.20 s
+  (`build-rel/pacing-suite.log`).
+- **On the S24 at 60 Hz** (second test build, `../android-fixes-playtest/pacing/`):
+  in full windows of 601 pictures, 3 were uneven at 4x and 5 and 2 at 2x
+  (before: 74, and 43 and 51). Not the zero the tests' model gives; the cause
+  of the remainder was not studied, and only about 40 seconds were played.
+  The maintainer has not yet said how the scrolling looked.
+
+### Next steps
+
+1. Show the maintainer the three issue comments as drafts; post them only
+   with his word.
+2. Merging the branch into `main`, the push and a 1.3.2 release each need
+   the maintainer's word. The S24 still has the debug-signed test build.
+3. A new test APK is built with `tools/package-android-release.ps1 -AllowDirty
+   -UseWorkingTree -VersionOverride 1.3.2` and re-signed with the debug key,
+   as `../android-fixes-playtest/build.txt` records.
+
+### Decided, not started: filling the screen (issue 8)
+
+The black bars come from the whole-step scale (1920x1080 shows the wide
+picture at 5x, 1720x960). On the mockups in `../android-fill-mockup/` the
+maintainer chose a third choice in the Widescreen row (off, on, fill; names
+provisional) that fills the screen with a fractional scale and light
+smoothing. The Options page stays at seven rows
+([milestone 18](milestone-18-plan.md)). It is larger than a fix and has no
+plan; the widescreen switch is a 0/1 token of the shared settings file
+(`src/app/settings.cpp`), which a third value would change.
 
 ## State of the build and the working material
 
 - `build-rel` is configured with `PSMODERN_PLAYTHROUGH_TESTS=OFF` and uses
   the four-patch reference executable
   (`../m19-reference/mesen-publish/Mesen.exe`) and the reference folder
-  `../m19-reference/reference/`. The older `../m1-partE3/reference` and
-  `../m1-partD6/source/d6-publish` are no longer used; they were left in
-  place.
-- `../m19-playthrough/` and `../m19-playthrough-br/`: the driver that plays
-  the game from scripts, the route, the link scripts and each chain's notes.
-- `../m19-triage/`: the extra recordings' scripts, the instruction-coverage
-  evidence and the generator of `tools/coverage-reasons.tsv`.
-- `../m19-wt/`: the milestone's review, the closing summary, the patches and
-  the worktree `part0`, which can be removed.
-- `../working-log.md` has the history.
+  `../m19-reference/reference/`.
+- `../working-log.md` has the history, including the playthrough harness
+  maintenance merged and pushed on 2026-11-25 (`ef16fcb`).
+- `../m19-playthrough/`, `../m19-playthrough-br/`, `../m19-triage/` and
+  `../m19-wt/` hold milestone 19's working material; the worktree
+  `../m19-wt/part0` can be removed.
 
 ## Pending
 
 - Candidates of milestone 19 not started, in the [roadmap](roadmap.md): the
-  102 reasons whose trigger is unknown (49 of them are segments only US
-  recordings reach, mostly through checkpoints that exist for the US
-  cartridge alone; Brazilian recordings of those actions would settle most),
-  the reference capture that failed twice under suspected load, and trimming
+  102 reasons whose trigger is unknown, the reference capture that failed
+  twice under suspected load, and trimming
   [project status](project-status.md) to its size target.
 - The complete suite takes about 29 minutes; nobody has looked for savings
   in it since milestone 14.

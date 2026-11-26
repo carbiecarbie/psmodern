@@ -131,15 +131,31 @@ bool SpeedShortcut::update(bool focused,bool keyboard,bool shoulder,bool allowed
 }
 void FrameClock::speed(unsigned value,double now) {
     if (value!=1 && value!=2 && value!=4) throw std::invalid_argument("Invalid speed.");
-    if (value!=speed_) { speed_=value; deadline_=now+frame_seconds/speed_; }
+    if (value!=speed_) { speed_=value; deadline_=now+frame_seconds/speed_; last_=previous_=0; }
 }
 unsigned FrameClock::due(double now) {
+    const double f=frame_seconds/speed_;
     unsigned count=0;
-    while (now>=deadline_ && count<3*speed_) { ++count; deadline_+=frame_seconds/speed_; }
+    while (now>=deadline_ && count<3*speed_) { ++count; deadline_+=f; }
     if (now>=deadline_) {
-        discarded_+=now+frame_seconds/speed_-deadline_;
-        deadline_=now+frame_seconds/speed_;
+        discarded_+=now+f-deadline_;
+        deadline_=now+f; last_=previous_=0;
+        return count;
     }
+    // Accelerated only, and only after two calls carried the same count, so a
+    // polling caller (a 0 between) and a one-off catch-up count are left alone.
+    if (speed_>1 && last_ && last_==previous_) {
+        const double m=f*fast_forward_margin;
+        // Hold: a deadline just passed waits for the next call, one just
+        // ahead is taken now.
+        if (count==last_+1 && now-(deadline_-f)<m) { count=last_; deadline_-=f; }
+        else if (count+1==last_ && deadline_-now<m) { count=last_; deadline_+=f; }
+        // Slew: move the deadlines away from a pass that sits near one of them.
+        const double e=now-(deadline_-f);
+        if (e<m) deadline_-=fast_forward_slew*count*f;
+        else if (e>f-m) deadline_+=fast_forward_slew*count*f;
+    }
+    previous_=last_; last_=count;
     return count;
 }
 }

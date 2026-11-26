@@ -82,6 +82,11 @@ power cycle (`F5`) resets to `1x`. While Options is open or the window loses
 focus, gameplay temporarily runs at `1x` and returns to your chosen speed
 afterward.
 
+At `2x` and `4x` the game keeps step with the screen, so on a 60 Hz screen
+every picture moves the game on by the same number of frames. To do so it may
+run up to 0.2% faster or slower than exactly two or four times the console's
+speed. `1x` is unchanged: it always runs at the console's own rate.
+
 ## In-game options
 
 Press Options (`Escape` or controller `Y` by default) while walking freely in a

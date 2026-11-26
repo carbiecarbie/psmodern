@@ -626,10 +626,29 @@ and selected source are constant.
 ## Audio and pacing
 
 **Inference.** The host uses a high-resolution wall clock at the machine rate,
-3,579,545 / 59,736 frames per second, independent of display refresh. It runs
+3,579,545 / 59,736 frames per second; at 1x it is independent of display
+refresh. It runs
 whole frames, at most three per iteration at 1x, six at 2x and twelve at 4x.
 When further behind it rebases the
-wall deadline; no machine frame is skipped or duplicated. The SDL renderer
+wall deadline; no machine frame is skipped or duplicated.
+
+**Maintainer decision (2026-11-26, issue 7).** At 2x and 4x the clock keeps
+step with the screen (`FrameClock::due`, `src/app/host.cpp`). Once two calls
+in a row returned the same count, a deadline within a quarter frame of the
+call does not change it: one just passed waits for the next call, one just
+ahead is taken now. The deadlines then move by up to 0.2% of the count's
+duration per call (`fast_forward_slew`) to keep calls away from them, so on a
+screen within 0.2% of a multiple of the accelerated rate (59.803 to
+60.043 Hz, or twice that) every picture carries the same count. The limit is
+0.2% because the audio follows the game frames: the resampling feedback
+settles the mean queue 10 ms above its set point per 0.1% of rate error,
+161.7 ms at 0.2%. The queue is measured before each frame and a picture's
+frames are submitted together, so at 4x the last measurement is 6.3 ms above
+the mean, and half a 512-sample device buffer adds 5.3 ms: a peak of about
+173 ms, 10 ms below the 183.4 ms level where the producer starts to wait (at
+0.3% the margin would be 0.1 ms). A call that returns
+0, as in a loop that polls, switches the rule off for the next call, so a
+polling loop keeps the nominal rate. The SDL renderer
 requests accelerated presentation with vsync and falls back to the previous
 accelerated renderer, then software. Vsync governs presentation only: a
 picture can be dropped when multiple machine frames are due, while the host
