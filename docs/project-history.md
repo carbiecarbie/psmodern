@@ -356,3 +356,26 @@ The independent review approved with eight required changes, all made. The
 complete suite passed 438/438 with zero skips; the closure-only `playthrough`
 group passed 378 of 378 with no skip in 2,409.73 s. Implementation:
 `88aa2cc`; review changes: `d8cc530`; closure: `3b6e970`.
+
+## Release 1.3.2 - Android bars, touch controls and even fast-forward (2026-11-26)
+
+A player on a Retroid Pocket 5 reported three Android problems (issues 6, 7
+and 8). The Android window is now fullscreen, so the status and navigation
+bars are hidden while the cutout is still kept clear; the touch controls
+start hidden with a controller connected, keep their state into the game and
+wake only after the controller has been left alone for two seconds
+(`0bae9a7`). At 2x and 4x the frame clock now keeps step with the screen
+(`44c14e7`, maintainer decision of 2026-11-26): a deadline near the pass time
+no longer changes the number of game frames in a picture, and the speed may
+differ by up to 0.2%; 1x is unchanged. On a Galaxy S24 Ultra at 60 Hz the
+uneven pictures fell from 43 to 51 of 601 to 2 to 5 at 2x and from 74 to 3
+at 4x. The clock change had independent reviews of its plan and its
+implementation, each approved with required changes, all made. The complete
+suite passed 439 of 439 with zero skips on `44c14e7` and was reused under the
+release rule; the 1.3.2 build was warning-free and all 193 fast tests passed.
+Both packages were verified as for 1.3.1 and matched their checksums after
+download. The maintainer played the Android changes on the S24 (the touch
+rule with a virtual gamepad); nobody played 2x or 4x on Windows before the
+release. Published as GitHub release v1.3.2 from `a090fa9`. Filling the
+screen past the whole-step scale (issue 8's black bars) is decided as a third
+Widescreen choice and not started.

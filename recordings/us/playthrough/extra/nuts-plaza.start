@@ -1,2 +1,4 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-22
+class chain-save
+basis Link 22's saved game with no byte changed.

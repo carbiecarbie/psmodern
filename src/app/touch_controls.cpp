@@ -134,8 +134,18 @@ void TouchControls::set_layout(const TouchLayout& layout) {
     clear();
     layout_=layout;
 }
-void TouchControls::down(std::int64_t finger,int x,int y) {
-    if (!visible_) { visible_=true; return; } // consume the whole waking contact
+void TouchControls::controller_input(std::int64_t source,bool active,std::uint32_t ms) {
+    if (active) { active_.insert(source); clear(); visible_=false; }
+    else active_.erase(source);
+    last_input_=ms;
+}
+void TouchControls::down(std::int64_t finger,int x,int y,std::uint32_t ms) {
+    if (!visible_) {
+        // The whole contact is consumed, whether it wakes the controls or not.
+        // Unsigned subtraction survives the 49-day wrap of SDL's tick count.
+        if (active_.empty() && (!last_input_ || ms-*last_input_>=touch_wake_quiet_ms)) visible_=true;
+        return;
+    }
     if (fingers_.contains(finger)) return;
     if (contains(layout_.pad_hit,x,y)) {
         // One thumb steers. A second finger cannot produce a diagonal.

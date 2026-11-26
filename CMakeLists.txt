@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.20)
 set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")
 set(CMAKE_OBJCXX_FLAGS_RELWITHDEBINFO "-O2 -g" CACHE STRING "RelWithDebInfo flags")  # macOS platform layer
-project(PSModern VERSION 1.3.1 LANGUAGES C CXX)
+project(PSModern VERSION 1.3.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -1013,6 +1013,7 @@ if(BUILD_TESTING)
   # closure (tools/AGENTS.md).
   add_executable(psmodern_playthrough_tests tests/playthrough_tests.cpp)
   target_link_libraries(psmodern_playthrough_tests PRIVATE psmodern_app)
+  target_compile_definitions(psmodern_playthrough_tests PRIVATE PSMODERN_REFERENCE_SHA256="${PSMODERN_REFERENCE_SHA256}")
   # The rules' own test (normal suite, seconds): each chain rule, the experience
   # rule and the plain runner's folder ownership and final flush, shown refusing
   # their negative cases on synthetic images and one-frame links (review
@@ -1023,6 +1024,11 @@ if(BUILD_TESTING)
       "${PSMODERN_ROM_${_region_upper}}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-rules/${_region}")
     set_tests_properties(rom_${_region}_playthrough_rules PROPERTIES SKIP_RETURN_CODE 77 LABELS "fast;rom")
   endforeach()
+  # The start file's form and the start-image test's checks (normal suite, no ROM): each
+  # refusing its negative case on a synthetic chain, nothing replayed.
+  add_test(NAME playthrough_start_rules COMMAND psmodern_playthrough_tests start-rules
+    "${CMAKE_CURRENT_BINARY_DIR}/playthrough-start-rules")
+  set_tests_properties(playthrough_start_rules PROPERTIES LABELS "fast")
   if(PSMODERN_PLAYTHROUGH_TESTS)
     # The committed inventory: the links, part 3's recordings and the routes found
     # must be exactly those listed (a removed pair or chain suffix fails).
@@ -1054,7 +1060,9 @@ if(BUILD_TESTING)
       # Part 3's recordings (extra/<name>.psrec, not part of the chain) start from a link's
       # end with the bytes their <name>.start file lists. Each runs as a link does (strict
       # lockstep, plain run; its census under playthrough-census/<region>/extra/) and its
-      # start image is rebuilt from the link and checked against its header (_start).
+      # start image is checked against its header (_start): link NN's end rebuilt from the
+      # reference start images (replayed only when that is not possible) and authenticated
+      # against the last frame of link NN's reference manifest before use, then the bytes set.
       file(GLOB _extras CONFIGURE_DEPENDS "${_links_dir}/extra/*.psrec")
       foreach(_extra IN LISTS _extras)
         get_filename_component(_stem "${_extra}" NAME_WE)
@@ -1064,7 +1072,7 @@ if(BUILD_TESTING)
           "${CMAKE_CURRENT_BINARY_DIR}/playthrough-census/${_region}/extra/${_stem}.tsv")
         add_test(NAME ${_test}_plain COMMAND psmodern_playthrough_tests plain
           "${_rom}" "${_extra}" "${_reference}/extra/${_stem}" "${CMAKE_CURRENT_BINARY_DIR}/playthrough-work/${_region}/extra/${_stem}")
-        add_test(NAME ${_test}_start COMMAND psmodern_playthrough_tests extra "${_rom}" "${_extra}" "${_reference}")
+        add_test(NAME ${_test}_start COMMAND psmodern_playthrough_tests start "${_rom}" "${_extra}" "${_reference}")
         set_tests_properties(${_test} ${_test}_plain ${_test}_start PROPERTIES LABELS "playthrough;rom" TIMEOUT 7200)
       endforeach()
       foreach(_route IN LISTS _playthrough_routes)

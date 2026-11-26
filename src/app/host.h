@@ -104,19 +104,30 @@ private:
     bool keyboard_previous_=false,shoulder_previous_=false;
 };
 
+// Issue 7 (maintainer decision 2026-11-26): at 2x and 4x the clock keeps step
+// with the screen. A deadline within this fraction of a frame of the pass time
+// does not change the count, and the clock moves by up to this relative slew
+// to keep the pass away from deadlines. 0.2% because audio follows the game
+// frames: rate_adjustment settles the mean queue at audio_target_seconds-
+// frame_seconds/2 + 10 s * rate error, 161.7 ms at +0.2%. Audio::submit
+// measures before each frame of a picture, so at 4x the last measurement is
+// 6.3 ms above the mean, and half a 512-sample device buffer adds 5.3 ms: a
+// peak of 173.3 ms, 10 ms below the 183.4 ms high water where it starts to
+// wait (at +0.3% the peak would be 0.1 ms below it). Lock range 59.80-60.04 Hz.
+inline constexpr double fast_forward_margin=0.25, fast_forward_slew=0.002;
 // All time is supplied by the caller, so tests need no wall clock or SDL.
 class FrameClock {
 public:
     explicit FrameClock(double now):deadline_(now) {}
     unsigned due(double now);
     // Resume with one frame due and no wall time accumulated during suspension.
-    void rebase(double now) { deadline_=now; }
+    void rebase(double now) { deadline_=now; last_=previous_=0; }
     void speed(unsigned value,double now);
     unsigned speed() const { return speed_; }
     double deadline() const { return deadline_; }
     double discarded_seconds() const { return discarded_; }
 private:
     double deadline_, discarded_=0;
-    unsigned speed_=1;
+    unsigned speed_=1, last_=0, previous_=0; // counts of the last two calls
 };
 }

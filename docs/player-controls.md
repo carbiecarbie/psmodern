@@ -50,7 +50,16 @@ During play, **PAUSE** presses the console's Pause button, **OPT** opens
 Options during exploration and the speed button cycles through 1x, 2x and 4x.
 With Automap enabled, **MAP** opens the map while exploring a dungeon.
 Android Back cancels in menus and opens Options during exploration.
-A controller input hides the touch controls. The first touch brings them back.
+
+PSModern hides Android's status and navigation bars; swipe in from the edge
+to see them for a moment. The picture and the touch controls still keep clear
+of a camera cutout.
+
+A controller input hides the touch controls. If a controller is already
+connected when PSModern starts, they start hidden, and they stay as they were
+when you go from the start screen into the game. A touch brings them back
+(that touch presses nothing), but only when no controller button is held, no
+stick is pushed and the controller has been left alone for two seconds.
 
 ## What cannot be changed
 
@@ -72,6 +81,11 @@ effects keep their normal tempo and pitch. Every session starts at `1x`, and
 power cycle (`F5`) resets to `1x`. While Options is open or the window loses
 focus, gameplay temporarily runs at `1x` and returns to your chosen speed
 afterward.
+
+At `2x` and `4x` the game keeps step with the screen, so on a 60 Hz screen
+every picture moves the game on by the same number of frames. To do so it may
+run up to 0.2% faster or slower than exactly two or four times the console's
+speed. `1x` is unchanged: it always runs at the console's own rate.
 
 ## In-game options
 

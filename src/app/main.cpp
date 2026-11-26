@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 
 namespace {
@@ -167,7 +168,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         std::uint64_t frames=0; bool quit=false,toggle_held=false,map_held=false;
         unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
 #ifdef __ANDROID__
-        AndroidControls mobile(display,font);
+        AndroidControls mobile(display,font,controller.connected());
         auto focused=[] { return android_foreground(); };
 #else
         auto focused=[&] { return SDL_GetKeyboardFocus()==window; };
@@ -185,6 +186,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             if (clock.speed()!=speed) { clock.speed(speed,now()); driver.speed(speed); }
         };
         std::string displayed_title;
+        std::map<unsigned,std::uint64_t> present_frames; unsigned present_speed=1;
         auto report=[&]() {
             const auto elapsed=now()-start;
             std::cerr<<"frames="<<frames<<" elapsed_s="<<elapsed
@@ -192,6 +194,14 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                      <<" lag_rebase_s="<<clock.discarded_seconds()
                      <<" speed="<<clock.speed()<<" sound="<<(driver.fm_selected() ? "fm" : "psg")<<'\n';
             audio.report();
+            // Issue 7: how many game frames each presented picture carried
+            // since the last report, at one speed (restarted when it changes).
+            if (!present_frames.empty()) {
+                std::cerr<<"present_frames speed="<<present_speed;
+                for (const auto& [carried,pictures]:present_frames) std::cerr<<' '<<carried<<':'<<pictures;
+                std::cerr<<'\n';
+                present_frames.clear();
+            }
         };
         while (!quit) {
 #ifdef __ANDROID__
@@ -457,6 +467,8 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 present(display);
 #endif
                 report_slow("present",began,frames);
+                if (clock.speed()!=present_speed) { present_frames.clear(); present_speed=clock.speed(); }
+                ++present_frames[count];
             }
             if (now()>=next_report) { report(); next_report=now()+10; }
             // Yield even in the last two milliseconds; the frame clock still
@@ -478,6 +490,8 @@ int main(int argc,char** argv) {
     attach_parent_console();
 #ifdef __ANDROID__
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,"0");
+    // SDL on Android turns mouse buttons into touches by default (issue 6).
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS,"0");
     SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE,"1");
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON,"1");
     SDL_SetHint(SDL_HINT_ORIENTATIONS,"LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");

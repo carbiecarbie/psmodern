@@ -1,5 +1,7 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-08
+class edited
+basis Link 08's save moved to a town the route had visited, with Odin's record zeroed as a defeat leaves it and two items added; the items are sold in shops, but that the party could have bought them by then, and that a defeat leaves no other trace, was not verified.
 byte 0401 b0
 byte 0402 00
 byte 0405 70

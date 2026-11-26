@@ -1,5 +1,7 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-13
+class edited
+basis Link 13's save moved to a town the route had visited, with Odin's record zeroed as a defeat leaves it and the inventory filled with one shop item; that a defeat leaves no other trace was not verified.
 byte 0401 b0
 byte 0402 00
 byte 0405 70

@@ -3,12 +3,15 @@
 #include <atomic>
 #include <jni.h>
 #include <mutex>
+#include <optional>
 
 namespace psmodern::app {
 namespace {
 std::atomic<bool> foreground{true};
 std::mutex inset_mutex;
 WindowBorders safe_insets;
+// How the last AndroidControls left the touch controls (SDL thread only).
+std::optional<bool> last_visible;
 int SDLCALL lifecycle(void*,SDL_Event* event) {
     if (event->type==SDL_APP_WILLENTERBACKGROUND || event->type==SDL_APP_DIDENTERBACKGROUND)
         foreground=false;
@@ -27,20 +30,24 @@ void watch_android_lifecycle() {
 }
 bool android_foreground() { return foreground.load(); }
 
+AndroidControls::AndroidControls(Display& display,const RomFont& font,bool controller_connected)
+    :display_(display),font_(font),touch_(touch_start_visible(last_visible,controller_connected)) {}
+AndroidControls::~AndroidControls() { last_visible=touch_.visible(); }
 void AndroidControls::layout(bool gameplay,bool map) {
     sdl_check(SDL_GetRendererOutputSize(display_.renderer.get(),&width_,&height_)==0,"Reading screen size");
     WindowBorders insets;
     { std::lock_guard guard(inset_mutex); insets=safe_insets; }
     const auto next=touch_layout(width_,height_,insets,display_.wide_canvas,gameplay,map);
     if (next.game!=layout_.game || next.buttons!=layout_.buttons || next.overlay!=layout_.overlay) {
-        clear();
+        release_touches();
         layout_=next;
         touch_.set_layout(next);
     }
 }
-void AndroidControls::clear() {
+void AndroidControls::release_touches() {
     touch_.clear(); taps_={}; frame_taps_={}; back_=false; redraw=true;
 }
+void AndroidControls::clear() { release_touches(); touch_.controller_reset(); }
 void AndroidControls::event(const SDL_Event& e) {
     if (e.type==SDL_RENDER_TARGETS_RESET || e.type==SDL_RENDER_DEVICE_RESET) {
         images_={};
@@ -48,14 +55,29 @@ void AndroidControls::event(const SDL_Event& e) {
         redraw=true;
     }
     if (e.type==SDL_KEYDOWN && e.key.keysym.scancode==SDL_SCANCODE_AC_BACK && !e.key.repeat) back_=true;
-    if (e.type==SDL_CONTROLLERBUTTONDOWN ||
-        (e.type==SDL_CONTROLLERAXISMOTION && std::abs(int(e.caxis.value))>stick_dead_zone)) {
-        clear(); touch_.controller_used(); return;
+    // One key per button or axis of each controller, for TouchControls.
+    auto source=[](SDL_JoystickID which,bool axis,int index) {
+        return (std::int64_t(which)<<32) | (axis ? 0x10000 : 0) | index;
+    };
+    if (e.type==SDL_CONTROLLERBUTTONDOWN || e.type==SDL_CONTROLLERBUTTONUP) {
+        const bool down=e.type==SDL_CONTROLLERBUTTONDOWN;
+        if (down) release_touches();
+        touch_.controller_input(source(e.cbutton.which,false,e.cbutton.button),down,e.cbutton.timestamp);
+        return;
     }
+    if (e.type==SDL_CONTROLLERAXISMOTION) {
+        const auto key=source(e.caxis.which,true,e.caxis.axis);
+        if (std::abs(int(e.caxis.value))>stick_dead_zone) {
+            release_touches(); touch_.controller_input(key,true,e.caxis.timestamp);
+        }
+        else touch_.controller_settled(key);
+        return;
+    }
+    if (e.type==SDL_CONTROLLERDEVICEREMOVED) { touch_.controller_reset(); return; }
     if (e.type!=SDL_FINGERDOWN && e.type!=SDL_FINGERMOTION && e.type!=SDL_FINGERUP) return;
     const int x=int(e.tfinger.x*width_),y=int(e.tfinger.y*height_);
     const auto before=touch_.held();
-    if (e.type==SDL_FINGERDOWN) touch_.down(e.tfinger.fingerId,x,y);
+    if (e.type==SDL_FINGERDOWN) touch_.down(e.tfinger.fingerId,x,y,e.tfinger.timestamp);
     else if (e.type==SDL_FINGERMOTION) touch_.move(e.tfinger.fingerId,x,y);
     else touch_.up(e.tfinger.fingerId);
     const auto after=touch_.held();

@@ -15,6 +15,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -724,6 +725,147 @@ void resampling() {
     }
     refuses([] { Resampler r(0); },"invalid device rate");
 }
+// Issue 7: the clock before the fast-forward rule, kept to prove 1x unchanged
+// and to compare the accelerated counts with what the old rule gave.
+struct OldClock {
+    double deadline_, discarded_=0; unsigned speed_=1;
+    void speed(unsigned value,double now) { if (value!=speed_) { speed_=value; deadline_=now+frame_seconds/speed_; } }
+    unsigned due(double now) {
+        unsigned count=0;
+        while (now>=deadline_ && count<3*speed_) { ++count; deadline_+=frame_seconds/speed_; }
+        if (now>=deadline_) { discarded_+=now+frame_seconds/speed_-deadline_; deadline_=now+frame_seconds/speed_; }
+        return count;
+    }
+};
+struct Paced { std::vector<double> times; std::vector<unsigned> counts; std::uint64_t frames=0;
+    double rate(unsigned speed) const { return frames*frame_seconds/speed/times.back()-1; }
+    // Calls after the first second whose count differs from the expected one.
+    unsigned off(unsigned expected) const { unsigned n=0; for (std::size_t i=0;i<times.size();++i) n+=times[i]>1 && counts[i]!=expected; return n; }
+    void add(double t,unsigned n) { times.push_back(t); counts.push_back(n); frames+=n; }
+};
+// One call per refresh, as when presentation blocks on vsync, with uniform
+// jitter from a fixed seed; late delays one call by that many seconds.
+template<class Clock> Paced refreshes(Clock& clock,double hz,double seconds,double jitter,std::size_t late_call=0,double late=0) {
+    std::mt19937 random(7); std::uniform_real_distribution<double> spread(-jitter,jitter); Paced result;
+    for (std::size_t k=1;k<seconds*hz;++k) {
+        const double t=k/hz+0.0003+spread(random)+(k==late_call ? late : 0);
+        result.add(t,clock.due(t));
+    }
+    return result;
+}
+// The play() loop: a pass that ran frames presents and waits for the next
+// refresh; then every pass sleeps 1 ms while the next deadline is ahead.
+Paced host_loop(FrameClock& clock,double hz,double seconds) {
+    Paced result;
+    for (double t=0;t<seconds;) {
+        t+=0.0002; const auto n=clock.due(t); result.add(t,n);
+        if (n) t=(std::floor(t*hz)+1)/hz+0.0003;
+        if (clock.deadline()>t) t+=0.001;
+    }
+    return result;
+}
+FrameClock accelerated_clock(unsigned speed) { FrameClock c(0); c.speed(speed,0); return c; }
+OldClock old_accelerated_clock(unsigned speed) { OldClock c{0}; c.speed(speed,0); return c; }
+void screen_pacing() {
+    // Speed 1: call by call as before, on random gaps with stalls, rebases and
+    // excursions to 2x and 4x (compared only while at 1x).
+    {
+        std::mt19937 random(11); FrameClock now_clock(0); OldClock old{0}; double t=0; bool same=true;
+        for (int i=0;i<200000;++i) {
+            const auto r=random()%1000;
+            t+=r<3 ? 0.5 : r<4 ? 30 : (random()%25000)*1e-6;
+            if (r>=990) { now_clock.rebase(t); old.deadline_=t; }
+            const unsigned speed=i%20000<15000 ? 1 : i%20000<17500 ? 2 : 4;
+            now_clock.speed(speed,t); old.speed(speed,t);
+            const auto a=now_clock.due(t), b=old.due(t);
+            if (speed==1) same=same && a==b && now_clock.deadline()==old.deadline_;
+        }
+        check(same,"1x due and deadline identical to the old clock on any call sequence");
+        FrameClock plain(0); OldClock old_plain{0}; t=0;
+        for (int i=0;i<100000;++i) { t+=(random()%40000)*1e-6+(i%9973==0 ? 2 : 0); same=same && plain.due(t)==old_plain.due(t); }
+        check(same && plain.discarded_seconds()==old_plain.discarded_,"1x lag rebase identical to the old clock");
+    }
+    // The audio queue settles where rate_adjustment equals the game-rate
+    // error. The peak adds, at 4x, the rise from the mean to the last of the
+    // picture's four back-to-back measurements (1.5 frames of 4x audio) and
+    // half a 512-sample device buffer at 48 kHz; it must stay 5 ms below the
+    // high water.
+    const double burst=1.5*frame_seconds/4, half_buffer=256.0/48000;
+    check(Resampler::bounded_adjustment(1+fast_forward_slew)==1+fast_forward_slew &&
+          rate_adjustment(audio_high_water_seconds-burst-half_buffer-0.005)>1+fast_forward_slew,
+          "full slew keeps the 4x audio queue peak at least 5 ms below the high water");
+    for (unsigned speed:{2u,4u}) {
+        // Screens within the slew of nominal (lock range 59.80..60.04 Hz).
+        for (double hz:{60.0,59.85,60.03}) {
+            auto c=accelerated_clock(speed); const auto run=refreshes(c,hz,60,0.0005);
+            check(run.off(speed)==0,"locked screen: every picture carries the speed after the first second");
+            // The slew alone keeps +-0.5 ms; +-1 ms at 4x needs both holds.
+            auto wide=accelerated_clock(speed);
+            check(refreshes(wide,hz,60,0.001).off(speed)==0,"locked screen: the hold absorbs +-1 ms of jitter");
+            check(std::abs(run.rate(speed)-(hz*frame_seconds-1))<0.0005,
+                  "locked screen: the game follows the screen rate");
+        }
+        {
+            auto c=accelerated_clock(speed); const auto run=refreshes(c,120,60,0.0005);
+            check(run.off(speed/2)==0,"120 Hz: half the speed per picture");
+        }
+        // Outside the range the clock keeps its own rate within the slew,
+        // with no more uneven pictures than the old rule.
+        {
+            auto c=accelerated_clock(speed); auto o=old_accelerated_clock(speed);
+            const auto run=refreshes(c,60.2,60,0.0005), old=refreshes(o,60.2,60,0.0005);
+            check(std::abs(run.rate(speed))<fast_forward_slew+0.0001 && run.off(speed)<=old.off(speed),
+                  "60.2 Hz: rate within the slew, no more uneven pictures than before");
+        }
+        for (double hz:{90.0,50.0}) {
+            auto c=accelerated_clock(speed); const auto run=refreshes(c,hz,60,0.0005); bool steady=true;
+            for (std::size_t i=1;i<run.times.size();++i)
+                steady=steady && run.counts[i]<=3*speed && (run.times[i]<1 || (run.counts[i]+1>=run.counts[i-1] && run.counts[i]<=run.counts[i-1]+1));
+            check(steady && std::abs(run.rate(speed))<fast_forward_slew,"90 and 50 Hz: counts change by at most one, rate within the slew");
+        }
+        // A caller that polls is not pulled to the edge of the slew.
+        {
+            auto c=accelerated_clock(speed); Paced run;
+            for (int ms=1;ms<=60000;++ms) run.add(ms/1000.0,c.due(ms/1000.0));
+            check(std::abs(run.rate(speed))<0.0005,"1 ms polling loop within 0.05% of nominal");
+        }
+        // The play() loop at 144 Hz may follow the screen's rhythm, within the slew.
+        {
+            auto c=accelerated_clock(speed); const auto run=host_loop(c,144,60);
+            check(std::abs(run.rate(speed))<fast_forward_slew,"144 Hz host loop within the slew");
+            auto locked=accelerated_clock(speed); const auto at60=host_loop(locked,60,60); unsigned off=0;
+            for (std::size_t i=0;i<at60.times.size();++i) off+=at60.times[i]>1 && at60.counts[i] && at60.counts[i]!=speed;
+            check(off==0,"60 Hz host loop: every picture carries the speed");
+        }
+        // One pass 10 ms late carries the catch-up and the next one less; the
+        // outlier count is not held, so the third pass is even again.
+        {
+            auto c=accelerated_clock(speed); const auto run=refreshes(c,60,30,0,600,0.010); bool back=true;
+            for (std::size_t i=601;i<run.counts.size();++i) back=back && run.counts[i]==speed;
+            check(back && run.off(speed)==2,"a late pass upsets only itself and the next pass");
+        }
+        // Stalls behave as before: capped catch-up and a rebased deadline.
+        for (double stall:{0.5,30.0}) {
+            auto c=accelerated_clock(speed); auto o=old_accelerated_clock(speed);
+            refreshes(c,60,5,0); refreshes(o,60,5,0);
+            const double t=5+stall, before=c.discarded_seconds();
+            check(c.due(t)==3*speed && o.due(t)==3*speed && c.deadline()>t &&
+                  std::abs(c.discarded_seconds()-before-o.discarded_)<frame_seconds/speed,"accelerated stall: capped catch-up and rebase as before");
+            bool back=true; for (int k=1;k<120;++k) { const auto n=c.due(t+k/60.0+0.0003); back=back && n==speed; }
+            check(back,"accelerated stall: constant count again from the next pass");
+        }
+        // Resume, a speed change and the lag rebase forget the previous count.
+        {
+            auto c=accelerated_clock(speed); refreshes(c,60,5,0); c.rebase(100);
+            check(c.due(100)==1 && c.due(100)==0 && c.deadline()>100,"accelerated resume runs one frame at once");
+        }
+    }
+    const double f2=frame_seconds/2,f4=frame_seconds/4;
+    auto counting_one=[] { auto c=accelerated_clock(2); refreshes(c,120,5,0); return c; }; // last two calls returned 1
+    { auto c=counting_one(); c.rebase(100); check(c.due(100+f2+1e-6)==2,"rebase forgets the previous count"); }
+    { auto c=counting_one(); c.speed(4,100); check(c.due(100+2*f4+1e-6)==2,"speed change forgets the previous count"); }
+    { auto c=counting_one(); c.due(100); check(c.due(100+2*f2+1e-6)==2,"lag rebase forgets the previous count"); }
+}
 void pacing() {
     FrameClock c(10);
     check(c.due(10)==1 && c.due(10)==0,"deadline executes exactly once");
@@ -743,8 +885,9 @@ void pacing() {
     for (unsigned speed:{2u,4u}) for (int refresh:{50,60,144}) {
         FrameClock accelerated(0); accelerated.speed(speed,0); std::uint64_t frames=0;
         for (int tick=0;tick<=60*refresh;++tick) frames+=accelerated.due(static_cast<double>(tick)/refresh);
-        check(std::abs(frames*frame_seconds-60*speed)<frame_seconds*speed && accelerated.discarded_seconds()==0,
-              "accelerated clock independent of display refresh");
+        // Issue 7: 2x and 4x keep step with the screen, within the slew.
+        check(std::abs(frames*frame_seconds/(60*speed)-1)<fast_forward_slew && accelerated.discarded_seconds()==0,
+              "accelerated clock within the slew of nominal at any display refresh");
         check(accelerated.due(1000)==3*speed && accelerated.deadline()>1000,"accelerated catch-up bounded");
         accelerated.speed(1,1000); check(accelerated.due(1000)==0 && accelerated.due(1000+frame_seconds+1e-8)==1,"speed change rebases without burst");
     }
@@ -875,7 +1018,7 @@ int main() {
     // The authored programs' code that no test renders runs on the oracle's core.
     oracle::Scaffold scaffold;
     try { colours(); scaling(); canvas_windows(); compositing(); inputs(); saves(); backups(); driver(); flags(); guard(); observed_segments();
-        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); unavailable_fm(); resampling(); pacing();
+        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); unavailable_fm(); resampling(); pacing(); screen_pacing();
         std::cout<<"App test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

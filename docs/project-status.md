@@ -4,11 +4,12 @@
 nothing the player sees: the tests now play each cartridge from a new game to
 the title after the credits, through the rescue of the petrified companion,
 and no stop was found; the [plan](milestone-19-plan.md) records the results
-and the route's limits. The latest published release, **1.3.1** (2026-11-23),
+and the route's limits. The latest published release, **1.3.2** (2026-11-26),
 ships the Windows x64 zip and the signed Android APK
-(`PSModern-1.3.1-android-arm.apk`, ARM64 and ARMv7, `versionCode 10301`),
+(`PSModern-1.3.2-android-arm.apk`, ARM64 and ARMv7, `versionCode 10302`),
 covering through milestone 17 plus the fix of the stop at the petrified
-companion; milestone 19 changed no game code and needs no release. See the
+companion (1.3.1), Android's hidden bars, the touch controls kept hidden with
+a controller and even fast-forward at 2x and 4x (1.3.2). See the
 [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
@@ -238,7 +239,7 @@ the [per-recording census](coverage.md).
   verified as reachable by play, 4 from known artificial states. Each matches
   the reference at every frame, under per-instruction lockstep, and runs once
   as the plain game. These 378 tests, the `playthrough` group, are off by
-  default and run only at a milestone closure: about 42 minutes at `-j 16`
+  default and run only at a milestone closure: about 32 minutes at `-j 16`
   ([development](development.md#playthrough-chain)).
 - **Four kinds of evidence** are told apart in the [census](coverage.md):
   checkpoints, the playthrough group, prepared-state routes and state probes.
@@ -302,7 +303,7 @@ the [per-recording census](coverage.md).
   as whole saves (a raised level keeps its earlier spell counts until the
   game refreshes them). A boss link shows one winning sequence, not a win
   rate. Between closures a maintenance fix runs only the complete suite.
-- **Playthrough tooling.** The group takes about 42 minutes, near the plan's
+- **Playthrough tooling.** The group takes about 32 minutes against the plan's
   mark of 45. The reference capture failed twice inside `tools/reference.lua`
   and passed when repeated (heavy load suspected, not established); it fails
   loudly and writes no manifest. MesenCE also lacks the rule that an interrupt

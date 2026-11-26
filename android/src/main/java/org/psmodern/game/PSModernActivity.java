@@ -118,8 +118,15 @@ public final class PSModernActivity extends SDLActivity {
     private void updateInsets(View surface) {
         WindowInsets i = surface.getRootWindowInsets();
         if (i == null || surface.getWidth() == 0) return;
-        int t = i.getSystemWindowInsetTop(), l = i.getSystemWindowInsetLeft();
-        int b = i.getSystemWindowInsetBottom(), r = i.getSystemWindowInsetRight();
+        // SDL's fullscreen style hides the status and navigation bars but sets
+        // SYSTEM_UI_FLAG_LAYOUT_STABLE, under which the system-window insets
+        // keep reporting the hidden bars. While it is active only the display
+        // cutout is kept clear; a bar swiped into view overlays the game.
+        int t = 0, l = 0, b = 0, r = 0;
+        if (!mFullscreenModeActive) {
+            t = i.getSystemWindowInsetTop(); l = i.getSystemWindowInsetLeft();
+            b = i.getSystemWindowInsetBottom(); r = i.getSystemWindowInsetRight();
+        }
         if (Build.VERSION.SDK_INT >= 28) {
             DisplayCutout c = i.getDisplayCutout();
             if (c != null) {

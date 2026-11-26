@@ -9,9 +9,15 @@ bool android_foreground();
 
 class AndroidControls {
 public:
-    AndroidControls(Display& display,const RomFont& font):display_(display),font_(font) {}
+    // Starts as the previous AndroidControls ended, else hidden when a
+    // controller is already connected (touch_start_visible).
+    AndroidControls(Display& display,const RomFont& font,bool controller_connected);
+    ~AndroidControls();
+    AndroidControls(const AndroidControls&)=delete;
+    AndroidControls& operator=(const AndroidControls&)=delete;
     void layout(bool gameplay,bool map);
     void event(const SDL_Event& e);
+    // Going to the background: release the touches and forget held controller input.
     void clear();
     MenuInput menu(MenuInput input,bool start,bool in_menu) const;
     FrameInput frame(FrameInput input) const;
@@ -22,6 +28,7 @@ public:
     bool redraw=true;
     void present(Language language,unsigned speed);
 private:
+    void release_touches();
     void draw(Language language,unsigned speed);
     struct ButtonImage {
         std::unique_ptr<SDL_Texture,decltype(&SDL_DestroyTexture)> texture{nullptr,SDL_DestroyTexture};

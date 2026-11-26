@@ -41,12 +41,23 @@
 //   playthrough_tests extra <rom> <extra/<name>.psrec> <reference folder> [<new image>]
 //     Part 3's recordings (recordings/<us|br>/playthrough/extra/<name>.psrec)
 //     reach rare branches from a chain link's saved game with any bytes edited.
-//     <name>.start beside it says how its start image is made: line 1
-//     'psmodern-extra-start 1', line 2 'from link-NN', then 'byte' lines as in
-//     an edits file. Link NN of the chain (the folder above extra/) is replayed
-//     from its reference start image, the bytes are set, and the SHA-1 must be
-//     the recording's cart-ram header. With a new image path the image is
-//     written there (never over a file). A stray file in extra/ fails.
+//     <name>.start beside it says how its start image is made and what its
+//     class is (read_extra_start: version 2, 'from link-NN', 'class', 'basis',
+//     then 'byte' lines as in an edits file). Link NN of the chain (the folder
+//     above extra/) is replayed from its reference start image, its end is
+//     checked against the cart-ram of the last frame of link NN's reference
+//     manifest, the bytes are set, and the SHA-1 must be the recording's
+//     cart-ram header. With a new image path the image is written there (never
+//     over a file). A stray file in extra/ fails. The by-hand way to make a new
+//     recording's start image.
+//   playthrough_tests start <rom> <extra/<name>.psrec> <reference folder>
+//     The start-image test (the _start tests): what `extra` establishes, with
+//     link NN's end rebuilt from the reference start images instead of
+//     replayed (rebuilt_end; replayed when that is not possible) and
+//     authenticated the same way before use. Seconds instead of a replay.
+//   playthrough_tests start-rules <work folder>
+//     The start file's form and the start-image test's checks shown refusing
+//     their negative cases on a synthetic chain (normal suite, no ROM).
 //
 // Every missing input fails: this group never skips (exit 77 is used only by
 // `rules`, which belongs to the normal suite). Offsets and addresses only; the
@@ -66,6 +77,7 @@
 #include "replay/recording.h"
 #include "replay/verification.h"
 #include "rom/sha1.h"
+#include "rom/sha256.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -80,6 +92,7 @@
 #include <optional>
 #include <regex>
 #include <set>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -311,27 +324,18 @@ std::vector<std::string> unreachable(const Levels& levels, const Image& image, u
 
 // ---- edits ---------------------------------------------------------------------
 using Edits = std::vector<std::pair<std::uint16_t, std::uint8_t>>;
-// The byte lines of an edits file (links) or of a start file (part 3's
-// recordings): ASCII, LF only, a final LF, the given header lines first.
-// `from` receives the word after "from " of a start file's second line.
-Edits read_edits(const std::filesystem::path& path, const std::string& header = "psmodern-link-edits 1",
-                 std::string* from = nullptr) {
-    const auto text = read_text(path, from ? "The start file" : "The edits file");
+// The text of an edits file (links) or of a start file (part 3's recordings):
+// LF only and a final LF.
+std::string line_text(const std::filesystem::path& path, const std::string& what) {
+    const auto text = read_text(path, what);
     check(!text.empty() && text.back() == '\n', path.string() + ": must end with a line feed");
     check(text.find('\r') == std::string::npos, path.string() + ": carriage returns are not allowed");
-    std::istringstream lines(text);
+    return text;
+}
+// The byte lines that end both formats, from line number `first`: offsets
+// strictly increasing inside the cartridge RAM.
+Edits read_byte_lines(std::istringstream& lines, const std::filesystem::path& path, unsigned first) {
     std::string line;
-    std::getline(lines, line);
-    check(line == header, path.string() + ": line 1 must be '" + header + "'");
-    unsigned first = 2;
-    if (from) {
-        static const std::regex from_line("from (link-[0-9]{2})");
-        std::smatch m;
-        check(std::getline(lines, line) && std::regex_match(line, m, from_line),
-              path.string() + " line 2: expected 'from link-NN'");
-        *from = m[1];
-        first = 3;
-    }
     static const std::regex byte_line("byte ([0-9a-f]{4}) ([0-9a-f]{2})");
     Edits edits;
     for (unsigned number = first; std::getline(lines, line); ++number) {
@@ -344,6 +348,74 @@ Edits read_edits(const std::filesystem::path& path, const std::string& header = 
         edits.emplace_back(offset, static_cast<std::uint8_t>(std::stoul(m[2], nullptr, 16)));
     }
     return edits;
+}
+// A link's edits file: line 1 'psmodern-link-edits 1', then byte lines.
+Edits read_edits(const std::filesystem::path& path) {
+    std::istringstream lines(line_text(path, "The edits file"));
+    std::string line;
+    std::getline(lines, line);
+    check(line == "psmodern-link-edits 1", path.string() + ": line 1 must be 'psmodern-link-edits 1'");
+    return read_byte_lines(lines, path, 2);
+}
+
+// The start file of a part 3 recording, extra/<name>.start (version 2,
+// development.md, "Part 3's recordings"): printable ASCII and LF only, a final
+// LF, no comment and no blank line, in this order:
+//   psmodern-extra-start 2
+//   from link-NN
+//   class <chain-save|edited|artificial>
+//   basis <one line: where the start image comes from>
+//   byte <4 lowercase hex> <2 lowercase hex>      (zero or more, as in an edits file)
+// The class is `chain-save` exactly when there is no byte line. The basis is
+// not empty, has no leading or trailing space and holds no extracted location
+// data: location_data below is the rule LOCATION of tools/generate_coverage.py,
+// character for character (tests/coverage_tests.py compares the two). Version
+// 1 (no class and basis lines; the class lived in a separate table) is refused.
+constexpr const char* extra_start_header = "psmodern-extra-start 2";
+const std::set<std::string> extra_classes{"chain-save", "edited", "artificial"};
+const std::regex& location_data() {
+    static const std::regex rule(
+        R"(\bE\d+:|\brow \d+ col \d+|\bcell [0-9A-F]{2}\b|\(\s*[0-9A-F]{2}\s*,\s*[0-9A-F]{2}\s*\)|\blocation \d|\barea \d)");
+    return rule;
+}
+struct ExtraStart {
+    std::string from;            // link-NN
+    std::string start_class;     // one of extra_classes
+    std::string basis;
+    Edits edits;
+};
+ExtraStart read_extra_start(const std::filesystem::path& path) {
+    const auto text = line_text(path, "The start file");
+    const auto name = path.string();
+    check(std::all_of(text.begin(), text.end(), [](char c) { return c == '\n' || (c >= 0x20 && c <= 0x7E); }),
+          name + ": printable ASCII and line feeds only");
+    std::istringstream lines(text);
+    std::string line;
+    std::getline(lines, line);
+    check(line != "psmodern-extra-start 1", name + ": version 1 (no class and basis lines) is no longer read; line 1 must be '" +
+                                                extra_start_header + "'");
+    check(line == extra_start_header, name + ": line 1 must be '" + extra_start_header + "'");
+    ExtraStart start;
+    static const std::regex from_line("from (link-[0-9]{2})");
+    std::smatch m;
+    check(std::getline(lines, line) && std::regex_match(line, m, from_line), name + " line 2: expected 'from link-NN'");
+    start.from = m[1];
+    check(std::getline(lines, line) && line.starts_with("class "),
+          name + " line 3: expected 'class <chain-save|edited|artificial>' (the class is required)");
+    start.start_class = line.substr(6);
+    check(extra_classes.contains(start.start_class),
+          name + " line 3: unknown class '" + start.start_class + "' (chain-save, edited or artificial)");
+    check(std::getline(lines, line) && line.starts_with("basis "), name + " line 4: expected 'basis <text>' (the basis is required)");
+    start.basis = line.substr(6);
+    check(!start.basis.empty() && start.basis.front() != ' ' && start.basis.back() != ' ',
+          name + " line 4: the basis is empty or has a leading or trailing space");
+    check(!std::regex_search(start.basis, location_data()),
+          name + " line 4: the basis holds extracted location data (keep it in the private study)");
+    start.edits = read_byte_lines(lines, path, 5);
+    check((start.start_class == "chain-save") == start.edits.empty(),
+          name + ": class " + start.start_class + (start.edits.empty() ? " needs at least one byte line" : " has byte lines") +
+              " (chain-save is exactly a start file with no byte line)");
+    return start;
 }
 
 // The save slots whose bytes differ between two images.
@@ -645,50 +717,6 @@ int apply(const Game& game, const std::filesystem::path& link, const std::string
     return 0;
 }
 
-// A part 3 recording's start image: link NN's end (replayed from its reference
-// start image, or the empty image for link 01) with the start file's bytes set.
-// Any byte may change (these recordings exist to reach what the route cannot),
-// but each edit must change its byte and the result must be the header's image.
-int extra(const Game& game, const std::filesystem::path& recording_path, const std::filesystem::path& reference,
-          const std::optional<std::filesystem::path>& out) {
-    const auto folder = recording_path.parent_path();
-    check(folder.filename() == "extra", "A part 3 recording lives in the playthrough folder's extra/: " + recording_path.string());
-    static const std::regex extra_name("([a-z0-9]+(-[a-z0-9]+)*)[.](psrec|start)");
-    std::set<std::string> recordings, starts;
-    for (const auto& file : std::filesystem::directory_iterator(folder)) {
-        const auto name = file.path().filename().string();
-        std::smatch m;
-        check(file.is_regular_file() && std::regex_match(name, m, extra_name), "A stray file in the extra folder: " + name);
-        (m[3] == "psrec" ? recordings : starts).insert(m[1]);
-    }
-    check(recordings == starts, "Every recording in the extra folder needs its .start file and every .start file its recording");
-    check(recordings.contains(recording_path.stem().string()) && recording_path.extension() == ".psrec",
-          "The recording is missing or misnamed: " + recording_path.string());
-    const auto recording = replay::read(recording_path);
-    check(recording.rom_sha1 == game.sha1, "The recording was made on another cartridge");
-    std::string from;
-    auto start_path = recording_path;
-    start_path.replace_extension(".start");
-    const auto edits = read_edits(start_path, "psmodern-extra-start 1", &from);
-    const auto link_path = folder.parent_path() / (from + ".psrec");
-    const auto link = replay::read(link_path);
-    std::optional<Image> given;
-    if (from != "link-01") given = read_image(reference / from / "cart-ram.bin");
-    const auto end = replay_end(game, link, start_image_of(link, given));
-    Image image = end;
-    for (const auto& [offset, value] : edits) {
-        check(end[offset] != value, "Edit at " + hex(offset, 4) + " repeats " + from + "'s own value " + hex(value, 2));
-        image[offset] = value;
-    }
-    check(psmodern::sha1(image) == recording.cart_ram_sha1, recording_path.filename().string() + ": its cart-ram header " +
-              recording.cart_ram_sha1 + " is not " + from + "'s end with its start file's " + std::to_string(edits.size()) +
-              " edits, " + psmodern::sha1(image));
-    if (out) write_new_image(*out, image);
-    std::cout << recording_path.filename().string() << ": starts from " << from << "'s end with " << edits.size()
-              << " bytes edited, " << psmodern::sha1(image) << '\n';
-    return 0;
-}
-
 // The seven components of the reference manifest's last frame, checking the
 // frame count; the checkpoint run (a) validates the whole manifest.
 replay::Manifest last_reference_frame(const std::filesystem::path& manifest_path, std::uint64_t frames) {
@@ -709,6 +737,189 @@ replay::Manifest last_reference_frame(const std::filesystem::path& manifest_path
     replay::Manifest expected;
     for (auto& hash : expected) check(bool(row >> hash), "Invalid manifest row");
     return expected;
+}
+
+// ---- part 3's recordings ----------------------------------------------------------------
+// A part 3 recording (extra/<name>.psrec), its start file and the chain link it
+// starts from, read and checked for form: the extra folder holds only
+// <name>.psrec and <name>.start pairs, and the recording and the link were made
+// on the cartridge whose SHA-1 is `rom_sha1`.
+struct Extra {
+    std::filesystem::path path, folder, link_path;
+    replay::Recording recording, link;
+    ExtraStart start;
+};
+Extra read_extra(const std::string& rom_sha1, const std::filesystem::path& recording_path) {
+    Extra x;
+    x.path = recording_path;
+    x.folder = recording_path.parent_path();
+    check(x.folder.filename() == "extra", "A part 3 recording lives in the playthrough folder's extra/: " + recording_path.string());
+    check(std::filesystem::is_directory(x.folder), "The extra folder is missing: " + x.folder.string());
+    static const std::regex extra_name("([a-z0-9]+(-[a-z0-9]+)*)[.](psrec|start)");
+    std::set<std::string> recordings, starts;
+    for (const auto& file : std::filesystem::directory_iterator(x.folder)) {
+        const auto name = file.path().filename().string();
+        std::smatch m;
+        check(file.is_regular_file() && std::regex_match(name, m, extra_name), "A stray file in the extra folder: " + name);
+        (m[3] == "psrec" ? recordings : starts).insert(m[1]);
+    }
+    check(recordings == starts, "Every recording in the extra folder needs its .start file and every .start file its recording");
+    check(recordings.contains(recording_path.stem().string()) && recording_path.extension() == ".psrec",
+          "The recording is missing or misnamed: " + recording_path.string());
+    x.recording = replay::read(recording_path);
+    check(x.recording.rom_sha1 == rom_sha1, "The recording was made on another cartridge");
+    auto start_path = recording_path;
+    start_path.replace_extension(".start");
+    x.start = read_extra_start(start_path);
+    x.link_path = x.folder.parent_path() / (x.start.from + ".psrec");
+    check(std::filesystem::is_regular_file(x.link_path), "The link the start file names is missing: " + x.link_path.string());
+    x.link = replay::read(x.link_path);
+    check(x.link.rom_sha1 == rom_sha1, x.start.from + " was recorded on another cartridge");
+    return x;
+}
+
+// The SHA-1 of the cartridge RAM at link NN's last frame end, read from the
+// link's reference manifest (<reference>/link-NN/manifest.txt) after checking
+// that it is a reference of the pinned build made from exactly this link file
+// (its recording-sha256 line), with one well-formed row per frame. The link's
+// own strict test matches this hash at its last frame. A manifest of another
+// link, or one left from an older version of the link, is refused here.
+std::string reference_end_sha1(const std::filesystem::path& manifest_path, const std::filesystem::path& link_path,
+                               const replay::Recording& link) {
+    std::istringstream lines(read_text(manifest_path, "The reference manifest"));
+    const auto name = manifest_path.string();
+    std::string line;
+    auto next = [&](const std::string& what) -> const std::string& {
+        check(bool(std::getline(lines, line)), name + ": " + what + " is missing");
+        return line;
+    };
+    check(next("the header") == "frame picture ram vram cram cart-ram cpu psg", name + ": invalid header");
+    check(next("line 2") == "reference mesence 1", name + ": not a reference manifest (line 2)");
+    check(next("the build line") == std::string("build-sha256 ") + PSMODERN_REFERENCE_SHA256,
+          name + ": not made by the pinned reference build");
+    check(next("the build label").starts_with("build-label \"") && line.back() == '"', name + ": invalid build label line");
+    const auto bytes = read_text(link_path, "The link");
+    const auto digest = psmodern::sha256(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()));
+    check(next("the recording line") == "recording-sha256 " + digest,
+          name + ": made from another recording than " + link_path.filename().string() +
+              " (the reference of another link, or of an older version of this one)");
+    auto lowercase_hash = [](const std::string& text) {
+        return text.size() == 40 && text.find_first_not_of("0123456789abcdef") == std::string::npos;
+    };
+    std::string cart_ram;
+    std::uint64_t rows = 0;
+    while (std::getline(lines, line)) {
+        std::istringstream row(line);
+        std::vector<std::string> fields;
+        for (std::string field; row >> field;) fields.push_back(field);
+        check(fields.size() == 8 && fields[0] == std::to_string(rows + 1) &&
+                  std::all_of(fields.begin() + 1, fields.end(), lowercase_hash),
+              name + ": invalid row for frame " + std::to_string(rows + 1));
+        cart_ram = fields[5];   // frame picture ram vram cram cart-ram cpu psg
+        ++rows;
+    }
+    check(rows == link.frames, name + ": " + std::to_string(rows) + " frames, the link " + std::to_string(link.frames));
+    return cart_ram;
+}
+
+// Every link end used below is checked against that hash first, whatever made
+// it (a replay or the rebuild), and so it is never trusted as a file.
+void authenticate_end(const Image& end, const std::string& reference_sha1, const std::string& from, const std::string& how) {
+    check(psmodern::sha1(end) == reference_sha1, "The end of " + from + " " + how +
+                                                     " is not the cartridge RAM at the last frame of its reference manifest: " +
+                                                     psmodern::sha1(end) + ", the reference " + reference_sha1);
+}
+
+// A part 3 recording's start image: link NN's authenticated end with exactly the
+// start file's bytes set. Any byte may change (these recordings exist to reach
+// what the route cannot), but each edit must change its byte, and the result's
+// SHA-1 must be the recording's cart-ram header.
+Image extra_image(const Extra& x, const Image& end) {
+    Image image = end;
+    for (const auto& [offset, value] : x.start.edits) {
+        check(end[offset] != value, "Edit at " + hex(offset, 4) + " repeats " + x.start.from + "'s own value " + hex(value, 2));
+        image[offset] = value;
+    }
+    check(psmodern::sha1(image) == x.recording.cart_ram_sha1,
+          x.path.filename().string() + ": its cart-ram header " + x.recording.cart_ram_sha1 + " is not " + x.start.from +
+              "'s end with its start file's " + std::to_string(x.start.edits.size()) + " edits, " + psmodern::sha1(image));
+    return image;
+}
+
+// Link NN's end replayed from its reference start image (the empty image for
+// link 01): the by-hand mode, and the start-image test when no rebuild is possible.
+Image replayed_end(const Game& game, const Extra& x, const std::filesystem::path& reference) {
+    std::optional<Image> given;
+    if (x.start.from != "link-01") given = read_image(reference / x.start.from / "cart-ram.bin");
+    return replay_end(game, x.link, start_image_of(x.link, given));
+}
+
+// Link NN's end rebuilt without a replay, for the start-image test. Off the
+// start file's offsets it is the extra's own reference start image
+// (<reference>/extra/<name>/cart-ram.bin); at those offsets it is the next
+// link's reference start image, which is link NN's end with the next link's
+// edits; where those edits changed the byte too (at most one such byte), every
+// value is tried against the reference SHA-1. These files only supply the
+// candidate bytes: what the caller uses is the rebuilt end once its SHA-1 is the
+// reference's (authenticate_end). Empty when no rebuild is possible (no next
+// link, or more than one byte unknown): then the link is replayed.
+std::optional<Image> rebuilt_end(const Extra& x, const std::filesystem::path& reference, const std::string& reference_sha1) {
+    Image end = read_image(reference / "extra" / x.path.stem() / "cart-ram.bin");
+    char next[16];
+    std::snprintf(next, sizeof next, "link-%02lu", std::stoul(x.start.from.substr(5)) + 1);
+    if (!std::filesystem::exists(x.folder.parent_path() / (std::string(next) + ".psrec"))) return std::nullopt;
+    const auto next_start = read_image(reference / next / "cart-ram.bin");
+    std::set<std::uint16_t> next_edited;
+    for (const auto& edit : read_edits(x.folder.parent_path() / (std::string(next) + ".edits"))) next_edited.insert(edit.first);
+    std::vector<std::uint16_t> unknown;
+    for (const auto& edit : x.start.edits) {
+        if (next_edited.contains(edit.first)) unknown.push_back(edit.first);
+        else end[edit.first] = next_start[edit.first];
+    }
+    if (unknown.size() > 1) return std::nullopt;
+    for (unsigned value = 0; value < 256 && !unknown.empty(); ++value) {
+        end[unknown[0]] = static_cast<std::uint8_t>(value);
+        if (psmodern::sha1(end) == reference_sha1) break;
+    }
+    return end;
+}
+
+// The start-image test (`start`, the _start tests): the same image as the
+// by-hand mode establishes, with link NN's end rebuilt instead of replayed when
+// possible. `replay` stands in for replayed_end (the ROM-free rules test passes
+// its own). Returns the image.
+using Replay = std::function<Image(const Extra&)>;
+Image start_check(const std::string& rom_sha1, const std::filesystem::path& recording_path, const std::filesystem::path& reference,
+                  const Replay& replay) {
+    const auto x = read_extra(rom_sha1, recording_path);
+    const auto want = reference_end_sha1(reference / x.start.from / "manifest.txt", x.link_path, x.link);
+    auto end = rebuilt_end(x, reference, want);
+    std::string how = "rebuilt from the reference start images";
+    if (!end) {
+        how = "replayed";
+        end = replay(x);
+    }
+    authenticate_end(*end, want, x.start.from, how);
+    const auto image = extra_image(x, *end);
+    std::cout << x.path.filename().string() << ": class " << x.start.start_class << "; " << x.start.from << "'s end " << how
+              << " and authenticated against its reference manifest, with " << x.start.edits.size() << " bytes edited: "
+              << psmodern::sha1(image) << '\n';
+    return image;
+}
+
+// The by-hand mode (`extra`), the documented way to make a new recording's
+// start image: link NN replayed, its end authenticated, the bytes set.
+int extra(const Game& game, const std::filesystem::path& recording_path, const std::filesystem::path& reference,
+          const std::optional<std::filesystem::path>& out) {
+    const auto x = read_extra(game.sha1, recording_path);
+    const auto want = reference_end_sha1(reference / x.start.from / "manifest.txt", x.link_path, x.link);
+    const auto end = replayed_end(game, x, reference);
+    authenticate_end(end, want, x.start.from, "replayed");
+    const auto image = extra_image(x, end);
+    if (out) write_new_image(*out, image);
+    std::cout << x.path.filename().string() << ": class " << x.start.start_class << "; starts from " << x.start.from
+              << "'s end with " << x.start.edits.size() << " bytes edited, " << psmodern::sha1(image) << '\n';
+    return 0;
 }
 
 // ---- the plain run's work folder ----------------------------------------------------
@@ -971,6 +1182,216 @@ int rules(const std::filesystem::path& rom, const std::filesystem::path& work) {
     return 0;
 }
 
+// ---- the start-image rules (normal suite, no ROM) ------------------------------------------
+// The start file's form and the start-image test's checks, each shown refusing
+// its negative case for its own reason, on a synthetic chain built here: no
+// ROM is read and nothing is replayed (the recordings carry a stand-in
+// cartridge SHA-1; where the test would replay a link, the injected replay
+// returns the synthetic end). The chain folder holds link-01, link-02 (with its
+// edits) and link-03, one frame each; extra/x (edited, three bytes, one of which
+// link-02's edits also change) and extra/y (chain-save) start from link-01.
+// The reference holds link-01's manifest, whose last frame has the synthetic
+// end's SHA-1, link-02's and link-03's start images, link-03's manifest and the
+// extras' start images.
+void write_recording(const std::filesystem::path& path, const std::string& rom_sha1, const std::string& cart_sha1,
+                     std::uint64_t frames) {
+    replay::Recording recording;
+    recording.rom_sha1 = rom_sha1;
+    recording.cart_ram_sha1 = cart_sha1;
+    recording.frames = frames;
+    write_file(path, replay::write(recording));
+}
+void write_image(const std::filesystem::path& path, const Image& image) {
+    std::filesystem::create_directories(path.parent_path());
+    write_file(path, std::string(reinterpret_cast<const char*>(image.data()), image.size()));
+}
+// A reference manifest of the pinned build for the recording file `link`,
+// `frames` rows, the cartridge RAM of the last one `end_sha1`.
+void write_manifest(const std::filesystem::path& path, const std::filesystem::path& link, const std::string& end_sha1,
+                    std::uint64_t frames) {
+    const auto bytes = read_text(link, "The link");
+    std::string text = std::string("frame picture ram vram cram cart-ram cpu psg\nreference mesence 1\nbuild-sha256 ") +
+                       PSMODERN_REFERENCE_SHA256 + "\nbuild-label \"synthetic\"\nrecording-sha256 " +
+                       psmodern::sha256(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size())) +
+                       '\n';
+    const std::string other(40, 'a');
+    for (std::uint64_t n = 1; n <= frames; ++n) {
+        text += std::to_string(n);
+        for (unsigned i = 0; i < 7; ++i) text += " " + (i == 4 && n == frames ? end_sha1 : other);
+        text += '\n';
+    }
+    std::filesystem::create_directories(path.parent_path());
+    write_file(path, text);
+}
+
+int start_rules(const std::filesystem::path& work) {
+    const std::string rom_sha1(40, '0');
+    own_work_folder(work);
+    // Each case builds its own copy in a new folder (case-N), so nothing is
+    // removed while the run goes on; the next run's own_work_folder empties them.
+    std::filesystem::path chain_folder, extras, reference;
+    unsigned cases = 0;
+    // link-01's end, link-02's start (that end with link-02's edits), link-03's
+    // start, and the extras' start images.
+    Image end{};
+    end[0x100] = 0x01;
+    end[0x101] = 0x02;
+    end[0x200] = 0x07;
+    Image second = end;
+    second[0x101] = 0x22;
+    second[0x300] = 0x33;
+    Image third{};
+    third[0x100] = 0x09;
+    third[0x400] = 0x55;
+    Image x_image = end;
+    x_image[0x100] = 0x11;
+    x_image[0x101] = 0x12;
+    x_image[0x400] = 0x44;
+    const std::string x_lines = "byte 0100 11\nbyte 0101 12\nbyte 0400 44\n";
+    const std::string x_start = std::string(extra_start_header) + "\nfrom link-01\nclass edited\nbasis Link 01's save with three bytes set.\n" + x_lines;
+    auto build = [&] {
+        const auto root = work / ("case-" + std::to_string(++cases));
+        chain_folder = root / "chain";
+        extras = chain_folder / "extra";
+        reference = root / "reference";
+        std::filesystem::create_directories(extras);
+        write_recording(chain_folder / "link-01.psrec", rom_sha1, psmodern::sha1(Image{}), 1);
+        write_recording(chain_folder / "link-02.psrec", rom_sha1, psmodern::sha1(second), 1);
+        write_file(chain_folder / "link-02.edits", "psmodern-link-edits 1\nbyte 0101 22\nbyte 0300 33\n");
+        write_recording(chain_folder / "link-03.psrec", rom_sha1, psmodern::sha1(third), 1);
+        write_file(chain_folder / "link-03.edits", "psmodern-link-edits 1\n");
+        write_recording(extras / "x.psrec", rom_sha1, psmodern::sha1(x_image), 1);
+        write_file(extras / "x.start", x_start);
+        write_recording(extras / "y.psrec", rom_sha1, psmodern::sha1(end), 1);
+        write_file(extras / "y.start", std::string(extra_start_header) + "\nfrom link-01\nclass chain-save\nbasis Link 01's save.\n");
+        write_manifest(reference / "link-01" / "manifest.txt", chain_folder / "link-01.psrec", psmodern::sha1(end), 1);
+        write_image(reference / "link-02" / "cart-ram.bin", second);
+        write_image(reference / "link-03" / "cart-ram.bin", third);
+        write_manifest(reference / "link-03" / "manifest.txt", chain_folder / "link-03.psrec", psmodern::sha1(third), 1);
+        write_image(reference / "extra" / "x" / "cart-ram.bin", x_image);
+        write_image(reference / "extra" / "y" / "cart-ram.bin", end);
+    };
+    unsigned replays = 0;
+    const Replay no_replay = [&](const Extra&) -> Image { ++replays; fail("start-rules: the test replayed a link it can rebuild"); };
+    const Replay synthetic_replay = [&](const Extra&) { ++replays; return end; };
+    auto check_x = [&](const Replay& replay) { (void)start_check(rom_sha1, extras / "x.psrec", reference, replay); };
+    auto refused = [&](const std::string& what, const std::string& reason, const std::function<void()>& change,
+                       const Replay& replay = Replay{}) {
+        build();
+        change();
+        expect_refused(what, [&] { check_x(replay ? replay : no_replay); }, reason);
+    };
+    auto start_file = [&](const std::string& text) { return [&, text] { write_file(extras / "x.start", text); }; };
+    auto flip = [&](const std::filesystem::path& relative, std::uint16_t offset) {   // a path inside the reference
+        return [&, relative, offset] {
+            const auto path = reference / relative;
+            auto image = read_image(path);
+            image[offset] ^= 1;
+            write_image(path, image);
+        };
+    };
+
+    // The positive cases: the rebuild (one byte also edited by link-02, found
+    // by trying its values), a chain save, and the replay where no rebuild is
+    // possible (no next link; more than one unknown byte).
+    build();
+    expect_admitted("an edited start image, link-01's end rebuilt (one byte tried)", [&] { check_x(no_replay); });
+    expect_admitted("a chain-save start image", [&] { (void)start_check(rom_sha1, extras / "y.psrec", reference, no_replay); });
+    build();
+    std::filesystem::remove(chain_folder / "link-02.psrec");
+    std::filesystem::remove(chain_folder / "link-02.edits");
+    expect_admitted("no next link: link-01 replayed, its end authenticated", [&] { check_x(synthetic_replay); });
+    build();
+    write_file(chain_folder / "link-02.edits", "psmodern-link-edits 1\nbyte 0100 21\nbyte 0101 22\n");
+    expect_admitted("two bytes unknown: link-01 replayed, its end authenticated", [&] { check_x(synthetic_replay); });
+    check(replays == 2, "start-rules: the replay ran " + std::to_string(replays) + " times, not 2");
+
+    // The start file's form.
+    const std::string header = std::string(extra_start_header) + "\nfrom link-01\n";
+    refused("a start file of version 1", "version 1 (no class and basis lines) is no longer read",
+            start_file("psmodern-extra-start 1\nfrom link-01\n" + x_lines));
+    refused("a start file of an unknown version", "line 1 must be 'psmodern-extra-start 2'",
+            start_file("psmodern-extra-start 3\nfrom link-01\nclass edited\nbasis Some basis.\n" + x_lines));
+    refused("a start file without its class line", "the class is required",
+            start_file(header + "basis Link 01's save with three bytes set.\n" + x_lines));
+    refused("an unknown class", "unknown class 'likely'", start_file(header + "class likely\nbasis Some basis.\n" + x_lines));
+    refused("chain-save with a byte line", "class chain-save has byte lines",
+            start_file(header + "class chain-save\nbasis Some basis.\n" + x_lines));
+    refused("edited with no byte line", "class edited needs at least one byte line",
+            start_file(header + "class edited\nbasis Some basis.\n"));
+    refused("a start file without its basis line", "the basis is required", start_file(header + "class edited\n" + x_lines));
+    refused("an empty basis", "the basis is empty", start_file(header + "class edited\nbasis \n" + x_lines));
+    refused("a basis with location data", "extracted location data",
+            start_file(header + "class edited\nbasis Moved to row 27 col 21.\n" + x_lines));
+    refused("a basis that is not printable ASCII", "printable ASCII and line feeds only",
+            start_file(header + "class edited\nbasis Moved\tto a town.\n" + x_lines));
+    refused("a start file naming a link the chain does not have", "The link the start file names is missing",
+            start_file(std::string(extra_start_header) + "\nfrom link-09\nclass edited\nbasis Some basis.\n" + x_lines));
+    refused("the link recorded on another cartridge", "link-01 was recorded on another cartridge",
+            [&] { write_recording(chain_folder / "link-01.psrec", std::string(40, '1'), psmodern::sha1(Image{}), 1); });
+    refused("the extra recorded on another cartridge", "The recording was made on another cartridge",
+            [&] { write_recording(extras / "x.psrec", std::string(40, '1'), psmodern::sha1(x_image), 1); });
+
+    // The reference manifest that authenticates the link end.
+    auto manifest_line = [&](const std::string& from, const std::string& to) {
+        return [&, from, to] {
+            const auto path = reference / "link-01" / "manifest.txt";
+            auto text = read_text(path, "The manifest");
+            const auto at = text.find(from);
+            check(at != std::string::npos, "start-rules: the synthetic manifest has no '" + from + "'");
+            write_file(path, text.replace(at, from.size(), to));
+        };
+    };
+    refused("a manifest with another header", "invalid header", manifest_line("cpu psg\n", "cpu\n"));
+    refused("a manifest that is not a reference (a runner's)", "not a reference manifest",
+            manifest_line("reference mesence 1", "runner psmodern 1"));
+    refused("a manifest of another reference build", "not made by the pinned reference build",
+            manifest_line(PSMODERN_REFERENCE_SHA256, std::string(64, 'f')));
+    refused("a manifest without its build label", "invalid build label line", manifest_line("build-label \"synthetic\"", "build-label"));
+    refused("a manifest row with a hash missing", "invalid row for frame 1", manifest_line(" " + std::string(40, 'a') + "\n", "\n"));
+    refused("a manifest with one frame more than the link", "2 frames, the link 1", [&] {
+        write_manifest(reference / "link-01" / "manifest.txt", chain_folder / "link-01.psrec", psmodern::sha1(end), 2);
+    });
+
+    // The link end and the image.
+    refused("one byte of the extra's reference start image changed, off the listed offsets (a tampered link end)",
+            "is not the cartridge RAM at the last frame of its reference manifest",
+            flip(std::filesystem::path("extra") / "x" / "cart-ram.bin", 0x200));
+    refused("one byte of the next link's start image changed at a listed offset (a tampered link end)",
+            "is not the cartridge RAM at the last frame of its reference manifest", flip(std::filesystem::path("link-02") / "cart-ram.bin", 0x100));
+    refused("the next link's start image taken from another link (link-03's)",
+            "is not the cartridge RAM at the last frame of its reference manifest", [&] {
+                std::filesystem::copy_file(reference / "link-03" / "cart-ram.bin", reference / "link-02" / "cart-ram.bin",
+                                           std::filesystem::copy_options::overwrite_existing);
+            });
+    refused("link-01's reference manifest taken from another link (link-03's)", "made from another recording than link-01.psrec", [&] {
+        std::filesystem::copy_file(reference / "link-03" / "manifest.txt", reference / "link-01" / "manifest.txt",
+                                   std::filesystem::copy_options::overwrite_existing);
+    });
+    refused("a stale reference manifest, left from an older version of link-01 (two frames)",
+            "made from another recording than link-01.psrec", [&] {
+                const auto older = work / "older-link-01.psrec";
+                write_recording(older, rom_sha1, psmodern::sha1(Image{}), 2);
+                write_manifest(reference / "link-01" / "manifest.txt", older, psmodern::sha1(end), 2);
+            });
+    refused("the extra's reference start image missing", "The cartridge RAM image is missing",
+            [&] { std::filesystem::remove(reference / "extra" / "x" / "cart-ram.bin"); });
+    refused("link-01's reference manifest missing", "The reference manifest is missing",
+            [&] { std::filesystem::remove(reference / "link-01" / "manifest.txt"); });
+    refused("a replayed end that differs from the reference", "replayed is not the cartridge RAM at the last frame", [&] {
+        std::filesystem::remove(chain_folder / "link-02.psrec");
+        std::filesystem::remove(chain_folder / "link-02.edits");
+    }, [&](const Extra&) { Image wrong = end; wrong[0x200] ^= 1; return wrong; });
+    refused("a byte line left out of the start file", "is not the cartridge RAM at the last frame of its reference manifest",
+            start_file(header + "class edited\nbasis Some basis.\nbyte 0100 11\nbyte 0101 12\n"));
+    refused("a byte line whose value makes another image", "is not link-01's end with its start file's 3 edits",
+            start_file(header + "class edited\nbasis Some basis.\nbyte 0100 11\nbyte 0101 12\nbyte 0400 45\n"));
+    refused("a byte line that repeats the link end's own byte", "repeats link-01's own value 07",
+            start_file(header + "class edited\nbasis Some basis.\nbyte 0100 11\nbyte 0101 12\nbyte 0200 07\nbyte 0400 44\n"));
+    std::cout << "The start-image rules hold their cases.\n";
+    return 0;
+}
+
 // ---- the committed inventory --------------------------------------------------------------
 // tests/playthrough_inventory.txt: ASCII, LF, lines starting with # and blank
 // lines ignored; every other line `<us|br> link <NN>`, `<us|br> extra <name>`
@@ -1063,11 +1484,19 @@ int main(int argc, char** argv) {
         if (mode == "records" && argc == 4) return describe(load_game(argv[2]), argv[3]);
         if (mode == "extra" && (argc == 5 || argc == 6))
             return extra(load_game(argv[2]), argv[3], argv[4], argc == 6 ? std::optional<std::filesystem::path>(argv[5]) : std::nullopt);
+        if (mode == "start" && argc == 5) {
+            const auto game = load_game(argv[2]);
+            const std::filesystem::path reference = argv[4];
+            (void)start_check(game.sha1, argv[3], reference, [&](const Extra& x) { return replayed_end(game, x, reference); });
+            return 0;
+        }
+        if (mode == "start-rules" && argc == 3) return start_rules(argv[2]);
         throw std::runtime_error("usage: playthrough_tests chain|links <rom> <folder> [<reference folder>] | "
                                  "apply <rom> <link> <start|empty> <edits> <new image> | "
                                  "plain <rom> <link> <reference folder> <work folder> | records <rom> <image> | "
-                                 "extra <rom> <extra recording> <reference folder> [<new image>] | rules <rom> <work folder> | "
-                                 "inventory <inventory> <recordings folder> <routes file>");
+                                 "extra <rom> <extra recording> <reference folder> [<new image>] | "
+                                 "start <rom> <extra recording> <reference folder> | rules <rom> <work folder> | "
+                                 "start-rules <work folder> | inventory <inventory> <recordings folder> <routes file>");
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
         return 1;

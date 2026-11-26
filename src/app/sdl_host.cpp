@@ -148,7 +148,17 @@ MenuInput sample_start_input(SDL_Window* window,const Controller& controller,con
 }
 Display open_display(const std::string& title) {
     Display display;
-    display.window.reset(SDL_CreateWindow(title.c_str(),SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,768,576,SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI));
+#ifdef __ANDROID__
+    // Issue 8: SDL hides Android's status and navigation bars (sticky
+    // immersive) only for a fullscreen window. Desktop fullscreen, because
+    // SDL has no display mode switching on Android: exclusive fullscreen
+    // looks up a closest mode that must equal the current one, and the style
+    // is never applied when that lookup fails.
+    constexpr Uint32 window_flags=SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI|SDL_WINDOW_FULLSCREEN_DESKTOP;
+#else
+    constexpr Uint32 window_flags=SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI;
+#endif
+    display.window.reset(SDL_CreateWindow(title.c_str(),SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,768,576,window_flags));
     sdl_check(bool(display.window),"Creating window");
     SDL_SetWindowMinimumSize(display.window.get(),256,192);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"0");
