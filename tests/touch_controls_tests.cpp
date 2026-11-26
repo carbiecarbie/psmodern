@@ -95,9 +95,10 @@ void fingers() {
     TouchControls controls;
     const auto layout=touch_layout(1080,1920,{},false,true,true);
     controls.set_layout(layout);
+    std::uint32_t ms=100000;
     auto press=[&](std::int64_t finger,Action action) {
         auto r=layout.buttons[action];
-        controls.down(finger,r.x+r.width/2,r.y+r.height/2);
+        controls.down(finger,r.x+r.width/2,r.y+r.height/2,ms);
     };
     auto slide=[&](std::int64_t finger,WindowRect r) { controls.move(finger,r.x+r.width/2,r.y+r.height/2); };
     press(9000000000LL,Action::up);
@@ -114,22 +115,70 @@ void fingers() {
     controls.move(9000000000LL,layout.pad.x+layout.pad.width+500,layout.pad.y+layout.pad.height/2);
     check(controls.held()[Action::right],"a thumb that drifts off the cross keeps its direction");
     controls.up(9000000000LL);
-    controls.down(11,layout.pad_hit.x,layout.pad.y+layout.pad.height/2);
+    controls.down(11,layout.pad_hit.x,layout.pad.y+layout.pad.height/2,ms);
     check(controls.held()[Action::left],"a touch at the screen edge beside the cross steers");
     controls.up(11);
     slide(3,layout.buttons[Action::button2]);
     check(!controls.held()[Action::button1] && !controls.held()[Action::button2],"slide off a button releases it");
-    controls.controller_used();
-    check(!controls.visible(),"controller input hides touch targets");
+    press(12,Action::button1);
+    controls.controller_input(1,true,ms);
+    check(!controls.visible() && !controls.held()[Action::button1],"controller input hides touch targets and releases fingers");
+    controls.up(12);
+    controls.controller_input(1,false,ms+=touch_wake_quiet_ms);
+    press(13,Action::button1);
+    check(!controls.visible(),"no wake inside the quiet time after a button release");
+    controls.controller_input(2,true,ms);   // a stick pushed beyond the dead zone
+    ms+=touch_wake_quiet_ms;
+    press(13,Action::button1);
+    check(!controls.visible(),"no wake while an axis is beyond the dead zone");
+    controls.controller_settled(2);          // neither held nor a new input
+    press(13,Action::button1);
+    check(controls.visible(),"wake once the stick is back in the dead zone and the quiet time has passed");
+    controls.up(13);
+    controls.controller_input(3,true,ms);   // a button held down
+    ms+=touch_wake_quiet_ms;
+    press(13,Action::button1);
+    check(!controls.visible(),"no wake while a button is held");
+    controls.controller_reset();             // controller removed or app backgrounded
+    press(13,Action::button1);
+    check(controls.visible() && !controls.held()[Action::button1],"wake after the quiet time once nothing is held");
+    controls.up(13);
+    controls.controller_input(4,true,ms);
+    controls.controller_input(4,false,ms);
+    ms+=touch_wake_quiet_ms-1;
+    press(13,Action::button1);
+    check(!controls.visible(),"quiet time counts to the last input");
+    ms+=1;
     press(10,Action::button1);
     slide(10,layout.buttons[Action::button1]);
     check(controls.visible() && !controls.held()[Action::button1],"whole wake gesture consumed");
     controls.up(10);
     press(10,Action::button1);
     check(controls.held()[Action::button1],"next tap works");
+    controls.up(10);
+    // The wrap of SDL's 32-bit tick count does not block waking.
+    controls.controller_input(5,true,0xffffff00u);
+    controls.controller_input(5,false,0xffffff00u);
+    ms=0xffffff00u+touch_wake_quiet_ms;
+    press(14,Action::button1);
+    check(controls.visible(),"quiet time measured across the tick wrap");
+    controls.up(14);
+    press(10,Action::button1);
     controls.set_layout(layout);
     const auto held=controls.held();
     check(std::none_of(held.begin(),held.end(),[](bool value){return value;}),"rotation clears held contacts");
+}
+void start_state() {
+    check(TouchControls{}.visible() && !TouchControls{false}.visible(),"controls start as asked");
+    check(touch_start_visible(std::nullopt,false),"first controls are shown without a controller");
+    check(!touch_start_visible(std::nullopt,true),"first controls are hidden with a controller connected");
+    check(touch_start_visible(true,true) && !touch_start_visible(false,false),"later controls keep the previous state");
+    TouchControls hidden(false);
+    const auto layout=touch_layout(1080,1920,{},false,true,true);
+    hidden.set_layout(layout);
+    const auto r=layout.buttons[Action::button1];
+    hidden.down(1,r.x+r.width/2,r.y+r.height/2,0);
+    check(hidden.visible() && !hidden.held()[Action::button1],"no controller input yet: the first touch wakes and is consumed");
 }
 void resume_clock() {
     FrameClock clock(0);
@@ -140,6 +189,6 @@ void resume_clock() {
 }
 }
 int main() {
-    try { layouts(); fingers(); resume_clock(); }
+    try { layouts(); fingers(); start_state(); resume_clock(); }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -50,7 +50,16 @@ During play, **PAUSE** presses the console's Pause button, **OPT** opens
 Options during exploration and the speed button cycles through 1x, 2x and 4x.
 With Automap enabled, **MAP** opens the map while exploring a dungeon.
 Android Back cancels in menus and opens Options during exploration.
-A controller input hides the touch controls. The first touch brings them back.
+
+PSModern hides Android's status and navigation bars; swipe in from the edge
+to see them for a moment. The picture and the touch controls still keep clear
+of a camera cutout.
+
+A controller input hides the touch controls. If a controller is already
+connected when PSModern starts, they start hidden, and they stay as they were
+when you go from the start screen into the game. A touch brings them back
+(that touch presses nothing), but only when no controller button is held, no
+stick is pushed and the controller has been left alone for two seconds.
 
 ## What cannot be changed
 

@@ -108,7 +108,7 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
     auto start_screen=[&](StartAction selected=StartAction::none) { return StartScreen(*list,selected,platform.show_folder); };
     auto screen=start_screen();
 #ifdef __ANDROID__
-    AndroidControls mobile(*display,font);
+    AndroidControls mobile(*display,font,controller.connected());
 #endif
     std::array<std::uint32_t,256*192> pixels{};
     const double frequency=static_cast<double>(SDL_GetPerformanceFrequency());
