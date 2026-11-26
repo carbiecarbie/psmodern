@@ -1,5 +1,7 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-08
+class artificial
+basis Link 08's save moved onto a dungeon floor the route visits, with the inventory replaced by 24 chosen items, among them story items from later in the story.
 byte 040a 01
 byte 040c 13
 byte 040d 02

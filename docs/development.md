@@ -967,19 +967,37 @@ the FM session glob does not look into subfolders. Each starts from a chain
 link's saved game, most with bytes edited, and those edits are not bound by the
 link allow-list, since these recordings exist to reach what one route cannot
 (a dead member, items the route never carries, a save in another town). Every
-edit is written down in `<name>.start` beside the recording, in ASCII with LF
-line endings: `psmodern-extra-start 1`, then `from link-NN`, then `byte` lines
-as in an edits file (offsets strictly increasing, each value different from
-the link's own byte). The start image is link NN's cartridge RAM at its last
-frame end with those bytes set; its SHA-1 must be the recording's `cart-ram`
-header. The extra folder holds only these pairs: a recording without its
-`.start` file, or any other file, fails.
+edit is written down in `<name>.start` beside the recording, together with the
+class of the start image and its basis, so that neither can drift from the
+recipe. The format is version 2: printable ASCII with LF line endings and a
+final LF, no comment and no blank line, in this order:
 
-**Where each start image comes from.** `tools/extra-start-classes.tsv` gives
-every extra recording one class and a one-line basis, and the coverage report
-counts them. `tests/coverage_tests.py` checks the file against the `.start`
-files present: one line each, no other, and `chain-save` exactly when the
-`.start` file has no `byte` line. The classes are:
+```text
+psmodern-extra-start 2
+from link-NN
+class <chain-save|edited|artificial>
+basis <one line saying where the start image comes from>
+byte <offset> <value>
+```
+
+There are zero or more `byte` lines, as in an edits file (four and two
+lowercase hexadecimal digits, offsets strictly increasing, each value
+different from the link's own byte). The class is `chain-save` exactly when
+there is no `byte` line. The basis is not empty, has no leading or trailing
+space and holds no extracted location data (the rule `LOCATION` of
+`tools/generate_coverage.py`, which the reasons file follows too). Everything
+that reads the file (the `extra` and `start` modes below and the coverage
+generator) refuses version 1 (no `class` and `basis` lines), a missing or
+unknown class, a missing or empty basis and a class that contradicts the byte
+lines. The start image is link NN's cartridge RAM at its last frame end with
+those bytes set; its SHA-1 must be the recording's `cart-ram` header. The
+extra folder holds only these pairs: a recording without its `.start` file, or
+any other file, fails.
+
+**Where each start image comes from.** The `class` line gives every extra
+recording one class and the `basis` line its one-line basis. The coverage
+report counts the classes; `tests/coverage_tests.py` checks the generator's
+reader of the file. The classes are:
 
 - `chain-save`, a chain link's saved game with no byte changed: `misc`,
   `nuts-plaza` and `title` on each cartridge (6);
@@ -993,24 +1011,68 @@ files present: one line each, no other, and `chain-save` exactly when the
 
 A recording shows how the code runs from its start image. For an `edited` or
 `artificial` image it does not show that a player can reach that state. Where
-the choice between those two was unsure, the file says `edited` and gives the
-reason. Only `chain-save` is checked mechanically; the other two rest on the
-written basis.
+the choice between those two was unsure, the start file says `edited` and
+gives the reason. Only `chain-save` is checked mechanically; the other two
+rest on the written basis.
 
 ```text
 psmodern_playthrough_tests extra <rom> <extra/<name>.psrec> <reference>/<us|br>/playthrough [<new image>]
+psmodern_playthrough_tests start <rom> <extra/<name>.psrec> <reference>/<us|br>/playthrough
 ```
 
-`extra` replays link NN from its reference start image (the empty image for
-link 01), sets the bytes and checks the SHA-1. With a new image path it also
-writes the image, never over a file. The reference of an extra recording is
+`extra` is the by-hand way to make a new recording's start image. It replays
+link NN from its reference start image (the empty image for link 01), checks
+the end against link NN's reference manifest as `start` does, sets the bytes
+and checks the SHA-1. With a new image path it also writes the image, never
+over a file.
+
+`start` is the start-image test. It establishes the same image without the
+replay: it rebuilds link NN's end from files already in the reference folder
+and authenticates it before use. Off the start file's offsets the end is the
+recording's own reference start image; at those offsets it is the next link's
+reference start image, which is link NN's end with the next link's edits.
+Where those edits changed the byte too, every value is tried against the
+reference hash (at most one such byte; five of the current recordings have
+one). These files only supply candidate bytes. The rebuilt end is used only
+once its SHA-1 equals the cartridge RAM of the last frame of link NN's
+reference manifest, and that manifest is accepted only as a reference of the
+pinned build (`reference mesence 1` and the build's SHA-256) made from exactly
+that link file (its `recording-sha256` line), with one row per frame. The
+link's own strict test matches the same hash at its last frame, so the end
+used is the cartridge RAM that both the reference and the program leave
+there. A start-image test alone therefore says nothing about the C++ game:
+it is evidence of the program's end only together with that link's strict
+test in the same run of the group. When no rebuild is possible (no next
+link, or more than one unknown byte), `start` replays the link as `extra` does and authenticates the
+replayed end in the same way. Then, as in `extra`, each byte must change the
+link's byte and the image's SHA-1 must be the recording's header. Nothing is
+written to the build folder, so no file can be stale; a tampered or misplaced
+reference file fails the authentication. A `start` run takes a fraction of a
+second; the replay took up to several minutes.
+
+`start-rules` is its own test, in the normal suite as `playthrough_start_rules`
+(label `fast`; no ROM and no reference needed). On a synthetic chain of
+one-frame recordings it shows each check refusing its negative case for its
+own reason: the start file's form (version 1, no class, an unknown class,
+`chain-save` with a byte line, `edited` with none, no basis, an empty basis,
+location data, a character that is not printable ASCII, a link the chain
+lacks), the cartridge of the link and of the recording, the manifest (not a
+reference, another build, no build label, a broken row, a frame too many,
+another link's manifest, a stale one from an older version of the link, a
+missing one), the link end (one byte of either reference image changed, the
+next link's image taken from another link, a missing image, a replayed end
+that differs) and the image (a byte line left out, a value that makes another
+image, a byte that repeats the link's). It also admits the rebuild with one
+byte tried, a chain save and both replay cases.
+
+The reference of an extra recording is
 `<PSMODERN_REFERENCE_DIR>/<us|br>/playthrough/extra/<name>/`, with
 `manifest.txt`, `cart-ram.bin` (as `extra` writes it) and `reference.json`.
 With `PSMODERN_PLAYTHROUGH_TESTS` each one registers
 `rom_<us|br>_playthrough_extra_<name>` (strict lockstep, the seven components
 at every frame, no refused call, census
 `build-rel/playthrough-census/<us|br>/extra/<name>.tsv`), `..._plain` and
-`..._start` (the `extra` check), all labelled `playthrough`. A missing
+`..._start` (the `start` check), all labelled `playthrough`. A missing
 manifest or start image fails. Their censuses count in the playthrough group
 of the evidence categories.
 
@@ -1019,7 +1081,8 @@ The routes listed in `tests/playthrough_routes.txt` also register
 routes. These tests never skip: a missing ROM, manifest, start image or link
 fails. The group runs at milestone closure (`tools/AGENTS.md`). With the
 option off, the complete suite holds none of the group's tests; it does hold
-the two `rom_<us|br>_playthrough_rules` tests, which need no reference.
+the two `rom_<us|br>_playthrough_rules` tests and `playthrough_start_rules`,
+which need no reference.
 
 ## Replay runner
 

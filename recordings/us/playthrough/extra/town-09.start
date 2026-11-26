@@ -1,5 +1,7 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-08
+class edited
+basis Link 08's save moved to a town's arrival point; that a player at that point of the story can reach that town and save there was not verified.
 byte 0401 90
 byte 0402 05
 byte 0405 40

@@ -1,5 +1,7 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-08
+class artificial
+basis Link 08's save with Myau's MP at zero and the inventory replaced: it holds the Alsulin, which the story has already used by then, and story items from later in the story.
 byte 0512 00
 byte 05c6 27
 byte 05c7 04

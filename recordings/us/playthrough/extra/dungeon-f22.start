@@ -1,5 +1,7 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-08
+class edited
+basis Link 08's save moved to a cell of a dungeon floor (position, floor, facing); that a player at that point of the story can stand and save there was not verified.
 byte 040c 1c
 byte 040d 16
 byte 0416 0b

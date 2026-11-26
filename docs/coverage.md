@@ -125815,7 +125815,7 @@ group; prepared-state routes and state probes are not recordings.
 - With a reason in `tools/coverage-reasons.tsv`: 362 of the 362 reached by no recording and 64 of the 64 reached by US recordings only.
 - Playthrough group (chain links and part 3 recordings): from 141 censuses of this run, as the inventory lists.
 - Prepared-state routes: from 4 censuses of this run, as the inventory lists.
-- Start images of part 3's recordings (`tools/extra-start-classes.tsv`): 6 unchanged chain saves; 79 chain saves edited to a state whose reachability by play was not verified; 4 states known to be artificial.
+- Start images of part 3's recordings (the `class` line of each `.start` file): 6 unchanged chain saves; 79 chain saves edited to a state whose reachability by play was not verified; 4 states known to be artificial.
 
 The reasons by the evidence of their weakest claim (docs/AGENTS.md, "Evidence labels"). A reason
 existing is not itself evidence of a rare trigger or of unreachability: an Unknown row says that its

@@ -238,7 +238,7 @@ the [per-recording census](coverage.md).
   verified as reachable by play, 4 from known artificial states. Each matches
   the reference at every frame, under per-instruction lockstep, and runs once
   as the plain game. These 378 tests, the `playthrough` group, are off by
-  default and run only at a milestone closure: about 42 minutes at `-j 16`
+  default and run only at a milestone closure: about 32 minutes at `-j 16`
   ([development](development.md#playthrough-chain)).
 - **Four kinds of evidence** are told apart in the [census](coverage.md):
   checkpoints, the playthrough group, prepared-state routes and state probes.
@@ -302,7 +302,7 @@ the [per-recording census](coverage.md).
   as whole saves (a raised level keeps its earlier spell counts until the
   game refreshes them). A boss link shows one winning sequence, not a win
   rate. Between closures a maintenance fix runs only the complete suite.
-- **Playthrough tooling.** The group takes about 42 minutes, near the plan's
+- **Playthrough tooling.** The group takes about 32 minutes against the plan's
   mark of 45. The reference capture failed twice inside `tools/reference.lua`
   and passed when repeated (heavy load suspected, not established); it fails
   loudly and writes no manifest. MesenCE also lacks the rule that an interrupt

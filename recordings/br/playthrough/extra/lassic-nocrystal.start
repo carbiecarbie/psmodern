@@ -1,4 +1,6 @@
-psmodern-extra-start 1
+psmodern-extra-start 2
 from link-25
+class edited
+basis Link 25's save before the last boss's door with the Crystal removed from the inventory; a player who never took it might stand there, but that was not verified, so this is not called artificial.
 byte 05d6 00
 byte 05e2 16

@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from generate_coverage import ALL, COLUMNS, COUNTERS, EVIDENCE, checkpoints, generate as strict_generate, read_extra_classes
+from generate_coverage import ALL, COLUMNS, COUNTERS, EVIDENCE, LOCATION, checkpoints, generate as strict_generate, read_extra_classes
 
 
 def generate(root, **options):
@@ -381,41 +381,50 @@ with tempfile.TemporaryDirectory() as directory:
         rejects_with(fragment, groups=fresh, reasons_path=reasons, inventory=inventory)
 print('Evidence category fixtures passed')
 
-# The class of each part 3 recording's start image (review 2026-11-25): synthetic
-# fixtures, then the committed file against the recordings present.
+# The class of each part 3 recording's start image, from the class line of its
+# .start file: synthetic fixtures, then the committed files.
 with tempfile.TemporaryDirectory() as directory:
     recordings = Path(directory)/'recordings'
     for version in ('us', 'br'):
         (recordings/version/'playthrough'/'extra').mkdir(parents=True)
     extra = recordings/'us'/'playthrough'/'extra'
-    (extra/'misc.start').write_text('psmodern-extra-start 1\nfrom link-08\n', encoding='ascii', newline='\n')
-    (extra/'town-04.start').write_text('psmodern-extra-start 1\nfrom link-08\nbyte 0401 40\n', encoding='ascii', newline='\n')
-    classes = Path(directory)/'classes.tsv'
+    head = 'psmodern-extra-start 2\nfrom link-08\n'
 
-    def with_classes(text):
-        classes.write_bytes(('region\tname\tclass\tbasis\n' + text).encode('ascii'))
-    good = 'us\tmisc\tchain-save\tUnchanged.\nus\ttown-04\tedited\tMoved to a town.\n'
-    with_classes(good)
-    check(read_extra_classes(classes, recordings) == {'chain-save': 1, 'edited': 1, 'artificial': 0}, 'Class counts wrong')
+    def with_start(name, text):
+        (extra/name).write_bytes(text.encode('latin-1'))
+    with_start('misc.start', head + 'class chain-save\nbasis Unchanged.\n')
+    with_start('town-04.start', head + 'class edited\nbasis Moved to a town.\nbyte 0401 40\n')
+    check(read_extra_classes(recordings) == {'chain-save': 1, 'edited': 1, 'artificial': 0}, 'Class counts wrong')
 
-    def refuses(fragment):
+    def refuses(text, fragment):
+        with_start('town-04.start', text)
         try:
-            read_extra_classes(classes, recordings)
+            read_extra_classes(recordings)
         except ValueError as error:
             check(fragment in str(error), f'Wrong refusal: {error}')
         else:
-            raise RuntimeError(f'Invalid extra classes accepted (expected {fragment})')
-    for bad, fragment in (('us\tmisc\tchain-save\tUnchanged.\n', 'without a class: us town-04'),
-                          (good + 'br\tmisc\tchain-save\tNone.\n', 'no .start file'),
-                          (good + 'us\tmisc\tedited\tTwice.\n', 'Two classes'),
-                          ('us\tmisc\tedited\tSaid edited.\nus\ttown-04\tedited\tMoved.\n', 'chain-save is exactly'),
-                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tchain-save\tWrong.\n', 'chain-save is exactly'),
-                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tlikely\tMoved.\n', 'Invalid extra class'),
-                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tedited\t \n', 'Invalid extra class'),
-                          ('us\tmisc\tchain-save\tU.\nus\ttown-04\tedited\tTo row 27 col 21.\n', 'Location data')):
-        with_classes(bad)
-        refuses(fragment)
+            raise RuntimeError(f'Invalid start file accepted (expected {fragment})')
+    for bad, fragment in (('psmodern-extra-start 1\nfrom link-08\nbyte 0401 40\n', 'version 1'),
+                          ('psmodern-extra-start 3\nfrom link-08\nclass edited\nbasis M.\nbyte 0401 40\n', 'line 1 must be'),
+                          ('psmodern-extra-start 2\nfrom link-8\nclass edited\nbasis M.\nbyte 0401 40\n', "expected 'from link-NN'"),
+                          (head + 'basis Moved.\nbyte 0401 40\n', 'the class is required'),
+                          (head + 'class likely\nbasis Moved.\nbyte 0401 40\n', "unknown class 'likely'"),
+                          (head + 'class chain-save\nbasis Moved.\nbyte 0401 40\n', 'chain-save is exactly'),
+                          (head + 'class edited\nbasis Moved.\n', 'chain-save is exactly'),
+                          (head + 'class edited\nbyte 0401 40\n', 'the basis is required'),
+                          (head + 'class edited\nbasis \nbyte 0401 40\n', 'the basis is empty'),
+                          (head + 'class edited\nbasis To row 27 col 21.\nbyte 0401 40\n', 'location data'),
+                          (head + 'class edited\nbasis Moved.\nbyte 0401 40', 'final LF'),
+                          (head + 'class edited\r\nbasis Moved.\nbyte 0401 40\n', 'printable ASCII'),
+                          (head + 'class edited\nbasis Moved caf\u00e9.\nbyte 0401 40\n', 'printable ASCII'),
+                          (head + 'class edited\nbasis Moved.\nbyte 0402 40\nbyte 0401 41\n', 'strictly increasing'),
+                          (head + 'class edited\nbasis Moved.\nbyte 2000 40\n', 'strictly increasing')):
+        refuses(bad, fragment)
 counts = read_extra_classes()
 check(sum(counts.values()) == len(list(Path(__file__).resolve().parents[1].glob('recordings/*/playthrough/extra/*.start'))),
-      'The committed extra classes do not cover the recordings present')
+      'The committed start files were not all counted')
 print('Extra start classes passed:', ', '.join(f'{count} {name}' for name, count in counts.items()))
+# The C++ reader of the start files applies the same location rule, character
+# for character (tests/playthrough_tests.cpp, location_data).
+check('R"(' + LOCATION.pattern + ')"' in (Path(__file__).resolve().parent/'playthrough_tests.cpp').read_text(encoding='utf-8'),
+      'The location rule of tests/playthrough_tests.cpp differs from that of tools/generate_coverage.py')

@@ -264,46 +264,66 @@ def read_group(root, entries, expected=None):
     return reached, count
 
 
-EXTRA_CLASSES_FILE = Path(__file__).resolve().parent/'extra-start-classes.tsv'
 RECORDINGS_DIR = Path(__file__).resolve().parents[1]/'recordings'
 # The start image of each part 3 recording (docs/development.md, "Part 3's recordings").
 EXTRA_CLASSES = {'chain-save': 'unchanged chain saves',
                  'edited': 'chain saves edited to a state whose reachability by play was not verified',
                  'artificial': 'states known to be artificial'}
+EXTRA_START_HEADER = 'psmodern-extra-start 2'
 
 
-def read_extra_classes(path=EXTRA_CLASSES_FILE, recordings=RECORDINGS_DIR):
-    """The class of each part 3 recording's start image: a header, then region,
-    name, class and a one-line basis separated by tabs, one line per
-    recordings/<us|br>/playthrough/extra/<name>.start and no other. A
-    chain-save is exactly a .start with no byte line. Returns the count per class."""
-    text = Path(path).read_bytes().decode('ascii')
-    lines = text.split('\n')
-    if lines[0] != 'region\tname\tclass\tbasis' or lines[-1] != '' or '\r' in text:
-        raise ValueError(f'Invalid extra classes header or line endings: {path}')
-    starts = {(version, start.stem): start for version in ('us', 'br')
-              for start in sorted((Path(recordings)/version/'playthrough'/'extra').glob('*.start'))}
-    seen = {}
-    for number, line in enumerate(lines[1:-1], 2):
-        fields = line.split('\t')
-        if len(fields) != 4 or fields[0] not in ('us', 'br') or fields[2] not in EXTRA_CLASSES or not fields[3].strip():
-            raise ValueError(f'Invalid extra class on line {number}: {path}')
-        key = (fields[0], fields[1])
-        if key in seen:
-            raise ValueError(f'Two classes for {fields[0]} {fields[1]}')
-        if key not in starts:
-            raise ValueError(f'Class for an extra recording that has no .start file: {fields[0]} {fields[1]}')
-        if LOCATION.search(fields[3]):
-            raise ValueError(f'Location data in the basis on line {number}: keep it in the private study')
-        edits = [entry for entry in starts[key].read_text(encoding='ascii').split('\n') if entry.startswith('byte ')]
-        if (fields[2] == 'chain-save') != (not edits):
-            raise ValueError(f'{fields[0]} {fields[1]}: chain-save is exactly a start with no edited byte')
-        seen[key] = fields[2]
-    missing = sorted(set(starts) - set(seen))
-    if missing:
-        raise ValueError('Extra recordings without a class: ' + ', '.join(f'{v} {n}' for v, n in missing))
-    return {name: sum(1 for value in seen.values() if value == name) for name in EXTRA_CLASSES}
+def read_extra_start(path):
+    """One part 3 start file, extra/<name>.start, version 2: printable ASCII and
+    LF only with a final LF; `psmodern-extra-start 2`, `from link-NN`,
+    `class <chain-save|edited|artificial>`, `basis <text>`, then `byte <offset>
+    <value>` lines (4 and 2 lowercase hex digits, offsets strictly increasing
+    below 2000h). The class is chain-save exactly when there is no byte line; the
+    basis is not empty, has no leading or trailing space and holds no location
+    data. The same rules as read_extra_start in tests/playthrough_tests.cpp.
+    Returns (link, class, basis, number of byte lines)."""
+    data = Path(path).read_bytes()
+    if not data.endswith(b'\n') or any(byte != 0x0A and not 0x20 <= byte <= 0x7E for byte in data):
+        raise ValueError(f'{path}: printable ASCII and LF only, with a final LF')
+    lines = data.decode('ascii').split('\n')[:-1]
+    if lines[0] == 'psmodern-extra-start 1':
+        raise ValueError(f'{path}: version 1 (no class and basis lines) is no longer read')
+    if lines[0] != EXTRA_START_HEADER:
+        raise ValueError(f"{path}: line 1 must be '{EXTRA_START_HEADER}'")
+    if len(lines) < 2 or not re.fullmatch(r'from link-[0-9]{2}', lines[1]):
+        raise ValueError(f"{path} line 2: expected 'from link-NN'")
+    if len(lines) < 3 or not lines[2].startswith('class '):
+        raise ValueError(f"{path} line 3: expected 'class <chain-save|edited|artificial>' (the class is required)")
+    start_class = lines[2][6:]
+    if start_class not in EXTRA_CLASSES:
+        raise ValueError(f"{path} line 3: unknown class '{start_class}'")
+    if len(lines) < 4 or not lines[3].startswith('basis '):
+        raise ValueError(f"{path} line 4: expected 'basis <text>' (the basis is required)")
+    basis = lines[3][6:]
+    if not basis or basis != basis.strip(' '):
+        raise ValueError(f'{path} line 4: the basis is empty or has a leading or trailing space')
+    if LOCATION.search(basis):
+        raise ValueError(f'{path} line 4: location data in the basis: keep it in the private study')
+    previous = -1
+    for number, line in enumerate(lines[4:], 5):
+        match = re.fullmatch(r'byte ([0-9a-f]{4}) ([0-9a-f]{2})', line)
+        if not match or int(match[1], 16) >= 0x2000 or int(match[1], 16) <= previous:
+            raise ValueError(f'{path} line {number}: expected a byte line with a strictly increasing offset below 2000')
+        previous = int(match[1], 16)
+    edits = len(lines) - 4
+    if (start_class == 'chain-save') != (edits == 0):
+        raise ValueError(f'{path}: class {start_class}: chain-save is exactly a start file with no byte line')
+    return lines[1][5:], start_class, basis, edits
 
+
+def read_extra_classes(recordings=RECORDINGS_DIR):
+    """The class of each part 3 recording's start image, from the class line of
+    every recordings/<us|br>/playthrough/extra/<name>.start (read_extra_start).
+    Returns the count per class."""
+    counts = dict.fromkeys(EXTRA_CLASSES, 0)
+    for version in ('us', 'br'):
+        for start in sorted((Path(recordings)/version/'playthrough'/'extra').glob('*.start')):
+            counts[read_extra_start(start)[1]] += 1
+    return counts
 
 def previous_group(previous, group):
     """The reached sets a previous generated file recorded for a group, or None
@@ -383,7 +403,7 @@ def categories(entries, checkpoints, groups, notes, reasons, extra_counts=None):
              f'{len(us_only):,} reached by US recordings only.']
     lines += [f'- {GROUPS[group]}: {notes[group]}.' for group in GROUPS]
     if extra_counts is not None:
-        lines += ["- Start images of part 3's recordings (`tools/extra-start-classes.tsv`): " +
+        lines += ["- Start images of part 3's recordings (the `class` line of each `.start` file): " +
                   '; '.join(f'{extra_counts[name]} {text}' for name, text in EXTRA_CLASSES.items()) + '.']
 
     def label_counts(segments, gap):

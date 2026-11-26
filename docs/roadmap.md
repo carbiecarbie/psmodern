@@ -57,10 +57,6 @@ Candidates left by milestone 19, none decided and none needing a release:
   study could settle some by a run or a reading of the code.
 - **The reference capture's intermittent failure.** It failed twice inside
   `tools/reference.lua` under heavy load and passed when repeated.
-- **The extras' start class in their `.start` files,** instead of the
-  separate `tools/extra-start-classes.tsv`.
-- **The playthrough group's duration,** 40 to 43 minutes against the plan's
-  mark of 45; any new recording added to the group brings it closer.
 - **Trimming [project status](project-status.md)** back to its size target;
   the maintainer chose on 2026-11-25 to update it now and trim it later.
 
