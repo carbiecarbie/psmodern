@@ -64,12 +64,14 @@ jobs:
           a35b3b269b58371015cf033f28a08ad1ac92cce6dd27b428caf67b7f9ce8f5b7 z80ccf.tap
           67e39cd3bbecedf1e406ea9ce99d55fc48c3b497e235f1c7406d1bc4406b7071 LICENSE.txt
           TESTS
-          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF -DPSMODERN_Z80_TEST_DIR="$(cygpath -m "$dir")" -DPython3_EXECUTABLE="$(cygpath -m "$PSMODERN_CI_PYTHON")"
+          # The ROM tests are registered with no ROM: every one must skip.
+          cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=ON -DPSMODERN_Z80_TEST_DIR="$(cygpath -m "$dir")" -DPython3_EXECUTABLE="$(cygpath -m "$PSMODERN_CI_PYTHON")"
           if grep -q NDEBUG build-rel/build.ninja; then
             echo 'Unexpected NDEBUG in build-rel.'; exit 1
           fi
           cmake --build build-rel
-          ctest --test-dir build-rel --output-on-failure --no-tests=error
+          ctest --test-dir build-rel --output-on-failure --no-tests=error --output-junit ctest-junit.xml
+          "$(cygpath -u "$PSMODERN_CI_PYTHON")" tools/check_rom_skips.py build-rel/ctest-junit.xml
   build-and-test-macos:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: macos-15
@@ -111,13 +113,15 @@ jobs:
           a35b3b269b58371015cf033f28a08ad1ac92cce6dd27b428caf67b7f9ce8f5b7 z80ccf.tap
           67e39cd3bbecedf1e406ea9ce99d55fc48c3b497e235f1c7406d1bc4406b7071 LICENSE.txt
           TESTS
-          cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=OFF \
+          # The ROM tests are registered with no ROM: every one must skip.
+          cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPSMODERN_ROM_TESTS=ON \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/sdl2/install" -DPSMODERN_Z80_TEST_DIR="$dir"
           if grep -q NDEBUG build-macos/build.ninja; then
             echo 'Unexpected NDEBUG in build-macos.'; exit 1
           fi
           cmake --build build-macos
-          ctest --test-dir build-macos --output-on-failure --no-tests=error
+          ctest --test-dir build-macos --output-on-failure --no-tests=error --output-junit ctest-junit.xml
+          python3 tools/check_rom_skips.py build-macos/ctest-junit.xml
           lipo build-macos/PSModern.app/Contents/MacOS/PSModern -verify_arch arm64
           lipo build-macos/PSModern.app/Contents/MacOS/PSModern -verify_arch x86_64

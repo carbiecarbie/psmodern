@@ -664,12 +664,24 @@ if(BUILD_TESTING)
 
   # Each ROM test executable receives a path and returns 77 when it is absent.
   # Every test that needs a game ROM carries the label rom beside its own.
+  # psmodern_add_test(<name> <command>...) is add_test keeping every argument,
+  # empty ones included; a quoted list argument counts as its elements. An
+  # unquoted list (${ARGN}, or a variable holding a command) drops its empty
+  # elements: an unconfigured ROM path or reference folder disappeared, every
+  # later argument moved up one place, and the test failed instead of skipping.
+  function(psmodern_add_test name)
+    set(_arguments "")
+    foreach(_argument IN LISTS ARGN)
+      string(APPEND _arguments " [==[${_argument}]==]")
+    endforeach()
+    cmake_language(EVAL CODE "add_test(NAME [==[${name}]==] COMMAND${_arguments})")
+  endfunction()
   # A test with interrupt sweeps (probe::Harness::sweep_interrupts); with
   # PSMODERN_FULL_SWEEP_TESTS also its full-sweep twin (see the option).
   function(psmodern_sweep_test name)
-    add_test(NAME "${name}" COMMAND ${ARGN})
+    psmodern_add_test("${name}" "${ARGN}")
     if(PSMODERN_FULL_SWEEP_TESTS)
-      add_test(NAME "${name}_full_sweep" COMMAND ${ARGN})
+      psmodern_add_test("${name}_full_sweep" "${ARGN}")
       set_tests_properties("${name}_full_sweep" PROPERTIES LABELS full_sweep SKIP_RETURN_CODE 77
         ENVIRONMENT PSMODERN_FULL_SWEEPS=1)
     endif()
@@ -855,7 +867,7 @@ if(BUILD_TESTING)
       # counts them as two and four processors.
       set(automap_session psmodern_automap_session "${path}" "${version}" "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${version}"
         "${PSMODERN_REFERENCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/automap-session-${version}")
-      add_test(NAME "${name}_automap_session" COMMAND ${automap_session} session)
+      psmodern_add_test("${name}_automap_session" "${automap_session}" session)
       set_tests_properties("${name}_automap_session" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 2)
       # Brazilian boss (19,550 frames) is left out: alone it takes about 45 s.
       set(passivity_recordings first-dungeon deep-dungeon)
@@ -865,12 +877,12 @@ if(BUILD_TESTING)
         list(APPEND passivity_recordings boss dungeon-walk-1 dungeon-walk-2 dungeon-continue field-menu)
         # The wrong-map paths: a new game and Continues after exploring, in
         # one driver, from the walk recordings.
-        add_test(NAME "${name}_automap_wrong_map" COMMAND ${automap_session} wrong-map)
+        psmodern_add_test("${name}_automap_wrong_map" "${automap_session}" wrong-map)
         set_tests_properties("${name}_automap_wrong_map" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
         # The walk chain plays the three walk recordings in one save folder,
         # one link each, in order: each Continue finds the previous save's map.
         foreach(link 1 2 3)
-          add_test(NAME "${name}_automap_chain_${link}" COMMAND ${automap_session} chain ${link})
+          psmodern_add_test("${name}_automap_chain_${link}" "${automap_session}" chain ${link})
           set_tests_properties("${name}_automap_chain_${link}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom FIXTURES_SETUP "automap_chain_${link}")
           if(link GREATER 1)
             math(EXPR previous "${link} - 1")
@@ -879,7 +891,7 @@ if(BUILD_TESTING)
         endforeach()
       endif()
       foreach(recording IN LISTS passivity_recordings)
-        add_test(NAME "${name}_automap_passivity_${recording}" COMMAND ${automap_session} passivity ${recording})
+        psmodern_add_test("${name}_automap_passivity_${recording}" "${automap_session}" passivity ${recording})
         set_tests_properties("${name}_automap_passivity_${recording}" PROPERTIES SKIP_RETURN_CODE 77 LABELS rom PROCESSORS 4)
       endforeach()
       # Milestone 11: each part's probes (state probes from a power-on machine,
@@ -978,12 +990,12 @@ if(BUILD_TESTING)
       endif()
       set(_menu_inputs "${_menu_rom}" ${_menu_region} "${CMAKE_CURRENT_SOURCE_DIR}/recordings/${_menu_region}" "${PSMODERN_REFERENCE_DIR}")
       foreach(part IN LISTS menu_parts)
-        psmodern_sweep_test(rom_${_menu_region}_menu_${part} psmodern_menu_${part}_tests ${_menu_inputs}
+        psmodern_sweep_test(rom_${_menu_region}_menu_${part} psmodern_menu_${part}_tests "${_menu_inputs}"
           "${CMAKE_CURRENT_BINARY_DIR}/menu-${_menu_region}/${part}")
         set_tests_properties(rom_${_menu_region}_menu_${part} PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;menu")
       endforeach()
       # Four recordings (five with the US field-menu one) on two threads each, then two holds with two drivers.
-      add_test(NAME rom_${_menu_region}_menu_observed COMMAND psmodern_menu_base_tests ${_menu_inputs}
+      psmodern_add_test(rom_${_menu_region}_menu_observed psmodern_menu_base_tests "${_menu_inputs}"
         "${CMAKE_CURRENT_BINARY_DIR}/menu-${_menu_region}/hold")
       set_tests_properties(rom_${_menu_region}_menu_observed PROPERTIES SKIP_RETURN_CODE 77 LABELS "rom;menu" PROCESSORS 2)
     endforeach()

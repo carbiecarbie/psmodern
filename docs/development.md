@@ -18,7 +18,11 @@ locations set `PSMODERN_ROM_US` and `PSMODERN_ROM_BR` to the player's own
 uncompressed files. `PSMODERN_ROM_TESTS` defaults to `ON`: a missing or empty
 ROM path makes its test report CTest's skip code 77; an existing wrong file
 fails, including the other version's ROM. Set the option to `OFF` to omit ROM
-tests, as CI does. The cache path
+tests. CI keeps it `ON` with no ROM and fails unless every `rom` test skips
+(`tools/check_rom_skips.py`). In `CMakeLists.txt`, register a test whose
+command holds a path that may be empty with `psmodern_add_test`, or quote each
+argument: an unquoted list drops the empty path and moves the later arguments
+up one place. The cache path
 `PSMODERN_REFERENCE_DIR` locates external reference manifests and the start
 images of the recordings that begin from a saved game. Configure it
 (`-DPSMODERN_REFERENCE_DIR=...`) when you run the complete suite: without it

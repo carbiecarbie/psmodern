@@ -388,8 +388,10 @@ Nuked-OPLL core described above.
 
 The GitHub Actions workflow builds on hosted Windows 2025 with MSYS2 UCRT64.
 It installs the exact package files above from the MSYS2 repository after
-verifying SHA-256, configures `build-rel` with `PSMODERN_ROM_TESTS=OFF`,
-builds and runs CTest. CPython 3.13 x64 is provisioned by `actions/setup-python`
+verifying SHA-256, configures `build-rel` with `PSMODERN_ROM_TESTS=ON` and no
+ROM, builds and runs CTest. `tools/check_rom_skips.py` then reads CTest's JUnit
+file and fails unless every test labelled `rom` skipped with exit code 77,
+instead of passing, failing or not running. CPython 3.13 x64 is provisioned by `actions/setup-python`
 v6.1.0, pinned to commit `83679a892e2d95755f2dac6acb0bfd1e9ac5d548`.
 The action's absolute `python-path` output is passed to CMake through
 `Python3_EXECUTABLE`, converted with `cygpath -m`; discovery does not depend on
@@ -403,8 +405,9 @@ the package list and hashes together when maintaining the toolchain.
 
 A second job builds on hosted macOS 15 (Apple silicon): it verifies and
 builds the SDL2 2.32.10 source as a static universal library, then configures
-the universal app with `PSMODERN_ROM_TESTS=OFF` and the same Z80 conformance
-programs, checks for `NDEBUG`, builds and runs CTest.
+the universal app with the ROM tests on and no ROM and the same Z80
+conformance programs, checks for `NDEBUG`, builds, runs CTest and the same ROM
+skip check.
 
 ## Replay and reference scripts
 
