@@ -111,7 +111,7 @@ whole-number scale, lowered until it fits the usable display bounds. A
 maximized, minimized or fullscreen window keeps its size. Alt+Enter toggles
 borderless desktop fullscreen.
 
-`psmodern.exe --version` prints `PSModern 1.3.2` and exits with 0 before any
+`psmodern.exe --version` prints `PSModern 1.4.0` and exits with 0 before any
 window or SDL start-up; combined with any other argument it is refused. The
 version comes from `project(PSModern VERSION ...)` in `CMakeLists.txt`,
 through the generated header `PSModernVersion.h`.
@@ -135,7 +135,7 @@ With no arguments the program reads the remembered ROMs and shows the start
 screen in the game window, in the original black and white window style with
 the ROM's font, so labels are uppercase. Entries (localized in Portuguese):
 `PLAY`, `ADD ROM`, `CONTROLS`, `LANGUAGE <preference>`, `OPEN SAVES FOLDER`
-(desktop only) and `QUIT`, with `PSMODERN 1.3.2` in a small window under
+(desktop only) and `QUIT`, with `PSMODERN 1.4.0` in a small window under
 them (tile row 20, as Options' explanation window). The window title shows
 the active language (`PSModern - Phantasy Star - Language: <language>`).
 
