@@ -8,6 +8,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 namespace {
 using namespace psmodern;
@@ -20,7 +21,21 @@ struct SpeedInterval {
     SpeedMark first, last;
 };
 std::array<SpeedInterval,3> intervals{};
-bool got_badge[2]{},sent_quit=false,release_key=false,record_mode=false,sent_f5=false,saw_f5_reset=false,saw_before_f5=false;
+constexpr std::array badge_labels{"1X","2X","4X"};
+constexpr double badge_seconds=2.0, scheduling_tolerance=0.05;
+std::array<bool,badge_labels.size()> got_badge{};
+std::optional<double> last_press;
+std::chrono::steady_clock::time_point session_deadline;
+unsigned badge_index=0,f5_frame=0;
+bool expired_upload=false,saw_expired_present=false,saw_before_f5=false;
+bool sent_quit=false,release_key=false,record_mode=false,sent_f5=false,saw_f5_reset=false;
+double host_time() {
+    return SDL_GetPerformanceCounter()/static_cast<double>(SDL_GetPerformanceFrequency());
+}
+void expect_badge(unsigned index) {
+    last_press=host_time();
+    badge_index=index;
+}
 unsigned audio_speed=1;std::size_t audible[3]{};
 std::size_t queued_audible[3]{};SDL_AudioDeviceID audio_device=0;bool removed_audio=false;
 int checked_queue(SDL_AudioDeviceID device,const void* data,Uint32 size) {
@@ -55,6 +70,13 @@ public:
     }
 };
 int scripted_poll(SDL_Event* e) {
+    if(!sent_quit && std::chrono::steady_clock::now()>=session_deadline) {
+        if(record_mode)throw std::runtime_error("Speed session deadline: missing recording completion");
+        if(!saw_expired_present)throw std::runtime_error("Speed session deadline: missing badge-free 2x presentation after expiry");
+        if(!saw_before_f5)throw std::runtime_error("Speed session deadline: missing 4X badge before F5");
+        if(!saw_f5_reset)throw std::runtime_error("Speed session deadline: missing 1x presentation after F5");
+        throw std::runtime_error("Speed session deadline: missing completion after F5");
+    }
     if(!record_mode && sampled>=300 && !removed_audio && audio_device) {
         removed_audio=true;e->type=SDL_AUDIODEVICEREMOVED;e->adevice.which=audio_device;e->adevice.iscapture=0;return 1;
     }
@@ -73,16 +95,22 @@ int scripted_poll(SDL_Event* e) {
         e->key.keysym.scancode=options_event==2 ? SDL_SCANCODE_ESCAPE : SDL_SCANCODE_TAB;
         e->key.keysym.sym=options_event==2 ? SDLK_ESCAPE : SDLK_TAB;++options_event;return 1;
     }
-    if(!record_mode && sampled>=440 && quick_event<2) {
-        e->type=quick_event++==0 ? SDL_KEYDOWN : SDL_KEYUP;e->key.windowID=SDL_GetWindowID(focus_window);
+    if(!record_mode && ((sampled>=440 && quick_event<2) ||
+                       (saw_expired_present && quick_event>=2 && quick_event<4))) {
+        if(quick_event%2==0)expect_badge(quick_event==0 ? 1 : 2);
+        e->type=quick_event++%2==0 ? SDL_KEYDOWN : SDL_KEYUP;e->key.windowID=SDL_GetWindowID(focus_window);
         e->key.repeat=0;e->key.keysym.scancode=SDL_SCANCODE_TAB;e->key.keysym.sym=SDLK_TAB;return 1;
     }
-    if(!record_mode && sampled>=460 && !sent_f5){
+    // After proving expiry at 2x, cycle power with the new 4X badge visible.
+    if(!record_mode && !sent_f5 && saw_before_f5) {
         // The power-cycle binding is matched by scancode in the game window.
-        sent_f5=true;e->type=SDL_KEYDOWN;e->key.windowID=SDL_GetWindowID(focus_window);e->key.repeat=0;
+        sent_f5=true;f5_frame=sampled;e->type=SDL_KEYDOWN;e->key.windowID=SDL_GetWindowID(focus_window);e->key.repeat=0;
         e->key.keysym.scancode=SDL_SCANCODE_F5;e->key.keysym.sym=SDLK_F5;e->key.keysym.mod=KMOD_NONE;return 1;
     }
-    if(sampled>=(record_mode ? 80u : 500u) && !sent_quit){sent_quit=true;e->type=SDL_QUIT;return 1;}return 0;
+    if((record_mode ? sampled>=80 : sent_f5 && sampled>=f5_frame+40) && !sent_quit) {
+        sent_quit=true;e->type=SDL_QUIT;return 1;
+    }
+    return 0;
 }
 const Uint8* scripted_keys(int*) {
     static std::array<Uint8,SDL_NUM_SCANCODES> keys{}; keys.fill(0);
@@ -91,6 +119,8 @@ const Uint8* scripted_keys(int*) {
     if(sampled>=100 && sampled<106) {keys[SDL_SCANCODE_TAB]=1;return keys.data();}
     constexpr unsigned thresholds[]{60,180,420};
     if(press_stage<3 && sampled>=thresholds[press_stage]) {
+        constexpr unsigned indices[]{1,2,0};
+        expect_badge(indices[press_stage]);
         keys[SDL_SCANCODE_TAB]=1;
         ++press_stage;
         release_key=true;
@@ -124,10 +154,16 @@ public:
         return output;
     }
 };
-int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,const SDL_Rect* rect,const void* data,int pitch) {
+int checked_upload(const Machine& machine,const app::RomFont& font,unsigned speed,SDL_Texture* texture,const SDL_Rect* rect,const void* data,int pitch) {
+    const double age=last_press ? host_time()-*last_press : 0;
+    const bool may_show=!sent_f5 && last_press && age<badge_seconds+scheduling_tolerance;
+    const bool must_show=!sent_f5 && last_press && age<badge_seconds-scheduling_tolerance;
     if(record_mode && speed!=1)throw std::runtime_error("Recording speed changed");
-    if(!sent_f5 && sampled>=440 && speed==2)saw_before_f5=true;
-    if(sent_f5 && speed==1)saw_f5_reset=true;
+    if(sent_f5 && !saw_f5_reset) {
+        if(speed!=1 || age>=badge_seconds-scheduling_tolerance)
+            throw std::runtime_error("Missing timely 1x presentation after F5");
+        saw_f5_reset=true;
+    }
     if(!record_mode && ((sampled>=100 && sampled<106) || (sampled>=130 && sampled<136)) && speed!=2)throw std::runtime_error("Held Tab after queued focus events changed speed");
     std::string differences;
     for(const auto& d:shadow->differences(machine))
@@ -137,29 +173,52 @@ int checked_upload(const Machine& machine,unsigned speed,SDL_Texture* texture,co
         throw std::runtime_error("The centre upload is not the canvas centre");
     const auto* pixels=static_cast<const std::uint32_t*>(data);
     last_centre.assign(pixels,pixels+256*192);
-    for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x)
-        if((speed==1 || x<234 || x>=254 || y<2 || y>=12) && pixels[y*256+x]!=app::rgb(machine.picture()[y*256+x]))
-            throw std::runtime_error("Badge altered pixels outside its area");
-    if(speed>1 && !got_badge[speed==2?0:1]) {
-        got_badge[speed==2?0:1]=true;
-        std::ofstream f(image_dir/(std::string(speed==2?"badge-2x":"badge-4x")+(test_wide ? "-wide.ppm" : ".ppm")),std::ios::binary);
+    std::array<std::uint32_t,20*10> badge;
+    badge.fill(0xff000000);
+    font.text(badge,20,2,1,badge_labels[badge_index],0xffffffff);
+    bool matches_badge=true,matches_machine=true;
+    for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x) {
+        const auto pixel=pixels[y*256+x];
+        const bool unchanged=pixel==app::rgb(machine.picture()[y*256+x]);
+        if(x>=234 && x<254 && y>=2 && y<12) {
+            matches_machine&=unchanged;
+            matches_badge&=pixel==badge[(y-2)*20+x-234];
+        } else if(!unchanged)throw std::runtime_error("Badge altered pixels outside its area");
+    }
+    if(!may_show && !matches_machine)
+        throw std::runtime_error("Badge appeared without a recent Speed press");
+    if(must_show && !matches_badge)
+        throw std::runtime_error(std::string("Missing badge ")+badge_labels[badge_index]+" after Speed press");
+    if(may_show && !matches_badge && !matches_machine)
+        throw std::runtime_error("Unexpected pixels inside the badge area");
+    // Check the first clean frame inside the expiry tolerance as well.
+    expired_upload=quick_event==2 && !sent_f5 && speed==2 && !must_show && matches_machine && !matches_badge;
+    saw_before_f5|=quick_event==4 && !sent_f5 && speed==4 && must_show && matches_badge && !matches_machine;
+    if(may_show && matches_badge && !matches_machine && !got_badge[badge_index]) {
+        const std::array filenames{"badge-1x","badge-2x","badge-4x"};
+        std::ofstream f(image_dir/(std::string(filenames[badge_index])+(test_wide ? "-wide.ppm" : ".ppm")),std::ios::binary);
         f<<"P6\n256 192\n255\n";
         for(unsigned i=0;i<256*192;++i){const char rgb[]{char(pixels[i]>>16),char(pixels[i]>>8),char(pixels[i])};f.write(rgb,3);}
+        f.close();
+        if(!f)throw std::runtime_error("Writing badge image");
+        got_badge[badge_index]=true;
     }
     return SDL_UpdateTexture(texture,rect,data,pitch);
 }
 void checked_bands(app::Display& display,const app::WidePicture* wide) {
-    if(display.wide_canvas!=test_wide)throw std::runtime_error("The session canvas is not the one applied");
+    if(display.wide_canvas()!=test_wide)throw std::runtime_error("The session canvas is not the one applied");
     if(wide)throw std::runtime_error("A wide picture without the widescreen option");
     ++band_uploads;app::upload_bands(display,wide);
 }
-// Every 32nd presented frame is read back from the software renderer: the
+// Read back every 32nd presented frame and the first badge-free 2x frame:
 // canvas at the viewport's integer scale, black around it and, on the wide
 // canvas, black bands beside the uploaded centre. The first one also checks
 // the window: 768 x 576 narrow; wide, 3x (1032 x 576) does not fit the dummy
 // display's 1024 x 768, so apply_canvas lowers it to 2x (688 x 384).
 void checked_render_present(SDL_Renderer* renderer) {
-    if(presents++%32==0 && !last_centre.empty()) {
+    const bool check_expiry=expired_upload && !saw_expired_present;
+    const bool readback=(presents++%32==0 || check_expiry) && !last_centre.empty();
+    if(readback) {
         int w=0,h=0;if(SDL_GetRendererOutputSize(renderer,&w,&h)!=0)throw std::runtime_error("Reading the output size");
         if(checked_presents==0 && (test_wide ? w!=688 || h!=384 : w!=768 || h!=576))
             throw std::runtime_error("Unexpected window for the canvas: "+std::to_string(w)+"x"+std::to_string(h));
@@ -173,16 +232,21 @@ void checked_render_present(SDL_Renderer* renderer) {
                 const int cx=(x-v.x)/v.scale-left,cy=(y-v.y)/v.scale;
                 if(cx>=0 && cx<256)expected=last_centre[cy*256+cx];
             }
-            if((out[std::size_t(y)*w+x]^expected)&0xffffff)throw std::runtime_error("Presented frame differs from the canvas");
+            if((out[std::size_t(y)*w+x]^expected)&0xffffff)
+                throw std::runtime_error(check_expiry ? "2x expiry presentation differs from the badge-free canvas" :
+                    "Presented frame differs from the canvas");
         }
         ++checked_presents;
     }
     SDL_RenderPresent(renderer);
+    saw_expired_present|=check_expiry && readback;
 }
 void reset_script(bool recording) {
+    session_deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
     sampled=press_stage=focus_event=quick_event=options_event=0;
     intervals={};
-    got_badge[0]=got_badge[1]=sent_quit=release_key=sent_f5=saw_f5_reset=saw_before_f5=false;record_mode=recording;
+    got_badge={};last_press.reset();badge_index=f5_frame=0;
+    expired_upload=saw_expired_present=saw_before_f5=sent_quit=release_key=sent_f5=saw_f5_reset=false;record_mode=recording;
     audio_speed=1;std::fill(std::begin(audible),std::end(audible),0u);std::fill(std::begin(queued_audible),std::end(queued_audible),0u);
     audio_device=0;removed_audio=false;last_centre.clear();presents=checked_presents=band_uploads=0;
 }
@@ -221,8 +285,8 @@ void check_speed_intervals() {
 #define SDL_GetKeyboardFocus scripted_focus
 #define sample_input scripted_input
 #define sample_menu_input scripted_menu
-#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),t,r,p,pitch)
-#define apply_canvas(d,w) ((void)(w),psmodern::app::apply_canvas(d,test_wide))
+#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),font,clock.speed(),t,r,p,pitch)
+#define apply_canvas(d,w) ((void)(w),psmodern::app::apply_canvas(d,test_wide ? WidescreenMode::on : WidescreenMode::off))
 #define upload_bands(d,w) checked_bands(d,w)
 #include "../src/app/main.cpp"
 #undef main
@@ -266,7 +330,9 @@ int main(int argc,char** argv){
         if(wide)fresh_shadow(); else shadow=std::make_unique<Machine>(rom);
         char* args[]{argv[0],argv[1]};if(fast_app_main(2,args))throw std::runtime_error("App session failed");
         check_speed_intervals();
-        if(!got_badge[0] || !got_badge[1] || !sent_f5 || !saw_before_f5 || !saw_f5_reset)throw std::runtime_error("Missing badge or F5 reset");
+        if(!got_badge[0] || !got_badge[1] || !got_badge[2])throw std::runtime_error("Missing badge image");
+        if(!saw_expired_present)throw std::runtime_error("Missing badge-free presentation while still accelerated");
+        if(!sent_f5 || !saw_f5_reset)throw std::runtime_error("Missing F5 reset");
         if(!audible[0] || !audible[1] || !audible[2])throw std::runtime_error("Missing continuous music at one speed");
         if(!queued_audible[0] || !queued_audible[1] || !queued_audible[2] || !removed_audio)
             throw std::runtime_error("Missing SDL music delivery or accelerated device recovery");

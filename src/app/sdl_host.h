@@ -77,7 +77,11 @@ struct Display {
     std::unique_ptr<SDL_Window,decltype(&SDL_DestroyWindow)> window{nullptr,SDL_DestroyWindow};
     std::unique_ptr<SDL_Renderer,decltype(&SDL_DestroyRenderer)> renderer{nullptr,SDL_DestroyRenderer};
     std::unique_ptr<SDL_Texture,decltype(&SDL_DestroyTexture)> texture{nullptr,SDL_DestroyTexture};
-    bool wide_canvas=false;              // changed only through apply_canvas
+    std::unique_ptr<SDL_Texture,decltype(&SDL_DestroyTexture)> fill_texture{nullptr,SDL_DestroyTexture};
+    int fill_multiple=0; // Also remembers a failed allocation until the size changes.
+    bool fill_warned=false;
+    WidescreenMode widescreen_mode=WidescreenMode::off; // changed through apply_canvas
+    bool wide_canvas() const { return uses_wide_canvas(widescreen_mode); }
     std::vector<std::uint32_t> bands;    // upload_bands' 344x192 work canvas
 };
 // A resizable 768x576 window with a vsync renderer when available, narrow
@@ -93,13 +97,18 @@ void upload_bands(Display& display,const WidePicture* wide);
 // to the new canvas at its current integer scale (canvas_window: output
 // pixels converted to window units, lowered to fit the usable bounds of the
 // window's display); a maximized, fullscreen or minimized window keeps its
-// size and only the viewport changes. The same width changes nothing.
-void apply_canvas(Display& display,bool wide);
-// Shows the canvas: nearest-neighbour integer scaling, centred with black
-// bars. The upload stays with the caller, where the session tests intercept
-// it.
+// size and only the viewport changes. The applied mode is stored even when
+// its canvas has the same width.
+void apply_canvas(Display& display,WidescreenMode mode);
 void recreate_picture_texture(Display& display);
-void present(const Display& display,const SDL_Rect* target=nullptr,const std::function<void()>& overlay={});
+bool reset_picture_textures(Display& display,Uint32 event_type);
+// Checks renderer support and prepares the intermediate for a FILL rectangle.
+// Android uses the result to choose the matching picture and control layout.
+bool prepare_fill(Display& display,WindowRect rect);
+struct PictureTarget { WindowRect rect; bool fill; };
+// Presents the uploaded canvas and then any output-space overlay. An explicit
+// target supplies both the rectangle and the effective filter from its layout.
+void present(Display& display,const PictureTarget* target=nullptr,const std::function<void()>& overlay={});
 // Alt+Enter: borderless desktop fullscreen on and off.
 void toggle_fullscreen(SDL_Window* window);
 // Start screen input (start_input), fixed whatever the bindings: arrows,

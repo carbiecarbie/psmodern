@@ -102,12 +102,12 @@ public:
     bool options_restricted() const { return original_only_; }
     std::optional<std::string> choose_options(const game::Options& options);
     std::optional<std::string> choose_options(const game::Options& options,bool automap);
-    // Milestone 10: also stores the profile's widescreen switch (like the
+    // Also stores the profile's widescreen mode (like the
     // automap, never a routine option and never pending); on a failed write the
     // stored switch is kept.
-    std::optional<std::string> choose_options(const game::Options& options,bool automap,bool widescreen);
+    std::optional<std::string> choose_options(const game::Options& options,bool automap,WidescreenMode widescreen);
     // The stored switch, off in a restricted session (recording).
-    bool widescreen_option() const { return !options_restricted() && store_.widescreen_preference(); }
+    WidescreenMode widescreen_option() const { return options_restricted() ? WidescreenMode::off : store_.widescreen_preference(); }
     // Host-owned, verified images. Prepare may throw BEFORE language.txt is
     // saved. Commit only queues the last successfully saved choice; the
     // native Options return installs it before the caller's next instruction.

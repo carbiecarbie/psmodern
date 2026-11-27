@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/settings.h"
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 #include <charconv>
@@ -25,7 +26,8 @@ std::optional<game::Options> SettingsImage::matching(std::string_view digest) co
 SettingsImage parse_settings(std::string_view text) {
     if(text.empty() || text.size()>1024)throw std::runtime_error("Invalid settings file size.");
     std::istringstream input{std::string(text)};std::string line;
-    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2" && line!="psmodern-options 3" && line!="psmodern-options 4"))
+    if(!std::getline(input,line) || (line!="psmodern-options 1" && line!="psmodern-options 2" && line!="psmodern-options 3" &&
+        line!="psmodern-options 4" && line!="psmodern-options 5"))
         throw std::runtime_error("Unsupported settings format or version.");
     const int version=line.back()-'0';
     auto record=[&](std::string_view name,bool optional)->std::optional<SettingsRecord> {
@@ -41,8 +43,9 @@ SettingsImage parse_settings(std::string_view text) {
             result.automap=automap=="1";
         }
         if(version>=3) {
-            if(!(row>>widescreen) || (widescreen!="0" && widescreen!="1"))throw std::runtime_error("Invalid settings widescreen token.");
-            result.widescreen=widescreen=="1";
+            if(!(row>>widescreen) || (widescreen!="0" && widescreen!="1" && !(version==5 && widescreen=="2")))
+                throw std::runtime_error("Invalid settings widescreen token.");
+            result.widescreen=static_cast<WidescreenMode>(widescreen[0]-'0');
         }
         if(version==4) {
             // The milestone 15 play-test appended a cartridge-fix switch.
@@ -67,15 +70,18 @@ SettingsImage parse_settings(std::string_view text) {
     return result;
 }
 std::string write_settings(const SettingsImage& image) {
-    const bool format3=image.committed.widescreen || (image.pending && image.pending->widescreen) ||
-        (image.backup && image.backup->widescreen);
-    std::string result=format3 ? "psmodern-options 3\n" : "psmodern-options 2\n";
+    const auto widest=std::max({image.committed.widescreen,
+        image.pending ? image.pending->widescreen : WidescreenMode::off,
+        image.backup ? image.backup->widescreen : WidescreenMode::off});
+    const int version=widest==WidescreenMode::fill ? 5 : uses_wide_canvas(widest) ? 3 : 2;
+    std::string result="psmodern-options "+std::to_string(version)+"\n";
     auto record=[&](std::string_view name,const std::optional<SettingsRecord>& value) {
         result+=name;result+=' ';
         if(!value){result+="-\n";return;}
         valid(*value);result+=value->digest+" "+std::to_string(value->options.encounter_percent)+" "+
-            std::to_string(value->options.experience_percent)+" "+(value->automap ? "1" : "0")+
-            (format3 ? std::string(value->widescreen ? " 1" : " 0") : std::string())+"\n";
+            std::to_string(value->options.experience_percent)+" "+(value->automap ? "1" : "0");
+        if(version>=3)result+=" "+std::to_string(static_cast<int>(value->widescreen));
+        result+='\n';
     };
     record("committed",image.committed);record("pending",image.pending);record("backup",image.backup);return result;
 }

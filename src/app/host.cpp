@@ -11,6 +11,17 @@ Viewport viewport(int w,int h,int canvas) {
     const int scale=std::max(1,std::min(w/canvas,h/picture_height));
     return {(w-canvas*scale)/2,(h-picture_height*scale)/2,canvas*scale,picture_height*scale,scale};
 }
+WindowRect fill_viewport(WindowRect area) {
+    if (area.width<=0 || area.height<=0) return {};
+    const auto by_width=std::int64_t(area.width)*wide_height;
+    const auto by_height=std::int64_t(area.height)*wide_width;
+    int width=area.width,height=area.height;
+    if (by_width<=by_height)
+        height=std::clamp(static_cast<int>((by_width+wide_width/2)/wide_width),1,area.height);
+    else
+        width=std::clamp(static_cast<int>((by_height+wide_height/2)/wide_height),1,area.width);
+    return {area.x+(area.width-width)/2,area.y+(area.height-height)/2,width,height};
+}
 void centre_pixels(std::span<std::uint32_t> centre,const Vdp::Picture& picture,const WidePicture* wide) {
     if (centre.size()!=std::size_t(picture_width*picture_height)) throw std::invalid_argument("Expected a 256 by 192 centre.");
     if (!wide) { std::transform(picture.begin(),picture.end(),centre.begin(),rgb); return; }
@@ -128,6 +139,13 @@ bool SpeedShortcut::update(bool focused,bool keyboard,bool shoulder,bool allowed
     if (!shoulder) shoulder_armed_=true;
     keyboard_previous_=keyboard; shoulder_previous_=shoulder;
     return pressed;
+}
+void SpeedIndicator::press(unsigned speed,double now) {
+    label_=speed==1 ? "1X" : speed==2 ? "2X" : "4X";
+    expires_=now+2.0;
+}
+std::string_view SpeedIndicator::label(double now) const {
+    return now<expires_ ? label_ : std::string_view{};
 }
 void FrameClock::speed(unsigned value,double now) {
     if (value!=1 && value!=2 && value!=4) throw std::invalid_argument("Invalid speed.");

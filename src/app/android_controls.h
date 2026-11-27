@@ -39,6 +39,7 @@ private:
     const RomFont& font_;
     int width_=0,height_=0;
     TouchLayout layout_;
+    bool fill_=false;
     TouchControls touch_;
     PerAction<bool> taps_{}, frame_taps_{};
     PerAction<ButtonImage> images_;

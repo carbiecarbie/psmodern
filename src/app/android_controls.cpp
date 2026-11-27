@@ -37,11 +37,16 @@ void AndroidControls::layout(bool gameplay,bool map) {
     sdl_check(SDL_GetRendererOutputSize(display_.renderer.get(),&width_,&height_)==0,"Reading screen size");
     WindowBorders insets;
     { std::lock_guard guard(inset_mutex); insets=safe_insets; }
-    const auto next=touch_layout(width_,height_,insets,display_.wide_canvas,gameplay,map);
-    if (next.game!=layout_.game || next.buttons!=layout_.buttons || next.overlay!=layout_.overlay) {
+    auto next=touch_layout(width_,height_,insets,display_.widescreen_mode,touch_.visible(),gameplay,map);
+    const bool wants_fill=display_.widescreen_mode==WidescreenMode::fill;
+    const bool fill=wants_fill && prepare_fill(display_,next.game);
+    if (wants_fill && !fill) next=touch_layout(width_,height_,insets,WidescreenMode::on,touch_.visible(),gameplay,map);
+    if (fill!=fill_ || next.game!=layout_.game || next.buttons!=layout_.buttons || next.hit!=layout_.hit ||
+        next.pad_hit!=layout_.pad_hit || next.overlay!=layout_.overlay) {
         release_touches();
         layout_=next;
         touch_.set_layout(next);
+        fill_=fill;
     }
 }
 void AndroidControls::release_touches() {
@@ -49,9 +54,8 @@ void AndroidControls::release_touches() {
 }
 void AndroidControls::clear() { release_touches(); touch_.controller_reset(); }
 void AndroidControls::event(const SDL_Event& e) {
-    if (e.type==SDL_RENDER_TARGETS_RESET || e.type==SDL_RENDER_DEVICE_RESET) {
+    if (reset_picture_textures(display_,e.type)) {
         images_={};
-        recreate_picture_texture(display_);
         redraw=true;
     }
     if (e.type==SDL_KEYDOWN && e.key.keysym.scancode==SDL_SCANCODE_AC_BACK && !e.key.repeat) back_=true;
@@ -122,8 +126,8 @@ InputSnapshot AndroidControls::navigation(InputSnapshot in,bool capturing) const
 void AndroidControls::present(Language language,unsigned speed) {
     const auto& r=layout_.game;
     if (!r.width || !r.height) return;
-    SDL_Rect rect{r.x,r.y,r.width,r.height};
-    app::present(display_,&rect,[&]{draw(language,speed);});
+    const PictureTarget target{r,fill_};
+    app::present(display_,&target,[&]{draw(language,speed);});
     redraw=false;
 }
 void AndroidControls::draw(Language language,unsigned speed) {

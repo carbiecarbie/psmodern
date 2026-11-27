@@ -135,9 +135,12 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         // Milestone 10: the session's canvas, 344 wide with the widescreen
         // option, else the narrow 256 of 0.4.0. The start screen before this
         // was always narrow.
-        bool wide_canvas=driver.widescreen_option();
-        apply_canvas(display,wide_canvas);
-        driver.set_widescreen(wide_canvas);
+        auto apply_widescreen=[&] {
+            const auto mode=driver.widescreen_option();
+            apply_canvas(display,mode);
+            driver.set_widescreen(uses_wide_canvas(mode));
+        };
+        apply_widescreen();
         // The driver's wide picture of the last frame, or null (pillarbox).
         auto wide_picture=[&]()->const WidePicture* { return driver.wide_picture(); };
         std::array<std::uint32_t,256*192> pixels{};
@@ -167,6 +170,11 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         FrameClock clock(start);
         std::uint64_t frames=0; bool quit=false,toggle_held=false,map_held=false;
         unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
+        SpeedIndicator speed_indicator;
+        auto press_speed=[&]() {
+            chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+            speed_indicator.press(chosen_speed,now());
+        };
 #ifdef __ANDROID__
         AndroidControls mobile(display,font,controller.connected());
         auto focused=[] { return android_foreground(); };
@@ -219,13 +227,15 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 // Flush on this thread while the driver is between frames.
                 if (event.type==SDL_APP_WILLENTERBACKGROUND) {
                     mobile.clear(); release.consume(); speed_shortcut.focus_lost();
-                    chosen_speed=1; sync_speed(); audio.pause(true);
+                    chosen_speed=1; speed_indicator.hide(); sync_speed(); audio.pause(true);
                     if (const auto error=driver.flush()) std::cerr<<*error<<'\n';
                 }
                 if (event.type==SDL_APP_DIDENTERFOREGROUND) {
                     clock.rebase(now()); next_report=now()+10; audio.pause(false); mobile.redraw=true;
                 }
                 if (android_foreground()) mobile.event(event);
+#else
+                reset_picture_textures(display,event.type);
 #endif
                 if (event.type==SDL_WINDOWEVENT && event.window.windowID==SDL_GetWindowID(window) &&
                     event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { lost_focus=true; speed_shortcut.focus_lost(); }
@@ -257,7 +267,12 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if (const auto down=pad_is(Action::speed)) speed_events.push_back({false,*down});
                 if (key_is(Action::options)==true || pad_is(Action::options)==true) options_pressed=true;
                 if ((key_is(Action::power)==true || pad_is(Action::power)==true) && !recorder && !driver.menu_active() &&
-                    !controls_screen.visible()) { report_save(driver.power_cycle()); chosen_speed=1; std::cerr<<"audio_event=power_cycle frame="<<frames<<" host=game\n"; audio.reset(); power_cycled=true; }
+                    !controls_screen.visible()) {
+                    report_save(driver.power_cycle());
+                    chosen_speed=1; speed_indicator.hide();
+                    std::cerr<<"audio_event=power_cycle frame="<<frames<<" host=game\n";
+                    audio.reset(); power_cycled=true;
+                }
                 if (pad_is(Action::fullscreen)==true && !controls_screen.visible()) { fullscreen_changed=true; toggle_fullscreen(window); }
             }
             if (quit) break;
@@ -270,13 +285,13 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
 #endif
             const bool speed_allowed=!recorder && !driver.menu_active() && !menu_input.toggle && !options_pressed && !power_cycled;
 #ifdef __ANDROID__
-            if (speed_allowed && mobile.speed_pressed()) chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+            if (speed_allowed && mobile.speed_pressed()) press_speed();
 #endif
             if(!lost_focus) for(const auto& speed_event:speed_events) {
                 if(!speed_event.keyboard && controller_changed)continue;
                 const bool pressed=speed_event.keyboard ? speed_shortcut.keyboard_event(speed_event.down,menu_input.focused,speed_allowed) :
                     speed_shortcut.shoulder_event(speed_event.down,menu_input.focused,speed_allowed);
-                if(pressed)chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+                if(pressed)press_speed();
             }
             {
                 const auto& b=controller.bindings();
@@ -286,7 +301,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                     (*speed_key!=SDL_SCANCODE_RETURN || (enter.pause(true) && !keys[SDL_SCANCODE_LALT] && !keys[SDL_SCANCODE_RALT]));
                 const bool pad_held=b.pads[Action::speed] && controller.held(*b.pads[Action::speed]);
                 if (speed_shortcut.update(menu_input.focused,key_held,pad_held,speed_allowed))
-                    chosen_speed=chosen_speed==1 ? 2 : chosen_speed==2 ? 4 : 1;
+                    press_speed();
             }
             sync_speed();
             const bool opening=!driver.menu_active() && menu_input.toggle && !toggle_held;
@@ -336,9 +351,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                     if(error) { report_save(error);menu.failed(); }
                     else {
                         // Applied at once, as the automap is.
-                        wide_canvas=driver.widescreen_option();
-                        apply_canvas(display,wide_canvas);
-                        driver.set_widescreen(wide_canvas);
+                        apply_widescreen();
                         menu.close();driver.close_menu();report_save({});release.consume(); }
                 } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
                 else if(action==MenuAction::controls) controls_screen.open(controller.bindings());
@@ -442,7 +455,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 // The wide picture only on the wide canvas; the narrow canvas
                 // shows the VDP picture alone, as 0.4.0 did.
-                const WidePicture* wide=!display.wide_canvas ? nullptr :
+                const WidePicture* wide=!display.wide_canvas() ? nullptr :
                     driver.menu_active() ? (wide_menu_background ? &*wide_menu_background : nullptr) : wide_picture();
                 centre_pixels(pixels,picture,wide);
                 if(controls_screen.visible())controls_screen.render(pixels,font,language);
@@ -451,10 +464,14 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                     menu.sound_available(sound_availability());
                     menu.render(pixels,font,language);
                 }
-                else if(map_screen.visible() && driver.map_view())render_automap(pixels,font,*driver.map_view(),language);
-                else if(clock.speed()>1) {
+                else if(map_screen.visible()) {
+                    if(driver.map_view())render_automap(pixels,font,*driver.map_view(),language);
+                }
+                // The frame clock keeps producing pictures without input, so
+                // the first redraw at or after expiry omits the indicator.
+                else if(const auto label=speed_indicator.label(now()); !label.empty()) {
                     for(int y=2;y<12;++y) for(int x=234;x<254;++x) pixels[y*256+x]=0xff000000;
-                    font.text(pixels,236,3,clock.speed()==2 ? "2X" : "4X",0xffffffff);
+                    font.text(pixels,236,3,label,0xffffffff);
                 }
                 // The overlays stay 256 wide in the centre; the bands go round them.
                 upload_bands(display,wide);

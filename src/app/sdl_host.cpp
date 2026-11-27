@@ -6,6 +6,7 @@
 #endif
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 namespace psmodern::app {
@@ -179,15 +180,23 @@ Display open_display(const std::string& title) {
     return display;
 }
 void recreate_picture_texture(Display& display) {
+    display.fill_texture.reset();
+    display.fill_multiple=0;
     display.texture.reset(SDL_CreateTexture(display.renderer.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,wide_width,wide_height));
     sdl_check(bool(display.texture),"Creating picture texture");
     sdl_check(SDL_SetTextureScaleMode(display.texture.get(),SDL_ScaleModeNearest)==0,"Setting nearest-neighbour scaling");
+    sdl_check(SDL_SetTextureBlendMode(display.texture.get(),SDL_BLENDMODE_NONE)==0,"Setting opaque picture copies");
+}
+bool reset_picture_textures(Display& display,Uint32 event_type) {
+    if (event_type!=SDL_RENDER_TARGETS_RESET && event_type!=SDL_RENDER_DEVICE_RESET) return false;
+    recreate_picture_texture(display);
+    return true;
 }
 SDL_Rect centre_rect(const Display& display) {
-    return {canvas_centre_x(display.wide_canvas),0,picture_width,picture_height};
+    return {canvas_centre_x(display.wide_canvas()),0,picture_width,picture_height};
 }
 void upload_bands(Display& display,const WidePicture* wide) {
-    if (!display.wide_canvas) return;
+    if (!display.wide_canvas()) return;
     display.bands.resize(wide_width*wide_height);
     band_pixels(display.bands,wide);
     constexpr int right=wide_centre_x+picture_width;
@@ -195,16 +204,17 @@ void upload_bands(Display& display,const WidePicture* wide) {
         sdl_check(SDL_UpdateTexture(display.texture.get(),&band,display.bands.data()+band.x,wide_width*sizeof(std::uint32_t))==0,
                   "Uploading the side bands");
 }
-void apply_canvas(Display& display,bool wide) {
-#ifdef __ANDROID__
-    display.wide_canvas=wide;
-    return;
+void apply_canvas(Display& display,WidescreenMode mode) {
+#ifndef __ANDROID__
+    const bool was_wide=display.wide_canvas();
 #endif
-    if (display.wide_canvas==wide) return;
+    display.widescreen_mode=mode;
+#ifndef __ANDROID__
+    const bool wide=display.wide_canvas();
+    if (was_wide==wide) return;
     auto* window=display.window.get();
     int ow,oh; sdl_check(SDL_GetRendererOutputSize(display.renderer.get(),&ow,&oh)==0,"Reading output size");
-    const int scale=viewport(ow,oh,canvas_width(display.wide_canvas)).scale;
-    display.wide_canvas=wide;
+    const int scale=viewport(ow,oh,canvas_width(was_wide)).scale;
     SDL_SetWindowMinimumSize(window,canvas_width(wide),picture_height);
     if (SDL_GetWindowFlags(window)&(SDL_WINDOW_FULLSCREEN|SDL_WINDOW_MAXIMIZED|SDL_WINDOW_MINIMIZED)) return;
     WindowRect current;
@@ -219,15 +229,73 @@ void apply_canvas(Display& display,bool wide) {
     const auto fitted=canvas_window(current,ow,oh,canvas_width(wide),scale,usable,borders);
     SDL_SetWindowSize(window,fitted.rect.width,fitted.rect.height);
     SDL_SetWindowPosition(window,fitted.rect.x,fitted.rect.y);
+#endif
 }
-void present(const Display& display,const SDL_Rect* target,const std::function<void()>& overlay) {
+namespace {
+bool needs_fill_texture(WindowRect rect) {
+    return rect.width%wide_width!=0 || rect.height%wide_height!=0 || rect.width/wide_width!=rect.height/wide_height;
+}
+}
+bool prepare_fill(Display& display,WindowRect rect) {
+    if (rect.width<=0 || rect.height<=0) return true;
+    auto* renderer=display.renderer.get();
+    auto fallback=[&](const char* reason) {
+        if (!display.fill_warned) {
+            std::cerr<<"Widescreen FILL unavailable, using ON: "<<reason<<'\n';
+            display.fill_warned=true;
+        }
+        return false;
+    };
+    if (!SDL_RenderTargetSupported(renderer)) return fallback("renderer has no target textures");
+    if (!needs_fill_texture(rect)) return true;
+    const int multiple=std::max((rect.width-1)/wide_width,(rect.height-1)/wide_height)+1;
+    if (multiple==display.fill_multiple) return bool(display.fill_texture);
+
+    display.fill_texture.reset();
+    display.fill_multiple=multiple;
+    SDL_RendererInfo info{};
+    if (SDL_GetRendererInfo(renderer,&info)!=0) return fallback(SDL_GetError());
+    const auto width=std::int64_t(multiple)*wide_width,height=std::int64_t(multiple)*wide_height;
+    if (width>std::numeric_limits<int>::max() || height>std::numeric_limits<int>::max() ||
+        (info.max_texture_width>0 && width>info.max_texture_width) ||
+        (info.max_texture_height>0 && height>info.max_texture_height))
+        return fallback("intermediate exceeds the renderer's texture limits");
+    decltype(display.fill_texture) texture{
+        SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_TARGET,
+                          static_cast<int>(width),static_cast<int>(height)),SDL_DestroyTexture};
+    if (!texture || SDL_SetTextureScaleMode(texture.get(),SDL_ScaleModeLinear)!=0 ||
+        SDL_SetTextureBlendMode(texture.get(),SDL_BLENDMODE_NONE)!=0) return fallback(SDL_GetError());
+    display.fill_texture=std::move(texture);
+    return true;
+}
+void present(Display& display,const PictureTarget* target,const std::function<void()>& overlay) {
     auto* renderer=display.renderer.get();
     int w,h; sdl_check(SDL_GetRendererOutputSize(renderer,&w,&h)==0,"Reading output size");
-    const int canvas=canvas_width(display.wide_canvas);
-    const auto v=viewport(w,h,canvas); const SDL_Rect source{0,0,canvas,picture_height},rect{v.x,v.y,v.width,v.height};
+    const int canvas=canvas_width(display.wide_canvas());
+    const auto v=viewport(w,h,canvas);
+    PictureTarget picture{{v.x,v.y,v.width,v.height},false};
+    if (target) picture=*target;
+    else if (display.widescreen_mode==WidescreenMode::fill) {
+        const auto rect=fill_viewport({0,0,w,h});
+        if (prepare_fill(display,rect)) picture={rect,true};
+    }
+    const auto& r=picture.rect;
+    const SDL_Rect source{0,0,canvas,picture_height},dest{r.x,r.y,r.width,r.height};
+    auto* texture=display.texture.get();
+    const SDL_Rect* crop=&source;
+    if (picture.fill && r.width>0 && r.height>0 && needs_fill_texture(r)) {
+        auto* intermediate=display.fill_texture.get();
+        const int bound=SDL_SetRenderTarget(renderer,intermediate);
+        const int copied=bound==0 ? SDL_RenderCopy(renderer,texture,&source,nullptr) : -1;
+        sdl_check(SDL_SetRenderTarget(renderer,nullptr)==0,"Restoring the window render target");
+        sdl_check(copied==0,"Expanding the FILL picture");
+        texture=intermediate;
+        crop=nullptr;
+    }
     sdl_check(SDL_SetRenderDrawColor(renderer,0,0,0,255)==0,"Setting black bars");
     sdl_check(SDL_RenderClear(renderer)==0,"Clearing picture");
-    sdl_check(SDL_RenderCopy(renderer,display.texture.get(),&source,target ? target : &rect)==0,"Drawing picture");
+    if (r.width>0 && r.height>0)
+        sdl_check(SDL_RenderCopy(renderer,texture,crop,&dest)==0,"Drawing picture");
     if (overlay) overlay();
     SDL_RenderPresent(renderer);
 }

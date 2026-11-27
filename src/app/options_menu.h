@@ -4,6 +4,7 @@
 #include "game/options.h"
 #include "app/language.h"
 #include "app/sound_preference.h"
+#include "app/widescreen_mode.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -83,7 +84,7 @@ public:
     // widescreen, Controls, Language and Sound. Left and right change the
     // selected value. (Milestone 14 removed the read-only state: a recording
     // never opens Options, and the Z80 mode is gone.)
-    void open(game::Options options,bool pending,bool automap=false,bool widescreen=false);
+    void open(game::Options options,bool pending,bool automap=false,WidescreenMode widescreen=WidescreenMode::off);
     // The global language preference and which preferences have a ROM
     // (indexed by LanguagePreference). Defaults: native, all available.
     void set_language(LanguagePreference preference,std::array<bool,3> available);
@@ -101,7 +102,7 @@ public:
     void resume() { armed_=false; previous_={}; }
     const game::Options& draft() const { return draft_; }
     bool automap_draft() const { return automap_; }
-    bool widescreen_draft() const { return widescreen_; }
+    WidescreenMode widescreen_draft() const { return widescreen_; }
     LanguagePreference language_draft() const { return language_; }
     unsigned selected() const { return selected_; }
     MenuAction update(const MenuInput& input,double now);
@@ -139,7 +140,8 @@ private:
     std::array<bool,3> language_available_{true,true,true};
     SoundPreference sound_=SoundPreference::psg;
     SoundAvailability sound_availability_=SoundAvailability::no_rom;
-    bool visible_=false,armed_=false,pending_=false,failed_=false,language_failed_=false,sound_failed_=false,automap_=false,widescreen_=false;
+    bool visible_=false,armed_=false,pending_=false,failed_=false,language_failed_=false,sound_failed_=false,automap_=false;
+    WidescreenMode widescreen_=WidescreenMode::off;
     // The row saves when changed rather than when Options closes.
     bool saves_at_once() const { return selected_==options_layout::language_row || selected_==options_layout::sound_row; }
     double next_repeat_=0;

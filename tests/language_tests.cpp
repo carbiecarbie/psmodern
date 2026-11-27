@@ -151,7 +151,7 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
     }
     // Options (milestone 12): every row on one page, the state on the
     // explanation window's last line; options_tests checks the layout in full.
-    OptionsMenu menu;menu.open({25,400},false,true,true);menu.update({},0);
+    OptionsMenu menu;menu.open({25,400},false,true,WidescreenMode::fill);menu.update({},0);
     for(unsigned row=0;row<options_layout::rows;++row) {
         Frame pixels(256*192,0xff123456);menu.render(pixels,font,language);
         // Language and Sound save when changed; the other rows when Options closes.
@@ -166,8 +166,17 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
             if(!menu.drawn(x,y,language))check(pixels[y*256+x]==0xff123456,"localized Options preserves the game outside its windows");
         if(row==0)preview(output,"options",language,pixels);
         if(row==3) {
-            const auto state=ui_text(UiText::on,language);
-            check(shows(pixels,font,160-8*int(state.size()),8*options_layout::line_row(3),state,0xffaaaaaa),"widescreen value localized");
+            auto check_value=[&](const Frame& frame,std::string_view english,std::string_view portuguese) {
+                const auto state=language==Language::english ? english : portuguese;
+                check(shows(frame,font,160-8*int(state.size()),8*options_layout::line_row(row),state,0xffaaaaaa),
+                    "selected widescreen value is localized");
+            };
+            check_value(pixels,"FILL","TOTAL");
+            auto on=menu;
+            on.update({.left=true},2*row+.5);
+            Frame on_pixels(256*192);
+            on.render(on_pixels,font,language);
+            check_value(on_pixels,"ON","SIM");
         }
         if(row==5)preview(output,"options-language",language,pixels);
         if(row==6)preview(output,"options-sound",language,pixels);

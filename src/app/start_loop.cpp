@@ -123,6 +123,8 @@ std::optional<SessionRoms> run_launcher(std::optional<Display>& display,Language
 #ifdef __ANDROID__
             if (event.type==SDL_APP_WILLENTERBACKGROUND) mobile.clear();
             if (android_foreground()) mobile.event(event);
+#else
+            reset_picture_textures(*display,event.type);
 #endif
             if (event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) controller.refresh();
             const auto pad=controller.translate(event);

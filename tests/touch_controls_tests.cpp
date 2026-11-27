@@ -16,7 +16,7 @@ void layouts() {
     for (auto size:{WindowRect{0,0,1080,2340},WindowRect{0,0,2340,1080},WindowRect{0,0,210,270}}) {
         WindowRect safe{17,50,size.width-37,size.height-80};
         for (bool wide:{false,true}) {
-            auto layout=touch_layout(size.width,size.height,insets,wide,true,true);
+            auto layout=touch_layout(size.width,size.height,insets,wide ? WidescreenMode::on : WidescreenMode::off,true,true,true);
             check(inside(layout.game,safe) && layout.game.height>0,"visible game fits safe area");
             const int canvas=canvas_width(wide);
             check(std::abs(layout.game.width*192-layout.game.height*canvas)<canvas,"canvas keeps aspect ratio");
@@ -43,16 +43,19 @@ void layouts() {
             }
         }
     }
-    auto normal=touch_layout(1920,1080,{},false,true,false);
+    auto normal=touch_layout(1920,1080,{},WidescreenMode::off,true,true,false);
     check(!normal.overlay && normal.pad.x+normal.pad.width<=normal.game.x,"normal landscape uses side bars");
     check(!normal.buttons[Action::map].width,"automap disabled hides map shortcut");
-    auto wide=touch_layout(1920,1080,{},true,true,true);
+    auto wide=touch_layout(1920,1080,{},WidescreenMode::on,true,true,true);
     check(wide.overlay && wide.buttons[Action::map].width,"wide landscape overlays controls and exposes enabled map");
     // Maintainer decision, 2026-11-19: Widescreen never shrinks the controls.
     for (auto size:{WindowRect{0,0,2340,1080},WindowRect{0,0,3120,1440},WindowRect{0,0,1920,1080}}) {
         for (auto insets:{WindowBorders{},WindowBorders{0,95,0,0}}) {
-            const auto narrow=touch_layout(size.width,size.height,insets,false,true,true);
-            const auto widened=touch_layout(size.width,size.height,insets,true,true,true);
+            const auto narrow=touch_layout(size.width,size.height,insets,WidescreenMode::off,true,true,true);
+            const auto widened=touch_layout(size.width,size.height,insets,WidescreenMode::on,true,true,true);
+            const auto filled=touch_layout(size.width,size.height,insets,WidescreenMode::fill,true,true,true);
+            check(filled.buttons==widened.buttons && filled.hit==widened.hit &&
+                  filled.pad==widened.pad && filled.pad_hit==widened.pad_hit,"FILL keeps the landscape controls in place");
             check(narrow.buttons==widened.buttons && narrow.pad==widened.pad && narrow.hit==widened.hit,
                   "landscape controls are the same with Widescreen on and off");
             check(!narrow.overlay && narrow.pad.x+narrow.pad.width<=narrow.game.x,"cross fits beside the 256-wide picture");
@@ -65,11 +68,11 @@ void layouts() {
                   narrow.buttons[Action::pause].y<size.height/8,"shortcuts sit in the top corners, away from the cross");
         }
     }
-    const auto phone=touch_layout(2340,1080,{},true,true,true);
+    const auto phone=touch_layout(2340,1080,{},WidescreenMode::on,true,true,true);
     for (auto size:{WindowRect{0,0,1280,960},WindowRect{0,0,1440,1080},
                     WindowRect{0,0,300,240},WindowRect{0,0,306,208}}) {
         for (bool widescreen:{false,true}) {
-            auto compact=touch_layout(size.width,size.height,{},widescreen,true,true);
+            auto compact=touch_layout(size.width,size.height,{},widescreen ? WidescreenMode::on : WidescreenMode::off,true,true,true);
             const int canvas=canvas_width(widescreen);
             const int border=(canvas-canvas_width(false))/2;
             const int first=compact.game.x+compact.game.width*border/canvas;
@@ -83,17 +86,76 @@ void layouts() {
     }
     check(phone.buttons[Action::up].width>=160 && phone.buttons[Action::button1].width>=235,
           "2340x1080 wide landscape: about 11 mm per direction and 16 mm buttons on a 6.8 inch screen");
-    const auto upright=touch_layout(1080,2340,{},false,true,true);
+    const auto upright=touch_layout(1080,2340,{},WidescreenMode::off,true,true,true);
     check(upright.game.y<upright.game.height/8 && upright.pad.y+upright.pad.height<2340-upright.pad.height/3,
           "portrait: picture at the top, cross raised off the bottom edge");
-    auto start=touch_layout(1080,1920,{},false,false,true);
+    auto start=touch_layout(1080,1920,{},WidescreenMode::off,true,false,true);
     for (auto a:{Action::map,Action::pause,Action::speed,Action::options,Action::power,Action::reset})
         check(!start.buttons[a].width,"launcher hides gameplay shortcuts");
-    check(!touch_layout(0,0,{},false,true,true).game.width,"no drawable surface gives empty layout");
+    check(!touch_layout(0,0,{},WidescreenMode::off,true,true,true).game.width,"no drawable surface gives empty layout");
+}
+void fill_layouts() {
+    const struct {
+        int w,h;
+        WindowBorders cutout;
+        WindowRect hidden,shown;
+        const char* name;
+    } cases[]{
+        {1920,1080,{}, {0,4,1920,1072}, {100,60,1720,960}, "FILL landscape 1920 x 1080"},
+        {2340,1080,{0,95,0,0}, {250,0,1935,1080}, {354,58,1726,963}, "FILL landscape 2340 x 1080 with cutout"},
+        {2560,1440,{}, {0,5,2560,1429}, {76,48,2408,1344}, "FILL landscape 2560 x 1440"},
+        {1366,768,{}, {0,3,1366,762}, {0,3,1366,762}, "FILL landscape 1366 x 768"},
+        {1024,768,{}, {0,98,1024,572}, {30,115,964,538}, "FILL landscape 1024 x 768"},
+        {120,100,{}, {0,16,120,67}, {6,20,107,60}, "FILL landscape below 1x"},
+        {2340,1080,{0,0,0,95}, {155,0,1935,1080}, {259,58,1726,963}, "FILL landscape rotated to right cutout"},
+    };
+    for (auto& c:cases) {
+        const auto hidden=touch_layout(c.w,c.h,c.cutout,WidescreenMode::fill,false,true,true);
+        const auto shown=touch_layout(c.w,c.h,c.cutout,WidescreenMode::fill,true,true,true);
+        check(hidden.game==c.hidden && shown.game==c.shown,c.name);
+        const auto& game=shown.game;
+        const int first=game.x+(44*game.width+172)/344,last=game.x+(300*game.width+172)/344;
+        check(shown.pad.x+shown.pad.width<=first,"FILL rounded centre clears the cross");
+        for (auto button:shown.buttons)
+            check(!button.width || button.x+button.width<=first || button.x>=last,"FILL rounded centre clears every button");
+    }
+    const auto portrait=touch_layout(1080,2340,{},WidescreenMode::fill,true,true,true);
+    const auto hidden=touch_layout(1080,2340,{},WidescreenMode::fill,false,true,true);
+    const auto on=touch_layout(1080,2340,{},WidescreenMode::on,true,true,true);
+    check(on.game==WindowRect{24,22,1032,576},"ON portrait stays at 3x");
+    check(portrait.game==WindowRect{0,22,1080,603} && hidden.game==portrait.game,"FILL portrait 1080 x 2340");
+    check(portrait.buttons[Action::options].y==647 && hidden.buttons==portrait.buttons,"portrait shortcuts follow the FILL picture bottom");
+    check(touch_layout(1080,2340,{95,0,0,0},WidescreenMode::fill,true,true,true).game==WindowRect{0,117,1080,603},
+          "portrait picture keeps its gap below a rotated cutout");
+    const auto height_limited=touch_layout(900,900,{},WidescreenMode::fill,true,true,true);
+    check(height_limited.game==WindowRect{22,12,855,477} && height_limited.buttons[Action::options].y==501,
+          "height-limited portrait reserves the top gap and shortcut row");
+    check(touch_layout(0,0,{},WidescreenMode::fill,false,true,true).game==WindowRect{},"FILL empty touch surface");
+
+    TouchControls touch;
+    const auto shown=touch_layout(1920,1080,{},WidescreenMode::fill,true,true,true);
+    const auto no_controls=touch_layout(1920,1080,{},WidescreenMode::fill,false,true,true);
+    const auto button=shown.buttons[Action::button1];
+    touch.set_layout(shown);
+    touch.down(1,button.x,button.y,0);
+    check(touch.held()[Action::button1],"FILL touch presses in visible layout");
+    touch.controller_input(1,true,1);
+    touch.set_layout(no_controls);
+    touch.controller_input(1,false,2);
+    check(!touch.visible() && touch.held()==PerAction<bool>{},"FILL hide releases held touches");
+    touch.down(2,button.x,button.y,2+touch_wake_quiet_ms);
+    check(touch.visible() && touch.held()==PerAction<bool>{},"FILL wake touch is consumed before relayout");
+    touch.set_layout(shown);
+    touch.move(1,button.x,button.y);
+    touch.move(2,button.x,button.y);
+    check(touch.held()==PerAction<bool>{},"FILL relayout does not revive either contact");
+    touch.up(2);
+    touch.down(2,button.x,button.y,3+touch_wake_quiet_ms);
+    check(touch.held()[Action::button1],"fresh touch after FILL wake presses normally");
 }
 void fingers() {
     TouchControls controls;
-    const auto layout=touch_layout(1080,1920,{},false,true,true);
+    const auto layout=touch_layout(1080,1920,{},WidescreenMode::off,true,true,true);
     controls.set_layout(layout);
     std::uint32_t ms=100000;
     auto press=[&](std::int64_t finger,Action action) {
@@ -174,7 +236,7 @@ void start_state() {
     check(!touch_start_visible(std::nullopt,true),"first controls are hidden with a controller connected");
     check(touch_start_visible(true,true) && !touch_start_visible(false,false),"later controls keep the previous state");
     TouchControls hidden(false);
-    const auto layout=touch_layout(1080,1920,{},false,true,true);
+    const auto layout=touch_layout(1080,1920,{},WidescreenMode::off,true,true,true);
     hidden.set_layout(layout);
     const auto r=layout.buttons[Action::button1];
     hidden.down(1,r.x+r.width/2,r.y+r.height/2,0);
@@ -189,6 +251,6 @@ void resume_clock() {
 }
 }
 int main() {
-    try { layouts(); fingers(); start_state(); resume_clock(); }
+    try { layouts(); fill_layouts(); fingers(); start_state(); resume_clock(); }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

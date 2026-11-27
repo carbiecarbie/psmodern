@@ -9,6 +9,7 @@
 #include <stdexcept>
 namespace {
 using namespace psmodern;
+using app::WidescreenMode;
 unsigned sampled=0,stage=0,modal_frames=0,mode_under_test=0,speed_stage=0;
 bool release_speed=false;
 bool sent_quit=false,toggle_sent=false,was_active=false,restored_speed=false,saved_menu=false,saved_game=false;
@@ -17,11 +18,12 @@ unsigned controls_calls=0,controls_frames=0;bool awaiting_controls=false,control
 // Mode 4: as mode 3, but the Controls screen sets BUTTON 1 to K, the first
 // SAVE fails (controls.txt is a folder) and the second succeeds. While it is
 // open the power-cycle key and pad input, the pad fullscreen input and the
-// speed key are pressed; none of them may act.
+// speed key are pressed; none of them may act. Options then applies OFF to ON.
 std::filesystem::path controls_folder;
 // Mode 5: change all values, fail to save on Button 2, then retry with Options.
 std::filesystem::path blocked_options;
 bool checked_options_failure=false;
+bool kept_wide_history=false,saw_expected_display=false;
 app::Bindings mode4_start;
 SDL_JoystickID virtual_pad=-1;
 unsigned power_cycles=0,fullscreen_toggles=0,shortcut_events=0;
@@ -49,6 +51,21 @@ public:
         tested=this;
     }
     std::optional<std::string> power_cycle(){++power_cycles;return app::FrameDriver::power_cycle();}
+    void set_widescreen(bool on) {
+        if(mode_under_test!=5 || !wide_view()) {
+            app::FrameDriver::set_widescreen(on);
+            return;
+        }
+        const auto* view=wide_view();
+        const auto* shown=view->shown();
+        const auto camera=view->camera();
+        const auto* picture=wide_picture();
+        app::FrameDriver::set_widescreen(on);
+        if(!shown || !camera || !picture || wide_view()!=view || wide_view()->shown()!=shown ||
+           wide_view()->camera()!=camera || wide_picture()!=picture)
+            throw std::runtime_error("ON to FILL lost the wide view's capture history");
+        kept_wide_history=true;
+    }
 };
 int scripted_poll(SDL_Event* event){
     if(send_shortcuts) {
@@ -65,7 +82,8 @@ int scripted_poll(SDL_Event* event){
         if(shortcut_events==8)send_shortcuts=false;
         return 1;
     }
-    if(!sent_quit && ((mode_under_test==1 && sampled>=35) || (mode_under_test!=1 && was_active && tested && !tested->menu_active())))
+    const bool startup_only=mode_under_test==1 || mode_under_test>=6;
+    if(!sent_quit && (startup_only ? sampled>=35 : was_active && tested && !tested->menu_active()))
         {sent_quit=true;event->type=SDL_QUIT;return 1;}
     return 0;
 }
@@ -82,7 +100,7 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
            b.pads!=mode4_start.pads)
             throw std::runtime_error("The saved controls are not the game's controls");
     }
-    if(sampled<12 || speed_stage<2 || release_speed)return {};
+    if(mode_under_test>=6 || sampled<12 || speed_stage<2 || release_speed)return {};
     if(!toggle_sent){toggle_sent=true;return {.toggle=true};}
     if(!tested || !tested->menu_active())return {};
     was_active=true;
@@ -105,7 +123,7 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
                     std::filesystem::create_directory(blocked_options);
                     return {.cancel=true};
                 case 17:
-                    if(tested->chosen_options()!=game::Options{200,100} || tested->automap_option() || tested->widescreen_option())
+                    if(tested->chosen_options()!=game::Options{200,100} || tested->automap_option() || tested->widescreen_option()!=WidescreenMode::on)
                         throw std::runtime_error("Failed exit changed the active Options choice");
                     checked_options_failure=true;
                     std::filesystem::remove(blocked_options);
@@ -124,7 +142,11 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
             case 11:return {.down=true};
             case 13:return {.down=true};
             case 15:return {.right=true};
-            case 17:return mode_under_test==3 ? MenuInput{.cancel=true} : MenuInput{.toggle=true};
+            case 17:return mode_under_test==3 ? MenuInput{.cancel=true} : MenuInput{.down=true};
+            case 19:return {.down=true};
+            case 21:return {.down=true};
+            case 23:return {.right=true};
+            case 25:return {.toggle=true};
             default:return {};
         }
     }
@@ -175,25 +197,35 @@ app::InputSnapshot scripted_controls(SDL_Window*,const app::Controller& controll
     if(call>3+2*count)throw std::runtime_error("The Controls screen did not close after SAVE");
     return input;
 }
-// Mode 5 (the canvas): the session canvas follows the applied widescreen switch. Narrow, with
-// the driver off, until the failed exit is checked; after the successful retry the canvas is the
-// 344-based wide one and the driver is on.
-bool saw_wide_after_apply=false;
-void checked_bands(app::Display& display,const app::WidePicture* wide) {
-    if(mode_under_test==5 && tested) {
+// Mode 5 starts in ON and attempts FILL. The failed exit leaves the
+// presenter in ON until retry. Modes 6 and 7 reopen that same profile.
+void checked_bands(app::Display& display,const app::WidePicture* wide,bool menu_visible) {
+    if(mode_under_test==4 && tested) {
+        const bool applied=was_active && !menu_visible;
+        const auto mode=applied ? WidescreenMode::on : WidescreenMode::off;
+        int output_width=0,output_height=0;
+        if(SDL_GetRendererOutputSize(display.renderer.get(),&output_width,&output_height)!=0)
+            throw std::runtime_error("Cannot read the output size");
+        if(display.widescreen_mode!=mode || tested->widescreen_option()!=mode ||
+           tested->widescreen()!=applied || output_width!=(applied ? 688 : 768))
+            throw std::runtime_error(applied ? "OFF to ON Apply did not widen the canvas on the first frame after Options" :
+                "OFF to ON session must start narrow and stay narrow while Options is open");
+        saw_expected_display|=applied;
+    }else if(mode_under_test>=5 && tested) {
+        const auto expected=mode_under_test==7 ? WidescreenMode::off :
+            mode_under_test==5 && (!checked_options_failure || menu_visible) ? WidescreenMode::on : WidescreenMode::fill;
+        if(display.widescreen_mode!=expected || tested->widescreen_option()!=expected ||
+           display.wide_canvas()!=tested->widescreen())
+            throw std::runtime_error("The display or driver has the wrong applied widescreen mode");
         int output_width=0,output_height=0;
         if(SDL_GetRendererOutputSize(display.renderer.get(),&output_width,&output_height)!=0)throw std::runtime_error("Cannot read the output size");
-        if(display.wide_canvas!=tested->widescreen())throw std::runtime_error("The canvas does not follow the driver's widescreen state");
-        if(!checked_options_failure) {
-            if(display.wide_canvas || tested->widescreen() || output_width%344==0)throw std::runtime_error("A failed Options exit changed the canvas");
-        } else if(display.wide_canvas) {
-            if(output_width%344!=0)throw std::runtime_error("The wide canvas is not a 344-based window");
-            saw_wide_after_apply=true;
-        }
+        if(output_width%(app::uses_wide_canvas(expected) ? 344 : 256)!=0)
+            throw std::runtime_error("The output width does not match the applied mode");
+        saw_expected_display|=mode_under_test!=5 || expected==WidescreenMode::fill;
     }
     app::upload_bands(display,wide);
 }
-int checked_upload(const Machine& machine,unsigned speed,const app::OptionsMenu& menu,bool controls,bool active,const Vdp::Picture& background,SDL_Texture* texture,const SDL_Rect* rect,const void* pixels,int pitch){
+int checked_upload(const Machine& machine,unsigned speed,const app::OptionsMenu& menu,bool controls,bool active,const Vdp::Picture& background,const app::WidePicture* wide,SDL_Texture* texture,const SDL_Rect* rect,const void* pixels,int pitch){
     const bool visible=menu.visible();
     const auto* rendered=static_cast<const std::uint32_t*>(pixels);
     if(controls){
@@ -208,9 +240,11 @@ int checked_upload(const Machine& machine,unsigned speed,const app::OptionsMenu&
             for(unsigned i=0;i<256*192;++i){const char rgb[]{char(rendered[i]>>16),char(rendered[i]>>8),char(rendered[i])};f.write(rgb,3);}
         }
         if(machine.cycles()>last_modal_cycle){last_modal_cycle=machine.cycles();++modal_frames;}
-        for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x)
-            if(!menu.drawn(int(x),int(y)) && rendered[y*256+x]!=app::rgb(background[y*256+x]))
+        for(unsigned y=0;y<192;++y)for(unsigned x=0;x<256;++x) {
+            const auto backdrop=wide ? (*wide)[y*app::wide_width+x+app::wide_centre_x] : background[y*256+x];
+            if(!menu.drawn(int(x),int(y)) && rendered[y*256+x]!=app::rgb(backdrop))
                 throw std::runtime_error("Options changed pixels outside its window");
+        }
     }else if(!active){
         if(speed==4 && !was_active && !saved_game && mode_under_test==0) {
             saved_game=true;std::ofstream f(image_dir/"exploration-4x.ppm",std::ios::binary);f<<"P6\n256 192\n255\n";
@@ -288,8 +322,8 @@ app::InputSnapshot launcher_controls(SDL_Window*,const app::Controller&,const ap
 #define sample_menu_input scripted_menu
 #define sample_controls_input scripted_controls
 #define toggle_fullscreen counted_fullscreen
-#define upload_bands(d,w) checked_bands(d,w)
-#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),menu,controls_screen.visible(),driver.menu_active(),menu_background,t,r,p,pitch)
+#define upload_bands(d,w) checked_bands(d,w,menu.visible())
+#define SDL_UpdateTexture(t,r,p,pitch) checked_upload(driver.machine(),clock.speed(),menu,controls_screen.visible(),driver.menu_active(),menu_background,wide,t,r,p,pitch)
 #include "../src/app/main.cpp"
 #undef main
 #undef utf8_arguments
@@ -315,14 +349,14 @@ int main(int argc,char**argv){
     const auto version=identify_rom(argv[1]);
     image_dir=std::filesystem::current_path()/(version==RomVersion::us_rev_a ? "options-us" : "options-br");std::filesystem::create_directories(image_dir);
     controls_folder=root/"PSModern";
-    for(mode_under_test=0;mode_under_test<6;++mode_under_test){
+    for(mode_under_test=0;mode_under_test<8;++mode_under_test){
         // Mode 2 was the --no-routines session with read-only Options; milestone
         // 14 removed both (app_tests checks that the flag is refused).
         if(mode_under_test==2)continue;
         sampled=stage=modal_frames=speed_stage=0;release_speed=false;sent_quit=toggle_sent=was_active=restored_speed=saved_menu=saved_game=false;last_modal_cycle=0;tested=nullptr;
         controls_calls=controls_frames=0;awaiting_controls=controls_closed=false;
         power_cycles=fullscreen_toggles=shortcut_events=0;send_shortcuts=hold_tab=checked_failed_save=checked_new_binding=false;
-        checked_options_failure=saw_wide_after_apply=false;
+        checked_options_failure=kept_wide_history=saw_expected_display=false;
         if(mode_under_test==4){
             // A controls file with the power cycle and fullscreen on the stick
             // buttons, and a virtual controller (hardware back-ends off, as in
@@ -342,14 +376,24 @@ int main(int argc,char**argv){
             if(index<0)throw std::runtime_error("Virtual controller attachment");
             virtual_pad=SDL_JoystickGetDeviceInstanceID(index);
         }
+        if(mode_under_test==5) {
+            auto store=app::SaveStore::shared(controls_folder);
+            const auto raw=store.load();
+            store.request_widescreen(WidescreenMode::on);
+            if(store.choose({0,100},false,raw))throw std::runtime_error("Cannot seed ON before FILL Apply");
+        }
         char rate[]="--encounter-rate",value[]="200",record[]="--record";
-        std::string recording=(root/"session.psrec").string();
+        std::string recording=(root/("session-"+std::to_string(mode_under_test)+".psrec")).string();
         char* normal[]{argv[0],argv[1],rate,value};char* recording_args[]{argv[0],argv[1],record,recording.data()};
-        const auto result=options_app_main(4,mode_under_test==1?recording_args:normal);
-        if(result || (mode_under_test==1 ? was_active : !was_active || modal_frames==0 || !restored_speed))throw std::runtime_error("Scripted options app session failed");
-        if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<18))throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
-        if(mode_under_test==5 && (!checked_options_failure || stage<18 || !saw_wide_after_apply))
+        const auto result=options_app_main(4,mode_under_test==1 || mode_under_test==7 ? recording_args : normal);
+        if(result || (mode_under_test==1 || mode_under_test>=6 ? was_active : !was_active || modal_frames==0 || !restored_speed))
+            throw std::runtime_error("Scripted options app session failed");
+        if((mode_under_test==3 || mode_under_test==4) && (!controls_closed || controls_frames==0 || stage<(mode_under_test==3 ? 18u : 26u)))
+            throw std::runtime_error("Options -> Controls -> Options round trip incomplete");
+        if(mode_under_test==5 && (!checked_options_failure || stage<18 || !kept_wide_history))
             throw std::runtime_error("Failed Options exit did not keep all values for a successful retry");
+        if(mode_under_test>=4 && !saw_expected_display)
+            throw std::runtime_error("Missing presentation with the expected widescreen mode");
         if(mode_under_test==4){
             SDL_Quit();   // balances the test's own SDL_Init; the virtual controller goes with it
             const auto saved=app::load_bindings(controls_folder);
@@ -360,8 +404,11 @@ int main(int argc,char**argv){
         }
         if(std::filesystem::exists(root/"PSModern"/app::bindings_file_name))throw std::runtime_error("Closing the Controls screen wrote the controls file");
         auto store=app::SaveStore::shared(root/"PSModern");
-        if(store.load_preferences(store.load())!=(mode_under_test==5 ? game::Options{0,200} : game::Options{0,100}) || store.automap_preference()!=(mode_under_test==5) || store.widescreen_preference()!=(mode_under_test==5))
-            throw std::runtime_error("Options exit or restricted session persisted the wrong rates or automap");
+        const bool after_fill=mode_under_test>=5;
+        const auto saved_mode=after_fill ? WidescreenMode::fill : mode_under_test==4 ? WidescreenMode::on : WidescreenMode::off;
+        if(store.load_preferences(store.load())!=(after_fill ? game::Options{0,200} : game::Options{0,100}) ||
+           store.automap_preference()!=after_fill || store.widescreen_preference()!=saved_mode)
+            throw std::runtime_error("Options exit or restricted session persisted the wrong choices");
     }
     {   // The start screen (video only: no controller is opened).
         app::RomList list;list.set(version,argv[1]);app::save_rom_list(controls_folder,list);

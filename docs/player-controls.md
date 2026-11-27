@@ -43,8 +43,11 @@ controller work together.
 
 Slide your thumb across the cross to change direction. Hold a direction with
 one finger and press **1** or **2** with another. In portrait the controls sit
-below the picture. In landscape the cross and buttons stay in the same place
-when you turn Widescreen on.
+below the picture. In landscape the cross and buttons keep the same size and
+position in all three Widescreen modes. FILL fits the picture into the space
+reserved for it while the controls are visible. When they hide, FILL uses the
+whole cutout-safe area. In portrait the picture stays at the top and the
+shortcuts stay below it, even when the controls hide.
 
 During play, **PAUSE** presses the console's Pause button, **OPT** opens
 Options during exploration and the speed button cycles through 1x, 2x and 4x.
@@ -76,11 +79,11 @@ stick is pushed and the controller has been left alone for two seconds.
 ## Fast-forward
 
 Each press of Speed (`Tab` or `RB` by default) cycles `1x`, `2x`, `4x`, then
-back to `1x`. An on-screen indicator appears while accelerated. Music and sound
-effects keep their normal tempo and pitch. Every session starts at `1x`, and
-power cycle (`F5`) resets to `1x`. While Options is open or the window loses
-focus, gameplay temporarily runs at `1x` and returns to your chosen speed
-afterward.
+back to `1x`. The new speed appears on screen for two seconds after each press.
+Music and sound effects keep their normal tempo and pitch. Every session starts
+at `1x`, and power cycle (`F5`) resets to `1x`. While Options is open or the
+window loses focus, gameplay temporarily runs at `1x` and returns to your chosen
+speed afterward.
 
 At `2x` and `4x` the game keeps step with the screen, so on a 60 Hz screen
 every picture moves the game on by the same number of frames. To do so it may
@@ -105,7 +108,7 @@ the windows and the music keeps playing.
 | Encounters | 0, 25, 50, 100, 200% | Frequency of random fights. `0%` turns them off. Story and fixed fights never change. |
 | EXP / Meseta | 100, 200, 400% | Experience and meseta awarded per fight. Characters still gain at most one level per fight. |
 | Automap | Off, On (`NAO`, `SIM`) | Enables the dungeon floor map (`M` / `X`). Off is the original game. |
-| Widescreen | Off, On (`NAO`, `SIM`) | Widens the world map, towns, and spaceship flights to 16:9. Off is the original game. |
+| Widescreen | Off, On, Fill (`NAO`, `SIM`, `TOTAL`) | Off gives the original picture. On uses whole steps. Fill fits the wide picture into the available space with light smoothing. |
 | Controls | - | Button 1 opens the Controls screen to remap keys and buttons. |
 | Language | Auto, English, Portugues | Language of the game text and PSModern's own screens. Saves and switches UI immediately; game text updates when Options closes. Each language needs its ROM; Auto follows the ROM you play. |
 | Sound (`SOM`) | PSG, FM | PSG is the sound of the US and Brazilian cartridges and the original; FM is the Japanese cartridge's FM sound. Saves and switches immediately, the music at the same point. FM needs the Japanese ROM ([Sound](#sound)). |
@@ -175,13 +178,13 @@ time during fast-forward.
 ## Options: widescreen
 
 The Options screen has a WIDESCREEN row (the same word in Portuguese), the
-fourth after Encounters, EXP / Meseta and Automap. Left or right switches it
-OFF or ON (NAO or SIM in Portuguese); it is OFF by default. Like Automap it takes effect when you leave
-Options, with no restart, and is saved with your other options.
+fourth after Encounters, EXP / Meseta and Automap. Left or right cycles OFF,
+ON and FILL (NAO, SIM and TOTAL in Portuguese). OFF is the default. The
+choice takes effect when you leave Options and is saved with your other options.
 
-- **Where it applies.** With WIDESCREEN ON the world map, the towns and the
+- **Where it applies.** With ON or FILL the world map, the towns and the
   spaceship flight between planets are
-  shown 344 by 192 pixels, 16:9: the original 256 pixels in the middle and 44
+  shown at 344 by 192 pixels, slightly wider than 16:9, with the original 256 pixels in the middle and 44
   more on each side, drawn from the map (in space, from the stars) with the game's own tiles
   and colours, including the 8 pixels on the left that the cartridge leaves blank. Walking
   past the edge of a town shows what the game has there; the world maps wrap
@@ -192,18 +195,26 @@ Options, with no restart, and is saved with your other options.
   Menus and screens of PSModern itself (Options, Controls, Language, the
   dungeon map, the speed mark) stay 256 pixels wide in the middle. The start
   screen is always 256 pixels wide.
-- **The window.** While WIDESCREEN is ON the window is as wide as the wide
-  picture for the whole session, so it never changes size during play.
-  Switching the option resizes a normal window to the wide or the narrow
-  shape at the scale it has, shrinking it by whole steps if it would not fit on
-  the screen; a maximized or fullscreen window keeps its size and only the
-  picture changes. At 1366 by 768 fullscreen the wide picture is drawn at 3
-  times its size instead of 4.
+- **The window.** Switching between OFF and either wide mode snaps a normal
+  window to the new picture shape at its current whole-number scale, stepping
+  down if needed to fit the screen. A maximized, minimized or fullscreen
+  window keeps its size. Switching between ON and FILL keeps the current
+  window. The two can look identical at a whole-number fit. Resize the window,
+  maximize it or go fullscreen to see the difference. On a 1920 by 1080
+  output, ON draws 1720 by 960 and FILL draws 1920 by 1072, with four black
+  pixels above and below. On a 1366 by 768 output, ON draws 1032 by 576 and
+  FILL draws 1366 by 762. FILL keeps the picture's proportions, so some
+  outputs still have bars. If the renderer cannot create the texture FILL
+  needs, the picture uses ON's scaling.
 - **Recording.** While recording, the Options shortcut is ignored, so the
   row cannot be changed: the game stays exactly as the cartridge ran it.
-- **The game never notices.** WIDESCREEN only changes what is shown. With it ON
-  the game runs exactly as with it OFF; see
+- **The game never notices.** WIDESCREEN only changes what is shown. See
   [how widescreen reads the map](how-it-works/world-map.md#how-widescreen-reads-this).
+- **Going back to 1.3.2.** Before downgrading, back up the cartridge save and
+  its `.options` file together. Any FILL value in the options file, even a
+  backup value left after choosing ON, makes 1.3.2 load default options.
+  Your cartridge save still loads. Apply your preferences in the older
+  version's Options screen to replace the incompatible file.
 
 ## Opening the Controls screen
 

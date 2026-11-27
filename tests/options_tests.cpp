@@ -13,6 +13,7 @@
 using namespace psmodern;
 using namespace psmodern::app;
 namespace {
+using enum WidescreenMode;
 void check(bool ok,const char* text){if(!ok)throw std::runtime_error(text);}
 template<class F>void refuses(F operation){bool refused=false;try{operation();}catch(const std::exception&){refused=true;}check(refused,"invalid input accepted");}
 struct Temporary {
@@ -33,7 +34,7 @@ void codec(){
  refuses([&]{parse_settings("psmodern-options 4\ncommitted "+a+" 100 100 0 0\npending -\nbackup -\n");});
  {
   const auto legacy="psmodern-options 4\ncommitted "+a+" 25 400 1 0 1\npending "+b+" 50 100 0 1 0\nbackup "+c+" 0 200 1 0 1\n";
-  SettingsImage expected{{a,{25,400},true,false},SettingsRecord{b,{50,100},false,true},SettingsRecord{c,{0,200},true,false}};
+  SettingsImage expected{{a,{25,400},true,off},SettingsRecord{b,{50,100},false,on},SettingsRecord{c,{0,200},true,off}};
   const auto migrated=parse_settings(legacy);
   check(migrated==expected,"retired preference leaves all other settings intact");
   check(write_settings(migrated).starts_with("psmodern-options 3\n") && parse_settings(write_settings(migrated))==expected,"legacy settings save in the widescreen format");
@@ -69,18 +70,16 @@ void codec(){
  // format 2 stays the written format until some record has widescreen on.
  {
   const auto old2=parse_settings("psmodern-options 2\ncommitted "+a+" 50 400 1\npending -\nbackup "+c+" 0 200 0\n");
-  check(!old2.committed.widescreen && !old2.backup->widescreen && old2.committed.automap,"format 2 reads with widescreen off");
-  check(!parse_settings("psmodern-options 1\ncommitted "+a+" 50 400\npending -\nbackup -\n").committed.widescreen,"format 1 reads with widescreen off");
+  check(old2.committed.widescreen==off && old2.backup->widescreen==off && old2.committed.automap,"format 2 reads with widescreen off");
+  check(parse_settings("psmodern-options 1\ncommitted "+a+" 50 400\npending -\nbackup -\n").committed.widescreen==off,"format 1 reads with widescreen off");
   check(write_settings(old2).rfind("psmodern-options 2\n",0)==0 && write_settings(old2).find(" 0 0\n")==std::string::npos,"widescreen off keeps format 2 for release 0.4.0");
   for(int slot=0;slot<3;++slot) {
-   SettingsImage wide{{a,{50,400},true,slot==0},SettingsRecord{b,{0,200},false,slot==1},SettingsRecord{c,{100,100},true,slot==2}};
+   SettingsImage wide{{a,{50,400},true,slot==0 ? on : off},SettingsRecord{b,{0,200},false,slot==1 ? on : off},SettingsRecord{c,{100,100},true,slot==2 ? on : off}};
    const auto written=write_settings(wide);
    check(written.rfind("psmodern-options 3\n",0)==0,"any widescreen record writes format 3");
    check(parse_settings(written)==wide,"format 3 round trip");
-   check(parse_settings(written).committed.widescreen==(slot==0) && parse_settings(written).pending->widescreen==(slot==1) &&
-         parse_settings(written).backup->widescreen==(slot==2),"format 3 keeps each record's widescreen token");
   }
-  SettingsImage wide{{a,{50,400},true,true},SettingsRecord{b,{0,200},false,false},std::nullopt};
+  SettingsImage wide{{a,{50,400},true,on},SettingsRecord{b,{0,200},false,off},std::nullopt};
   check(write_settings(wide)=="psmodern-options 3\ncommitted "+a+" 50 400 1 1\npending "+b+" 0 200 0 0\nbackup -\n","format 3 records");
   check(write_settings(parse_settings(write_settings(wide)))==write_settings(wide),"format 3 is stable");
   for(const auto& token:{std::string("2"),std::string("01"),std::string("-1"),std::string("on"),std::string("")})
@@ -89,6 +88,34 @@ void codec(){
   refuses([&]{parse_settings("psmodern-options 3\ncommitted "+a+" 50 400 1 0 0\npending -\nbackup -\n");});
   refuses([&]{parse_settings("psmodern-options 3\ncommitted "+a+" 50 400 1 1\npending "+b+" 0 200 0\nbackup -\n");});
  }
+ // A lone FILL in any record upgrades the whole file, even a backup
+ // that does not match the current SRAM. The other two tokens stay binary.
+ const std::array slot_names{"lone committed FILL writes format 5","lone pending FILL writes format 5","lone backup FILL writes format 5"};
+ for(unsigned slot=0;slot<slot_names.size();++slot) {
+  const SettingsImage fill_image{{a,{50,400},true,slot==0 ? fill : off},
+   SettingsRecord{b,{0,200},false,slot==1 ? fill : off},SettingsRecord{c,{100,100},true,slot==2 ? fill : off}};
+  const auto written=write_settings(fill_image);
+  check(written.starts_with("psmodern-options 5\n"),slot_names[slot]);
+  check(parse_settings(written)==fill_image,"format 5 keeps FILL in the written slot");
+ }
+ const auto mixed_rows="committed "+a+" 50 400 1 0\npending "+b+" 0 200 0 2\nbackup "+c+" 100 100 1 1\n";
+ const SettingsImage mixed{{a,{50,400},true,off},SettingsRecord{b,{0,200},false,fill},SettingsRecord{c,{100,100},true,on}};
+ check(write_settings(mixed)=="psmodern-options 5\n"+mixed_rows,"mixed format 5 writes exact tokens");
+ auto decoded=parse_settings("psmodern-options 5\n"+mixed_rows);
+ check(decoded.select(a)==mixed.committed && decoded.select(b)==mixed.pending && decoded.select(c)==mixed.backup,"format 5 digest selection");
+ decoded.committed.digest=b;decoded.backup->digest=b;
+ check(decoded.select(b)->widescreen==fill,"format 5 pending beats committed and backup");
+ decoded.pending.reset();
+ check(decoded.select(b)->widescreen==off,"format 5 committed beats backup");
+ for(const auto token:{"","3","02","-1","fill","2 0"})
+  refuses([&]{parse_settings("psmodern-options 5\ncommitted "+a+" 50 400 1 "+token+"\npending -\nbackup -\n");});
+ refuses([&]{parse_settings("psmodern-options 4\ncommitted "+a+" 50 400 1 2 0\npending -\nbackup -\n");});
+ auto full="psmodern-options 5\n"+mixed_rows;
+ const auto end_of_committed=full.find('\n',full.find('\n')+1);
+ full.insert(end_of_committed,1024-full.size(),' ');
+ check(parse_settings(full)==mixed,"format 5 accepts exactly 1024 bytes");
+ full.insert(end_of_committed,1,' ');
+ refuses([&]{parse_settings(full);});
  for(const auto& bad:{std::string("-4294967196"),std::string("+100"),std::string("4294967396"),std::string("100x")}) {
   auto invalid=text;invalid.replace(invalid.find("100"),3,bad);refuses([&]{parse_settings(invalid);});
  }
@@ -101,10 +128,10 @@ void persistence(){
  {
   Temporary lazy;atomic_save(lazy.path/save_name(RomVersion::us_rev_a),initial);
   {
-   SaveStore store(lazy.path,RomVersion::us_rev_a);store.request_widescreen(true);
-   check(!store.choose({50,400},true,initial) && store.widescreen_preference() && store.automap_preference(),"widescreen request survives the lazy settings load");
+   SaveStore store(lazy.path,RomVersion::us_rev_a);store.request_widescreen(fill);
+   check(!store.choose({50,400},true,initial) && store.widescreen_preference()==fill && store.automap_preference(),"widescreen request survives the lazy settings load");
   }
-  SaveStore again(lazy.path,RomVersion::us_rev_a);again.load_preferences(again.load());check(again.widescreen_preference(),"lazily requested widescreen persisted");
+  SaveStore again(lazy.path,RomVersion::us_rev_a);again.load_preferences(again.load());check(again.widescreen_preference()==fill,"lazily requested widescreen persisted");
  }
  std::filesystem::path sidecar;
  {
@@ -114,16 +141,16 @@ void persistence(){
   check(!store.choose({0,200},initial),"second settings-only apply");
   check(!store.automap_preference() && !store.choose({0,200},true,initial) && store.automap_preference(),"automap switch applied beside the options");
   check(!store.choose({0,200},initial) && store.automap_preference(),"applying options alone keeps the automap switch");
-  check(!store.widescreen_preference() && read(sidecar).rfind("psmodern-options 2\n",0)==0,"widescreen off keeps the file format 2");
-  store.request_widescreen(true);check(!store.widescreen_preference(),"a requested switch is not stored until applied");
-  check(!store.choose({0,200},true,initial) && store.widescreen_preference() && read(sidecar).rfind("psmodern-options 3\n",0)==0,"widescreen applied beside the options, file written as format 3");
-  check(!store.choose({0,200},initial) && store.widescreen_preference() && store.automap_preference(),"applying options alone keeps the widescreen switch");
-  store.request_widescreen(false);check(!store.choose({0,200},true,initial) && !store.widescreen_preference() && read(sidecar).rfind("psmodern-options 2\n",0)==0,"widescreen off again returns to format 2");
-  store.request_widescreen(true);check(!store.choose({0,200},true,initial),"widescreen on for the restart");
+  check(store.widescreen_preference()==off && read(sidecar).rfind("psmodern-options 2\n",0)==0,"widescreen off keeps the file format 2");
+  store.request_widescreen(on);check(store.widescreen_preference()==off,"a requested switch is not stored until applied");
+  check(!store.choose({0,200},true,initial) && store.widescreen_preference()==on && read(sidecar).rfind("psmodern-options 3\n",0)==0,"widescreen applied beside the options, file written as format 3");
+  check(!store.choose({0,200},initial) && store.widescreen_preference()==on && store.automap_preference(),"applying options alone keeps the widescreen switch");
+  store.request_widescreen(off);check(!store.choose({0,200},true,initial) && store.widescreen_preference()==off && read(sidecar).rfind("psmodern-options 2\n",0)==0,"widescreen off again returns to format 2");
+  store.request_widescreen(on);check(!store.choose({0,200},true,initial),"widescreen on for the restart");
  }
  {
-  SaveStore store(t.path,RomVersion::us_rev_a);check(store.load_preferences(store.load())==game::Options{0,200} && store.automap_preference() && store.widescreen_preference(),"automap and widescreen switches survive restart");
-  store.request_widescreen(false);
+  SaveStore store(t.path,RomVersion::us_rev_a);check(store.load_preferences(store.load())==game::Options{0,200} && store.automap_preference() && store.widescreen_preference()==on,"automap and widescreen switches survive restart");
+  store.request_widescreen(off);
   check(!store.choose({0,200},false,store.load()) && !store.automap_preference(),"automap off applied");
  }
  {
@@ -159,6 +186,39 @@ void persistence(){
  }
  std::filesystem::remove(sidecar);std::filesystem::create_directory(sidecar);
  {SaveStore store(t.path,RomVersion::us_rev_a);auto raw=store.load();store.load_preferences(raw);Memory memory(program(),raw);change(memory,raw[0]+1);check(!store.flush(memory),"directory companion raw save");check(store.choose({50,400},memory.cartridge_ram()).has_value(),"explicit directory refusal");}
+}
+void widescreen_rotation(){
+ Temporary t;Memory::CartridgeRam initial{};initial[0]=1;
+ const auto name=t.path/save_name(RomVersion::us_rev_a);
+ atomic_save(name,initial);
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  store.request_widescreen(fill);
+  check(!store.choose({50,400},true,initial),"write FILL before rotation");
+ }
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  check(store.load_preferences(store.load())==game::Options{50,400} && store.widescreen_preference()==fill,"restart selects saved FILL");
+  store.request_widescreen(on);
+  check(!store.choose({0,200},false,initial),"apply ON over FILL");
+  Memory memory(program(),initial);change(memory,2);check(!store.flush(memory),"stage ON for changed SRAM");
+  const auto text=read(store.settings_path());const auto image=parse_settings(text);
+  check(text.starts_with("psmodern-options 5\n") && image.committed.widescreen==on && image.pending->widescreen==on &&
+        image.backup->widescreen==fill && image.backup->digest==sha256(initial),"backup alone keeps format 5 across a raw save");
+ }
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  check(store.load_preferences(store.load())==game::Options{0,200} && store.widescreen_preference()==on,"new SRAM digest selects ON");
+  store.request_widescreen(off);
+  check(!store.choose({},false,store.load()) && read(store.settings_path()).starts_with("psmodern-options 3\n"),
+        "rotating out FILL leaves format 3 with ON in backup");
+ }
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  check(store.load_preferences(store.load())==game::Options{} && store.widescreen_preference()==off,"shared digest reloads original rates and Widescreen OFF");
+  Memory memory(program(),store.load());change(memory,3);check(!store.flush(memory),"stage OFF after rotating ON out");
+  check(read(store.settings_path()).starts_with("psmodern-options 2\n"),"rotating out ON leaves format 2");
+ }
 }
 void failures(){
  for(unsigned phase=0;phase<4;++phase) {
@@ -230,6 +290,31 @@ void driver(){
  }
  {FrameDriver driver(program(),SaveStore(t.path,RomVersion::us_rev_a));check(driver.effective_options()==game::Options{50,400},"CLI and forced sessions never stored overrides");}
 }
+void widescreen_driver(){
+ Temporary t;
+ bool fail=false;
+ auto writer=[&](const auto& path,const auto& text) {
+  if(fail)throw std::runtime_error("injected settings write failure");
+  atomic_settings(path,text);
+ };
+ {
+  FrameDriver driver(program(),SaveStore(t.path,RomVersion::us_rev_a,atomic_save,writer));
+  check(!driver.choose_options({},false,on),"apply ON before testing rollback");
+  const auto previous=read(driver.store().settings_path());
+  fail=true;
+  check(driver.choose_options({50,400},true,fill).has_value(),"failed FILL Apply reports a write error");
+  check(driver.widescreen_option()==on && driver.chosen_options()==game::Options{} &&
+        read(driver.store().settings_path())==previous,"failed FILL Apply preserves ON on disk and in the driver");
+  fail=false;
+  check(!driver.choose_options({},false) && driver.widescreen_option()==on,"failed FILL Apply restores the previous request");
+  check(!driver.choose_options({},false,fill),"FILL retry succeeds");
+ }
+ {
+  FrameDriver restricted(program(),SaveStore(t.path,RomVersion::us_rev_a),{},true);
+  check(restricted.store().widescreen_preference()==fill && restricted.widescreen_option()==off,"restricted mode forces OFF over persisted FILL");
+  check(restricted.choose_options({},false,on).has_value(),"restricted mode refuses changing FILL");
+ }
+}
 // The encounter row visits 0, 25, 50, 100 and 200 in order, in both directions.
 void encounter_choices(){
  OptionsMenu menu;menu.open({},false);menu.update({},1);
@@ -256,7 +341,7 @@ void language_row(){
  check(tap({.right=true})==MenuAction::language && menu.language_draft()==P::portuguese,"right: ENGLISH to PORTUGUES");
  check(tap({.right=true})==MenuAction::language && menu.language_draft()==P::native,"right wraps to AUTO");
  check(tap({.left=true})==MenuAction::language && menu.language_draft()==P::portuguese,"left wraps back to PORTUGUES");
- check(menu.draft()==game::Options{} && !menu.automap_draft() && !menu.widescreen_draft(),"the language leaves the other values alone");
+ check(menu.draft()==game::Options{} && !menu.automap_draft() && menu.widescreen_draft()==off,"the language leaves the other values alone");
  // Held: one change at once, the next after the repeat delay.
  menu.update({},now+=1);check(menu.update({.left=true},now+=1)==MenuAction::language && menu.update({.left=true},now+=.1)==MenuAction::none &&
   menu.update({.left=true},now+=.3)==MenuAction::language && menu.language_draft()==P::native,"a held direction repeats like the other rows");
@@ -324,7 +409,7 @@ void sound_row(){
  menu.sound_saved();
  check(tap({.right=true})==MenuAction::sound && menu.sound_draft()==S::psg,"right wraps back to PSG");
  check(tap({.left=true})==MenuAction::sound && menu.sound_draft()==S::fm,"left switches too");
- check(menu.draft()==game::Options{} && !menu.automap_draft() && !menu.widescreen_draft() && menu.language_draft()==LanguagePreference::native,"Sound leaves the other values alone");
+ check(menu.draft()==game::Options{} && !menu.automap_draft() && menu.widescreen_draft()==off && menu.language_draft()==LanguagePreference::native,"Sound leaves the other values alone");
  // Held: one change at once, the next after the repeat delay.
  menu.update({},now+=1);check(menu.update({.left=true},now+=1)==MenuAction::sound && menu.update({.left=true},now+=.1)==MenuAction::none &&
   menu.update({.left=true},now+=.3)==MenuAction::sound && menu.sound_draft()==S::fm,"a held direction repeats like the other rows");
@@ -350,6 +435,15 @@ void layout(){
  auto inside=[](const TileWindow& outer,const TileWindow& inner){return inner.column>=outer.column && inner.row>=outer.row &&
   inner.column+inner.width<=outer.column+outer.width && inner.row+inner.height<=outer.row+outer.height;};
  const TileWindow screen{0,0,menu_style::columns,menu_style::rows};
+ OptionsMenu labels;
+ check(labels.choices(2,Language::english)==std::vector<std::string>{"OFF","ON"} &&
+       labels.choices(2,Language::portuguese)==std::vector<std::string>{"NAO","SIM"},"Automap keeps two localized choices");
+ check(labels.choices(3,Language::english)==std::vector<std::string>{"OFF","ON","FILL"},"English widescreen choices");
+ check(labels.choices(3,Language::portuguese)==std::vector<std::string>{"NAO","SIM","TOTAL"},"Portuguese widescreen choices");
+ check(OptionsMenu::explanation(3,Language::english)==std::array<std::string_view,3>{
+       "ON - MORE MAP AT THE SIDES.","FILL - TO THE EDGE, SOFTER.","OFF IS THE ORIGINAL."},"English widescreen help lines");
+ check(OptionsMenu::explanation(3,Language::portuguese)==std::array<std::string_view,3>{
+       "SIM - MAIS MAPA NAS LATERAIS","TOTAL - ATE A BORDA, SUAVE.","O ORIGINAL E NAO."},"Portuguese widescreen help lines");
  check(inside(screen,l::list) && inside(screen,l::explanation) && l::list.row+l::list.height<=l::explanation.row,"list and explanation on the screen, apart");
  check(l::list.height==l::line_step*int(l::rows)+1 && l::line_row(0)==l::list.row+1,"a line every two tile rows, as the game's windows");
  check(l::explanation.height==l::line_step*int(l::explanation_lines+1)+1 && l::state_row==l::explanation.row+1+l::line_step*int(l::explanation_lines),"three lines and the state line");
@@ -358,13 +452,13 @@ void layout(){
  for(bool pending:{false,true})
  for(auto choices:{game::Options{},game::Options{25,400},game::Options{50,200},game::Options{200,100}})
  for(bool on:{false,true})for(unsigned preference=0;preference<3;++preference) {
-  OptionsMenu menu;menu.open(choices,pending,on,!on);
+  OptionsMenu menu;menu.open(choices,pending,on,on ? WidescreenMode::off : WidescreenMode::fill);
   menu.set_language(LanguagePreference(preference),{true,preference!=2,preference!=1});
   menu.set_sound(on ? SoundPreference::fm : SoundPreference::psg,SoundAvailability(preference));
   const auto state=menu.state(language);
   check(!state.empty() && state.size()<=l::line_limit,"the state line fits");
   menu.failed();check(menu.state(language).size()<=l::line_limit,"the failure line fits");
-  menu.open(choices,pending,on,!on);menu.update({},0);
+  menu.open(choices,pending,on,on ? WidescreenMode::off : WidescreenMode::fill);menu.update({},0);
   for(unsigned row=0;row<l::rows;++row) {
    check(menu.selected()==row,"walking the rows");
    const auto label=OptionsMenu::label(row,language);const auto values=menu.choices(row,language);
@@ -410,14 +504,23 @@ void navigation(){
  menu.update({},6.33);menu.update({.left=true},6.34);check(!menu.automap_draft(),"left turns it off");
  menu.update({},6.35);menu.update({.left=true},6.36);check(menu.automap_draft(),"either direction toggles");
  check(menu.update({.accept=true},6.37)==MenuAction::apply,"confirm from the automap row");
- menu.update({},6.375);menu.update({.down=true},6.376);check(menu.selected()==3 && !menu.widescreen_draft(),"the fourth row is the widescreen switch, off by default");
- menu.update({},6.377);menu.update({.right=true},6.378);check(menu.widescreen_draft() && menu.automap_draft() && menu.draft()==game::Options{0,200},"right turns widescreen on and leaves the rest");
- menu.update({},6.379);menu.update({.left=true},6.380);check(!menu.widescreen_draft(),"left turns it off");
- menu.update({},6.381);menu.update({.left=true},6.382);check(menu.widescreen_draft() && menu.automap_draft(),"either direction toggles");
+ menu.update({},6.375);menu.update({.down=true},6.376);check(menu.selected()==3 && menu.widescreen_draft()==off,"the fourth row is the widescreen switch, off by default");
+ auto cycle=[&](MenuInput direction,std::array<WidescreenMode,3> expected) {
+  double time=6.376;
+  for(const auto mode:expected) {
+   menu.update({},time+=.0005);menu.update(direction,time+=.0005);
+   check(menu.widescreen_draft()==mode && menu.current(3)==std::size_t(mode),
+         direction.right ? "right cycles OFF, ON, FILL" : "left reverses the widescreen cycle");
+  }
+ };
+ cycle({.right=true},{on,fill,off});
+ cycle({.left=true},{fill,on,off});
+ menu.update({},6.380);menu.update({.left=true},6.382);
+ check(menu.widescreen_draft()==fill && menu.automap_draft() && menu.draft()==game::Options{0,200},"widescreen cycles leave the other drafts alone");
  check(menu.update({.accept=true},6.383)==MenuAction::apply,"confirm from the widescreen row");
  menu.update({},6.384);menu.update({.down=true},6.385);check(menu.selected()==4,"the fifth row is CONTROLS");
  menu.update({},6.391);menu.update({.right=true},6.392);menu.update({},6.393);menu.update({.left=true},6.394);
- check(menu.automap_draft() && menu.widescreen_draft() && menu.draft()==game::Options{0,200} && menu.language_draft()==LanguagePreference::native,"left and right do nothing on CONTROLS");
+ check(menu.automap_draft() && menu.widescreen_draft()==fill && menu.draft()==game::Options{0,200} && menu.language_draft()==LanguagePreference::native,"left and right do nothing on CONTROLS");
  menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==5,"sixth row is Language");
  menu.update({},6.397);check(menu.update({.accept=true},6.398)==MenuAction::apply,"accept on Language saves and leaves, as on the value rows");
  menu.update({},6.399);menu.update({.down=true},6.40);check(menu.selected()==6,"seventh row is Sound");
@@ -445,12 +548,12 @@ void navigation(){
  // Both exit bindings save all three displayed values from every row,
  // including the child-screen entries.
  for(bool toggle:{false,true})for(unsigned row=0;row<options_layout::rows;++row) {
-  menu.open({50,400},false,true,true);menu.update({},20);
+  menu.open({50,400},false,true,fill);menu.update({},20);
   menu.update({.right=true},21);menu.update({},22);
   for(unsigned i=0;i<row;++i){menu.update({.down=true},23+i*2);menu.update({},24+i*2);}
   const MenuInput exit=toggle ? MenuInput{.toggle=true} : MenuInput{.cancel=true};
   check(menu.update(exit,40)==MenuAction::apply,"exit saves from every editable row");
-  check(menu.draft()==game::Options{100u,400} && menu.automap_draft() && menu.widescreen_draft(),"exit retains the displayed rates, automap and widescreen");
+  check(menu.draft()==game::Options{100u,400} && menu.automap_draft() && menu.widescreen_draft()==fill,"exit retains the displayed rates, automap and widescreen");
  }
  InputRelease release;release.consume();FrameInput held;held.pause=true;held.reset=true;held.pads[0].one=true;
  auto consumed=release.filter(held);check(!consumed.pause&&!consumed.reset&&!consumed.pads[0].one,"menu pause reset actions consumed");
@@ -481,7 +584,7 @@ void options_frames(const RomFont& font,const std::filesystem::path& output){
  for(auto language:{Language::english,Language::portuguese}) {
   const std::string suffix=language==Language::english ? "-en" : "-pt";
   for(const auto& state:states)for(unsigned row=0;row<l::rows;++row)for(bool missing:{false,true}) {
-   OptionsMenu menu;menu.open({25,400},state.pending,true,false);
+   OptionsMenu menu;menu.open({25,400},state.pending,true,fill);
    menu.set_language(LanguagePreference::english,{true,true,!missing});
    menu.set_sound(SoundPreference::fm,missing ? SoundAvailability::no_rom : SoundAvailability::available);
    if(state.failed)menu.failed();
@@ -597,6 +700,6 @@ int main(int argc,char**argv){
     try{
  if(argc==4 && std::string_view(argv[1])=="--crash-worker")return crash_worker(argv[2],argv[3]);
  if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;scaffold.emplace(oracle::Scaffold::originals);rom(argv[1],argc>2?argv[2]:nullptr);}
- else{scaffold.emplace(oracle::Scaffold::authored);codec();persistence();failures();driver();encounter_choices();navigation();language_row();sound_row();layout();}
+ else{scaffold.emplace(oracle::Scaffold::authored);codec();persistence();widescreen_rotation();failures();driver();widescreen_driver();encounter_choices();navigation();language_row();sound_row();layout();}
  std::cout<<"Options tests passed.\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

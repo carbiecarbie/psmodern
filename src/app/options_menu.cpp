@@ -131,11 +131,12 @@ constexpr UiText row_explanations[]{UiText::explain_encounters,UiText::explain_e
     UiText::explain_widescreen,UiText::explain_controls,UiText::explain_language,UiText::explain_sound};
 static_assert(std::size(row_labels)==rows && std::size(row_explanations)==rows);
 constexpr LanguagePreference language_choices[]{LanguagePreference::native,LanguagePreference::english,LanguagePreference::portuguese};
+constexpr UiText widescreen_choices[]{UiText::off,UiText::on,UiText::fill};
 // Each language is named in its own words, so that a player who reads only
 // one of them finds it.
 constexpr std::string_view language_names[]{"","ENGLISH","PORTUGUES"};
 }
-void OptionsMenu::open(game::Options options,bool pending,bool automap,bool widescreen) {
+void OptionsMenu::open(game::Options options,bool pending,bool automap,WidescreenMode widescreen) {
     game::validate(options);draft_=options;pending_=pending;automap_=automap;widescreen_=widescreen;
     visible_=true;armed_=false;failed_=language_failed_=sound_failed_=false;selected_=0;previous_={};next_repeat_=0;
 }
@@ -171,7 +172,10 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
         next_repeat_=now+(fresh ? .35 : .12);
         if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : rows-1))%rows;
         if(selected_==2 && input.left!=input.right)automap_=!automap_;
-        if(selected_==3 && input.left!=input.right)widescreen_=!widescreen_;
+        if(selected_==3 && input.left!=input.right) {
+            constexpr auto count=std::size(widescreen_choices);
+            widescreen_=static_cast<WidescreenMode>((current(3)+(input.right ? 1 : count-1))%count);
+        }
         if(selected_<2 && input.left!=input.right) {
             const auto& choices=selected_==0 ? game::encounter_percent_choices : game::experience_percent_choices;
             auto& current=selected_==0 ? draft_.encounter_percent : draft_.experience_percent;
@@ -210,7 +214,12 @@ std::vector<std::string> OptionsMenu::choices(unsigned row,Language language) co
     switch(row) {
     case 0:return percents(game::encounter_percent_choices);
     case 1:return percents(game::experience_percent_choices);
-    case 2:case 3:return {std::string(ui_text(UiText::off,language)),std::string(ui_text(UiText::on,language))};
+    case 2:return {std::string(ui_text(UiText::off,language)),std::string(ui_text(UiText::on,language))};
+    case 3: {
+        std::vector<std::string> values;
+        for(const auto choice:widescreen_choices)values.emplace_back(ui_text(choice,language));
+        return values;
+    }
     case controls_row:return {};
     case language_row:return {std::string(ui_text(UiText::automatic_short,language)),std::string(language_names[1]),std::string(language_names[2])};
     case sound_row:return {"PSG","FM"}; // the chips' names, in both languages
@@ -225,7 +234,7 @@ std::size_t OptionsMenu::current(unsigned row) const {
     case 0:return index(game::encounter_percent_choices,draft_.encounter_percent);
     case 1:return index(game::experience_percent_choices,draft_.experience_percent);
     case 2:return automap_ ? 1 : 0;
-    case 3:return widescreen_ ? 1 : 0;
+    case 3:return std::size_t(widescreen_);
     case language_row:return std::size_t(language_);
     case sound_row:return effective_sound_preference(sound_,sound_availability_==SoundAvailability::available)==SoundPreference::fm ? 1 : 0;
     }

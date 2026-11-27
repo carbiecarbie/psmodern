@@ -65,6 +65,18 @@ void scaling() {
     check(viewport(345,193,344)==Viewport{0,0,344,192,1},"wide odd bars");
     check(viewport(100,100,344)==Viewport{-122,-46,344,192,1},"wide minimum 1 clips");
     refuses([] { viewport(768,576,300); },"other canvas widths");
+    check(fill_viewport({0,0,1920,1080})==WindowRect{0,4,1920,1072},"FILL 1920 x 1080");
+    check(fill_viewport({95,0,2245,1080})==WindowRect{250,0,1935,1080},"FILL 2340 x 1080 with a left cutout");
+    check(fill_viewport({0,0,2340,1080})==WindowRect{202,0,1935,1080},"FILL leaves the odd column at right");
+    check(fill_viewport({0,0,2560,1440})==WindowRect{0,5,2560,1429},"FILL 2560 x 1440 leaves the odd row at bottom");
+    check(fill_viewport({0,0,1366,768})==WindowRect{0,3,1366,762},"FILL 1366 x 768");
+    check(fill_viewport({0,0,1024,768})==WindowRect{0,98,1024,572},"FILL 1024 x 768");
+    check(fill_viewport({9,12,1032,576})==WindowRect{9,12,1032,576},"FILL exact 3x with offset");
+    check(fill_viewport({0,0,100,100})==WindowRect{0,22,100,56},"FILL fits below 1x");
+    check(fill_viewport({0,0,1,4})==WindowRect{0,1,1,1},"FILL rounds to at least a pixel");
+    check(fill_viewport({3,7,0,480})==WindowRect{} && fill_viewport({3,7,640,0})==WindowRect{},"FILL empty drawable");
+    check(fill_viewport({0,0,2'000'000'000,1'000'000'000})==WindowRect{104'166'666,0,1'791'666'667,1'000'000'000},
+          "FILL cross-products fit in 64 bits");
 }
 // Applying a canvas width to a normal window (milestone 10): sizes in output
 // pixels, converted to window units, lowered to fit the usable bounds.
@@ -85,6 +97,8 @@ void canvas_windows() {
     const auto quarter=canvas_window({100,100,768,576},960,720,344,3,desktop,frame);
     check(quarter==CanvasWindow{{71,157,826,461},3},"HiDPI 5:4 rounds window units up");
     check(viewport(826*5/4,461*5/4,344).scale==3,"the rounded-up window keeps the scale");
+    check(fill_viewport({0,0,quarter.rect.width*5/4,quarter.rect.height*5/4})==WindowRect{0,0,1032,576},
+          "FILL uses the snapped HiDPI drawable pixels");
     // 2:1 at 11x: 1892 x 1056 units (3784 x 2112 output pixels) do not fit 1040 rows, 10x does.
     check(canvas_window({0,0,1408,1056},2816,2112,344,11,desktop,frame)==CanvasWindow{{8,48,1720,960},10},"HiDPI lowers the scale to fit");
     // 1366 x 768 with a 40-pixel taskbar: 4x wide (1376) does not fit, 3x does.
@@ -866,6 +880,26 @@ void screen_pacing() {
     { auto c=counting_one(); c.speed(4,100); check(c.due(100+2*f4+1e-6)==2,"speed change forgets the previous count"); }
     { auto c=counting_one(); c.due(100); check(c.due(100+2*f2+1e-6)==2,"lag rebase forgets the previous count"); }
 }
+void speed_indicator() {
+    SpeedIndicator indicator;
+    check(indicator.label(10).empty(),"no speed indicator at session start");
+    indicator.press(2,10);
+    check(indicator.label(10)=="2X","2X immediately after a press");
+    check(indicator.label(11.999)=="2X","speed indicator lasts almost two seconds");
+    check(indicator.label(12).empty(),"speed indicator expires at two seconds");
+    check(indicator.label(13).empty(),"speed indicator stays expired");
+    indicator.press(4,14);
+    check(indicator.label(14)=="4X","4X immediately after a press");
+    indicator.press(1,15);
+    check(indicator.label(15)=="1X","1X immediately after a press");
+    check(indicator.label(16)=="1X" && indicator.label(16.999)=="1X","another press restarts the timer");
+    check(indicator.label(17).empty(),"speed indicator expires two seconds after the latest press");
+    indicator.press(4,18);
+    indicator.hide();
+    check(indicator.label(18.1).empty(),"hiding clears an active speed indicator");
+    indicator.press(2,18.2);
+    check(indicator.label(18.2)=="2X","a new press shows the indicator after hiding it");
+}
 void pacing() {
     FrameClock c(10);
     check(c.due(10)==1 && c.due(10)==0,"deadline executes exactly once");
@@ -1018,7 +1052,7 @@ int main() {
     // The authored programs' code that no test renders runs on the oracle's core.
     oracle::Scaffold scaffold;
     try { colours(); scaling(); canvas_windows(); compositing(); inputs(); saves(); backups(); driver(); flags(); guard(); observed_segments();
-        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); unavailable_fm(); resampling(); pacing(); screen_pacing();
+        frame_end_save(); game_stop(); hooks_at_depth(); automap_files(); unavailable_fm(); resampling(); speed_indicator(); pacing(); screen_pacing();
         std::cout<<"App test groups passed (no SDL or ROM).\n"; return 0;
     } catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

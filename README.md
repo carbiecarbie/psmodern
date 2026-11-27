@@ -44,9 +44,10 @@ controller `Y` while exploring):
   easy mode. Story and fixed fights never change.
 - **Dungeon automap:** press `M` (or controller `X`) inside a dungeon to view
   the parts of the current floor you have explored, saved alongside each slot.
-- **16:9 widescreen:** widens the world map, towns, and spaceship flights to
+- **Widescreen:** widens the world map, towns, and spaceship flights to
   `344x192` using the cartridge's own map data and tiles. Battles, menus, and
-  dungeons stay centered in their original `256x192` frame.
+  dungeons stay centered in their original `256x192` frame. Choose ON for
+  whole-number scaling or FILL to use more of the screen with light smoothing.
 - **Fast-forward (`1x` / `2x` / `4x`):** press `Tab` (or `RB`) to speed up
   gameplay while keeping music and sound effects at normal tempo and pitch.
 - **Live language switching:** switch between English and Portuguese during

@@ -47,13 +47,19 @@ std::string_view label(Action action,Language language,unsigned speed) {
     throw std::invalid_argument("Unsupported touch button or speed.");
 }
 }
-TouchLayout touch_layout(int width,int height,WindowBorders insets,bool wide,bool gameplay,bool automap) {
+TouchLayout touch_layout(int width,int height,WindowBorders insets,WidescreenMode mode,bool controls_visible,bool gameplay,bool automap) {
+    const bool wide=uses_wide_canvas(mode);
+    const bool fill=mode==WidescreenMode::fill;
     TouchLayout layout;
     const int left=std::clamp(insets.left,0,std::max(0,width));
     const int top=std::clamp(insets.top,0,std::max(0,height));
     const int w=width-left-std::max(0,insets.right),h=height-top-std::max(0,insets.bottom);
     if (w<=0 || h<=0) return layout;
     const bool portrait=width<=height;
+    if (fill && !portrait && !controls_visible) {
+        layout.game=fill_viewport({left,top,w,h});
+        return layout;
+    }
     auto& b=layout.buttons;
     auto& hit=layout.hit;
     int unit,side,lx,y;
@@ -63,9 +69,10 @@ TouchLayout touch_layout(int width,int height,WindowBorders insets,bool wide,boo
         unit=std::min(w/6,h/9);
         side=3*unit;
         const int gap=std::max(1,unit/8),row=unit*3/4,reserve=side+row+3*gap;
-        layout.game=fit_game({left,top,w,h-reserve},canvas_width(wide));
+        const WindowRect area{left,top,w,h-reserve-(fill && unit ? gap : 0)};
+        layout.game=fill ? fill_viewport(area) : fit_game(area,canvas_width(wide));
         if (!unit) return layout;
-        layout.game.y=top+std::min(gap,h-reserve-layout.game.height);
+        layout.game.y=top+(fill ? gap : std::min(gap,h-reserve-layout.game.height));
         const int row_y=layout.game.y+layout.game.height+gap,below=row_y+row+gap;
         y=below+std::max(0,(top+h-below-side)/2);
         lx=left+unit/4;
@@ -98,11 +105,23 @@ TouchLayout touch_layout(int width,int height,WindowBorders insets,bool wide,boo
         if (wide && unit && central_space<canvas_width(false)) central_space-=2;
         const int picture_space=static_cast<int>(std::min<std::int64_t>(w,
             std::int64_t(central_space)*canvas/canvas_width(false)));
-        layout.game=fit_game({left,top,picture_space,h},canvas);
+        const WindowRect area{left,top,picture_space,h};
+        layout.game=fill ? fill_viewport(area) : fit_game(area,canvas);
         layout.game.x=left+(w-layout.game.width)/2;
         if (!unit) return layout;
         lx=left+margin;
         const int rx=left+w-margin-side,button=(side-gap)/2;
+        if (fill) {
+            const auto& game=layout.game;
+            auto edge=[&](int column) {
+                return game.x+static_cast<int>((std::int64_t(game.width)*column+wide_width/2)/wide_width);
+            };
+            // Both side groups fit between the safe edge and these limits.
+            if (edge(wide_centre_x)<lx+side || edge(wide_centre_x+picture_width)>rx) {
+                layout.game=fill_viewport({left,top,game.width-1,h});
+                layout.game.x=left+(w-layout.game.width)/2;
+            }
+        }
         y=std::max(row_y+row+gap,std::min(top+h*38/100,top+h-margin-side));
         b[Action::button1]={rx,y+side-button-unit/8,button,button};
         b[Action::button2]={rx+side-button,b[Action::button1].y-unit*9/10,button,button};

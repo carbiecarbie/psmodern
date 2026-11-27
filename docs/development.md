@@ -103,11 +103,13 @@ The window title shows the active language, rates, speed and shortcut bindings
 344x192 canvas and texture (milestone 10): the 256x192 original picture uses
 its first 256 columns with nearest-neighbour integer scaling, centred with
 black bars in a resizable window initially 768x576; with the widescreen
-option on, all 344 columns are shown and the 256-column centre sits at x 44
-(`src/app/host.h`, `src/app/sdl_host.h`). `viewport` takes the canvas width,
-and applying the option resizes a normal window to the canvas at its current
-scale, lowered until it fits the usable display bounds; maximized and
-fullscreen windows change only the viewport. Alt+Enter toggles borderless desktop fullscreen.
+mode ON or FILL, all 344 columns are shown and the 256-column centre sits at
+x 44 (`src/app/host.h`, `src/app/sdl_host.h`). OFF and ON use `viewport` with
+whole-number scaling. FILL uses `fill_viewport` with drawable pixels on each
+presentation. Only a canvas-width change snaps a normal window to its current
+whole-number scale, lowered until it fits the usable display bounds. A
+maximized, minimized or fullscreen window keeps its size. Alt+Enter toggles
+borderless desktop fullscreen.
 
 `psmodern.exe --version` prints `PSModern 1.3.2` and exits with 0 before any
 window or SDL start-up; combined with any other argument it is refused. The
@@ -279,18 +281,36 @@ never makes a change pending.
 
 **Settings format 3 (widescreen).** A record gains a last field,
 `<label> <sha256> <encounter> <experience> <automap> <widescreen>`, both
-switches `0` or `1`; formats 1 and 2 read as widescreen off. The file is
-written as `psmodern-options 3` only while some record (committed, pending or
-backup) has widescreen on; otherwise it is still written as format 2, so
-release 0.4.0 keeps reading it. Like automap, the switch sits beside the
-routine options, never reaches `register_routines` and never makes a change
-pending (`src/app/settings.*`). Details of the option itself are under
+switches `0` or `1`. Formats 1 and 2 read as widescreen off. Like automap,
+the mode sits beside the routine options, stays out of `register_routines`
+and takes effect on Apply. Details of the option itself are under
 [widescreen](#widescreen) below.
 
 **Settings format 4 (milestone 15 play-test).** The unpublished milestone 15
 play-test wrote format 4 with one extra switch at the end of each record. The
 reader validates and ignores that switch, keeps the other settings in all three
-records, and writes format 2 or 3 on the next settings save.
+records, and writes format 2 or 3 on the next settings save if all modes are
+still OFF or ON.
+
+**Settings format 5 (FILL).** Format 5 uses the same fields as format 3, with
+one widescreen token per populated record. OFF is `0`, ON is `1`, and FILL
+is `2`. The writer checks the committed, pending and backup records. It
+writes format 5 if any contains FILL, format 3 if any contains ON and none
+contains FILL, and format 2 without the widescreen field if all are OFF.
+Releases 1.3.2 and 0.4.0 can read formats 3 and 2, respectively. Applying ON before
+downgrading can leave the file in format 5 while its backup still holds FILL.
+
+Release 1.3.2 reports `Unsupported settings format or version.` for format 5
+and starts with original preferences (both rates 100%, Automap and Widescreen
+OFF). Inserting `2` into a format 3 record also rejects the whole companion
+with `Invalid settings widescreen token.`, even for an unselected record.
+SRAM still loads and saves. Automatic SRAM saves preserve a rejected
+companion and skip its backup copy. A successful Options Apply replaces it
+with the older build's choices. Cancel or Options normally applies on exit.
+The automap discovery file and separate preferences remain outside this
+companion. Keep a matching copy of the SRAM and companion together before
+downgrading. Returning to a newer build recovers preserved preferences when
+a record's digest still matches the SRAM.
 
 ## Automap
 
@@ -405,18 +425,33 @@ it reads and why. In the code:
   when the frame is not widened (pillarbox). The machine and the VDP are not
   changed, nothing is copied while the option is off, and the option never
   reaches `register_routines`.
-- `FrameDriver::set_widescreen`, `widescreen_option` and the three-argument
-  `choose_options` apply it at once, as for automap. It is read-only (off) in
-  recording mode.
+- `SaveStore` persists `WidescreenMode` in the settings companion.
+  `FrameDriver::set_widescreen`, `widescreen_option` and the three-argument
+  `choose_options` carry it alongside automap. Recording mode forces OFF.
   The host keeps the wide picture of the moment a host menu opens
   (`wide_menu_background`), so a held menu keeps its bands.
 - `apply_canvas`, `upload_bands`, `centre_rect` and `canvas_window` (see
-  [Program](#program)) do the window side.
+  [Program](#program)) manage the canvas and window. ON and FILL use the
+  same canvas, including the 256-column overlays and any black side bands.
+- `present` uses the nearest source texture directly at an exact integer
+  fit. At fractional sizes FILL expands the full canvas by the ceiling of
+  the larger of the two destination scale ratios, then draws the result
+  with linear sampling. The display caches the intermediate for that
+  multiple and releases it on renderer reset or destruction. If the
+  renderer lacks target support or allocation fails, the host uses ON and
+  writes one diagnostic for the display. The upload stays at canvas size.
+- `touch_layout` uses the same `fill_viewport` for Android. In landscape,
+  hidden controls leave the entire safe area available. Visible controls
+  keep the original layout and reserve the space around the central 256
+  columns. In portrait the picture stays above the shortcut row. The host
+  draws touch controls after the picture in output coordinates.
 
 **Tests.** `wide_view_unit` (no ROM: the decoder against the VDP on random
 states, `render_wrapped` against the decoder (`wrapped_against_decoder`), the reader on a synthetic image, the state probes) and
-`sdl_canvas` (the host canvas on SDL's dummy video driver: narrow canvas equal
-to 0.4.0's, wide canvas, pillarbox, `apply_canvas`) are fast and need no ROM.
+`sdl_canvas` (dummy video and software rendering: 0.4.0 narrow pixels, ON
+nearest pixels, FILL sampling and fallback, pillarbox, overlays, resets and
+window geometry) are fast and need no ROM. `app_unit` and
+`touch_controls_unit` cover the drawable and touch geometry.
 `rom_<version>_wide_view_reader` reads the 11 areas of the real ROM;
 `rom_<version>_wide_view_probes` covers the option switched on mid-stay and
 during a transfer fade, power cycle, ROM swap and recording mode; `rom_<version>_wide_view_ship` and `_ship_routes` (the

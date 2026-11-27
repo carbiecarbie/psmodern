@@ -208,7 +208,7 @@ std::optional<std::string> FrameDriver::choose_options(const game::Options& opti
     if(auto error=store_.choose(options,machine_->memory().cartridge_ram()))return error;
     chosen_=options;return {};
 }
-std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap,bool widescreen) {
+std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap,WidescreenMode widescreen) {
     if(options_restricted())return "Settings cannot change while recording.";
     store_.request_widescreen(widescreen);
     auto error=choose_options(options,automap);

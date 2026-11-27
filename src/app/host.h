@@ -4,6 +4,7 @@
 #include "app/wide_picture.h"
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace psmodern::app {
 // Packed SDL_PIXELFORMAT_ARGB8888, independent of the host byte order.
@@ -33,6 +34,8 @@ void band_pixels(std::span<std::uint32_t> canvas,const WidePicture* wide);
 // Window geometry in window units (SDL's window coordinates; equal to output
 // pixels unless the display scales, HiDPI).
 struct WindowRect { int x=0,y=0,width=0,height=0; bool operator==(const WindowRect&) const = default; };
+// Largest 344x192 fit in output pixels, with the spare pixel at right or bottom.
+WindowRect fill_viewport(WindowRect area);
 struct WindowBorders { int top=0,left=0,bottom=0,right=0; };
 struct CanvasWindow { WindowRect rect; int scale=1; bool operator==(const CanvasWindow&) const = default; };
 // The normal window that shows a canvas_width x 192 canvas at `scale`,
@@ -102,6 +105,16 @@ public:
 private:
     bool keyboard_armed_=false,shoulder_armed_=false;
     bool keyboard_previous_=false,shoulder_previous_=false;
+};
+
+class SpeedIndicator {
+public:
+    void press(unsigned speed,double now);
+    void hide() { label_={}; }
+    std::string_view label(double now) const;
+private:
+    std::string_view label_;
+    double expires_=0;
 };
 
 // Issue 7 (maintainer decision 2026-11-26): at 2x and 4x the clock keeps step

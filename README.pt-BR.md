@@ -48,9 +48,11 @@ jogo (`Escape` ou botão `Y` no controle durante a exploração):
 - **Automapa de masmorras:** aperte `M` (ou `X` no controle) dentro de uma
   masmorra para ver os trechos já explorados do andar atual (`ANDAR 1`, `ANDAR
   B1`, etc.), salvo junto com cada partida.
-- **Tela larga (Widescreen 16:9):** amplia o mapa-múndi, as cidades e o voo da
+- **Tela larga (Widescreen):** amplia o mapa-múndi, as cidades e o voo da
   nave para `344x192` usando os próprios mapas e tiles do cartucho. Batalhas,
-  menus e masmorras continuam centralizados nos `256x192` originais.
+  menus e masmorras continuam centralizados nos `256x192` originais. Escolha
+  SIM para ampliar em múltiplos inteiros ou TOTAL para aproveitar mais da
+  tela com uma leve suavização.
 - **Aceleração (`1x` / `2x` / `4x`):** aperte `Tab` (ou `RB`) para acelerar o
   jogo mantendo a música e os efeitos sonoros no andamento e tom normais.
 - **Troca de idioma ao vivo:** alterne entre inglês e português durante a

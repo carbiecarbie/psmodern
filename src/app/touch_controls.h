@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "app/bindings.h"
+#include "app/widescreen_mode.h"
 #include <map>
 #include <optional>
 #include <set>
@@ -16,7 +17,7 @@ struct TouchLayout {
     bool overlay=false;
 };
 // Dimensions, cutout insets and finger coordinates are all in output pixels.
-TouchLayout touch_layout(int width,int height,WindowBorders insets,bool wide,bool gameplay,bool automap);
+TouchLayout touch_layout(int width,int height,WindowBorders insets,WidescreenMode mode,bool controls_visible,bool gameplay,bool automap);
 
 // After the last controller input, how long a touch cannot bring the hidden
 // controls back (issue 6: a stray touch woke them while playing with a pad).
