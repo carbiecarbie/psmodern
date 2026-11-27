@@ -56,8 +56,9 @@ the new clock before the release.
 each of issues 6, 7 and 8, pointing to 1.3.2. The reporter then closed 7
 (1.3.2 fixed it on his device) and 6 (the touches were accidental). Issues 8 and
 9 were answered again with 1.4.0 (above). Issue
-[10](https://github.com/carbiecarbie/psmodern/issues/10) (a shop helper)
-has no decision and no answer. The S24 holds a debug-signed
+[10](https://github.com/carbiecarbie/psmodern/issues/10) (a shop helper and
+magic descriptions) was answered and closed as not planned on 2026-11-27 by
+the maintainer's decision: such help fits only if he reworks the interface. The S24 holds a debug-signed
 test build and will not take the official APK without a backup, an uninstall
 and a restore.
 
@@ -217,7 +218,6 @@ A test APK of an uncommitted tree is built with
   Android Speed button inside one frame count as one; a lazy automap-only
   `SaveStore::choose` on a fresh store drops a stored widescreen mode (only
   tests reach it). The first and third are Tier A fixes.
-- Issue 10 (a shop helper) has no decision.
 - The macOS package above.
 - `../m18-mockup/` can be deleted.
 - The maintainer chooses and starts the next milestone explicitly.
