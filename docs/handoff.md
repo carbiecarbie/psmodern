@@ -114,7 +114,9 @@ need no ROM.
 - The S24 holds this round's test build (`../issue8-9-playtest/build.txt`),
   signed with this PC's debug key. `../issue8-9-playtest/android/pad.sh`
   drives a virtual gamepad for checks without a controller.
-- The worktrees `../issue8-9-wt` and `../issue8-9-review` can be removed.
+- The round's worktrees were removed on 2026-11-27 with the maintainer's
+  word; the executor's logs and mutation scripts are kept in
+  `../issue8-fill/executor-logs/`.
 
 ## The three Android issues (in `main` since `a090fa9`)
 
