@@ -54,37 +54,60 @@ the new clock before the release.
 
 **Issue comments posted** on 2026-11-26 with the maintainer's word, one on
 each of issues 6, 7 and 8, pointing to 1.3.2. The reporter then closed 7
-(1.3.2 fixed it on his device) and 6 (the touches were accidental). Issue 8
-stays open until the fill choice exists; his new comment there shows a black
-border on all four sides, which is the whole-step scale (see below), not
-overscan, and is not answered yet. He also opened issues
-[9](https://github.com/carbiecarbie/psmodern/issues/9) and
-[10](https://github.com/carbiecarbie/psmodern/issues/10) (a shop helper and
-magic descriptions; no decision, no answer). The S24 holds a debug-signed
+(1.3.2 fixed it on his device) and 6 (the touches were accidental). Issues 8 and
+9 are done in `main` (next section) and stay open, without an answer, until a
+release carries them; his new comment on issue 8 shows a black border on
+all four sides, which is the whole-step scale, not overscan. Issue
+[10](https://github.com/carbiecarbie/psmodern/issues/10) (a shop helper)
+has no decision and no answer. The S24 holds a debug-signed
 test build and will not take the official APK without a backup, an uninstall
 and a restore.
 
-## Maintenance round in progress: issues 9 and 8 (2026-11-27)
+## Issues 9 and 8 in `main`, not released (2026-11-27)
 
-The maintainer asked for both together and left the choice of a milestone to
-the agent: no milestone. He asked the agent to orchestrate up to the
-play-test, with GPT-6.2 Astra for the plan and OpenAI models for the code.
-Nothing of this round is in `main`; the work is uncommitted in the worktree
-`../issue8-9-wt` (detached at `1a27505`, its own `build-rel`), one writer at
-a time. `../working-log.md` has the running record.
+Both were done as one maintenance round (no milestone) and are in `main`
+since `71840d4`, pushed on 2026-11-27 with the maintainer's word (`HEAD` =
+`origin/main` at that push). CI run 45970838417 of that push passed in both
+jobs, Windows and macOS. CI has no ROM: on macOS 438 tests are registered
+and the 315 ROM tests skip, so the Mac check is the build and the tests that
+need no ROM.
+No release carries the change. Draft answers for the two issues wait in
+`../issue8-fill/issue-answers-draft.md`; the 1.3.2 answers were posted when
+the release was out.
 
-- **Issue 9, the speed indicator.** It covers the enemy's HP window in
-  battle (`../issue9-speed-badge/` has the renders and the approved animated
-  mockup). Maintainer decision: the indicator shows for 2 seconds after each
-  press of Speed and then hides, and it also shows `1X` for 2 seconds on the
-  return to 1x. No new option. Being implemented in the worktree.
-- **Issue 8, the fill choice** (section below). `../issue8-fill/design.md`
-  holds the design: Astra's plan, what the agent checked and its decisions.
-  Two points for the maintainer at the play-test: with the touch controls
-  visible in landscape FILL gains almost nothing, because the controls keep
-  their place beside the central picture; and a file that holds FILL is
-  written in a new settings format that 1.3.2 refuses (it then plays with
-  default options; the cartridge save is not affected). Not started.
+- **Issue 9:** the speed indicator shows the new speed for 2 seconds after
+  each press of Speed, `1X` included, then hides; a power cycle or the
+  Android background hides it (`SpeedIndicator`, `src/app/host.*`).
+- **Issue 8:** FILL (TOTAL in Portuguese) is the third Widescreen choice
+  (`WidescreenMode`, `src/app/widescreen_mode.h`). It fits the 344x192
+  picture into the output keeping its proportion (`fill_viewport`,
+  `src/app/host.cpp`) through a whole-multiple intermediate texture with
+  linear filtering (`src/app/sdl_host.cpp`). A file that holds FILL is
+  settings format 5; releases up to 1.3.2 refuse it and play with default
+  options until Options is applied, and the cartridge save is not affected.
+  `../issue8-fill/design.md` has the plan, the decisions and the review.
+- **Maintainer decisions after his play-test (2026-11-27):** the names FILL
+  / TOTAL and the help text are approved; FILL stays as it is with the touch
+  controls visible in landscape, where it gains almost nothing (on his S24
+  2413x1347 against ON's 2408x1344, and 2580x1440 with the controls hidden
+  by a controller); the three older findings of the review are only
+  recorded (see Pending).
+- **Checked:** the complete suite, 439 of 439 with no skip
+  (`build-rel/issue8-9-suite.log`); the independent review of issue 9 and of
+  the settings part (GPT-6.2 Astra: approve with changes, the three about
+  tests taken); on this PC's Direct3D the presented pixels read back through
+  a resize and a fullscreen toggle in FILL, 2560x1440 showing 2560x1429
+  (`../issue8-fill/render/resize_fill.cpp`); on the S24 the measurements
+  above, from screen captures (`../issue8-9-playtest/android/captures/`).
+  The maintainer's PC session ended with ON written, so nobody has judged
+  FILL by eye on a monitor. Nobody has seen FILL on a Mac.
+- `docs/project-status.md` still describes two Widescreen choices, an
+  indicator shown while accelerated and settings formats up to 4. Under
+  `docs/AGENTS.md` it is updated at the release record.
+- The S24 holds this round's test build (`../issue8-9-playtest/build.txt`),
+  signed with this PC's debug key. `../issue8-9-playtest/android/pad.sh`
+  drives a virtual gamepad for checks without a controller.
+- The worktrees `../issue8-9-wt` and `../issue8-9-review` can be removed.
 
 ## The three Android issues (in `main` since `a090fa9`)
 
@@ -153,22 +176,6 @@ A test APK of an uncommitted tree is built with
 -VersionOverride <version>` and re-signed with the debug key for the S24, as
 `../android-fixes-playtest/build.txt` records.
 
-### Decided, not started: filling the screen (issue 8)
-
-The black bars come from the whole-step scale (1920x1080 shows the wide
-picture at 5x, 1720x960). On the mockups in `../android-fill-mockup/` the
-maintainer chose a third choice in the Widescreen row (off, on, fill; names
-provisional) that fills the screen with a fractional scale and light
-smoothing. The Options page stays at seven rows
-([milestone 18](milestone-18-plan.md)). It has no design note yet. What it
-touches: the widescreen switch is a 0/1 token of the shared settings file
-(`src/app/settings.cpp`), which a third value would change (releases up to
-1.3.2 reject any other token); the scale is a whole number in
-`viewport` (`src/app/host.cpp`) and `fit_game`
-(`src/app/touch_controls.cpp`), drawn with nearest-neighbour scaling. Open
-for the design note: what the choice does on screens wider than 16:9, where
-keeping the proportion leaves side bars (smaller than today's).
-
 ## State of the build and the working material
 
 - `build-rel` is configured with `PSMODERN_PLAYTHROUGH_TESTS=OFF` and uses
@@ -193,6 +200,17 @@ keeping the proportion leaves side bars (smaller than today's).
   the player's offer in
   [PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)
   can be answered.
+- The next release, by the maintainer's word: it carries issues 8 and 9,
+  brings project status up to date and lets the two issues be answered.
+- Three findings of the issue 8/9 review, older than that round, recorded by
+  the maintainer's decision of 2026-11-27 and not fixed: on POSIX the
+  settings file is renamed into place before the directory flush, so a flush
+  error reports a failed Apply whose choice is already on disk
+  (`publish_bytes`, `src/app/save_store.cpp`); two complete taps on the
+  Android Speed button inside one frame count as one; a lazy automap-only
+  `SaveStore::choose` on a fresh store drops a stored widescreen mode (only
+  tests reach it). The first and third are Tier A fixes.
+- Issue 10 (a shop helper) has no decision.
 - The macOS package above.
 - `../m18-mockup/` can be deleted.
 - The maintainer chooses and starts the next milestone explicitly.
