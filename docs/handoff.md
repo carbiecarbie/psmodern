@@ -1,6 +1,6 @@
 # Session handoff
 
-Last updated: 2026-11-26
+Last updated: 2026-11-27
 
 ## macOS port merged (PR #2)
 
@@ -21,9 +21,17 @@ fork's runs until the maintainer approves them).
   contributor's, or a CI job that builds it.
 - `docs/project-status.md` does not mention macOS; it changes at a milestone
   closure or with the maintainer's word.
-- With no ROM configured, the ROM tests fail instead of skipping (reported in
-  the PR on macOS, two cases reproduced by the maintainer on Windows); not
-  tracked anywhere yet.
+- **No-ROM test failures fixed, with a CI guard** (`1a27505`, pushed on
+  2026-11-27 with the maintainer's word). With no ROM configured, 111 ROM
+  tests failed instead of skipping, as reported in the PR: three registration
+  paths expanded their command as an unquoted list, which drops an empty ROM
+  path or reference folder. The new `psmodern_add_test` keeps empty arguments.
+  Both CI jobs now configure `PSMODERN_ROM_TESTS=ON` with no ROM and run
+  `tools/check_rom_skips.py`, which fails unless every `rom` test skipped
+  with 77. CI run 45936084504 of that push passed both jobs, and each printed
+  "All 315 ROM tests skipped without a ROM." (`build-rel/norom-ci-run.log`,
+  a background shell awaited through its notification). The complete suite
+  was not run: no production code changed.
 
 ## Release 1.3.2 published
 
@@ -45,11 +53,38 @@ downloaded copies match the checksums. Recorded in the
 the new clock before the release.
 
 **Issue comments posted** on 2026-11-26 with the maintainer's word, one on
-each of issues 6, 7 and 8, pointing to 1.3.2. All three stay open: 6 and 7
-until the reporter says whether 1.3.2 helps on his device (7 asks whether
-left and right were always smooth), 8 until the fill choice exists. The S24
-holds a debug-signed test build and will not take the official APK without a
-backup, an uninstall and a restore.
+each of issues 6, 7 and 8, pointing to 1.3.2. The reporter then closed 7
+(1.3.2 fixed it on his device) and 6 (the touches were accidental). Issue 8
+stays open until the fill choice exists; his new comment there shows a black
+border on all four sides, which is the whole-step scale (see below), not
+overscan, and is not answered yet. He also opened issues
+[9](https://github.com/carbiecarbie/psmodern/issues/9) and
+[10](https://github.com/carbiecarbie/psmodern/issues/10) (a shop helper and
+magic descriptions; no decision, no answer). The S24 holds a debug-signed
+test build and will not take the official APK without a backup, an uninstall
+and a restore.
+
+## Maintenance round in progress: issues 9 and 8 (2026-11-27)
+
+The maintainer asked for both together and left the choice of a milestone to
+the agent: no milestone. He asked the agent to orchestrate up to the
+play-test, with GPT-6.2 Astra for the plan and OpenAI models for the code.
+Nothing of this round is in `main`; the work is uncommitted in the worktree
+`../issue8-9-wt` (detached at `1a27505`, its own `build-rel`), one writer at
+a time. `../working-log.md` has the running record.
+
+- **Issue 9, the speed indicator.** It covers the enemy's HP window in
+  battle (`../issue9-speed-badge/` has the renders and the approved animated
+  mockup). Maintainer decision: the indicator shows for 2 seconds after each
+  press of Speed and then hides, and it also shows `1X` for 2 seconds on the
+  return to 1x. No new option. Being implemented in the worktree.
+- **Issue 8, the fill choice** (section below). `../issue8-fill/design.md`
+  holds the design: Astra's plan, what the agent checked and its decisions.
+  Two points for the maintainer at the play-test: with the touch controls
+  visible in landscape FILL gains almost nothing, because the controls keep
+  their place beside the central picture; and a file that holds FILL is
+  written in a new settings format that 1.3.2 refuses (it then plays with
+  default options; the cartridge save is not affected). Not started.
 
 ## The three Android issues (in `main` since `a090fa9`)
 
@@ -125,9 +160,14 @@ picture at 5x, 1720x960). On the mockups in `../android-fill-mockup/` the
 maintainer chose a third choice in the Widescreen row (off, on, fill; names
 provisional) that fills the screen with a fractional scale and light
 smoothing. The Options page stays at seven rows
-([milestone 18](milestone-18-plan.md)). It is larger than a fix and has no
-plan; the widescreen switch is a 0/1 token of the shared settings file
-(`src/app/settings.cpp`), which a third value would change.
+([milestone 18](milestone-18-plan.md)). It has no design note yet. What it
+touches: the widescreen switch is a 0/1 token of the shared settings file
+(`src/app/settings.cpp`), which a third value would change (releases up to
+1.3.2 reject any other token); the scale is a whole number in
+`viewport` (`src/app/host.cpp`) and `fit_game`
+(`src/app/touch_controls.cpp`), drawn with nearest-neighbour scaling. Open
+for the design note: what the choice does on screens wider than 16:9, where
+keeping the proportion leaves side bars (smaller than today's).
 
 ## State of the build and the working material
 
@@ -153,6 +193,6 @@ plan; the widescreen switch is a 0/1 token of the shared settings file
   the player's offer in
   [PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)
   can be answered.
-- The macOS package and the no-ROM test failures above.
+- The macOS package above.
 - `../m18-mockup/` can be deleted.
 - The maintainer chooses and starts the next milestone explicitly.
