@@ -42,8 +42,10 @@ Android version in the source, milestones 15 and 16, 2026-11-21), 1.2.0
 (first official signed Android APK alongside Windows x64 plus the documentation
 refresh, 2026-11-21), 1.3.0 (the Japanese FM soundtrack, milestone 17,
 2026-11-22), 1.3.1 (the fix of the stop at the petrified companion,
-2026-11-23) and 1.3.2 (Android's bars and touch controls, even fast-forward,
-2026-11-26). The latest published release covers milestone 17 and ships both
+2026-11-23), 1.3.2 (Android's bars and touch controls, even fast-forward,
+2026-11-26) and 1.4.0 (the FILL widescreen choice and a speed indicator that
+hides itself, 2026-11-27). The latest published release covers milestone 17
+and ships both
 Windows and Android packages.
 
 ## Next milestones

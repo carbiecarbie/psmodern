@@ -379,3 +379,22 @@ rule with a virtual gamepad); nobody played 2x or 4x on Windows before the
 release. Published as GitHub release v1.3.2 from `a090fa9`. Filling the
 screen past the whole-step scale (issue 8's black bars) is decided as a third
 Widescreen choice and not started.
+
+## Release 1.4.0 - Widescreen FILL and a speed indicator that hides (2026-11-27)
+
+The player who reported issues 6 to 8 asked for two more changes. The
+WIDESCREEN row gains a third choice, FILL (TOTAL in Portuguese), which scales
+the 344x192 picture by a fraction up to the edge of the screen with light
+smoothing (1920x1080 shows 1920x1072 instead of ON's 1720x960); on Android it
+uses the whole safe area while the touch controls are hidden, and a file that
+holds FILL is settings format 5, which 1.3.2 refuses with default options.
+The speed indicator now shows the new speed for two seconds after each press
+and hides, so it no longer covers the enemy's HP (`71840d4`, issues 8 and 9).
+The settings part had an independent review, approved with changes, all
+made. The complete suite passed 439 of 439 with zero skips on `71840d4` and
+was reused; the 1.4.0 build was warning-free and all 193 fast tests passed;
+CI passed on Windows and macOS. The maintainer played both changes on a
+Galaxy S24, where FILL measured 2580x1440 with the touch controls hidden, and
+the indicator on Windows; on Windows FILL was checked by reading Direct3D's
+picture back through a resize and a fullscreen toggle. Both packages were verified as for 1.3.2 and matched their
+checksums after download. Published as GitHub release v1.4.0 from `c2b4b3c`.

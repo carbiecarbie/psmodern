@@ -4,12 +4,13 @@
 nothing the player sees: the tests now play each cartridge from a new game to
 the title after the credits, through the rescue of the petrified companion,
 and no stop was found; the [plan](milestone-19-plan.md) records the results
-and the route's limits. The latest published release, **1.3.2** (2026-11-26),
+and the route's limits. The latest published release, **1.4.0** (2026-11-27),
 ships the Windows x64 zip and the signed Android APK
-(`PSModern-1.3.2-android-arm.apk`, ARM64 and ARMv7, `versionCode 10302`),
+(`PSModern-1.4.0-android-arm.apk`, ARM64 and ARMv7, `versionCode 10400`),
 covering through milestone 17 plus the fix of the stop at the petrified
 companion (1.3.1), Android's hidden bars, the touch controls kept hidden with
-a controller and even fast-forward at 2x and 4x (1.3.2). See the
+a controller and even fast-forward at 2x and 4x (1.3.2), and the FILL
+widescreen choice with a speed indicator that hides itself (1.4.0). See the
 [project history](project-history.md).
 
 Phantasy Star runs from the player's US Rev-A or Brazilian cartridge image.
@@ -70,7 +71,11 @@ on both cartridges in the tests, one route each, without a stop.
   Battles, dialogue, shops, houses, dungeons, scenes and the Options,
   Controls, Language and automap screens stay at 256 pixels, centred between
   black bars; the start screen stays 256. While the option is on, the window
-  keeps the wide size on every screen. The choice is saved with the shared
+  keeps the wide size on every screen. ON scales the picture by whole steps;
+  FILL (TOTAL in Portuguese, 1.4.0) scales it by a fraction to the largest
+  size that keeps its proportion, with light smoothing. On Android FILL
+  takes the whole safe area while the touch controls are hidden and fits
+  beside them while they show. The choice is saved with the shared
   options; recording mode ignores the Options shortcut and keeps widescreen off.
   The machine is the
   same either way: the option only changes what is drawn.
@@ -84,8 +89,9 @@ on both cartridges in the tests, one route each, without a stop.
   can be set like buttons, and fixed keys keep the player from being locked
   out. SAVE applies the choice at once. The screen uses the same windows as
   Options, with a small window for the controller state.
-- **Fast-forward:** each Speed press cycles 1x, 2x, 4x, then 1x, with an
-  indicator while accelerated and music at normal tempo. Options and loss of
+- **Fast-forward:** each Speed press cycles 1x, 2x, 4x, then 1x, with music
+  at normal tempo; an indicator shows the new speed for two seconds after
+  each press. Options and loss of
   focus temporarily use 1x; new sessions, F5 and recording start at 1x.
 - **Language:** on the start screen Language has its own SAVE/CANCEL. In
   Options it is the sixth row: Left and Right step through AUTO, ENGLISH and
@@ -138,7 +144,9 @@ on both cartridges in the tests, one route each, without a stop.
   and release 0.2.0 refuses a file saved with encounters 25; format 3
   (widescreen) is written only while a record has widescreen on, and formats 1
   and 2 read as widescreen off. The reader also imports play-test format 4,
-  keeping all current preferences and dropping the retired switch. Battle meseta follows the experience rate;
+  keeping all current preferences and dropping the retired switch. Format 5
+  (FILL, 1.4.0) is written only while a record holds FILL; 1.3.2 and older
+  refuse it and start with default options. Battle meseta follows the experience rate;
   other money is unchanged. Recording ignores the shortcuts and keeps no map
   ([development](development.md#options), [automap](development.md#automap)).
 

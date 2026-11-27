@@ -55,15 +55,28 @@ the new clock before the release.
 **Issue comments posted** on 2026-11-26 with the maintainer's word, one on
 each of issues 6, 7 and 8, pointing to 1.3.2. The reporter then closed 7
 (1.3.2 fixed it on his device) and 6 (the touches were accidental). Issues 8 and
-9 are done in `main` (next section) and stay open, without an answer, until a
-release carries them; his new comment on issue 8 shows a black border on
-all four sides, which is the whole-step scale, not overscan. Issue
+9 were answered again with 1.4.0 (above). Issue
 [10](https://github.com/carbiecarbie/psmodern/issues/10) (a shop helper)
 has no decision and no answer. The S24 holds a debug-signed
 test build and will not take the official APK without a backup, an uninstall
 and a restore.
 
-## Issues 9 and 8 in `main`, not released (2026-11-27)
+## Release 1.4.0 published (2026-11-27)
+
+Published with the maintainer's word: `main` pushed to `c2b4b3c` ("Prepare
+release 1.4.0", version only), annotated tag `v1.4.0` on it, GitHub release
+"PSModern 1.4.0" (Latest) with the Windows zip (SHA-256 `6852f611...f8c2`)
+and the release-signed APK (SHA-256 `f7b25bc1...3967`, versionCode 10400,
+same certificate as 1.3.2); the downloaded copies match. Packages in
+`../release-1.4.0/`, notes in `../releases/release-notes-1.4.0.md`. The
+complete suite of `71840d4` (439 of 439) was reused; on `c2b4b3c` the build
+had no warning and the fast group passed 193 of 193. Recorded in the
+[project history](project-history.md), status and roadmap. The answers on
+issues 8 and 9 are posted; both stay open for the reporter. No release
+play-test of the exact packages; the S24 holds a debug-signed build and will
+not take the release APK without a backup, an uninstall and a restore.
+
+## Issues 9 and 8, released in 1.4.0 (2026-11-27)
 
 Both were done as one maintenance round (no milestone) and are in `main`
 since `71840d4`, pushed on 2026-11-27 with the maintainer's word (`HEAD` =
@@ -71,9 +84,6 @@ since `71840d4`, pushed on 2026-11-27 with the maintainer's word (`HEAD` =
 jobs, Windows and macOS. CI has no ROM: on macOS 438 tests are registered
 and the 315 ROM tests skip, so the Mac check is the build and the tests that
 need no ROM.
-No release carries the change. Draft answers for the two issues wait in
-`../issue8-fill/issue-answers-draft.md`; the 1.3.2 answers were posted when
-the release was out.
 
 - **Issue 9:** the speed indicator shows the new speed for 2 seconds after
   each press of Speed, `1X` included, then hides; a power cycle or the
@@ -101,9 +111,6 @@ the release was out.
   above, from screen captures (`../issue8-9-playtest/android/captures/`).
   The maintainer's PC session ended with ON written, so nobody has judged
   FILL by eye on a monitor. Nobody has seen FILL on a Mac.
-- `docs/project-status.md` still describes two Widescreen choices, an
-  indicator shown while accelerated and settings formats up to 4. Under
-  `docs/AGENTS.md` it is updated at the release record.
 - The S24 holds this round's test build (`../issue8-9-playtest/build.txt`),
   signed with this PC's debug key. `../issue8-9-playtest/android/pad.sh`
   drives a virtual gamepad for checks without a controller.
@@ -200,8 +207,6 @@ A test APK of an uncommitted tree is built with
   the player's offer in
   [PR #3](https://github.com/carbiecarbie/psmodern/pull/3#issuecomment-7108021206)
   can be answered.
-- The next release, by the maintainer's word: it carries issues 8 and 9,
-  brings project status up to date and lets the two issues be answered.
 - Three findings of the issue 8/9 review, older than that round, recorded by
   the maintainer's decision of 2026-11-27 and not fixed: on POSIX the
   settings file is renamed into place before the directory flush, so a flush
