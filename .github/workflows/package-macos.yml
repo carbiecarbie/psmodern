@@ -73,7 +73,7 @@ jobs:
           root="$dir/$NAME"
           app="$root/PSModern.app"
           exe="$app/Contents/MacOS/PSModern"
-          files=$(cd "$root" && find . -path ./PSModern.app -print -prune -o -print | sort | tr '\n' ' ')
+          files=$(cd "$root" && find . -path ./PSModern.app -print -prune -o -print | LC_ALL=C sort | tr '\n' ' ')
           expected='. ./LICENSE.txt ./PSModern.app ./README.txt ./THIRD-PARTY.txt ./licenses ./licenses/Nuked-OPLL.txt ./licenses/SDL2.txt '
           [ "$files" = "$expected" ] || { echo "Unexpected files: $files"; exit 1; }
           codesign --verify --strict --verbose=2 "$app"
@@ -82,7 +82,7 @@ jobs:
             [ "$(plutil -extract $key raw "$plist")" = "$VERSION" ] || { echo "$key is not $VERSION"; exit 1; }
           done
           [ "$(plutil -extract LSMinimumSystemVersion raw "$plist")" = 11.0 ] || { echo 'LSMinimumSystemVersion is not 11.0'; exit 1; }
-          [ "$(lipo -archs "$exe" | tr ' ' '\n' | sort | tr '\n' ' ')" = 'arm64 x86_64 ' ] \
+          [ "$(lipo -archs "$exe" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')" = 'arm64 x86_64 ' ] \
             || { echo "Slices: $(lipo -archs "$exe")"; exit 1; }
           for arch in arm64 x86_64; do
             vtool -arch $arch -show-build "$exe" | grep -Eq 'minos 11\.0$' || { echo "$arch: minimum is not macOS 11.0"; exit 1; }
