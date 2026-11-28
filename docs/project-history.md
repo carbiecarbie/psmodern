@@ -398,3 +398,13 @@ Galaxy S24, where FILL measured 2580x1440 with the touch controls hidden, and
 the indicator on Windows; on Windows FILL was checked by reading Direct3D's
 picture back through a resize and a fullscreen toggle. Both packages were verified as for 1.3.2 and matched their
 checksums after download. Published as GitHub release v1.4.0 from `c2b4b3c`.
+
+## Milestone 20 - Optional retro interface (2026-11-28)
+
+The Options menu gained an Enhanced interface with proportional lettering, cartridge-paced
+windows and additional information for spells, shops, equipment and status.
+The maintainer approved the play-test. The final Continue fix preserves the
+two instruction rows and shows which save the cursor selects. The corrected
+build passed 450 regression tests and 378 playthrough cases on Windows with
+both cartridges, plus hosted Windows and macOS CI. Implementation commit
+`151d7b8`. [Milestone 20 results](milestone-20-plan.md)

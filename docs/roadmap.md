@@ -5,8 +5,8 @@ with the maintainer on 2026-11-13; milestones 10 to 14 renumbered on
 2026-11-14.** It orders the stages of
 [design](design.md) section 8 and names what each needs; it starts nothing.
 The maintainer starts each milestone explicitly, and each gets its own plan.
-It is revised at each milestone closure, most recently that of milestone 19
-(2026-11-25).
+It is revised at each milestone closure, most recently that of milestone 20
+(2026-11-28).
 
 ## Done so far
 
@@ -31,6 +31,7 @@ It is revised at each milestone closure, most recently that of milestone 19
 | [16](milestone-16-plan.md) | Personal Android APK with touch controls, cartridge import and saves shared with Windows |
 | [17](milestone-17-plan.md) | The Japanese cartridge's FM music and effects as an option, on Windows and Android, from the player's Japanese ROM |
 | [19](milestone-19-plan.md) | A recorded playthrough to the ending on each cartridge, checked against the original and the reference; no stop found, nothing playable changed, no release needed. Milestone 18 was withdrawn |
+| [20](milestone-20-plan.md) | Optional cartridge-paced Enhanced interface with proportional text, progressive windows, shop and equipment comparisons, and spell costs |
 
 Releases: 0.1.0 (start screen, 2026-11-11), 0.2.0 (adds the automap,
 2026-11-12), 0.3.0 (adds the changeable controls, 2026-11-13), 0.4.0
@@ -50,8 +51,9 @@ Windows and Android packages.
 
 ## Next milestones
 
-Milestones 1 through 17 and 19 are complete; 18 was withdrawn. The
-maintainer chooses and starts the next milestone explicitly.
+Milestones 1 through 17, 19 and 20 are complete. Milestone 18 was withdrawn.
+[Milestone 21](milestone-21-plan.md) covers the SMS Power! retranslation.
+The maintainer starts it explicitly.
 
 Candidates left by milestone 19, none decided and none needing a release:
 
@@ -73,12 +75,6 @@ Candidates left by milestone 19, none decided and none needing a release:
   SEGA data; later, tables such as enemy stats or prices could move to
   editable files. Text changes become practical after milestone 9, and
   changes anywhere in the game now that the Z80 is gone (milestone 14).
-- **A new look for the game's own menus.** Optional and undecided
-  (Maintainer decision, 2026-11-15): the field menu, the shops and the other
-  windows of the game keep the cartridge's look, and the maintainer may later
-  decide to offer a new one as an option. It has no design and no milestone,
-  and is not part of the current order; a design session with a mockup would
-  come first.
 
 ## Decided against
 

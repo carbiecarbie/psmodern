@@ -2,36 +2,19 @@
 
 Last updated: 2026-11-28
 
-## Optional retro interface
+## Milestone 20
 
-[Milestone 20](milestone-20-plan.md) is on the authorized `test/milestone-20` branch, based on `20d7a5a`. The maintainer approved the opening rhythm and reported that all
-play-test items passed except two on the Continue screen. Both are fixed.
-The maintainer subsequently confirmed that the play-test is approved.
-The tested 2 px border remains. The user's report did not request another
-border width.
+[Milestone 20](milestone-20-plan.md) is complete and the play-test is approved.
+Commit `151d7b8` contains the implementation approved for `main`.
+[Hosted Windows and universal macOS CI](https://github.com/carbiecarbie/psmodern/actions/runs/46155599061) passed.
 
-- Title Continue preserves the cartridge's fixed two-row prompts, including
-  the US implicit row break and the scroll that removes the previous choice.
-  The save picker follows the title's direct draw path. Slot names, highlight
-  and blinking cursor are visible, and loading or deleting releases the list.
-- Actual US and BR title sessions selected and loaded the second save. The
-  focused screen, text and gameplay tests passed 6/6, including distinct
-  saved names and both slot instructions. Paired images are under
-  `../m20-temporal/title-picker/`. The earlier prompt capture and isolated
-  build records are under `../m20-continue-fix/`.
-- The current Windows launchers in `../m20-playtest-final/windows/` use the
-  corrected executable without changing the player's profile. The signed
-  test APK in the same package's `android/` directory covers both ARM ABIs.
-- The dedicated runner ran `ctest --test-dir build-rel -j 16 --output-on-failure
-  --no-tests=error`, then enabled the playthrough group and repeated the
-  command with `-L playthrough`. Its completion notifications and logs
-  confirmed 450/450 in 1,778.17 s and 378/378 in 1,916.88 s with zero skips
-  (`m20-continue-complete.log`, `m20-continue-playthrough.log`).
-  Windows without ROMs passed separately, including its 325 required skips
-  (`build-norom/m20-continue-junit.xml`).
-- Independent review rechecked these title fixes, the SRAM reader, cursor,
-  retry, cancellation and native passivity. The maintainer authorized publication of the test branch
-  for hosted Windows and macOS verification.
+The final Windows launchers and signed Android package are under
+`../m20-playtest-final/`.
+The dedicated test runner's completion notifications and local logs confirm
+450/450 regression tests and 378/378 playthrough cases, all with zero skips
+(`build-rel/m20-continue-complete.log` and `m20-continue-playthrough.log`).
+The no-ROM check verified all 325 required skips. The paired images for the
+Continue fix are under `../m20-temporal/title-picker/`.
 
 ## Other open work
 

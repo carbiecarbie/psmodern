@@ -1,10 +1,12 @@
 # PSModern - Project Status
 
-**Milestone 19 was completed and accepted on 2026-11-25.** It changed
-nothing the player sees: the tests now play each cartridge from a new game to
-the title after the credits, through the rescue of the petrified companion,
-and no stop was found; the [plan](milestone-19-plan.md) records the results
-and the route's limits. The latest published release, **1.4.0** (2026-11-27),
+**Milestone 20 was completed and accepted on 2026-11-28.** The Options menu now
+offers an Enhanced interface for the US and Brazilian cartridges. Dialogue
+appears as the cartridge prints each letter, and menus open and close in
+their original order. Original is the default.
+[Milestone 20 results](milestone-20-plan.md)
+
+The latest published release, **1.4.0** (2026-11-27),
 ships the Windows x64 zip and the signed Android APK
 (`PSModern-1.4.0-android-arm.apk`, ARM64 and ARMv7, `versionCode 10400`),
 covering through milestone 17 plus the fix of the stop at the petrified
@@ -20,7 +22,7 @@ accepted in C++ at the exact instruction, and cartridge code that has no C++
 version stops the game with a message. The Z80 survives only in the tests, as
 the original that the C++ is compared with. Optional features include saved encounter and experience
 rates, a dungeon automap, session-only 2x/4x fast-forward, changeable
-controls, language selection, a widescreen view and the Japanese cartridge's
+controls, language selection, the Enhanced interface, a widescreen view and the Japanese cartridge's
 FM sound. Without saved settings, rates are original, the automap and
 widescreen are off, the sound is PSG and controls follow 0.2.0; acceleration
 starts at 1x.
@@ -34,7 +36,8 @@ maintainer starts each explicitly.
 
 The whole game, as on the cartridge, plus saved rate settings, a dungeon
 automap, fast-forward, changeable controls, live language selection and an
-optional widescreen view. Milestone 12 changed how PSModern's own screens
+optional widescreen view. The Enhanced interface adds spell costs, equipment
+comparisons, inventory capacity and experience to the next level. Milestone 12 changed how PSModern's own screens
 look (Options, Controls, start) and no feature of the game: with every option
 off the game plays and looks as it did. Milestone 19 played the whole story
 on both cartridges in the tests, one route each, without a stop.
@@ -357,9 +360,6 @@ the [per-recording census](coverage.md).
   starfield wrapped as the video chip would draw it, so stars at the right
   repeat those at the left; on some routes the last take-off frames show map
   bands beside a partial top row of stars (at most 7 lines, 3 frames).
-- **The menus keep the cartridge's look** (a new look is optional and
-  undecided, see the [roadmap](roadmap.md)), and the redone Options page covers
-  more of the scene than the old window did.
 - **No aspect correction of the picture** yet.
 - **FM sound limits.** The FM engine runs whenever the Japanese image is
   registered, also while PSG is heard; 4x with FM is measured only on a
