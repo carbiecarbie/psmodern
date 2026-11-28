@@ -1,6 +1,112 @@
 # Session handoff
 
-Last updated: 2026-11-27
+Last updated: 2026-11-28
+
+## Optional retro interface & SMS Power! v2.6.1 plans (M20 and M21)
+
+Visual design, distribution decisions and independent Codex plan review are
+complete; both chained **Tier A** plans were approved by the maintainer on
+2026-11-28 (implementation not started yet):
+
+- **Visual design approved (v2.2, 2026-11-28):**
+  `../new-ui-brainstorm/.superpowers/brainstorm/session-1/content/proposta-interface-v2-2.html`
+  passed all objective criteria after three council rounds:
+  - 256x192 at native 1x pixel scale (single layout across 4:3, 16:9 and
+    portrait Android), proportional pixel bitmap font (VWF, clean `l`,
+    guaranteed 1 px gap under uppercase PT-BR accents), 2 px outer rounded
+    borders + 1 px inner dividers (final 2 px vs. 1 px phone check during M20
+    S24 portrait play-test).
+  - Strict source fidelity: never renames or translates ROM item/spell/enemy/party
+    names (US Rev-A keeps `CRC. SLD`/`LAC. SWD`/`ATTK`; BR Tec Toy keeps
+    `ESC. CER`/`ESP. LC`/`NV`/`PE`/`PF`/`PM`/`ATQ`/`DEF`/`PRÓX.`; SMS Power!
+    uses `Alisa`/`Myau`/`Tylon`/`Lutz` and full names).
+  - Subtle player-requested aids only: full names + balanced wrapping, spell MP
+    costs + one-line effect descriptions (without repeating name/cost), shop
+    comparison + direct original purchase flow updating Meseta and Bag before
+    "Anything else?", inventory `18/24` + action + vertical Up/Down equip
+    member selector (`ATK`/`ATQ` for weapons, `DEF` for armor/shields), Status
+    `NEXT`/`PRÓX.`, and battle with up to 8 enemy HPs, `w=92` magic/target box
+    (`Power Boost`/`10` 11 px gap, `Magic Waller`/`6` 18 px, `Super Heal`/`6 MP`
+    12 px), vertical Up/Down ally targeting, and automatic 2-line pagination
+    (`▼`) over tall bosses' feet (verified on real Medusa `y=144` and Lassic
+    captures) while keeping all four heroes visible.
+  - Explicitly excluded: bestiary, permanent overworld HUD, menu-flow rewrites,
+    gameplay/rule changes.
+- **Distribution decision (2026-11-28):** after reviewing `maxim-zhao/psrp`
+  (no `LICENSE` file, non-commercial/original-condition disclaimer incompatible
+  with GPL-3.0, issue #140 asking for Frank Cifaldi's agreement, plus multiple
+  translators across `en` and `literal`), the maintainer decided **not** to
+  bundle any `psrp` text in the repository or releases. Players import the
+  single official **Source code (zip)** from the
+  [v2.6.1 release](https://github.com/maxim-zhao/psrp/releases/tag/v2.6.1) —
+  which unlocks **both** `en` (adapted) and `literal` variants at once — with a
+  direct-link button opening the release page in the system browser beside the
+  file picker (Windows, macOS, Android) and full translator credits.
+- **Approved milestone plans (2026-11-28):**
+  Independent Codex review confirmed the M20 -> M21 split and returned
+  `Approve` with no remaining findings; the maintainer approved both plans and
+  recorded three key decisions (accepting upstream-only `psrp` entries with
+  recorded reasons, falling back to the cartridge's native language with one
+  localized notice when a saved pack is missing/corrupt at launch while
+  retaining the saved SMS preference and saved `INTERFACE` choice, and
+  vendoring reader-only `miniz` (MIT)):
+  - [Milestone 20 plan](milestone-20-plan.md) (Tier A, approved): canonical
+    VDP + `CleanBackground` with a 6-case Part B0 gate (including changing
+    scene pixels under an open window and snapshot pairing); single-fire
+    observed `00:31CF`/`00:31D4` dispatch + `$C2D3` append + `00:33C9`
+    re-entry distinction; single-owner wait table resuming the actual caller
+    (including chest `00:28E1` -> `00:37A3`); concise inline Options labels
+    (`SMS EN`/`SMS LIT`) + clamped popup + 5-choice `LanguageScreen`; settings
+    format 6 across all retained records + POSIX post-rename flush
+    reconciliation; exact ROM formulas (`00:1B87`, `00:17BA`, `00:2B84`),
+    5-spell box height and curly-quote glyphs.
+  - [Milestone 21 plan](milestone-21-plan.md) (Tier A, approved): pinned
+    reader-only `miniz` (including `tools/package-android-release.ps1`
+    `-UseWorkingTree` copy + APK audit); bounded ZIP stream/parsed limits
+    (64 MiB stream / 2,000 entries / 4 MiB single / 8 MiB total / 1 MiB parsed
+    <= 600 records / <= 64 tokens + pinned v2.6.1 member SHA-256 digests
+    including `plurals.asm`); full token set (`<end>`, `<player>`, `<item>`,
+    `<number>`, `<s>` plural rule) + menu precedence (selected language then
+    `all`) + per-variant spell fit (`Power Boost`/`Magic Waller` in `en`,
+    `Powma`/`Muwarla` in `literal`); two independent inventories; cold-start
+    pre-frame-zero pack publication (launcher + CLI) + live `00:0B14`/`00:0F48`
+    switches; post-`01:4668`->`01:4676` host translator-credits card.
+- **Next step:** start [Milestone 20](milestone-20-plan.md) in a new coding
+  session, beginning with Part A (ROM-free VWF primitives) and the mandatory
+  Part B0 `CleanBackground` prototype gate before rolling out screens.
+
+## macOS release package and automation (2026-11-27)
+
+[Issue #11](https://github.com/carbiecarbie/psmodern/issues/11): Felipe
+Lippelt supplied a [universal ZIP](https://github.com/flippelt/psmodern/releases/tag/v1.4.0-macos)
+from the exact upstream `v1.4.0` commit, `c2b4b3c`, and offered a packaging
+PR. The official 1.4.0 release still holds only Windows and Android assets.
+
+- Independently downloaded the ZIP: SHA-256
+  `85b38e783a1195227dc89d680d3dbbe390e8f0fc97b75169c2c3c3fe4e965c99`
+  matches the issue; `unzip -t` passed. The Mach-O has `arm64` and `x86_64`
+  slices; the bundle declares 1.4.0 and macOS 11.0 minimum. The app is
+  ad-hoc signed and not notarized. No independent macOS launch was run.
+- Felipe reports FILL pixel readback on Metal through resize and fullscreen
+  on Apple silicon. On the same code with the BR ROM only he reports 191
+  passes, 245 skips and two failures attributed to missing start reference
+  images. This is not a full BR/US acceptance run or an independent test
+  of the downloaded ZIP.
+- The maintainer [asked Felipe to open the packaging PR](https://github.com/carbiecarbie/psmodern/issues/11#issuecomment-7230802768)
+  on 2026-11-27. The request includes selecting an existing tag so CI can
+  build `v1.4.0`. Next, review Felipe's PR when it arrives. Use the existing
+  `tools/package-macos.sh` on `macos-15` (already used by CI; `macos-14`
+  was retired). Keep the macOS 11.0 target, both architectures, ad-hoc
+  signature, and the no-ROM rules. Have CI build from an exact clean ref
+  and upload the ZIP and SHA-256 as reviewable artifacts, with no release
+  write permission. On macOS, test the produced ZIP after extraction:
+  `unzip -t`, both slices, `codesign --verify --strict`, and `--version`
+  matching the ref. Record separately whether the GUI/FILL was tested;
+  do not substitute Windows for a macOS launch.
+- Attaching Felipe's existing ZIP or publishing anything is a separate
+  maintainer decision. If a Mac is unavailable, report the unrun test
+  rather than blocking the documentation or claiming a runtime pass.
+
 
 ## macOS port merged (PR #2)
 
@@ -15,10 +121,6 @@ background shell awaited through its notification), and the PR's CI run with
 both jobs passed (the first run of `build-and-test-macos`; GitHub holds a
 fork's runs until the maintainer approves them).
 
-- **No macOS package on the Releases page yet**, although the README points
-  there. The test ZIP on the contributor's fork (`v1.3.1-macos-2`) is built
-  from `b3c4d8c`, 1.3.1 code. A package of a release commit needs a Mac: the
-  contributor's, or a CI job that builds it.
 - `docs/project-status.md` does not mention macOS; it changes at a milestone
   closure or with the maintainer's word.
 - **No-ROM test failures fixed, with a CI guard** (`1a27505`, pushed on
@@ -111,7 +213,7 @@ need no ROM.
   (`../issue8-fill/render/resize_fill.cpp`); on the S24 the measurements
   above, from screen captures (`../issue8-9-playtest/android/captures/`).
   The maintainer's PC session ended with ON written, so nobody has judged
-  FILL by eye on a monitor. Nobody has seen FILL on a Mac.
+  FILL by eye on a monitor. For the contributor's Metal check, see above.
 - The S24 holds this round's test build (`../issue8-9-playtest/build.txt`),
   signed with this PC's debug key. `../issue8-9-playtest/android/pad.sh`
   drives a virtual gamepad for checks without a controller.
@@ -218,6 +320,6 @@ A test APK of an uncommitted tree is built with
   Android Speed button inside one frame count as one; a lazy automap-only
   `SaveStore::choose` on a fresh store drops a stored widescreen mode (only
   tests reach it). The first and third are Tier A fixes.
-- The macOS package above.
+- The official macOS package and the packaging workflow remain pending (see above).
 - `../m18-mockup/` can be deleted.
 - The maintainer chooses and starts the next milestone explicitly.
