@@ -2483,7 +2483,10 @@ Steps:
 2. Run `tools/package-release.ps1 -OutputDir <folder outside the repository>`
    for Windows and `tools/package-android-release.ps1 -OutputDir <folder outside the repository> -Sdl2Dir <SDL2-2.32.10> -CredentialsFile <credentials.txt>`
    for Android (the tag does not have to exist yet; create `v<version>` on the
-   printed commit before publishing).
+   printed commit before publishing). The macOS zip needs the tag: once
+   `v<version>` is pushed, run the **Package macOS** workflow on it, or
+   `tools/package-macos.sh` on a Mac from a clean checkout of the tag
+   ([macOS build](dependencies.md#macos-build)).
 3. Extract the Windows zip into a clean folder and run `psmodern.exe --version`
    with `PATH` limited to System32, which proves the DLL set is complete.
 4. Play-test the exact release packages ([release play-test](playtests.md#release-play-test)).

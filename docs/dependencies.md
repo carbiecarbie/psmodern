@@ -154,6 +154,22 @@ never deletes anything already in the output folder. The app is not notarized. T
 (no art from the game, see the root `AGENTS.md`); `PSMODERN_ICON=<png|icns>`
 embeds a local one into the packaged app.
 
+The **Package macOS** workflow (`.github/workflows/package-macos.yml`, run by
+hand from the Actions tab) builds the package of an existing release tag
+without a Mac. Its one input is the tag (`v<major>.<minor>.<patch>`); it
+checks out exactly that tag on hosted macOS 15, refuses a checkout that is not
+the tagged commit or not clean, a tag without `tools/package-macos.sh` (1.3.1
+and older) and a tag that differs from the version in `CMakeLists.txt`, and
+runs the script (installing Rosetta first when the runner lacks it, so the
+`x86_64` slice runs too). It then tests the zip after extraction: `unzip -t`,
+the exact file list, `codesign --verify --strict`, the bundle's version and
+macOS 11.0 minimum, both slices (`lipo`, `vtool` minimum, `--version` printing
+`PSModern <version>`), only macOS libraries linked, and `THIRD-PARTY.txt`
+citing the tagged commit. It uploads the zip and its `.sha256` as one
+workflow artifact. Its token is read-only: attaching the package to the
+release stays a manual step. It does not launch the app's window, so it does
+not replace a look at the picture on a Mac.
+
 ## Windows libraries and version header
 
 `psmodern.exe` also links the Windows system libraries `comdlg32` (Open
@@ -408,6 +424,10 @@ builds the SDL2 2.32.10 source as a static universal library, then configures
 the universal app with the ROM tests on and no ROM and the same Z80
 conformance programs, checks for `NDEBUG`, builds, runs CTest and the same ROM
 skip check.
+The macOS release package has its own manual workflow (see
+[macOS build](#macos-build)); the upload action is
+`actions/upload-artifact` v7.0.2, pinned to commit
+`cf430e030ddbb5b0abf93d22962f4752f3646cd9`.
 
 ## Replay and reference scripts
 
