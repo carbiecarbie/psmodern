@@ -225,7 +225,13 @@ void scenario(const SessionRoms& session,const replay::Recording& recording,unsi
         check(!pair.changed.language_pending(),"saving current language did not replace previous pending choice");
         pair.changed.prepare_language(preference(target));save_language(folder.path/"global",preference(target));pair.changed.commit_language();
         check(*pair.changed.exploration()==explored && pair.changed.dungeon_tables()==tables,"child Save rebuilt map/tracker state");
+        const auto old_interface=pair.changed.effective_interface();
+        const auto next_interface=speed==1 ? InterfaceMode::enhanced : InterfaceMode::original;
+        check(!pair.changed.choose_options({50,400},false,WidescreenMode::off,next_interface),"interface Apply failed");
+        check(pair.changed.effective_interface()==old_interface && pair.changed.interface_preference()==next_interface,
+              "the effective interface changed before the verified return");
         pair.close();
+        check(pair.changed.effective_interface()==next_interface,"the native return did not publish the saved interface");
         check(pair.changed.active_language()==target && !pair.changed.language_pending(),"post-menu return did not install latest saved language");
         check(pair.changed.language_changes()==(speed==1 ? 1 : speed==2 ? 2 : 3),"transition was duplicated or lost");
         for(unsigned n=0;n<12;++n)pair.run();

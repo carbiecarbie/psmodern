@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/frame_driver.h"
+#include "app/host.h"
+#include "app/retro_screen.h"
+#include "app/retro_field_motion.h"
 #include "game/routines.h"
+#include "game/retro_events.h"
 #include "rom/sha1.h"
 #include "app/automap_store.h"
 #include <stdexcept>
@@ -79,12 +83,18 @@ FrameDriver::FrameDriver(std::shared_ptr<const Memory::Rom> rom,SaveStore store,
     :rom_(std::move(rom)),store_(std::move(store)),machine_(std::make_unique<Machine>(rom_,store_.load())),original_only_(original_only) {
     chosen_=overrides.apply(store_.load_preferences(machine_->memory().cartridge_ram()));
     game::validate(chosen_);
+    effective_interface_=resolve_interface(store_.interface_preference(),script_,original_only_);
+    set_clean_background(effective_interface_==InterfaceMode::enhanced);
     if(options_restricted())chosen_={};
     activate(chosen_);
     // The automap: tables from the player's identified ROM; never in recording
     // mode (or a test driver without routines), which neither tracks nor reads the file.
     bool identified=false;
-    try { identify_digest(sha1(*rom_));identified=true; } catch(const std::exception&) {}
+    try {
+        source_version_=identify_digest(sha1(*rom_));
+        language_=native_language(source_version_);
+        identified=true;
+    } catch(const std::exception&) {}
     if(identified && !options_restricted()) {
         tables_=std::make_unique<game::DungeonTables>(std::span<const std::uint8_t>(*rom_));
         tracker_=std::make_unique<game::ExplorationTracker>(*tables_);
@@ -209,11 +219,13 @@ std::optional<std::string> FrameDriver::choose_options(const game::Options& opti
     chosen_=options;return {};
 }
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap,WidescreenMode widescreen) {
+    return choose_options(options,automap,widescreen,store_.interface_preference());
+}
+std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap,WidescreenMode widescreen,
+                                                      InterfaceMode interface_preference) {
     if(options_restricted())return "Settings cannot change while recording.";
-    store_.request_widescreen(widescreen);
-    auto error=choose_options(options,automap);
-    if(error)store_.request_widescreen(store_.widescreen_preference());
-    return error;
+    if(auto error=store_.choose(options,automap,widescreen,interface_preference,machine_->memory().cartridge_ram()))return error;
+    chosen_=options;automap_=automap;return {};
 }
 std::optional<std::string> FrameDriver::choose_options(const game::Options& options,bool automap) {
     if(options_restricted())return "Settings cannot change while recording.";
@@ -223,13 +235,21 @@ std::optional<std::string> FrameDriver::choose_options(const game::Options& opti
 bool FrameDriver::request_menu(HostMenu purpose) {
     // One request per frame: a second (Options and the map pressed together)
     // never replaces the first.
-    if (original_only_ || menu_active_ || menu_request_ || !exploration_wait_ || machine_->peek(0xc212) ||
+    if (original_only_ || menu_active_ || menu_request_ || machine_->peek(0xc212) ||
         machine_->peek(0xc204) || machine_->peek(0xc205)) return false;
-    if (purpose==HostMenu::map && (!automap_enabled() || *exploration_wait_!=game::dungeon::sample.address ||
+    auto wait=exploration_wait_;
+    if (!wait && walking_update_ && machine_->cpu().sp.uint16_value<=exploration_sp_) {
+        // A four-member party often ends the frame inside the post-wait
+        // object draw. The call must still be on this walking pass's stack.
+        const auto caller=machine_->peek(exploration_sp_) | (machine_->peek(exploration_sp_+1)<<8);
+        if (caller==0x0b17 || caller==0x0b1a) wait=0x0b14;
+    }
+    if (!wait) return false;
+    if (purpose==HostMenu::map && (!automap_enabled() || *wait!=game::dungeon::sample.address ||
         machine_->peek(game::dungeon::floor)>=game::dungeon::floor_count)) return false;
-    if (machine_->peek(0xc202)!=(*exploration_wait_==0x0b14 ? 9 : 11)) return false;
-    if (*exploration_wait_==0x0b14 && machine_->peek(0xc265)) return false;
-    menu_request_=exploration_wait_;requested_purpose_=purpose;
+    if (machine_->peek(0xc202)!=(*wait==0x0b14 ? 9 : 11)) return false;
+    if (*wait==0x0b14 && machine_->peek(0xc265)) return false;
+    menu_request_=wait;requested_purpose_=purpose;
     return true;
 }
 void FrameDriver::speed(unsigned value) {
@@ -238,11 +258,73 @@ void FrameDriver::speed(unsigned value) {
     if(tempo_audio_)tempo_audio_->speed(speed_);
     if(fm_audio_)fm_audio_->speed(speed_,machine_->cycles());
 }
+void FrameDriver::set_clean_background(bool on) {
+    on=on && !options_restricted();
+    if (on==clean_enabled_) return;
+    if (on) {
+        if (!clean_) clean_=std::make_unique<CleanBackground>(*machine_);
+        else clean_->reseed(*machine_);
+    }
+    clean_enabled_=on;
+    machine_->set_video_observer(on ? clean_.get() : nullptr);
+    // Keep the already published picture until the next frame observer.
+}
 void FrameDriver::set_widescreen(bool on) {
     if(on && !options_restricted()) { if(!wide_) { wide_=std::make_unique<WideView>(rom_);wide_rom_=rom_.get(); } }
     else wide_.reset();
 }
-FrameOutput FrameDriver::run(const FrameInput& input) {
+bool FrameDriver::native_retro_scene() const {
+    const auto mode=machine_->peek(0xc202)&31;
+    return (mode<=3 && !opening_) || mode==16 || mode==17 || credits_;
+}
+bool FrameDriver::render_retro(std::span<std::uint32_t> pixels,const WidePicture* wide) {
+    const auto* frame=clean_frame();
+    if (!frame) return false;
+    if (retro_shown_.native) {
+        centre_pixels(pixels,frame->native,nullptr);
+        return true;
+    }
+    centre_pixels(pixels,frame->background,nullptr);
+    // The scrolling VDP masks its leftmost tile column. WideView reconstructs
+    // it alongside the outside bands. Keep those eight pixels on a wide map.
+    if (wide) for (int y=0;y<192;++y) for (int x=0;x<8;++x)
+        pixels[y*256+x]=rgb((*wide)[y*wide_width+wide_centre_x+x]);
+    const retro::Cartridge data(*frame->state.rom,frame->state.ram);
+    const retro::FieldMotion field(data,frame->window_table,retro_shown_.windows.battle(data));
+    if (!field.visible() && !retro_shown_.windows.paced_dialogue() && !retro_shown_.windows.open.any() &&
+        !retro_shown_.windows.field_rows && !retro_shown_.windows.question_rows.visible() &&
+        !retro_shown_.windows.stock_rows.visible() && !retro_shown_.windows.money_rows.visible() &&
+        !retro_shown_.windows.menu_motion_visible() && retro_shown_.text.lines.empty()) return true;
+    retro_layer_.assign(pixels.size(),0);
+    if (retro_shown_.windows.question_rows.visible() || retro_shown_.windows.stock_rows.visible() ||
+        retro_shown_.windows.show(retro::Window::saves))
+        retro_shown_.windows.capture_window_arrows(data,frame->window_table);
+    retro::render(retro_layer_,data,retro_shown_.windows,retro_shown_.text,retro_shown_.language,field);
+    for (std::size_t i=0;i<pixels.size();++i) {
+        const auto color=retro_layer_[i];
+        if (!color) continue;
+        // Black and white follow the same two palette entries as the ROM
+        // font. Interpolate the helper colours between them at scan time.
+        const auto palette=frame->palette[i];
+        if (palette==(63u<<6)) { pixels[i]=color; continue; }
+        const auto ink=rgb(palette>>6), paper=rgb(palette&63);
+        std::uint32_t result=0xff000000;
+        for (unsigned shift:{0u,8u,16u}) {
+            const int lo=(paper>>shift)&255, hi=(ink>>shift)&255;
+            const int shade=(color>>shift)&255;
+            result|=static_cast<std::uint32_t>((lo*(255-shade)+hi*shade+127)/255)<<shift;
+        }
+        pixels[i]=result;
+    }
+    return true;
+}
+void FrameDriver::reset_retro() {
+    opening_=credits_=false;
+    retro_text_.reset();
+    retro_windows_={};
+    retro_next_={};
+}
+FrameOutput FrameDriver::run(const FrameInput& input,bool last_in_batch) {
     if(stopped_)throw std::logic_error("The game stopped; the session cannot continue.");
     std::optional<std::string> audio_error=std::move(fm_error_);
     fm_error_.reset();
@@ -265,6 +347,24 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
             throw std::logic_error(std::string("The host's ")+what+" was reached inside a nested interrupt delivery.");
     };
     Machine::Hook hook=[&](std::uint16_t pc,Memory::Mapping mapping)->std::optional<std::uint16_t> {
+        if (effective_interface()==InterfaceMode::enhanced && !machine_->depth() &&
+            mapping==Memory::Mapping{Memory::Kind::rom,1}) {
+            if (pc==0x45dd) credits_=true;
+            if (pc==0x4676) credits_=false;
+        }
+        if (effective_interface()==InterfaceMode::enhanced && !machine_->depth() &&
+            mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+            if (pc==0x00af) {
+                retro_windows_.field_rows.reset();
+            }
+            if (pc==0x05f4) opening_=true;
+            if (pc==0x00af && machine_->peek(0xc202)!=3) opening_=false;
+            if (pc==0x0085) reset_retro();
+            if (!native_retro_scene()) {
+                if (game::retro_window_entry(pc)) retro_windows_.observe(*machine_,pc);
+                if (auto resume=retro_text_.observe(*machine_,pc,retro_windows_)) return resume;
+            }
+        }
         if(tracker_ && mapping==Memory::Mapping{Memory::Kind::rom,0})track(pc);
         if(fm_audio_)try {
             if(mapping==Memory::Mapping{Memory::Kind::rom,12}) {
@@ -302,14 +402,25 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         const auto sp=cpu.sp.uint16_value;
         // This token describes the currently executing native field wait, not
         // merely a game mode. It remains valid while its frame IRQ is nested.
-        if (pc==0x0085 && mapping==Memory::Mapping{Memory::Kind::rom,0}) exploration_wait_.reset();
+        if (pc==0x00af && mapping==Memory::Mapping{Memory::Kind::rom,0}) walking_update_=false;
+        if (pc==0x0085 && mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+            exploration_wait_.reset();menu_request_.reset();walking_update_=false;
+            if (clean_enabled_ && clean_->shown()) clean_->reseed(*machine_);
+        }
         if (pc==0x0055 && mapping==Memory::Mapping{Memory::Kind::rom,0} &&
             memory.mapping(sp).kind==Memory::Kind::ram && memory.mapping(static_cast<std::uint16_t>(sp+1)).kind==Memory::Kind::ram) {
             const auto ret=static_cast<std::uint16_t>(machine_->peek(sp)|(machine_->peek(static_cast<std::uint16_t>(sp+1))<<8));
+            walking_update_=false;
+            if (menu_request_ && ret!=*menu_request_) menu_request_.reset();
             if(ret==0x0b14 || ret==0x0f48) { exploration_wait_=ret;exploration_sp_=sp; }
             else exploration_wait_.reset();
         }
-        if (exploration_wait_ && pc==*exploration_wait_ && mapping==Memory::Mapping{Memory::Kind::rom,0}) exploration_wait_.reset();
+        const bool walking_return=exploration_wait_ && pc==*exploration_wait_ &&
+            mapping==Memory::Mapping{Memory::Kind::rom,0} && sp==static_cast<std::uint16_t>(exploration_sp_+2);
+        if (walking_return) {
+            walking_update_=pc==0x0b14;
+            exploration_wait_.reset();
+        }
         if (menu_active_ && menu_closing_ && pc==0x2d93 && mapping==Memory::Mapping{Memory::Kind::rom,0} &&
             (machine_->peek(0xc205)&0x10)) {
             top_level("menu cancel");
@@ -326,6 +437,12 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
             memory.write(static_cast<std::uint16_t>(sp-2),menu_saved_[4]);memory.write(static_cast<std::uint16_t>(sp-1),menu_saved_[5]);
             machine_->set_pad(0,{});
             menu_active_=menu_closing_=menu_cancel_seen_=false;
+            // Publish the interface and the cartridge language at the same verified return.
+            effective_interface_=resolve_interface(store_.interface_preference(),script_,original_only_);
+            if (clean_enabled_!=(effective_interface_==InterfaceMode::enhanced)) {
+                reset_retro();
+                set_clean_background(effective_interface_==InterfaceMode::enhanced);
+            }
             if(pending_language_) {
                 const auto index=*pending_language_==Language::english ? 0u : 1u;
                 machine_->replace_rom(*replacements_[index]);
@@ -336,7 +453,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
                 // and verifier, as well as the audio/map/tracker instances.
             }
         }
-        if (menu_request_ && pc==*menu_request_ && mapping==Memory::Mapping{Memory::Kind::rom,0}) {
+        if (menu_request_ && pc==*menu_request_ && walking_return) {
             top_level("menu request");
             menu_request_.reset();
             const auto lo=static_cast<std::uint16_t>(sp-2),hi=static_cast<std::uint16_t>(sp-1);
@@ -351,6 +468,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
                 machine_->peek(0xc202)==(pc==0x0b14 ? 9 : 11) &&
                 (pc!=0x0b14 || !machine_->peek(0xc265)) &&
                 !machine_->peek(0xc212) && !machine_->peek(0xc204) && !machine_->peek(0xc205)) {
+                walking_update_=false;
                 menu_caller_=cpu;menu_return_=pc;
                 menu_saved_={machine_->peek(0xc204),machine_->peek(0xc205),machine_->peek(0xc800),machine_->peek(0xc900),machine_->peek(lo),machine_->peek(hi)};
                 if(requested_purpose_==HostMenu::map) {
@@ -373,7 +491,7 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
         if(options_pending() && pc==0x00af && mapping==Memory::Mapping{Memory::Kind::rom,0}) { top_level("options activation");activate(chosen_); }
         return {};
     };
-    auto supplied=input;
+    auto supplied=effective_interface()==InterfaceMode::enhanced ? retro_text_.input(input,machine_->peek(0xc212)!=0) : input;
     if(menu_active_ || menu_request_) { supplied={}; if(menu_closing_ && !menu_cancel_seen_)supplied.pads[0].one=true; }
     Machine::WriteObserver sound_writes=[&](std::uint16_t address,std::uint8_t value) {
         if((address&0x1fff)!=4 || machine_->memory().mapping(address).kind!=Memory::Kind::ram)return;
@@ -399,12 +517,26 @@ FrameOutput FrameDriver::run(const FrameInput& input) {
     unsigned playback_period=Psg::sample_cycles;
     std::optional<Memory> saved;
     const Machine::FrameObserver at_frame=[&] {
+        if (clean_enabled_) clean_->capture(*machine_);
+        else clean_.reset();
         if(wide_) {
             // A language swap earlier in this frame: the view reads the new
             // image from this capture on (its reset drops the old anchor). A
             // swap after the frame end is the next frame's, as it was.
             if(rom_.get()!=wide_rom_) { wide_->replace_rom(rom_);wide_rom_=rom_.get(); }
             wide_->capture(*machine_);
+        }
+        if (effective_interface()==InterfaceMode::enhanced) {
+            retro_shown_=std::move(retro_next_);
+            if (retro_shown_.windows.include_early_dialogue_row(retro_windows_,machine_->cycles())) {
+                // The border can reach the beam before the next snapshot.
+                // Use its final layout without exposing letters from a later scan.
+                retro_shown_.text={};
+                retro_shown_.text.lines.resize(retro_text_.view().lines.size());
+            }
+            retro_shown_.windows.include_early_menu_rows(retro_windows_,machine_->cycles());
+            if (last_in_batch) retro_text_.presented(retro_shown_.text);
+            retro_next_={retro_windows_,retro_text_.view(),language_,native_retro_scene()};
         }
         writes=machine_->take_psg_writes();
         samples=machine_->take_samples();
@@ -463,13 +595,21 @@ std::optional<std::string> FrameDriver::power_cycle() {
     if(stopped_)throw std::logic_error("The game stopped; the session cannot continue.");
     if(menu_active_ || menu_request_)return "Power cycle is unavailable while a host menu is open.";
     auto error=flush();unwritten_.reset();
+    reset_retro();
+    retro_shown_={};
     machine_=std::make_unique<Machine>(rom_,machine_->memory().cartridge_ram());
-    exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
+    walking_update_=false;exploration_wait_.reset();menu_request_.reset();menu_active_=menu_closing_=menu_cancel_seen_=false;
     tempo_audio_.reset();audio_failed_=tempo_consumed_tick_=false;sound_request_.reset();speed_=1;
     reset_fm();
     if(tracker_) { tracker_->reset();log({MapEvent::Kind::reset,0}); }
     if(wide_)wide_->reset();
     if(options_pending())activate(chosen_);
+    effective_interface_=resolve_interface(store_.interface_preference(),script_,original_only_);
+    set_clean_background(effective_interface_==InterfaceMode::enhanced);
+    if (clean_enabled_) {
+        clean_->reset(*machine_);
+        machine_->set_video_observer(clean_.get());
+    } else clean_.reset();
     return error;
 }
 }

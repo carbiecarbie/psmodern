@@ -14,6 +14,7 @@
 
 namespace psmodern {
 namespace oracle { struct CoreBus; }
+struct RoutineEntry;
 struct PortAccess {
     std::uint64_t cycle;
     std::uint8_t port, value;
@@ -121,7 +122,18 @@ public:
         pending_pads_=input.pads; pending_reset_=input.reset; pending_pause_=input.pause;
     }
     std::uint8_t read_port(std::uint16_t port, std::uint64_t cycle);
-    void write_port(std::uint16_t port, std::uint8_t value, std::uint64_t cycle);
+    void write_port(std::uint16_t port, std::uint8_t value, std::uint64_t cycle,
+                    const RoutineEntry* writer=nullptr,std::uint16_t entry_sp=0);
+    // Read-only presentation tap. A window and a scene may write the same
+    // address; the rendered writer identifies which should appear in the
+    // clean view. Neither the copy's reads nor its IRQs feed the console.
+    class VideoObserver {
+    public:
+        virtual void video_access(const Console&,PortAccess,const RoutineEntry*,std::uint16_t entry_sp)=0;
+    protected:
+        ~VideoObserver()=default;
+    };
+    void set_video_observer(VideoObserver* observer) { video_observer_=observer; }
     Memory& memory() { return memory_; }
     const Memory& memory() const { return memory_; }
     Vdp& vdp() { return vdp_; }
@@ -189,6 +201,7 @@ protected:
     std::vector<PortAccess>* port_trace_=nullptr;
     std::vector<MemoryWrite>* write_trace_=nullptr;
     const WriteObserver* write_observer_=nullptr;
+    VideoObserver* video_observer_=nullptr;
     void (*read_guard_)(std::uint16_t)=nullptr;
 };
 }

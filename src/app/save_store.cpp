@@ -140,8 +140,11 @@ static void publish_bytes(const std::filesystem::path& path,std::span<const std:
         const auto closed=close(fd); fd=-1;
         if (closed) throw std::system_error(errno,std::generic_category(),"Closing temporary save");
         std::filesystem::rename(temp,path);
-        sync_directory(path.parent_path());
     } catch (...) { if (fd>=0) close(fd); unlink(temp.c_str()); throw; }
+    try { sync_directory(path.parent_path()); }
+    catch(const std::system_error& e) {
+        throw PublishedWithoutSync("File replaced; directory flush did not complete: "+std::string(e.what()));
+    }
 #endif
 }
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image) {
@@ -167,14 +170,15 @@ std::string read_settings_file(const std::filesystem::path& path) { return read_
 }
 game::Options SaveStore::load_preferences(const Memory::CartridgeRam& image) {
     ensure_lock();settings_loaded_=true;settings_blocked_=false;settings_warning_.reset();preferences_={};automap_preference_=false;
-    widescreen_preference_=widescreen_request_=WidescreenMode::off;
+    widescreen_preference_=WidescreenMode::off;interface_preference_=InterfaceMode::original;
     const auto digest=sha256(image);settings_={{digest,{}},{},{}};
     if(!std::filesystem::exists(settings_path()))return preferences_;
     try {
         settings_=parse_settings(read_settings_file(settings_path()));
         const auto selected=settings_.select(digest);
         if(!selected)throw std::runtime_error("Settings do not match the cartridge image.");
-        preferences_=selected->options;automap_preference_=selected->automap;widescreen_preference_=widescreen_request_=selected->widescreen;
+        preferences_=selected->options;automap_preference_=selected->automap;widescreen_preference_=selected->widescreen;
+        interface_preference_=selected->interface_preference;
     } catch(const std::exception& e) {
         settings_blocked_=true;
         settings_warning_="Using original settings; companion preserved until explicit Apply: "+settings_path().string()+": "+e.what();
@@ -202,36 +206,48 @@ void SaveStore::ensure_backup() {
     }
     backup_done_=true;
 }
+void SaveStore::publish_settings(SettingsImage next) {
+    try {
+        settings_writer_(settings_path(),write_settings(next));
+        durability_warning_.reset();
+    } catch(const PublishedWithoutSync& e) {
+        // rename already published these exact bytes under our profile lock.
+        durability_warning_="Settings applied; their durability is uncertain: "+std::string(e.what());
+    }
+    settings_=std::move(next);
+}
 void SaveStore::stage(const Memory::CartridgeRam& image,const game::Options& preferences) {
     const auto disk=load();
     const auto digest=sha256(disk);
     auto committed=settings_.select(digest).value_or(SettingsRecord{digest,{}});committed.digest=digest;
-    SettingsImage next{committed,SettingsRecord{sha256(image),preferences,automap_preference_,widescreen_preference_},
+    SettingsImage next{committed,SettingsRecord{sha256(image),preferences,automap_preference_,widescreen_preference_,interface_preference_},
         session_backup_ ? session_backup_ : settings_.backup};
-    settings_writer_(settings_path(),write_settings(next));
-    settings_=std::move(next);
+    publish_settings(std::move(next));
+    // The pending digest must be durable before publishing its SRAM.
+    if(durability_warning_)throw std::runtime_error(*durability_warning_);
 }
 std::optional<std::string> SaveStore::choose(const game::Options& options,const Memory::CartridgeRam& image) {
     game::validate(options);
     try { ensure_lock();if(!settings_loaded_)load_preferences(load()); }
     catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
-    widescreen_request_=widescreen_preference_;   // options alone keep the stored mode
-    return choose(options,automap_preference_,image);
+    return choose(options,automap_preference_,widescreen_preference_,interface_preference_,image);
 }
 std::optional<std::string> SaveStore::choose(const game::Options& options,bool automap,const Memory::CartridgeRam& image) {
+    try { ensure_lock();if(!settings_loaded_)load_preferences(load()); }
+    catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
+    return choose(options,automap,widescreen_request(),interface_preference_,image);
+}
+std::optional<std::string> SaveStore::choose(const game::Options& options,bool automap,WidescreenMode wide,
+                                            InterfaceMode interface_preference,const Memory::CartridgeRam& image) {
     game::validate(options);
     try {
-        ensure_lock();
-        if(!settings_loaded_) {
-            const auto requested=widescreen_request_;   // the lazy load must not drop the host's request
-            load_preferences(load());widescreen_request_=requested;
-        }
+        ensure_lock();if(!settings_loaded_)load_preferences(load());
         ensure_backup();
-        const auto disk=load();
-        SettingsImage next{{sha256(disk),options,automap,widescreen_request_},SettingsRecord{sha256(image),options,automap,widescreen_request_},
-            session_backup_ ? session_backup_ : settings_.backup};
-        settings_writer_(settings_path(),write_settings(next));settings_=std::move(next);
-        preferences_=options;automap_preference_=automap;widescreen_preference_=widescreen_request_;settings_blocked_=false;settings_warning_.reset();return {};
+        SettingsRecord committed{sha256(load()),options,automap,wide,interface_preference};
+        SettingsRecord pending{sha256(image),options,automap,wide,interface_preference};
+        publish_settings({std::move(committed),std::move(pending),session_backup_ ? session_backup_ : settings_.backup});
+        preferences_=options;automap_preference_=automap;widescreen_preference_=wide;widescreen_request_.reset();
+        interface_preference_=interface_preference;settings_blocked_=false;settings_warning_.reset();return {};
     } catch(const std::exception& e) { return "Settings write failed; choices were not applied: "+std::string(e.what()); }
 }
 void SaveStore::load_automap() {
@@ -298,6 +314,13 @@ std::optional<std::string> SaveStore::flush_automap(const Memory::CartridgeRam& 
 }
 std::optional<std::string> SaveStore::flush(Memory& memory,bool retry_now) {
     const bool raw=retry_ || memory.cartridge_ram_dirty();
+    // Retry a visible settings-only Apply on explicit flush (exit or power cycle),
+    // even when the game has made no SRAM writes since the failed directory sync.
+    if(retry_now && !raw && durability_warning_) {
+        try { publish_settings(settings_); }
+        catch(const std::exception& e) { return "Settings durability retry failed: "+std::string(e.what()); }
+        if(durability_warning_)return durability_warning_;
+    }
     if (!raw && !automap_dirty_) return {};
     std::optional<std::string> map_error;
     if (automap_dirty_) {

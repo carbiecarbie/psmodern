@@ -68,6 +68,7 @@ template<class Logic> void add_text_port_segment(RoutineRegistry& registry, Rout
 }
 }
 void register_text(RoutineRegistry& registry) {
+    auto observed=[](SegmentSpec spec) { spec.observe_entry=true; return spec; };
     kit::add_segment(registry,text_indexed_entry,
         kit::segment(text_indexed_entry,{kit::core_final_at(0x5767)},{.slot2_mapper=true}),
         100,[](auto& z) {
@@ -101,8 +102,8 @@ void register_text(RoutineRegistry& registry) {
             z.increment_pair(0x340e,z.r.d,z.r.e);
             return kit::fall_through(0x340e,0x340f);
         });
-    kit::add_segment(registry,{0,0x3416},kit::segment(text_output_unit,
-        {kit::returned_at(0x3417),kit::returned_at(0x341f),kit::core_final_at(0x3422)},{.scratch_stack=2}),150,[](auto& z) {
+    kit::add_segment(registry,{0,0x3416},observed(kit::segment(text_output_unit,
+        {kit::returned_at(0x3417),kit::returned_at(0x341f),kit::core_final_at(0x3422)},{.scratch_stack=2})),150,[](auto& z) {
             auto& r=z.r; z.decrement(0x3416,r.b);
             if (auto exit=z.final_return_if(0x3417,kit::Condition::nz)) return *exit;
             z.load_from_hl(0x3418,r.a); z.or_a(0x3419);
@@ -125,8 +126,8 @@ void register_text(RoutineRegistry& registry) {
             }
             z.copy(0x3420,r.a,r.c); z.or_a(0x3421); return z.final_call_if(0x3422,kit::Condition::nz);
         });
-    kit::add_segment(registry,{0,0x31fa},kit::segment(text_stream_unit,
-        {kit::core_final_at(0x3332),kit::conditional_at(0x3201)},{.scratch_stack=2}),80,[](auto& z) {
+    kit::add_segment(registry,{0,0x31fa},observed(kit::segment(text_stream_unit,
+        {kit::core_final_at(0x3332),kit::conditional_at(0x3201)},{.scratch_stack=2})),80,[](auto& z) {
             z.load_from_hl(0x31fa,z.r.a); z.or_a(0x31fb);
             if (z.jump_if(0x31fc,z.sign())) return z.final_call(0x3332);
             z.compare_immediate(0x31ff); return z.final_jump_if(0x3201,kit::Condition::nc);
@@ -221,9 +222,12 @@ void register_text(RoutineRegistry& registry) {
         {.scratch_stack=2}),50,[newline](auto& z) { z.decrement_hl(0x31cb); z.jump(0x31cc); return newline(z); });
     kit::add_segment(registry,{0,0x3235},kit::segment(text_stream_unit,{kit::core_final_at(0x3237)},
         {.scratch_stack=2}),25,newline);
-    kit::add_segment(registry,{0,0x31cf},kit::segment(text_stream_unit,{kit::conditional_at(0x31d8)},
-        {.slot2_mapper=true}),60,[open](auto& z) { z.load_immediate(0x31cf,z.r.a); z.store_a_direct(0x31d1); return open(z); });
-    kit::add_segment(registry,{0,0x31d4},kit::segment(text_stream_unit,{kit::conditional_at(0x31d8)}),30,open);
+    kit::add_segment(registry,{0,0x31cf},kit::segment(text_stream_unit,{kit::core_final_at(0x31d1)},
+        {.slot2_mapper=true}),20,[](auto& z) {
+            z.load_immediate(0x31cf,z.r.a); z.store_a_direct(0x31d1);
+            return kit::fall_through(0x31d1,0x31d4);
+        });
+    kit::add_segment(registry,{0,0x31d4},observed(kit::segment(text_stream_unit,{kit::conditional_at(0x31d8)})),30,open);
     kit::add_segment(registry,{0,0x31db},kit::segment(text_stream_unit,{kit::core_final_at(0x31ea,-2)},
         {.scratch_stack=4}),90,[](auto& z) {
             z.load_immediate(0x31db,z.r.a); z.store_a_direct(0x31dd); z.push(0x31e0,z.r.h,z.r.l);
@@ -308,14 +312,14 @@ void register_text(RoutineRegistry& registry) {
             z.pop(0x3327,r.d,r.e); z.increment_pair(0x3328,r.d,r.e);
             z.increment_pair(0x3329,r.d,r.e); return kit::fall_through(0x3329,0x332a);
         });
-    kit::add_segment(registry,{0,0x3330},kit::segment(text_number_unit,{kit::returned_at(0x3331)}),14,[](auto& z) {
+    kit::add_segment(registry,{0,0x3330},observed(kit::segment(text_number_unit,{kit::returned_at(0x3331)})),14,[](auto& z) {
         z.decrement(0x3330,z.r.b); return z.final_return(0x3331);
     });
     auto alternate_read=[](auto& z) {
         z.load_from_hl(0x3389,z.r.a); z.or_a(0x338a); return z.final_jump_if(0x338b,kit::Condition::m);
     };
-    kit::add_segment(registry,{0,0x337d},kit::segment(text_alternate_unit,{kit::conditional_at(0x338b,-2)},
-        {.slot2_mapper=true,.scratch_stack=2}),70,[alternate_read](auto& z) {
+    kit::add_segment(registry,{0,0x337d},observed(kit::segment(text_alternate_unit,{kit::conditional_at(0x338b,-2)},
+        {.slot2_mapper=true,.scratch_stack=2})),70,[alternate_read](auto& z) {
             z.load_immediate(0x337d,z.r.a); z.store_a_direct(0x337f); z.load_de(0x3382); z.load_bc(0x3385);
             z.push(0x3388,z.r.d,z.r.e); return alternate_read(z);
         });
@@ -325,8 +329,9 @@ void register_text(RoutineRegistry& registry) {
         {.inherited_stack=2}),25,alternate_read);
     // The control-code comparisons: a match jumps to the handler, except in the last, which jumps on a mismatch.
     for (auto at:{std::uint16_t{0x338e},std::uint16_t{0x3392},std::uint16_t{0x3396},std::uint16_t{0x339a}}) {
-        kit::add_segment(registry,{0,at},kit::segment(text_alternate_unit,{kit::conditional_at(static_cast<std::uint16_t>(at+2))},
-            {.inherited_stack=2}),25,[at](auto& z) {
+        auto spec=kit::segment(text_alternate_unit,{kit::conditional_at(static_cast<std::uint16_t>(at+2))},{.inherited_stack=2});
+        spec.observe_entry=at==0x338e;
+        kit::add_segment(registry,{0,at},std::move(spec),25,[at](auto& z) {
                 z.compare_immediate(at); return z.final_relative_if(static_cast<std::uint16_t>(at+2),kit::Condition::z);
             });
     }
@@ -344,15 +349,15 @@ void register_text(RoutineRegistry& registry) {
             z.pop(0x33b2,z.r.d,z.r.e); z.push(0x33b3,z.r.h,z.r.l); z.compare_immediate(0x33b4);
             return z.final_call_if(0x33b6,kit::Condition::nz);
         });
-    kit::add_segment(registry,{0,0x33b9},kit::segment(text_alternate_unit,{kit::core_final_at(0x33bf)},
-        {.inherited_stack=2}),30,[](auto& z) { z.load_de(0x33b9); z.load_bc(0x33bc); z.load_hl(0x33bf); return kit::fall_through(0x33bf,0x33c2); });
+    kit::add_segment(registry,{0,0x33b9},observed(kit::segment(text_alternate_unit,{kit::core_final_at(0x33bf)},
+        {.inherited_stack=2})),30,[](auto& z) { z.load_de(0x33b9); z.load_bc(0x33bc); z.load_hl(0x33bf); return kit::fall_through(0x33bf,0x33c2); });
     // After the alternate-text printer's interrupt enable: the pointer popped by the segment at
     // 00:33C7 (menu_remainder.cpp) moves on to the next character.
-    kit::add_segment(registry,{0,0x33c8},kit::segment(text_alternate_unit,{kit::core_final_at(0x33c9)}),20,
+    kit::add_segment(registry,{0,0x33c8},observed(kit::segment(text_alternate_unit,{kit::core_final_at(0x33c9)})),20,
         [](auto& z) { z.increment_hl(0x33c8); return z.final_jump(0x33c9); });
     for (auto at:{std::uint16_t{0x33cf},std::uint16_t{0x33d4}})
-        kit::add_segment(registry,{0,at},kit::segment(text_alternate_unit,{kit::returned_at(static_cast<std::uint16_t>(at+1),2)},
-            {.inherited_stack=2}),20,[at](auto& z) { z.pop(at,z.r.d,z.r.e); return z.final_return(static_cast<std::uint16_t>(at+1)); });
+        kit::add_segment(registry,{0,at},observed(kit::segment(text_alternate_unit,{kit::returned_at(static_cast<std::uint16_t>(at+1),2)},
+            {.inherited_stack=2})),20,[at](auto& z) { z.pop(at,z.r.d,z.r.e); return z.final_return(static_cast<std::uint16_t>(at+1)); });
     // ---- The joining segments between the segments above (milestone 14) -------------------
     // Single instructions at the places where a segment's final hands over to
     // code that has no segment of its own: calls and jumps of the text
@@ -360,6 +365,7 @@ void register_text(RoutineRegistry& registry) {
     auto single=[&](std::uint16_t at,RoutineEntry unit,SegmentExit exit,unsigned scratch,std::uint64_t cycles,auto logic) {
         auto spec=kit::segment(unit,{exit},{.scratch_stack=scratch});
         spec.single_instruction=true;
+        spec.observe_entry=at==0x3218; // a native interstitial dialogue wait accepted its button
         kit::add_segment(registry,{0,at},std::move(spec),[cycles](const Machine&) { return cycles; },logic);
     };
     single(0x3218,text_stream_unit,kit::core_final_at(0x3218),0,10,[](auto& z) { return z.final_jump(0x3218); });   // a control code goes to the line-break code

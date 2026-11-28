@@ -604,7 +604,9 @@ void register_all(RoutineRegistry& registry) {
     auto R=[](std::uint16_t at, std::int8_t stack=0) { return mk::returned_at(at,stack); };
     auto C=[](std::uint16_t at, std::int8_t stack=0) { return mk::conditional_at(at,stack); };
     auto add_in=[&](std::uint16_t entry, std::uint16_t unit, std::vector<SegmentExit> exits, mk::Permissions permissions, auto logic) {
-        mk::add_segment(registry,RoutineEntry{1,entry},mk::segment(RoutineEntry{1,unit},std::move(exits),permissions),logic);
+        auto spec=mk::segment(RoutineEntry{1,unit},std::move(exits),permissions);
+        spec.observe_entry=entry==0x45dd || entry==0x4676;
+        mk::add_segment(registry,RoutineEntry{1,entry},std::move(spec),logic);
     };
     auto add=[&](std::uint16_t entry, std::vector<SegmentExit> exits, mk::Permissions permissions, auto logic) {
         add_in(entry,entry,std::move(exits),permissions,logic);

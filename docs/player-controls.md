@@ -93,8 +93,8 @@ speed. `1x` is unchanged: it always runs at the console's own rate.
 ## In-game options
 
 Press Options (`Escape` or controller `Y` by default) while walking freely in a
-town, on the world map, or in a dungeon. All seven rows fit on one page in the
-game's own window style: the list on the left with each active value in grey,
+town, on the world map, or in a dungeon. The eight options scroll through seven visible rows.
+The list on the left shows each active value in grey,
 the choices for the selected row beside it (current choice in yellow), and a
 description at the bottom whose last line shows the save state (`SAVES ON
 EXIT`, waiting to take effect, or save failed; `SAVES WHEN CHANGED` on
@@ -109,6 +109,7 @@ the windows and the music keeps playing.
 | EXP / Meseta | 100, 200, 400% | Experience and meseta awarded per fight. Characters still gain at most one level per fight. |
 | Automap | Off, On (`NAO`, `SIM`) | Enables the dungeon floor map (`M` / `X`). Off is the original game. |
 | Widescreen | Off, On, Fill (`NAO`, `SIM`, `TOTAL`) | Off gives the original picture. On uses whole steps. Fill fits the wide picture into the available space with light smoothing. |
+| Interface | Original, Enhanced (`ORIGINAL`, `NOVA` in Portuguese) | Changes the game windows when you return to exploration. Original is the default. |
 | Controls | - | Button 1 opens the Controls screen to remap keys and buttons. |
 | Language | Auto, English, Portugues | Language of the game text and PSModern's own screens. Saves and switches UI immediately; game text updates when Options closes. Each language needs its ROM; Auto follows the ROM you play. |
 | Sound (`SOM`) | PSG, FM | PSG is the sound of the US and Brazilian cartridges and the original; FM is the Japanese cartridge's FM sound. Saves and switches immediately, the music at the same point. FM needs the Japanese ROM ([Sound](#sound)). |
@@ -118,6 +119,19 @@ the windows and the music keeps playing.
 changes apply once the current action ends, so a battle in progress finishes
 under the old rates; the window title shows active rates and any pending
 change. Settings are stored for the shared save file across all five save slots.
+
+## Enhanced interface
+
+Choose **Interface → Enhanced** in Options. Item, spell, enemy and party names
+come from the current cartridge. Game windows use proportional letters, and
+battle messages fit two lines above the party. Press either game button once
+to advance a page. Release it before advancing or answering a question.
+
+Highlight a spell to see its cost and effect. Highlight a shop item to compare
+equipment for each member or read what the item does. Confirm buys directly.
+The item list shows your bag count and page, and the status screen shows the
+experience remaining until the next level. Original restores the cartridge
+windows. Both interfaces use the same saved games.
 
 ## Automap
 
@@ -310,7 +324,7 @@ fullscreen key says ALT ENTER IS FIXED, for clearing and for setting.
 The Options window and the dungeon map use your controls: the four direction
 inputs move, Button 1 chooses and Button 2 goes back, and the Options and Map
 keys close their own screens (Button 2 closes the map too). Leaving Options
-automatically saves its displayed rates, Automap and Widescreen settings. The window title
+automatically saves its displayed rates, Automap, Widescreen and Interface settings. The window title
 lists the current keys for Speed and Options, and for Map while the Automap
 option is on, for example `Speed 1X (TAB / RB)`; an action with no key or
 button set is left out.

@@ -122,6 +122,77 @@ void codec(){
  for(std::size_t length=0;length<text.size()-1;++length)refuses([&]{parse_settings(text.substr(0,length));});
  image.committed.digest="x";refuses([&]{write_settings(image);});
 }
+void interface_codec() {
+ const std::string a(64,'a'),b(64,'b'),c(64,'c');
+ SettingsImage image{{a,{},true,fill},SettingsRecord{b,{25,400},false,on},SettingsRecord{c,{50,200},false,off}};
+ for(auto* record:{&image.committed,&*image.pending,&*image.backup}) {
+  record->interface_preference=InterfaceMode::enhanced;
+  auto text=write_settings(image);
+  check(text.starts_with("psmodern-options 6\n") && parse_settings(text)==image,"any enhanced record retains format 6 alongside FILL");
+  record->interface_preference=InterfaceMode::original;
+  check(write_settings(image).starts_with("psmodern-options 5\n"),"without enhanced references FILL returns to release 1.4.0 format");
+ }
+ for(auto token:{"","-1","2","01","1 0"})
+  refuses([&]{parse_settings("psmodern-options 6\ncommitted "+a+" 100 100 1 2 "+token+"\npending -\nbackup -\n");});
+}
+void interface_persistence() {
+ Temporary t;Memory::CartridgeRam initial{};initial[0]=33;
+ const auto path=t.path/save_name(RomVersion::us_rev_a);atomic_save(path,initial);
+ const auto original=InterfaceMode::original,enhanced=InterfaceMode::enhanced;
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  check(!store.choose({},false,fill,enhanced,initial),"apply ENHANCED");
+ }
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  check(!store.choose({25,400},true,initial) && store.interface_preference()==enhanced && store.widescreen_preference()==fill,
+        "lazy automap-only Apply keeps both saved presentation choices");
+  check(!store.choose({50,400},initial) && store.interface_preference()==enhanced,"rates-only Apply keeps the interface");
+  check(!store.choose({},false,off,original,initial),"apply ORIGINAL");
+  Memory memory(program(),initial);change(memory,44);
+  check(!store.flush(memory),"stage interface with the new SRAM digest");
+  const auto file=read(store.settings_path());const auto records=parse_settings(file);
+  check(file.starts_with("psmodern-options 6\n") && records.committed.interface_preference==original &&
+        records.pending->interface_preference==original && records.backup->interface_preference==enhanced,"backup alone retains format 6");
+  check(parse_settings(read(store.settings_path().string()+".bak")).select(sha256(initial))->interface_preference==enhanced,"backup pair recovers ENHANCED");
+ }
+ {
+  SaveStore store(t.path,RomVersion::us_rev_a);
+  check(!store.choose({},false,store.load()) && store.interface_preference()==original &&
+        read(store.settings_path()).starts_with("psmodern-options 2\n"),"rotating out the backup restores downgrade-compatible format 2");
+ }
+ for(const auto script:{ScriptVariant::sms_english,ScriptVariant::sms_literal})
+  check(resolve_interface(original,script,false)==enhanced && resolve_interface(enhanced,script,true)==original,
+        "script and recording overrides are independent of saved interface preference");
+}
+void settings_durability() {
+ Temporary t;Memory::CartridgeRam initial{};
+ bool fail_before=false,fail_after=false;
+ auto writer=[&](const auto& path,const auto& text) {
+  if(fail_before)throw std::runtime_error("write failed before rename");
+  atomic_settings(path,text);
+  if(fail_after && path.extension()==".options")throw PublishedWithoutSync("injected directory flush failure");
+ };
+ SaveStore store(t.path,RomVersion::us_rev_a,atomic_save,writer);
+ const auto enhanced=InterfaceMode::enhanced,original=InterfaceMode::original;
+ check(!store.choose({},false,off,original,initial),"publish original settings");
+ fail_before=true;
+ check(store.choose({25,400},true,fill,enhanced,initial).has_value() && !store.durability_warning() &&
+       store.interface_preference()==original && parse_settings(read(store.settings_path())).committed.interface_preference==original,
+       "a pre-rename failure changes neither disk nor live preferences");
+ fail_before=false;fail_after=true;
+ check(!store.choose({25,400},true,fill,enhanced,initial) && store.durability_warning() &&
+       store.interface_preference()==enhanced && store.preferences()==game::Options{25,400} &&
+       parse_settings(read(store.settings_path())).committed.interface_preference==enhanced,
+       "a post-rename failure applies the visible record and raises a durability warning");
+ Memory memory(program(),initial);
+ check(store.flush(memory,true).has_value() && store.durability_warning(),"exit retries a settings-only directory flush and reports persistent uncertainty");
+ fail_after=false;
+ check(!store.flush(memory,true) && !store.durability_warning() && !std::filesystem::exists(store.path()),"successful durability retry clears the warning without touching SRAM");
+ fail_after=true;change(memory,22);
+ check(store.flush(memory).has_value() && memory.cartridge_ram_dirty() && store.load()==initial,"an uncertain staged companion delays SRAM publication");
+ fail_after=false;check(!store.flush(memory) && !memory.cartridge_ram_dirty() && store.load()[0]==22,"staging retries the visible pending digest");
+}
 void persistence(){
  Temporary t;Memory::CartridgeRam initial{};initial[8]=19;const auto name=t.path/save_name(RomVersion::us_rev_a);atomic_save(name,initial);
  // A request made before the settings are loaded survives the lazy load inside choose().
@@ -307,12 +378,20 @@ void widescreen_driver(){
         read(driver.store().settings_path())==previous,"failed FILL Apply preserves ON on disk and in the driver");
   fail=false;
   check(!driver.choose_options({},false) && driver.widescreen_option()==on,"failed FILL Apply restores the previous request");
-  check(!driver.choose_options({},false,fill),"FILL retry succeeds");
+  check(!driver.choose_options({},false,fill,InterfaceMode::enhanced),"FILL and ENHANCED retry succeeds");
+  check(driver.interface_preference()==InterfaceMode::enhanced && driver.effective_interface()==InterfaceMode::original,
+        "an interface Apply waits for verified Options return");
  }
  {
   FrameDriver restricted(program(),SaveStore(t.path,RomVersion::us_rev_a),{},true);
   check(restricted.store().widescreen_preference()==fill && restricted.widescreen_option()==off,"restricted mode forces OFF over persisted FILL");
+  check(restricted.interface_preference()==InterfaceMode::enhanced && restricted.effective_interface()==InterfaceMode::original,
+        "recording starts on the original interface with saved ENHANCED preserved");
   check(restricted.choose_options({},false,on).has_value(),"restricted mode refuses changing FILL");
+ }
+ {
+  FrameDriver ordinary(program(),SaveStore(t.path,RomVersion::us_rev_a));
+  check(ordinary.effective_interface()==InterfaceMode::enhanced,"saved ENHANCED starts before frame zero in ordinary play");
  }
 }
 // The encounter row visits 0, 25, 50, 100 and 200 in order, in both directions.
@@ -445,7 +524,7 @@ void layout(){
  check(OptionsMenu::explanation(3,Language::portuguese)==std::array<std::string_view,3>{
        "SIM - MAIS MAPA NAS LATERAIS","TOTAL - ATE A BORDA, SUAVE.","O ORIGINAL E NAO."},"Portuguese widescreen help lines");
  check(inside(screen,l::list) && inside(screen,l::explanation) && l::list.row+l::list.height<=l::explanation.row,"list and explanation on the screen, apart");
- check(l::list.height==l::line_step*int(l::rows)+1 && l::line_row(0)==l::list.row+1,"a line every two tile rows, as the game's windows");
+ check(l::list.height==l::line_step*int(l::visible_rows)+1 && l::line_row(0)==l::list.row+1,"a line every two tile rows, as the game's windows");
  check(l::explanation.height==l::line_step*int(l::explanation_lines+1)+1 && l::state_row==l::explanation.row+1+l::line_step*int(l::explanation_lines),"three lines and the state line");
  check(int(l::line_limit)<=l::explanation.width-2,"explanation lines fit the window");
  for(auto language:{Language::english,Language::portuguese})
@@ -471,8 +550,8 @@ void layout(){
    if(window) {
     check(window->column==l::values_column && window->width==l::values_width && window->height==l::line_step*int(values.size())+1,"the values window's size");
     // Its first choice on the row's line, or moved up whole lines only as far as needed to end with the list.
-    check((window->row+1-l::line_row(0))%l::line_step==0 && window->row<=l::line_row(row)-1 && window->row+window->height>=l::line_row(row)+1 &&
-     (window->row==l::line_row(row)-1 || window->row+window->height+l::line_step>l::list.row+l::list.height),"the values window sits beside the row");
+    check((window->row+1-l::line_row(0))%l::line_step==0 && window->row<=l::line_row(row-menu.first_visible())-1 && window->row+window->height>=l::line_row(row-menu.first_visible())+1 &&
+     (window->row==l::line_row(row-menu.first_visible())-1 || window->row+window->height+l::line_step>l::list.row+l::list.height),"the values window sits beside the row");
     check(inside(screen,*window) && window->row+window->height<=l::list.row+l::list.height,"the values window stays on the screen, apart from the explanation");
     check(longest<=std::size_t(window->width-2) && menu.current(row)<values.size(),"every value fits the values window");
    }
@@ -518,30 +597,36 @@ void navigation(){
  menu.update({},6.380);menu.update({.left=true},6.382);
  check(menu.widescreen_draft()==fill && menu.automap_draft() && menu.draft()==game::Options{0,200},"widescreen cycles leave the other drafts alone");
  check(menu.update({.accept=true},6.383)==MenuAction::apply,"confirm from the widescreen row");
- menu.update({},6.384);menu.update({.down=true},6.385);check(menu.selected()==4,"the fifth row is CONTROLS");
+ menu.update({},6.384);menu.update({.down=true},6.385);
+ check(menu.selected()==options_layout::interface_row && menu.interface_draft()==InterfaceMode::original,"Interface defaults to ORIGINAL");
+ menu.update({},6.386);menu.update({.right=true},6.387);
+ check(menu.interface_draft()==InterfaceMode::enhanced,"Interface changes to ENHANCED");
+ menu.update({},6.388);menu.update({.down=true},6.389);
+ check(menu.selected()==options_layout::controls_row,"Interface is followed by Controls");
  menu.update({},6.391);menu.update({.right=true},6.392);menu.update({},6.393);menu.update({.left=true},6.394);
  check(menu.automap_draft() && menu.widescreen_draft()==fill && menu.draft()==game::Options{0,200} && menu.language_draft()==LanguagePreference::native,"left and right do nothing on CONTROLS");
- menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==5,"sixth row is Language");
+ menu.update({},6.395);menu.update({.down=true},6.396);check(menu.selected()==options_layout::language_row,"Language follows Controls");
  menu.update({},6.397);check(menu.update({.accept=true},6.398)==MenuAction::apply,"accept on Language saves and leaves, as on the value rows");
- menu.update({},6.399);menu.update({.down=true},6.40);check(menu.selected()==6,"seventh row is Sound");
+ menu.update({},6.399);menu.update({.down=true},6.40);check(menu.selected()==options_layout::sound_row && menu.first_visible()==1,"Sound scrolls into view");
  menu.update({},6.401);menu.update({.right=true},6.402);menu.update({},6.403);menu.update({.left=true},6.404);
  check(menu.sound_draft()==SoundPreference::psg,"without the Japanese ROM left and right leave Sound on PSG");
  menu.update({},6.405);check(menu.update({.accept=true},6.406)==MenuAction::apply,"accept on Sound saves and leaves, as on the value rows");
- menu.update({},6.407);menu.update({.down=true},6.408);check(menu.selected()==0,"seven rows wrap down");
- menu.update({},6.41);menu.update({.up=true},6.42);check(menu.selected()==6,"seven rows wrap up");
- menu.update({},6.421);menu.update({.up=true},6.422);check(menu.selected()==5,"up reaches Language");
- menu.update({},6.43);menu.update({.up=true},6.44);check(menu.selected()==4,"up reaches Controls");
+ menu.update({},6.407);menu.update({.down=true},6.408);check(menu.selected()==0 && !menu.first_visible(),"eight rows wrap down and return the first page");
+ menu.update({},6.41);menu.update({.up=true},6.42);check(menu.selected()==options_layout::sound_row && menu.first_visible()==1,"eight rows wrap up and scroll");
+ menu.update({},6.421);menu.update({.up=true},6.422);check(menu.selected()==options_layout::language_row,"up reaches Language");
+ menu.update({},6.43);menu.update({.up=true},6.44);check(menu.selected()==options_layout::controls_row,"up reaches Controls");
  menu.update({},6.445);menu.update({.up=true},6.446);
  menu.update({},6.45);menu.update({.up=true},6.46);menu.update({},6.47);menu.update({.up=true},6.48);menu.update({},6.49);menu.update({.up=true},6.50);
- check(menu.selected()==0,"up reaches the first row");
+ menu.update({},6.501);menu.update({.up=true},6.502);
+ check(menu.selected()==0 && !menu.first_visible(),"up reaches the first row");
  menu.update({},6.51);check(menu.update({.map=true},6.52)==MenuAction::none,"the map key does nothing in Options");
  menu.update({},6.53);check(menu.update({.accept=true},6.54)==MenuAction::apply,"confirm persists from encounter row");
  menu.update({},6.6);check(menu.update({.toggle=true},6.7)==MenuAction::apply,"options toggle saves draft on exit");
  // (Milestone 14 removed the read-only Options state with --no-routines.)
  menu.open({},false);menu.update({},10);menu.update({.right=true},10.1);menu.update({},10.2);menu.update({.up=true},10.3);
  menu.update({},10.31);menu.update({.up=true},10.32);menu.update({},10.33);menu.update({.up=true},10.34);
- check(menu.selected()==4 && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on Controls opens Controls");
- menu.resume();check(menu.visible() && menu.selected()==4 && menu.draft().encounter_percent==200,"resume keeps row and draft");
+ check(menu.selected()==options_layout::controls_row && menu.update({.accept=true},10.4)==MenuAction::controls,"accept on Controls opens Controls");
+ menu.resume();check(menu.visible() && menu.selected()==options_layout::controls_row && menu.draft().encounter_percent==200,"resume keeps row and draft");
  check(menu.update({.toggle=true},10.5)==MenuAction::none && menu.update({.accept=true},10.6)==MenuAction::none,"resume waits for neutral input");
  menu.update({},10.7);check(menu.update({.accept=true},10.8)==MenuAction::controls,"re-armed after resume");
  menu.resume();menu.update({},10.9);check(menu.update({.toggle=true},11)==MenuAction::apply,"Options saves on exit after round trip");
@@ -578,6 +663,24 @@ bool shows(const Frame& frame,const RomFont& font,int column,int row,std::string
 void options_frames(const RomFont& font,const std::filesystem::path& output){
  namespace l=options_layout;using namespace menu_style;
  constexpr std::uint32_t backdrop=0xff123456;
+ // The host opens its list, choices and explanation one tile row per
+ // game frame. Check exposed interiors as well as untouched background.
+ {
+  OptionsMenu opening;
+  opening.open({},false);
+  const auto values=*opening.values_window(Language::english);
+  const int after_choices=l::list.height+values.height;
+  for(int rows=0;rows<=after_choices+l::explanation.height;++rows) {
+   Frame image(256*192,backdrop);
+   opening.render(image,font,Language::english,rows);
+   for(int y=0;y<192;++y)for(int x=0;x<256;++x) {
+    const bool in_list=l::list.contains(x,y) && y/8-l::list.row<rows;
+    const bool in_values=values.contains(x,y) && y/8-values.row<rows-l::list.height;
+    const bool in_help=l::explanation.contains(x,y) && y/8-l::explanation.row<rows-after_choices;
+    check((image[y*256+x]!=backdrop)==(in_list || in_values || in_help),"partial Options windows out of order");
+   }
+  }
+ }
  struct State {const char* name;bool pending,failed,language_failed,sound_failed;};
  constexpr State states[]{{"normal",false,false,false,false},{"pending",true,false,false,false},{"failed",false,true,false,false},
   {"language-failed",false,false,true,false},{"sound-failed",false,false,false,true}};
@@ -601,15 +704,15 @@ void options_frames(const RomFont& font,const std::filesystem::path& output){
    for(int y=0;y<8*l::explanation.row;++y)for(int x=0;x<256;++x)
     if(y>=8*(l::list.row+l::list.height) || x>=8*(l::values_column+l::values_width))check(pixels[y*256+x]==backdrop,"the scene shows at the right and between the windows");
    // Labels and grey values in the list, the cursor in its left border.
-   for(unsigned r=0;r<l::rows;++r) {
-    check(shows(pixels,font,l::list.column+1,l::line_row(r),OptionsMenu::label(r,language),white),"list label");
+   for(unsigned r=menu.first_visible();r<menu.first_visible()+l::visible_rows;++r) {
+    check(shows(pixels,font,l::list.column+1,l::line_row(r-menu.first_visible()),OptionsMenu::label(r,language),white),"list label");
     const auto values=menu.choices(r,language);
     if(!values.empty()) {
-     const auto& value=values[menu.current(r)];
-     check(shows(pixels,font,l::list.column+l::list.width-1-int(value.size()),l::line_row(r),value,grey),"the current value repeated in grey");
+     const auto value=menu.inline_value(r,language);
+     check(shows(pixels,font,l::list.column+l::list.width-1-int(value.size()),l::line_row(r-menu.first_visible()),value,grey),"the current value repeated in grey");
     }
    }
-   Frame cursor(256*192,backdrop);menu_style::window(cursor,font,l::list,l::line_row(row));
+   Frame cursor(256*192,backdrop);menu_style::window(cursor,font,l::list,l::line_row(row-menu.first_visible()));
    for(int y=8*l::list.row;y<8*(l::list.row+l::list.height);++y)for(int x=8*l::list.column;x<8*(l::list.column+1);++x)
     check(pixels[y*256+x]==cursor[y*256+x],"the cursor sits in the list's border on the selected row");
    // The values window: current yellow, the others grey (dark grey without their ROM).
@@ -700,6 +803,6 @@ int main(int argc,char**argv){
     try{
  if(argc==4 && std::string_view(argv[1])=="--crash-worker")return crash_worker(argv[2],argv[3]);
  if(argc>1){if(!std::filesystem::is_regular_file(argv[1]))return 77;scaffold.emplace(oracle::Scaffold::originals);rom(argv[1],argc>2?argv[2]:nullptr);}
- else{scaffold.emplace(oracle::Scaffold::authored);codec();persistence();widescreen_rotation();failures();driver();widescreen_driver();encounter_choices();navigation();language_row();sound_row();layout();}
+ else{scaffold.emplace(oracle::Scaffold::authored);codec();interface_codec();interface_persistence();settings_durability();persistence();widescreen_rotation();failures();driver();widescreen_driver();encounter_choices();navigation();language_row();sound_row();layout();}
  std::cout<<"Options tests passed.\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

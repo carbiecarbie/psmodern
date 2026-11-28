@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/touch_controls.h"
+#include "app/language_screen.h"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -242,6 +243,31 @@ void start_state() {
     hidden.down(1,r.x+r.width/2,r.y+r.height/2,0);
     check(hidden.visible() && !hidden.held()[Action::button1],"no controller input yet: the first touch wakes and is consumed");
 }
+void touch_menu_navigation() {
+    const auto layout=touch_layout(1080,2340,{},WidescreenMode::fill,true,false,false);
+    TouchControls touch;touch.set_layout(layout);
+    double now=0;
+    auto tap=[&](auto& screen,Action action) {
+        const auto r=layout.buttons[action];
+        touch.down(5,r.x+r.width/2,r.y+r.height/2,static_cast<unsigned>(now*1000));
+        const auto result=screen.update(touch_menu_input({},touch.held(),{},false,true,false),now+=.1);
+        touch.up(5);
+        screen.update(touch_menu_input({},touch.held(),{},false,true,false),now+=.1);
+        return result;
+    };
+    OptionsMenu menu;menu.open({},false);menu.update({},now);
+    tap(menu,Action::up);
+    check(menu.selected()==options_layout::sound_row && menu.first_visible()==1,"portrait touch wraps and scrolls to the last Options row");
+    tap(menu,Action::down);
+    check(menu.selected()==0 && menu.first_visible()==0,"portrait touch scrolls back");
+    LanguageScreen language;language.open(LanguagePreference::native,true,true,Language::english,true);
+    language.update({},now);
+    for(unsigned row=0;row<4;++row)tap(language,Action::down);
+    tap(language,Action::button1);
+    check(language.draft()==LanguagePreference::sms_literal,"portrait touch selects the fifth choice");
+    tap(language,Action::down);check(tap(language,Action::button1)==LanguageAction::save,"portrait touch can save the fifth choice");
+    tap(language,Action::down);check(tap(language,Action::button1)==LanguageAction::close,"portrait touch can cancel");
+}
 void resume_clock() {
     FrameClock clock(0);
     clock.speed(4,1);
@@ -251,6 +277,6 @@ void resume_clock() {
 }
 }
 int main() {
-    try { layouts(); fill_layouts(); fingers(); start_state(); resume_clock(); }
+    try { layouts(); fill_layouts(); fingers(); start_state(); touch_menu_navigation(); resume_clock(); }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -4,6 +4,15 @@
 #include <cstdlib>
 
 namespace psmodern::app {
+MenuInput touch_menu_input(MenuInput in,const PerAction<bool>& held,const PerAction<bool>& taps,
+                           bool start,bool in_menu,bool back) {
+    auto on=[&](Action a){return taps[a] || held[a];};
+    in.up|=on(Action::up); in.down|=on(Action::down); in.left|=on(Action::left); in.right|=on(Action::right);
+    in.accept|=on(Action::button1); in.cancel|=(!start && on(Action::button2)) || (in_menu && back);
+    in.toggle|=on(Action::options) || (!in_menu && back); in.map|=on(Action::map);
+    return in;
+}
+
 namespace {
 bool contains(const WindowRect& r,int x,int y) {
     return x>=r.x && x<r.x+r.width && y>=r.y && y<r.y+r.height;

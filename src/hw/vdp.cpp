@@ -22,6 +22,10 @@ void Vdp::write_data(std::uint8_t value) {
     control_latch_=false; buffer_=value;
     write_pending_=code_==3 ? Write::cram : Write::vram;
 }
+void Vdp::retain_vram_data(std::uint8_t value) {
+    write_data(value);
+    if (write_pending_==Write::vram) write_pending_=Write::retain;
+}
 void Vdp::write_control(std::uint8_t value) {
     if (!control_latch_) { address_=(address_&0x3f00)|value; control_latch_=true; return; }
     control_latch_=false; code_=value>>6; address_=(address_&0xff)|((value&0x3f)<<8);
@@ -56,7 +60,7 @@ constexpr std::uint64_t cpu_at_dot(std::uint64_t dot) {
 void Vdp::cpu_slot() {
     if (write_pending_!=Write::none) {
         if (write_pending_==Write::cram) cram_[address_&31]=buffer_&0x3f;
-        else vram_[address_]=buffer_;
+        else if (write_pending_==Write::vram) vram_[address_]=buffer_;
         write_pending_=Write::none;
     } else if (read_pending_) {
         buffer_=vram_[address_];
@@ -193,7 +197,9 @@ void Vdp::prepare_sprite_pixels() {
         }
     }
 }
-void Vdp::sync(std::uint64_t target) {
+void Vdp::sync(std::uint64_t target) { sync_to<false>(target,nullptr); }
+void Vdp::sync(std::uint64_t target,PaletteScan& scan) { sync_to<true>(target,&scan); }
+template<bool sample> void Vdp::sync_to(std::uint64_t target,PaletteScan* scan) {
     if (target < cycle_) throw std::invalid_argument("VDP cannot run backwards");
     const auto target_dot=(2*initial_state::vdp_dot+3*target)/2;
     // Advance in chronological order. No event reads VRAM from the future,
@@ -204,6 +210,7 @@ void Vdp::sync(std::uint64_t target) {
             prepare_sprite_pixels();
             if (line==0) {
                 completed_picture_=drawing_picture_;
+                if constexpr (sample) scan->completed=scan->drawing;
                 vertical_scroll_=regs_[9];
             }
             background_.fill(64);
@@ -234,7 +241,15 @@ void Vdp::sync(std::uint64_t target) {
         }
         if (line<192) {
             if (dot<256 && (dot&1) && (regs_[1]&0x40)) fetch_background(line,dot);
-            if (dot>=pixel_dot && dot<pixel_dot+256) draw_pixel(line,dot-pixel_dot);
+            if (dot>=pixel_dot && dot<pixel_dot+256) {
+                const auto x=dot-pixel_dot;
+                draw_pixel(line,x);
+                if constexpr (sample) {
+                    const auto backdrop=cram_[16+(regs_[7]&15)];
+                    scan->drawing[line*256+x]=(regs_[1]&0x40) ?
+                        cram_[1] | (cram_[2]<<6) : backdrop | (backdrop<<6);
+                }
+            }
         }
         // Hardware documentation: every overlapping opaque pixel reasserts
         // collision, even after an earlier status read in this line.

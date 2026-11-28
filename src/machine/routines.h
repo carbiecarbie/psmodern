@@ -285,7 +285,7 @@ private:
     RegisterSync* sync_=nullptr;
     std::uint8_t* q_=nullptr;
     std::uint8_t previous_q_=0;
-    const std::uint16_t entry_pc_;
+    const std::uint16_t entry_pc_,entry_sp_;
     const unsigned entry_bank_;
     std::optional<SegmentExit> exit_;
     // Whether a test-side opcode check was installed when the call began.

@@ -10,7 +10,7 @@ enum class LanguageAction { none,save,close };
 // focused snapshot arms it. The owner persists draft(), then calls saved().
 class LanguageScreen {
 public:
-    void open(LanguagePreference preference,bool us_available,bool br_available,Language language=Language::english);
+    void open(LanguagePreference preference,bool us_available,bool br_available,Language language=Language::english,bool offer_pack=false);
     bool visible() const { return visible_; }
     void close() { visible_=false; }
     LanguagePreference draft() const { return draft_; }
@@ -23,7 +23,7 @@ public:
 private:
     LanguagePreference draft_=LanguagePreference::native;
     MenuInput previous_;
-    unsigned selected_=0;
+    unsigned selected_=0,choice_count_=cartridge_language_count;
     bool visible_=false,armed_=false,failed_=false,us_=false,br_=false;
     double next_repeat_=0;
 };

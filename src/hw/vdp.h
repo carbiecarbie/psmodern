@@ -9,10 +9,18 @@ namespace psmodern {
 class Vdp {
 public:
     void sync(std::uint64_t cycle);
+    // Only the presentation VDP records the two window ink colours as each
+    // pixel is scanned. Its palette can change partway through a picture.
+    using WindowPalette = std::array<std::uint16_t,256*192>;
+    struct PaletteScan { WindowPalette drawing{}, completed{}; };
+    void sync(std::uint64_t cycle,PaletteScan& scan);
     std::uint8_t read_data();
     std::uint8_t read_status(std::uint8_t open_bus);
     void write_data(std::uint8_t value);
     void write_control(std::uint8_t value);
+    // A display-only copy can keep a scene tile while its bus still accepts
+    // the window write at the same slot and advances its address normally.
+    void retain_vram_data(std::uint8_t value);
     bool irq() const { return (frame_flag_ && (regs_[1] & 0x20)) || (line_flag_ && (regs_[0] & 0x10)); }
     std::uint8_t v_counter() const;
     std::uint8_t h_counter() const { return h_latch_; }
@@ -75,7 +83,7 @@ private:
     std::array<Sprite,8> preparing_sprites_{}, prepared_sprites_{};
     unsigned evaluation_index_=0, evaluation_count_=0, prepared_count_=0;
     bool evaluation_done_=false, overflow_pending_=false;
-    enum class Write { none, vram, cram };
+    enum class Write { none, vram, cram, retain };
     Write write_pending_ = Write::none;
     bool read_pending_ = false;
     // Pipeline state belongs to the snapshot, including partially fetched tiles.
@@ -84,6 +92,7 @@ private:
     std::array<std::uint8_t, 4> tile_planes_{};
     std::array<std::uint8_t, 256> background_{}, sprites_{};
     unsigned fine_scroll_ = 0;
+    template<bool sample> void sync_to(std::uint64_t cycle,PaletteScan* scan);
     void cpu_slot();
     bool cpu_slot_available(unsigned line, unsigned dot) const;
     void fetch_background(unsigned line, unsigned dot);

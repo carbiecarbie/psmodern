@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/sdl_host.h"
+#include "app/language_screen.h"
 #include <cctype>
 #include <iostream>
 #include <stdexcept>
@@ -176,6 +177,21 @@ int main() {try {
         menu.update(sample_menu_input(window,real_controller),now++);
         button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,true);menu.update(sample_menu_input(window,real_controller),now++);
         check(menu.selected()==1,"real controller navigates armed modal");
+        for(unsigned row=2;row<options_layout::rows;++row) {
+            button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false);menu.update(sample_menu_input(window,real_controller),now++);
+            button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,true);menu.update(sample_menu_input(window,real_controller),now++);
+            check(menu.selected()==row,"controller navigates the logical rows");
+        }
+        check(menu.first_visible()==1,"controller scrolls to the eighth Options row");
+        LanguageScreen languages;
+        languages.open(LanguagePreference::sms_literal,true,true,Language::english,true);
+        button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false);languages.update(sample_menu_input(window,real_controller),now++);
+        button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,true);languages.update(sample_menu_input(window,real_controller),now++);
+        button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false);languages.update(sample_menu_input(window,real_controller),now++);
+        button(SDL_CONTROLLER_BUTTON_A,true);
+        check(languages.update(sample_menu_input(window,real_controller),now++)==LanguageAction::save,"controller confirms the fifth choice");
+        button(SDL_CONTROLLER_BUTTON_A,false);
+        button(SDL_CONTROLLER_BUTTON_DPAD_DOWN,true);
         button(SDL_CONTROLLER_BUTTON_START,true);check(sample_input(window,real_controller,enter).pause,"real controller Start retains original Pause mapping");
         button(SDL_CONTROLLER_BUTTON_START,false);
         button(SDL_CONTROLLER_BUTTON_Y,true);

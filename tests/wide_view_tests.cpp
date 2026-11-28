@@ -34,6 +34,7 @@
 // ROM parts exit 77 without their ROM. Only the frames part writes images.
 #include "oracle/native_machine.h"
 #include "app/frame_driver.h"
+#include "app/host.h"
 #include "app/session_roms.h"
 #include "app/wide_view.h"
 #include "game/map_screens.h"
@@ -1249,6 +1250,9 @@ void probes(const Setup& s,const std::filesystem::path& other_path) {
         for(unsigned k=0;k<120 && !opened;++k) { d.run({});if(d.request_menu()) { d.run({});opened=d.menu_active(); } }
         check(opened,"the Options hold opens on the map");
         d.prepare_language(us ? app::LanguagePreference::portuguese : app::LanguagePreference::english);
+        const auto wide_mode=us ? app::WidescreenMode::fill : app::WidescreenMode::on;
+        check(!d.choose_options(d.chosen_options(),d.automap_option(),wide_mode,app::InterfaceMode::enhanced),
+              "saving the enhanced interface with widescreen");
         d.commit_language();d.close_menu();
         const auto changes=d.language_changes();
         unsigned k=0;
@@ -1265,6 +1269,16 @@ void probes(const Setup& s,const std::filesystem::path& other_path) {
         std::uint64_t widened=0;
         for(unsigned j=0;j<60;++j) { d.run({});if(d.wide_picture()) { centre_check(d,"after the ROM swap");++widened; } }
         check(widened>0,"widened again after the swap");
+        std::vector<std::uint32_t> enhanced(256*192);
+        const auto* wide=d.wide_picture();
+        check(wide && d.render_retro(enhanced,wide),"enhanced map available through the host compositor");
+        bool distinct=false;
+        for (unsigned y=0;y<192;++y) for (unsigned x=0;x<8;++x) {
+            const auto expected=(*wide)[y*app::wide_width+app::wide_centre_x+x];
+            distinct|=expected!=d.clean_frame()->background[y*256+x];
+            check(enhanced[y*256+x]==app::rgb(expected),"8-pixel reconstructed left edge missing from enhanced map");
+        }
+        check(distinct,"widescreen seam probe compared only identical pixels");
         std::cout<<s.region<<" probe: ROM swap pillarboxes the swap frame; "<<widened<<" of 60 later frames widened, centre equal\n";
     } else throw Skip{"the ROM swap probe needs the other ROM; every other probe passed"};
     std::cout<<s.region<<" probes passed in "<<timer.seconds()<<" s\n";

@@ -19,6 +19,9 @@ struct TouchLayout {
 // Dimensions, cutout insets and finger coordinates are all in output pixels.
 TouchLayout touch_layout(int width,int height,WindowBorders insets,WidescreenMode mode,bool controls_visible,bool gameplay,bool automap);
 
+MenuInput touch_menu_input(MenuInput in,const PerAction<bool>& held,const PerAction<bool>& taps,
+                           bool start,bool in_menu,bool back);
+
 // After the last controller input, how long a touch cannot bring the hidden
 // controls back (issue 6: a stray touch woke them while playing with a pad).
 constexpr std::uint32_t touch_wake_quiet_ms=2000;

@@ -44,7 +44,7 @@ std::shared_ptr<Memory::Rom> damaged; // mode 4: test-owned backing of the Japan
 constexpr std::size_t damaged_port=12*0x4000+0x273;
 std::uint8_t damaged_good=0;
 unsigned mode=0,loops=0,step=0,sound_frames=0,parent_frames=0;
-bool opened=false,quit_sent=false,finished=false,failed_shown=false,explained=false,fallback_checked=false;
+bool opened=false,panel_ready=false,quit_sent=false,finished=false,failed_shown=false,explained=false,fallback_checked=false;
 std::array<bool,2> label_seen{};
 std::vector<Command> commands;
 Audio::Counters queued;                  // the host's audio counters at the last upload
@@ -110,6 +110,7 @@ MenuInput scripted_menu(SDL_Window* window,const Controller&) {
         return !opened && loops%4==2 ? MenuInput{.toggle=true} : MenuInput{};
     }
     opened=true;
+    if (!panel_ready) return {};
     if(step>=commands.size())return {};
     const auto command=commands[step];
     switch(command.hook) {
@@ -155,16 +156,21 @@ int inspected_upload(const FrameDriver& driver,const OptionsMenu& parent,Languag
     queued=audio.counters();
     if(parent.visible()) {
         ++parent_frames;check(driver.menu_active(),"Options escaped the native Options hold");
+        const auto pixels=static_cast<const std::uint32_t*>(raw);
+        RomFont font(*ui_image);
+        // Start this audio/label test once the initial Options explanation
+        // has reached the state row. The opening frames are covered separately.
+        if (!panel_ready)
+            panel_ready=drawn(pixels,font,l::explanation.column+1,l::state_row,parent.state(ui),
+                              parent.state_quiet() ? menu_style::grey : menu_style::white);
         if(parent.selected()==l::sound_row) {
             ++sound_frames;
             // Inspect the actual frame rather than a test callback.
-            const auto pixels=static_cast<const std::uint32_t*>(raw);
-            RomFont font(*ui_image);
-            if(drawn(pixels,font,l::list.column+1,l::line_row(l::sound_row),ui_text(UiText::sound,ui),menu_style::white))
+            if(drawn(pixels,font,l::list.column+1,l::line_row(l::sound_row-parent.first_visible()),ui_text(UiText::sound,ui),menu_style::white))
                 label_seen[ui==Language::english ? 0 : 1]=true;
             // The value shown is the sound heard, on every frame.
             const std::string_view value=driver.fm_selected() ? "FM" : "PSG";
-            check(drawn(pixels,font,l::list.column+l::list.width-1-int(value.size()),l::line_row(l::sound_row),value,menu_style::grey),
+            check(drawn(pixels,font,l::list.column+l::list.width-1-int(value.size()),l::line_row(l::sound_row-parent.first_visible()),value,menu_style::grey),
                 "the Sound row does not show the sound heard");
             const auto third=mode==2 ? ui_text(UiText::fm_needs_rom,ui) : mode==3 ? ui_text(UiText::fm_unavailable,ui) :
                 OptionsMenu::explanation(l::sound_row,ui)[2];
@@ -253,7 +259,7 @@ int main(int argc,char** argv) {
         const auto folder=root/std::to_string(mode);std::filesystem::create_directories(folder);
         SDL_setenv("APPDATA",folder.string().c_str(),1);host_folder=folder/"PSModern";
         tested=nullptr;focused=nullptr;loops=step=sound_frames=parent_frames=0;label_seen={};queued={};baseline.reset();
-        opened=quit_sent=finished=failed_shown=explained=fallback_checked=false;script();
+        opened=panel_ready=quit_sent=finished=failed_shown=explained=fallback_checked=false;script();
         SessionRoms session;session.source_version=RomVersion::us_rev_a;
         session.images={us.rom,br.rom};session.active=Language::english;
         if(mode==4)damaged=read_image(argv[3]);

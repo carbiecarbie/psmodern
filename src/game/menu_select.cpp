@@ -369,7 +369,9 @@ template<class Z> Exit cursor_blink(Z& z) {
 
 template<class Logic> void add(RoutineRegistry& registry, std::uint16_t address, RoutineEntry unit,
                                std::vector<SegmentExit> exits, mk::Permissions permissions, Logic logic) {
-    mk::add_segment(registry,{0,address},mk::segment(unit,std::move(exits),permissions),logic);
+    auto spec=mk::segment(unit,std::move(exits),permissions);
+    spec.observe_entry=address==0x2d2a || address==0x2d47;
+    mk::add_segment(registry,{0,address},std::move(spec),logic);
 }
 }
 

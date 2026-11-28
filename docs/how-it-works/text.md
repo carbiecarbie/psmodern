@@ -102,3 +102,45 @@ per-entry state/cycle probes. The complete drawing chains described in
 [menus](menus.md#completing-the-drawing-boundaries) also retain every observed
 memory callback and ordered video/PSG port cycle. No dialogue, font or
 language-selection behavior changes.
+
+
+## The optional enhanced dialogue
+
+**Maintainer decision (2026-11-28).** Choosing Enhanced lets the same
+cartridge story use proportional letters. When a message starts, the host
+reads its address after the cartridge has selected the bank. Both a direct
+message and one chosen from an index reach the same point at `00:31D4`.
+The native window flag says whether the words continue a conversation. A
+portrait page that clears and starts drawing again still belongs to the
+same message. Names and numbers are read when that message starts.
+
+The cartridge continues to print, scroll and restore its original windows.
+A second picture follows the video chip's drawing time and keeps the scene
+underneath those windows. New scene tiles can appear underneath an open
+window. The host draws the new letters over this picture, using the options,
+language and game state captured with the frame. The console keeps its
+own picture for reads by the game, including the copies made before a window
+opens.
+
+Each cartridge message reveals its letters as the printer finishes writing
+them. The same printer handles names, and the number printer reports each
+inserted digit. The proportional font can fit different words on a line.
+The host lays out the complete text at the outset, so a word stays in place
+as its letters appear. Portrait captions also follow the cartridge's page
+clear and restart. Their terminal waits and ordinary dialogue pauses still
+take the original number of button presses.
+
+In battle there is room for two lines above the party. If proportional text
+fills that space before a cartridge pause, the host holds the printer at its
+next interrupt-enabled boundary. The arrow becomes actionable once the
+full page has reached the screen, including at 4× speed. One fresh press
+turns the page. Releasing the button re-arms the next choice. The game
+continues running interrupts during this wait, so music, Pause and Reset
+continue to work. The text-source interface also supports replacement scripts
+with their own line breaks and endings.
+
+**ROM run:** US and Brazilian shop and NPC routes reach the native button
+waits, purchases and final restoration. The opening recordings follow all
+five intermediate portrait waits on both cartridges at 1× and 4×. The
+two-line overflow tests exercise a held confirmation, console Pause and
+Reset in the middle of an enhanced page.

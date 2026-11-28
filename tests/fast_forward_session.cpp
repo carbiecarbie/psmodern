@@ -139,8 +139,8 @@ public:
     std::optional<std::string> power_cycle() {
         auto error=app::FrameDriver::power_cycle();shadow=std::make_unique<Machine>(shadow_rom,machine().memory().cartridge_ram());return error;
     }
-    app::FrameOutput run(const FrameInput& input) {
-        auto output=app::FrameDriver::run(input);
+    app::FrameOutput run(const FrameInput& input,bool last_in_batch) {
+        auto output=app::FrameDriver::run(input,last_in_batch);
         if(output.audio_error)throw std::runtime_error(*output.audio_error);
         if(record_mode && output.playback)throw std::runtime_error("Recording used independent audio");
         if(output.playback)for(auto sample:output.playback->values)

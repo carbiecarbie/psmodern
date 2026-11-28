@@ -176,7 +176,10 @@ std::uint8_t Console::read_port(std::uint16_t raw,std::uint64_t cycle) {
     std::uint8_t value;
     if (port<0x40) value=open_bus_;
     else if (port<0x80) value=(port&1) ? vdp_.h_counter() : vdp_.v_counter();
-    else if (port<0xc0) value=(port&1) ? vdp_.read_status(open_bus_) : vdp_.read_data();
+    else if (port<0xc0) {
+        value=(port&1) ? vdp_.read_status(open_bus_) : vdp_.read_data();
+        if (video_observer_) video_observer_->video_access(*this,{cycle,port,value,false},nullptr,0);
+    }
     else if (!memory_.io_enabled()) value=open_bus_;
     else {
         auto low=[](bool pressed)->unsigned { return pressed ? 0 : 1; };
@@ -192,7 +195,8 @@ std::uint8_t Console::read_port(std::uint16_t raw,std::uint64_t cycle) {
     record_access({cycle,port,value,false});
     return value;
 }
-void Console::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle) {
+void Console::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycle,
+                         const RoutineEntry* writer,std::uint16_t entry_sp) {
     const auto port=static_cast<std::uint8_t>(raw);
     if (port>=0x40 && port<0x80) psg_.check_write(cycle);
     sync(cycle);
@@ -208,6 +212,7 @@ void Console::write_port(std::uint16_t raw,std::uint8_t value,std::uint64_t cycl
         psg_.write(value,cycle);
     } else if (port<0xc0) {
         if (port&1) vdp_.write_control(value); else vdp_.write_data(value);
+        if (video_observer_) video_observer_->video_access(*this,{cycle,port,value,true},writer,entry_sp);
     }
     record_access({cycle,port,value,true});
 }

@@ -86,13 +86,13 @@ for this project's organization and workflow.
 
 ### Non-goals
 
-- **No new art.** Nothing that depends on drawing graphics. One named
-  exception (maintainer decision, 2026-11-11): the automap screen uses a few
-  simple 8x8 icons drawn for PSModern (party, chest, opened chest, stairs up,
-  stairs down, exit, door, pitfall; the plain, locked and magic doors are
-  the one door drawing in three colours). It covers those icons on that screen
-  only; it is not a licence for other new art, and any other exception needs
-  its own maintainer decision recorded here. For Android packaging, the APK
+- **No new art.** The automap screen uses 8x8 icons for the party, chests, stairs,
+  exits, doors and pitfalls (maintainer decision, 2026-11-11). The plain,
+  locked and magic doors share one drawing in three colours. The enhanced
+  interface also uses a proportional bitmap font
+  in a 10-pixel cell, including Portuguese accents and typographic punctuation
+  (maintainer decision, 2026-11-28). The player’s cartridge supplies the scene
+  artwork and game text in both interfaces. For Android packaging, the APK
   launcher icon uses a plain XML monogram or geometric shape without ROM
   data (maintainer decision, 2026-11-19).
 - Widescreen in battles, 3D dungeons and portrait scenes: they keep their

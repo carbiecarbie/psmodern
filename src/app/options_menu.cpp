@@ -102,12 +102,14 @@ void RomFont::window(std::span<std::uint32_t> pixels,int x,int y,int width,int h
     if (pixels.size()!=256*192) throw std::invalid_argument("Expected a 256 by 192 overlay.");
     window(pixels,256,x,y,width,height,cursor_y,menu_style::white);
 }
-void RomFont::window(std::span<std::uint32_t> pixels,int stride,int x,int y,int width,int height,int cursor_y,std::uint32_t border) const {
+void RomFont::window(std::span<std::uint32_t> pixels,int stride,int x,int y,int width,int height,int cursor_y,std::uint32_t border,int visible_rows) const {
     if(stride<=0 || pixels.size()%stride || x<0 || y<0 || width<16 || height<16 ||
        x>stride-width || static_cast<std::size_t>(y)+height>pixels.size()/stride || width%8 || height%8)
         throw std::invalid_argument("Expected an in-bounds tile-aligned menu window.");
-    for(int row=y;row<y+height;++row)std::fill(pixels.begin()+row*stride+x,pixels.begin()+row*stride+x+width,0xff000000);
+    const int bottom=y+8*std::clamp(visible_rows,0,height/8);
+    for(int row=y;row<bottom;++row)std::fill(pixels.begin()+row*stride+x,pixels.begin()+row*stride+x+width,0xff000000);
     auto tile=[&](unsigned index,int tx,int ty,bool flip_x=false,bool flip_y=false) {
+        if (ty>=bottom) return;
         for(int py=0;py<8;++py)for(int px=0;px<8;++px)
             if(window_tiles_[index][flip_y ? 7-py : py]&(1u<<(flip_x ? px : 7-px)))
                 pixels[(ty+py)*stride+tx+px]=border;
@@ -117,8 +119,9 @@ void RomFont::window(std::span<std::uint32_t> pixels,int stride,int x,int y,int 
     for(int ty=y+8;ty<y+height-8;ty+=8){tile(ty==cursor_y ? 0 : 3,x,ty);tile(3,x+width-8,ty,true);}
 }
 namespace menu_style {
-void window(std::span<std::uint32_t> pixels,const RomFont& font,const TileWindow& w,int cursor_row) {
-    font.window(pixels,w.column*tile,w.row*tile,w.width*tile,w.height*tile,cursor_row<0 ? -1 : cursor_row*tile);
+void window(std::span<std::uint32_t> pixels,const RomFont& font,const TileWindow& w,int cursor_row,int visible_rows) {
+    font.window(pixels,256,w.column*tile,w.row*tile,w.width*tile,w.height*tile,
+                cursor_row<0 ? -1 : cursor_row*tile,white,visible_rows);
 }
 void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row,std::string_view value,std::uint32_t color) {
     font.text(pixels,column*tile,row*tile,value,color);
@@ -126,23 +129,23 @@ void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row
 }
 namespace {
 using namespace options_layout;
-constexpr UiText row_labels[]{UiText::encounters,UiText::experience_meseta_short,UiText::automap,UiText::widescreen,UiText::controls,UiText::language,UiText::sound};
+constexpr UiText row_labels[]{UiText::encounters,UiText::experience_meseta_short,UiText::automap,UiText::widescreen,UiText::interface_label,UiText::controls,UiText::language,UiText::sound};
 constexpr UiText row_explanations[]{UiText::explain_encounters,UiText::explain_experience,UiText::explain_automap,
-    UiText::explain_widescreen,UiText::explain_controls,UiText::explain_language,UiText::explain_sound};
+    UiText::explain_widescreen,UiText::explain_interface,UiText::explain_controls,UiText::explain_language,UiText::explain_sound};
 static_assert(std::size(row_labels)==rows && std::size(row_explanations)==rows);
-constexpr LanguagePreference language_choices[]{LanguagePreference::native,LanguagePreference::english,LanguagePreference::portuguese};
 constexpr UiText widescreen_choices[]{UiText::off,UiText::on,UiText::fill};
 // Each language is named in its own words, so that a player who reads only
 // one of them finds it.
 constexpr std::string_view language_names[]{"","ENGLISH","PORTUGUES"};
 }
-void OptionsMenu::open(game::Options options,bool pending,bool automap,WidescreenMode widescreen) {
-    game::validate(options);draft_=options;pending_=pending;automap_=automap;widescreen_=widescreen;
-    visible_=true;armed_=false;failed_=language_failed_=sound_failed_=false;selected_=0;previous_={};next_repeat_=0;
+void OptionsMenu::open(game::Options options,bool pending,bool automap,WidescreenMode widescreen,InterfaceMode interface_preference) {
+    game::validate(options);draft_=options;pending_=pending;automap_=automap;widescreen_=widescreen;interface_=interface_preference;
+    visible_=true;armed_=false;failed_=language_failed_=sound_failed_=false;selected_=first_visible_=0;previous_={};next_repeat_=0;
 }
-void OptionsMenu::set_language(LanguagePreference preference,std::array<bool,3> available) {
-    (void)format_language(preference); // refuse unknown values
-    language_=preference;language_available_=available;language_failed_=false;
+void OptionsMenu::set_language(LanguagePreference preference,std::array<bool,3> available,bool offer_pack) {
+    language_count_=offer_pack ? pack_language_count : cartridge_language_count;
+    if(unsigned(preference)>=language_count_)throw std::invalid_argument("Unavailable Options language entry.");
+    language_=preference;language_available_={available[0],available[1],available[2],offer_pack,offer_pack};language_failed_=false;
 }
 void OptionsMenu::set_sound(SoundPreference preference,SoundAvailability availability) {
     if(preference!=SoundPreference::psg && preference!=SoundPreference::fm)throw std::invalid_argument("Unknown sound preference.");
@@ -170,7 +173,13 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
     if(cancel)return MenuAction::apply;
     if(move) {
         next_repeat_=now+(fresh ? .35 : .12);
-        if(input.up!=input.down)selected_=(selected_+(input.down ? 1 : rows-1))%rows;
+        if(input.up!=input.down) {
+            selected_=(selected_+(input.down ? 1 : rows-1))%rows;
+            if(selected_<first_visible_)first_visible_=selected_;
+            if(selected_>=first_visible_+visible_rows)first_visible_=selected_+1-visible_rows;
+        }
+        if(selected_==interface_row && input.left!=input.right)
+            interface_=interface_==InterfaceMode::original ? InterfaceMode::enhanced : InterfaceMode::original;
         if(selected_==2 && input.left!=input.right)automap_=!automap_;
         if(selected_==3 && input.left!=input.right) {
             constexpr auto count=std::size(widescreen_choices);
@@ -186,9 +195,9 @@ MenuAction OptionsMenu::update(const MenuInput& input,double now) {
             // The next preference with a ROM, skipping those without; the
             // owner saves the change at once, as the Language screen's Save did.
             const auto from=std::size_t(language_);
-            for(std::size_t step=1;step<std::size(language_choices);++step) {
-                const auto i=(from+(input.right ? step : std::size(language_choices)-step))%std::size(language_choices);
-                if(language_available_[i]) { language_=language_choices[i];return MenuAction::language; }
+            for(std::size_t step=1;step<language_count_;++step) {
+                const auto i=(from+(input.right ? step : language_count_-step))%language_count_;
+                if(language_available_[i]) { language_=static_cast<LanguagePreference>(i);return MenuAction::language; }
             }
         }
         // Two choices: either direction switches, saved at once by the owner.
@@ -221,7 +230,14 @@ std::vector<std::string> OptionsMenu::choices(unsigned row,Language language) co
         return values;
     }
     case controls_row:return {};
-    case language_row:return {std::string(ui_text(UiText::automatic_short,language)),std::string(language_names[1]),std::string(language_names[2])};
+    case interface_row:return {std::string(ui_text(UiText::original,language)),std::string(ui_text(UiText::enhanced,language))};
+    case language_row: {
+        std::vector<std::string> result{std::string(ui_text(UiText::automatic_short,language)),
+            std::string(language_names[1]),std::string(language_names[2])};
+        for(unsigned i=cartridge_language_count;i<language_count_;++i)
+            result.emplace_back(language_label(static_cast<LanguagePreference>(i),language));
+        return result;
+    }
     case sound_row:return {"PSG","FM"}; // the chips' names, in both languages
     }
     throw std::out_of_range("No such Options row.");
@@ -236,9 +252,18 @@ std::size_t OptionsMenu::current(unsigned row) const {
     case 2:return automap_ ? 1 : 0;
     case 3:return std::size_t(widescreen_);
     case language_row:return std::size_t(language_);
+    case interface_row:return std::size_t(interface_);
     case sound_row:return effective_sound_preference(sound_,sound_availability_==SoundAvailability::available)==SoundPreference::fm ? 1 : 0;
     }
     return 0;
+}
+std::string OptionsMenu::inline_value(unsigned row,Language language) const {
+    if(row==language_row) {
+        if(language_==LanguagePreference::sms_english)return "SMS EN";
+        if(language_==LanguagePreference::sms_literal)return "SMS LIT";
+    }
+    const auto values=choices(row,language);
+    return values.empty() ? std::string{} : values.at(current(row));
 }
 bool OptionsMenu::available(unsigned row,std::size_t choice) const {
     if(row==sound_row)return choice==0 || sound_availability_==SoundAvailability::available;
@@ -251,7 +276,9 @@ std::optional<menu_style::TileWindow> OptionsMenu::values_window(Language langua
     // choice on the row's line; moved up a line at a time when it would
     // reach below the list (Language), so the explanation stays apart.
     std::size_t longest=0;for(const auto& value:values)longest=std::max(longest,value.size());
-    menu_style::TileWindow window{values_column,line_row(selected_)-1,std::max(values_width,int(longest)+2),line_step*int(values.size())+1};
+    const int width=std::max(values_width,int(longest)+2);
+    menu_style::TileWindow window{std::min(values_column,menu_style::columns-width),line_row(selected_-first_visible_)-1,
+                                  width,line_step*int(values.size())+1};
     while(window.row+window.height>list.row+list.height)window.row-=line_step;
     return window;
 }
@@ -296,32 +323,40 @@ bool OptionsMenu::drawn(int x,int y,Language language) const {
     const auto values=values_window(language);
     return list.contains(x,y) || options_layout::explanation.contains(x,y) || (values && values->contains(x,y));
 }
-void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language) const {
+void OptionsMenu::render(std::span<std::uint32_t> pixels,const RomFont& font,Language language,int opening_rows) const {
     using menu_style::white;using menu_style::grey;
     // A line per row, the cursor in the list's left border, as the game's
     // own menus; the current value repeated in grey at the right.
-    menu_style::window(pixels,font,list,line_row(selected_));
-    for(unsigned row=0;row<rows;++row) {
-        const int y=line_row(row);
+    const auto window=values_window(language);
+    const int choice_rows=std::max(0,opening_rows-list.height);
+    const int help_rows=std::max(0,choice_rows-(window ? window->height : 0));
+    const int cursor_row=help_rows>=options_layout::explanation.height ? line_row(selected_-first_visible_) : -1;
+    menu_style::window(pixels,font,list,cursor_row,opening_rows);
+    for(unsigned row=first_visible_;row<first_visible_+visible_rows;++row) {
+        const int y=line_row(row-first_visible_);
+        if (y-list.row>=opening_rows) break;
         menu_style::text(pixels,font,list.column+1,y,label(row,language),white);
-        const auto values=choices(row,language);
-        if(values.empty())continue;
-        const auto& value=values[current(row)];
-        menu_style::text(pixels,font,list.column+list.width-1-int(value.size()),y,value,grey);
+        const auto value=inline_value(row,language);
+        if(value.empty())continue;
+        const bool covered=window && y>=window->row && y<window->row+window->height;
+        const int right=covered ? std::min(list.column+list.width-1,window->column) : list.column+list.width-1;
+        menu_style::text(pixels,font,right-int(value.size()),y,value,grey);
     }
     // The values window shows the choices; left and right change them, so
     // it has no cursor of its own. The current one is yellow.
-    if(const auto window=values_window(language)) {
-        menu_style::window(pixels,font,*window);
+    if(window && choice_rows>0) {
+        menu_style::window(pixels,font,*window,-1,choice_rows);
         const auto values=choices(selected_,language);
-        for(std::size_t i=0;i<values.size();++i)
+        for(std::size_t i=0;i<values.size() && 1+line_step*int(i)<choice_rows;++i)
             menu_style::text(pixels,font,window->column+window->width-1-int(values[i].size()),window->row+1+line_step*int(i),values[i],
                 i==current(selected_) ? menu_style::yellow : available(selected_,i) ? grey : menu_style::dim);
     }
-    menu_style::window(pixels,font,options_layout::explanation);
+    if (help_rows==0) return;
+    menu_style::window(pixels,font,options_layout::explanation,-1,help_rows);
     const auto lines=explanation_text(language);
-    for(unsigned i=0;i<explanation_lines;++i)menu_style::text(pixels,font,options_layout::explanation.column+1,options_layout::explanation.row+1+line_step*int(i),lines[i],white);
-    menu_style::text(pixels,font,options_layout::explanation.column+1,state_row,state(language),state_quiet() ? grey : white);
+    for(unsigned i=0;i<explanation_lines && 1+line_step*int(i)<help_rows;++i)menu_style::text(pixels,font,options_layout::explanation.column+1,options_layout::explanation.row+1+line_step*int(i),lines[i],white);
+    if (state_row-options_layout::explanation.row<help_rows)
+        menu_style::text(pixels,font,options_layout::explanation.column+1,state_row,state(language),state_quiet() ? grey : white);
 }
 FrameInput InputRelease::filter(FrameInput input,bool held,bool keyboard_focused) {
     if(!waiting_)return input;

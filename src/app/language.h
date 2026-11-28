@@ -8,7 +8,10 @@
 
 namespace psmodern::app {
 enum class Language { english, portuguese };
-enum class LanguagePreference { native, english, portuguese };
+enum class LanguagePreference { native, english, portuguese, sms_english, sms_literal };
+// The cartridge-only selectors have three entries. A single imported pack
+// will make both additional choices available together.
+inline constexpr unsigned cartridge_language_count=3,pack_language_count=5;
 constexpr Language native_language(RomVersion version) {
     return version==RomVersion::brazilian ? Language::portuguese : Language::english;
 }

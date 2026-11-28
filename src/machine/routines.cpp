@@ -219,7 +219,7 @@ RoutineContext::SyncScope::~SyncScope() {
 RoutineContext::RoutineContext(Machine& m, RegisteredRoutine& routine, std::uint64_t bound, bool exact)
     : machine_(m), routine_(routine), spec_(routine.spec), entry_(m.cycles()), bound_(bound),
       exact_(exact), instruction_start_(m.cycles()),
-      entry_pc_(m.cpu().pc.uint16_value), entry_bank_(m.memory().mapping(m.cpu().pc.uint16_value).bank),
+      entry_pc_(m.cpu().pc.uint16_value), entry_sp_(m.cpu().sp.uint16_value), entry_bank_(m.memory().mapping(m.cpu().pc.uint16_value).bank),
       checking_opcodes_(m.opcode_check_!=nullptr) {}
 void RoutineContext::active() const {
     if (finished_) throw std::logic_error("Registered routine already returned");
@@ -351,7 +351,7 @@ void RoutineContext::write_port(std::uint16_t port, std::uint8_t value, std::uin
     }
     at_offset(offset);
     if (low<0x40 && !(low&1)) note_remap();
-    machine_.write_port(port,value,machine_.cycles());
+    machine_.write_port(port,value,machine_.cycles(),&spec_.unit,entry_sp_);
 }
 void RoutineContext::finish(const SegmentExit& exit, std::uint16_t next_pc) {
     active();

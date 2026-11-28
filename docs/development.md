@@ -292,9 +292,18 @@ reader validates and ignores that switch, keeps the other settings in all three
 records, and writes format 2 or 3 on the next settings save if all modes are
 still OFF or ON.
 
-**Settings format 5 (FILL).** Format 5 uses the same fields as format 3, with
+**Settings formats 5 and 6 (FILL and Interface).** Format 6 adds one
+interface token to each populated record (0 Original, 1 Enhanced). Earlier
+formats imply Original. Release 1.4.0 preserves an unsupported companion
+through automatic cartridge saves. Applying Options with 1.4.0 replaces the
+companion with settings that release understands. On POSIX, a settings rename
+followed by a directory flush error leaves the new choice visible. The running
+session adopts it, reports the durability warning and retries the flush.
+
+Format 5 uses the same fields as format 3, with
 one widescreen token per populated record. OFF is `0`, ON is `1`, and FILL
 is `2`. The writer checks the committed, pending and backup records. It
+uses format 6 when any retained record selects Enhanced. Otherwise it
 writes format 5 if any contains FILL, format 3 if any contains ON and none
 contains FILL, and format 2 without the widescreen field if all are OFF.
 Releases 1.3.2 and 0.4.0 can read formats 3 and 2, respectively. Applying ON before
@@ -546,9 +555,10 @@ The Options binding (Escape or controller Y by default) opens Options during fre
 world map and in dungeons, when the original field menu is available. It is
 unavailable during battles, dialogue, other menus and the title screen; those
 presses are discarded. Pause remains the original Pause. Up/Down
-selects one of the seven rows (the two rates, Automap, Widescreen, CONTROLS,
-LANGUAGE and SOUND), all on one page; Left/Right changes a value.
-Button 1, Button 2 or the Options binding persists the four displayed values
+selects one of eight rows (the two rates, Automap, Widescreen, INTERFACE,
+CONTROLS, LANGUAGE and SOUND). Seven rows are visible, and the list scrolls
+when the selection reaches an edge. Left/Right changes a value.
+Button 1, Button 2 or the Options binding persists the five profile settings
 and closes; there is no separate confirmation step. On the CONTROLS row Button
 1 opens the [Controls screen](#controls-screen) instead. On the LANGUAGE row Left/Right
 steps through AUTO, ENGLISH and PORTUGUES, skipping a preference without its
@@ -571,7 +581,7 @@ Since milestone 12 the screen is three windows on the 32x24 tile grid
 (`options_layout` and `menu_style` in `src/app/options_menu.h`): the list at
 tile column 1, row 0 (20 by 15 tiles since milestone 17's seventh row, a line every two tile rows because the
 cartridge's letters fill their tile, the current values right-aligned in
-grey); the values of the selected row in a window at column 20 that overlaps
+grey); the values of the selected row in a window clamped inside the 32 columns, normally at column 20, overlapping
 the list's right border (11 wide, the current choice yellow, the others grey,
 a language without its ROM dark grey; moved up whole lines when it would
 reach below the list); and the explanation window at column 1, row 15 (30 by
@@ -603,7 +613,12 @@ console VRAM or the cartridge save.
 The host captures the exploration picture, then runs the original field menu
 on the same live machine while drawing Options over that picture. Admission
 requires the original exploration frame wait, its map or dungeon caller,
-released controls and no movement or pending action. A rejected request does
+released controls and no movement or pending action. With a full party, a
+town or world-map frame can end while the game is still drawing the party.
+A single Options press there can request the next walking wait if the
+current map update is still on the stack. The host verifies the wait and
+its return before entering Options, and the request expires at frame end.
+A rejected request does
 not survive into a later scene. The original menu keeps gameplay waiting
 while interrupts and the sound driver continue normally.
 

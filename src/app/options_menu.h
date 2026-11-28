@@ -5,6 +5,7 @@
 #include "app/language.h"
 #include "app/sound_preference.h"
 #include "app/widescreen_mode.h"
+#include "app/interface_mode.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -25,7 +26,7 @@ public:
     void window(std::span<std::uint32_t> pixels,int x,int y,int width,int height,int cursor_y) const;
     // Arbitrary tightly packed rows for host surfaces such as touch textures.
     void text(std::span<std::uint32_t> pixels,int stride,int x,int y,std::string_view text,std::uint32_t color) const;
-    void window(std::span<std::uint32_t> pixels,int stride,int x,int y,int width,int height,int cursor_y,std::uint32_t border) const;
+    void window(std::span<std::uint32_t> pixels,int stride,int x,int y,int width,int height,int cursor_y,std::uint32_t border,int visible_rows=24) const;
     const auto& window_tiles() const { return window_tiles_; }
     const auto& glyphs() const { return glyphs_; }
 private:
@@ -48,7 +49,7 @@ struct TileWindow {
 };
 // Black window with the cartridge border; the cursor tile replaces the left
 // border on cursor_row (a tile row) when it is inside the window.
-void window(std::span<std::uint32_t> pixels,const RomFont& font,const TileWindow& window,int cursor_row=-1);
+void window(std::span<std::uint32_t> pixels,const RomFont& font,const TileWindow& window,int cursor_row=-1,int visible_rows=24);
 void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row,std::string_view text,std::uint32_t color);
 }
 // Options layout, in tiles (milestone 12): the list at the left, the values
@@ -59,7 +60,7 @@ void text(std::span<std::uint32_t> pixels,const RomFont& font,int column,int row
 // seventh row moved the list up to the screen's top tile row (approved
 // mockups, 2026-11-22), as the explanation already reached its bottom one.
 namespace options_layout {
-inline constexpr unsigned rows=7, controls_row=4, language_row=5, sound_row=6, explanation_lines=3;
+inline constexpr unsigned rows=8, visible_rows=7, interface_row=4, controls_row=5, language_row=6, sound_row=7, explanation_lines=3;
 inline constexpr int line_step=2;
 inline constexpr menu_style::TileWindow list{1,0,20,15};
 inline constexpr menu_style::TileWindow explanation{1,15,30,9};
@@ -80,14 +81,12 @@ enum class MenuAction { none,apply,close,controls,language,sound };
 enum class SoundAvailability { available,no_rom,failed };
 class OptionsMenu {
 public:
-    // Seven rows, all visible: encounters, experience/meseta, automap,
-    // widescreen, Controls, Language and Sound. Left and right change the
-    // selected value. (Milestone 14 removed the read-only state: a recording
-    // never opens Options, and the Z80 mode is gone.)
-    void open(game::Options options,bool pending,bool automap=false,WidescreenMode widescreen=WidescreenMode::off);
+    // Eight rows on seven visible lines. Up/down scrolls; left/right changes the selection.
+    void open(game::Options options,bool pending,bool automap=false,WidescreenMode widescreen=WidescreenMode::off,
+              InterfaceMode interface_preference=InterfaceMode::original);
     // The global language preference and which preferences have a ROM
     // (indexed by LanguagePreference). Defaults: native, all available.
-    void set_language(LanguagePreference preference,std::array<bool,3> available);
+    void set_language(LanguagePreference preference,std::array<bool,3> available,bool offer_pack=false);
     // The installation's sound preference and whether FM can be chosen.
     // Without FM the row shows PSG and keeps the saved preference untouched.
     // Default: PSG, no Japanese ROM.
@@ -104,9 +103,13 @@ public:
     bool automap_draft() const { return automap_; }
     WidescreenMode widescreen_draft() const { return widescreen_; }
     LanguagePreference language_draft() const { return language_; }
+    InterfaceMode interface_draft() const { return interface_; }
     unsigned selected() const { return selected_; }
+    unsigned first_visible() const { return first_visible_; }
+    std::string inline_value(unsigned row,Language language) const;
     MenuAction update(const MenuInput& input,double now);
-    void render(std::span<std::uint32_t> pixels,const RomFont& font,Language language=Language::english) const;
+    void render(std::span<std::uint32_t> pixels,const RomFont& font,Language language=Language::english,
+                int opening_rows=48) const;
     void failed() { failed_=true; }
     // The owner saved language_draft(), or could not: the previous
     // preference comes back and the state line shows the failure.
@@ -135,12 +138,13 @@ public:
 private:
     game::Options draft_;
     MenuInput previous_;
-    unsigned selected_=0;
+    unsigned selected_=0,first_visible_=0,language_count_=cartridge_language_count;
     LanguagePreference language_=LanguagePreference::native;
-    std::array<bool,3> language_available_{true,true,true};
+    std::array<bool,pack_language_count> language_available_{true,true,true,false,false};
     SoundPreference sound_=SoundPreference::psg;
     SoundAvailability sound_availability_=SoundAvailability::no_rom;
     bool visible_=false,armed_=false,pending_=false,failed_=false,language_failed_=false,sound_failed_=false,automap_=false;
+    InterfaceMode interface_=InterfaceMode::original;
     WidescreenMode widescreen_=WidescreenMode::off;
     // The row saves when changed rather than when Options closes.
     bool saves_at_once() const { return selected_==options_layout::language_row || selected_==options_layout::sound_row; }

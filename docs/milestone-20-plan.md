@@ -1,6 +1,6 @@
 # Milestone 20 plan - Optional retro interface
 
-**Tier A. Status: approved plan (2026-11-28); implementation not started.**
+**Tier A. Status: Parolit pacing approved on Windows on 2026-11-28; maintainer play-test approved on 2026-11-28, local regression passed, hosted CI pending.**
 Twentieth milestone of the [roadmap](roadmap.md); prerequisite for
 [milestone 21](milestone-21-plan.md) (SMS Power! v2.6.1 retranslations).
 
@@ -38,6 +38,80 @@ Portuguese accents), keeping original menu flows, controls and visual identity.
      level-30 cap), keeping BR labels (`NV`, `PF`, `PM`, `ATQ`, `DEF`, `PE`).
 - **Out of scope:** bestiary, permanent overworld HUD, menu-flow rewrites,
   16:9 side panels and SMS Power! importing (milestone 21).
+
+## Motion and pacing
+
+**Maintainer decision (2026-11-28).** The enhanced interface must preserve the
+rhythm of opening windows and reading dialogue. The Windows play-test exposed
+complete paragraphs and filled menus on their first visible frame.
+
+Reuse the font, page layout, cartridge readers, clean scene and Options.
+Rework the information passed from the native printers to the renderer.
+Implement the revision in this order.
+
+1. Trace the Parolit shop at 1x using the prepared save and recorded inputs.
+   Mark the frames when the greeting box starts and finishes opening, its
+   first and last glyph appear, the cursor accepts yes/no, and the list and
+   money window appear. The existing side-by-side clip is the baseline.
+2. Make that sequence playable in Enhanced. In `RetroTextSession`, lay
+   out the entire page once and track how much the cartridge printer has
+   actually emitted. Draw that prefix in its final positions. In
+   `WindowState`, track rows drawn or restored for each active window and
+   clip its contents accordingly. Capture both kinds of progress with the
+   displayed frame. Preserve immediate redraws, original input handling,
+   and the ordering of prices, helper text and the selection cursor.
+3. Include menu opening in the Parolit prototype. The field commands and
+   party cards follow their cartridge rows. In the host Options screen,
+   unroll the list, then its values, then its explanation, at one tile row
+   per game frame. Show both menus in the comparison.
+4. Deliver a short Original/prototype comparison and a Windows build at
+   the shop save. Check intermediate frames against the trace and confirm
+   that advancing the greeting and making the purchase take the expected
+   presses. Use this scene for maintainer feedback on the feel.
+5. Apply the verified behavior to field menus, inventory, equipment,
+   status, battles and portrait dialogue. Cover appended and substituted
+   text, scrolling, page clears, nested windows and individual party cards.
+   Verify 1x/4x, held confirm, Pause, Reset and fades on both cartridges.
+   Then run the full regression suite and prepare the Windows/S24 play-test.
+
+The first Windows prototype and comparison are in
+`../m20-parolit-windows/`. In the recorded US route the greeting box opens
+on frames 583–588 and the yes/no box on 645–649. The money window starts
+on 659 and the stock list opens on 702–709. In the Brazilian recording the
+corresponding frames are 580–585, 632–636, 646 and 688–695. Both routes
+purchase one item for 75 Meseta. The maintainer approved the opening rhythm
+in the Windows prototype on 2026-11-28. The field commands lost their last
+rows behind the member picker, and ordinary map conversations still appeared
+as complete pages. The follow-up build tracks field commands independently of the member picker
+and follows the regular map conversation dispatcher, including nested
+scripts. Four US/BR NPC recordings checked 7,900 frames against native
+printing, button acceptance and closing.
+
+The rollout also covers the portrait printer, two-line battle text, item
+page redraws, equipment, status, save slots, shops and battle windows.
+Enhanced keeps a parent visible while a child opens or restores individual
+rows. The two columns in the status spell list follow the times at which the
+native single column prints each spell. Cursor input stays with the active
+selector. US/BR focused tests include intermediate pictures, opening captions,
+held confirm, Pause and Reset. The independent implementation review
+rechecked the split status column and nested selection regressions after
+their fixes.
+
+The final Windows regression covered 450 cases. Three UI tests checked
+Options labels before their animated rows were visible. All three passed
+after the test scripts were updated, followed by all 202 fast tests.
+All 378 playthrough cases passed with both cartridges configured. The
+separate no-ROM run passed the Windows skip audit. The frozen Android
+APK includes ARM64 and ARMv7. The package, source and executable hashes,
+guide and notes are in `../m20-playtest-final/`. On 2026-11-28 the maintainer reported that all other play-test checks passed.
+The two defects were in Continue. Its load/delete labels now follow the
+cartridge's two rows and scroll out when the slot instructions replace them.
+The title's direct save-list entry now draws the slot names and the moving
+cursor. US and Brazilian recordings selected and loaded the second save
+with the corrected renderer. The maintainer subsequently confirmed approval
+of the play-test. On the corrected build all 450 regression cases and all
+378 playthrough cases passed with zero skips; Windows also passed the
+separate no-ROM audit. Hosted CI for this working tree is pending.
 
 ## Key design decisions
 

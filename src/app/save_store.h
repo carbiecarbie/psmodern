@@ -9,6 +9,7 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <stdexcept>
 
 namespace psmodern::app {
 const char* save_name(RomVersion version);
@@ -28,6 +29,11 @@ private:
 // Persist directory entries after publishing data on POSIX filesystems.
 void sync_directory(const std::filesystem::path& directory);
 #endif
+// The replacement is visible, but its directory entry may not survive a power loss.
+class PublishedWithoutSync : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 void atomic_save(const std::filesystem::path& path,const Memory::CartridgeRam& image);
 // Atomically replaces a small text file (settings, remembered ROMs), creating
 // its folder; refuses a destination that exists and is not a regular file.
@@ -56,6 +62,10 @@ public:
     // without the switch keeps the stored one).
     std::optional<std::string> choose(const game::Options& options,const Memory::CartridgeRam& image);
     std::optional<std::string> choose(const game::Options& options,bool automap,const Memory::CartridgeRam& image);
+    std::optional<std::string> choose(const game::Options& options,bool automap,WidescreenMode widescreen,
+                                      InterfaceMode interface_preference,const Memory::CartridgeRam& image);
+    InterfaceMode interface_preference() const { return interface_preference_; }
+    const std::optional<std::string>& durability_warning() const { return durability_warning_; }
     const game::Options& preferences() const { return preferences_; }
     bool automap_preference() const { return automap_preference_; }
     // The profile's widescreen mode sits beside the automap switch.
@@ -63,7 +73,7 @@ public:
     // options and keeps it only when the write succeeded.
     WidescreenMode widescreen_preference() const { return widescreen_preference_; }
     void request_widescreen(WidescreenMode mode) { widescreen_request_=mode; }
-    WidescreenMode widescreen_request() const { return widescreen_request_; }
+    WidescreenMode widescreen_request() const { return widescreen_request_.value_or(widescreen_preference_); }
     const std::optional<std::string>& settings_warning() const { return settings_warning_; }
     std::filesystem::path settings_path() const { auto p=path_;p+=".options";return p; }
     // The automap companion <save>.automap (milestone 7). Only a tracking
@@ -100,6 +110,7 @@ public:
 private:
     void ensure_lock() const;
     void ensure_backup();
+    void publish_settings(SettingsImage next);
     void stage(const Memory::CartridgeRam& image,const game::Options& preferences);
     std::optional<std::string> flush_automap(const Memory::CartridgeRam& image);
     mutable std::unique_ptr<SaveLock> lock_;
@@ -109,7 +120,10 @@ private:
     SettingsImage settings_;
     game::Options preferences_;
     bool automap_preference_=false;
-    WidescreenMode widescreen_preference_=WidescreenMode::off,widescreen_request_=WidescreenMode::off;
+    WidescreenMode widescreen_preference_=WidescreenMode::off;
+    std::optional<WidescreenMode> widescreen_request_;
+    InterfaceMode interface_preference_=InterfaceMode::original;
+    std::optional<std::string> durability_warning_;
     AutomapImage automap_;
     std::optional<std::string> automap_warning_;
     bool automap_loaded_=false,automap_blocked_=false,automap_dirty_=false,automap_reported_=false,automap_backup_done_=false;

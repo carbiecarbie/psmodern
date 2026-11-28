@@ -113,12 +113,16 @@ MenuInput scripted_menu(SDL_Window* window,const Controller&) {
     }
     opened=true;
     if(step>=commands.size())return {};
-    const auto command=commands[step++];
+    const auto command=commands[step];
     if(command.hook==Hook::block_write)std::filesystem::create_directory(host_folder/language_file_name);
     if(command.hook==Hook::retry_write) {
-        check(failed_shown && tested->active_language()==source_language && !tested->language_pending(),"failed language write was committed");
+        check(tested->active_language()==source_language && !tested->language_pending(),"failed language write was committed");
+        // The script can reach Language before the explanation has unfolded.
+        // Retry only when the visible frame has actually reported the error.
+        if (!failed_shown) return {};
         check(std::filesystem::remove(host_folder/language_file_name),"remove failed-save fixture");
     }
+    ++step;
     return command.input;
 }
 int inspected_upload(const FrameDriver& driver,const OptionsMenu& parent,Language ui,

@@ -22,7 +22,7 @@ struct SessionRoms {
         return images[language==Language::english ? 0 : 1];
     }
     bool available(Language language) const { return bool(image(language)); }
-    bool available(LanguagePreference value) const { return available(resolve_language(value,source_version)); }
+    bool available(LanguagePreference value) const { return unsigned(value)<cartridge_language_count && available(resolve_language(value,source_version)); }
 };
 // The primary path is mandatory; a failed optional companion is a warning.
 // Restricted sessions load neither extra image and ignore the language preference.

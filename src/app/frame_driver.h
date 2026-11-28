@@ -11,6 +11,9 @@
 #include "game/automap.h"
 #include "game/dungeon_tables.h"
 #include "app/wide_view.h"
+#include "app/clean_background.h"
+#include "app/retro_text.h"
+#include "app/retro_windows.h"
 #include <array>
 #include <vector>
 
@@ -82,7 +85,7 @@ public:
     // up to one segment later. An error of the engine (code with no C++
     // body, a state a body does not handle) propagates: the game stops
     // (stopped()), and run and power_cycle refuse from then on.
-    FrameOutput run(const FrameInput& next_input);
+    FrameOutput run(const FrameInput& next_input,bool last_in_batch=true);
     std::optional<std::string> power_cycle();
     // An explicit flush (exit, power cycle) also retries a failed automap
     // write at once; the per-frame flush in run() follows its backoff. After
@@ -106,6 +109,10 @@ public:
     // automap, never a routine option and never pending); on a failed write the
     // stored switch is kept.
     std::optional<std::string> choose_options(const game::Options& options,bool automap,WidescreenMode widescreen);
+    std::optional<std::string> choose_options(const game::Options& options,bool automap,WidescreenMode widescreen,
+                                              InterfaceMode interface_preference);
+    InterfaceMode interface_preference() const { return store_.interface_preference(); }
+    InterfaceMode effective_interface() const { return effective_interface_; }
     // The stored switch, off in a restricted session (recording).
     WidescreenMode widescreen_option() const { return options_restricted() ? WidescreenMode::off : store_.widescreen_preference(); }
     // Host-owned, verified images. Prepare may throw BEFORE language.txt is
@@ -120,7 +127,7 @@ public:
     Language active_language() const { return language_; }
     bool language_pending() const { return pending_language_.has_value(); }
     std::uint64_t language_changes() const { return language_changes_; }
-    // The host may request the native field menu only during its proven wait.
+    // The host may request the native field menu during its proven wait or the map update it calls.
     // The map is admitted only at the dungeon wait (00:0F48, mode 0Bh), with
     // the Automap option on and a tracker running.
     bool request_menu(HostMenu purpose=HostMenu::options);
@@ -153,8 +160,26 @@ public:
     // not widened (pillarbox). Valid until the next run, power cycle or
     // set_widescreen; a host menu keeps its own copy, as with the picture.
     const WidePicture* wide_picture() const { return wide_ ? wide_->picture(machine_->picture()) : nullptr; }
+    // Paint the last fully paired enhanced frame. False leaves the host's
+    // existing Original/widescreen composition in place.
+    bool render_retro(std::span<std::uint32_t> pixels,const WidePicture* wide=nullptr);
+    void set_clean_background(bool on);
+    const CleanFrame* clean_frame() const { return clean_ ? clean_->shown() : nullptr; }
     const WideView* wide_view() const { return wide_.get(); }
 private:
+    struct RetroUiState {
+        retro::WindowState windows;
+        retro::TextPage text;
+        Language language=Language::english;
+        bool native=false;
+    };
+    std::vector<std::uint32_t> retro_layer_;
+    bool opening_=false,credits_=false;
+    retro::RetroTextSession retro_text_;
+    retro::WindowState retro_windows_;
+    RetroUiState retro_next_,retro_shown_;
+    bool native_retro_scene() const;
+    void reset_retro();
     void activate(const game::Options& options);
     void track(std::uint16_t pc);
     void log(MapEvent event) { if(map_log_)map_log_->push_back(std::move(event)); }
@@ -163,6 +188,8 @@ private:
     std::array<std::optional<Machine::RomReplacement>,2> replacements_;
     RomVersion source_version_=RomVersion::us_rev_a;
     Language language_=Language::english;
+    ScriptVariant script_=ScriptVariant::cartridge;
+    InterfaceMode effective_interface_=InterfaceMode::original;
     std::optional<Language> prepared_language_,pending_language_;
     std::uint64_t language_changes_=0;
     bool languages_configured_=false;
@@ -179,6 +206,7 @@ private:
     HostMenu menu_purpose_=HostMenu::options,requested_purpose_=HostMenu::options;
     std::optional<std::uint16_t> exploration_wait_,menu_request_;
     std::uint16_t exploration_sp_=0;
+    bool walking_update_=false;
     bool menu_active_=false,menu_closing_=false,menu_cancel_seen_=false;
     Z80 menu_caller_{};
     std::uint16_t menu_return_=0;
@@ -193,6 +221,8 @@ private:
     bool audio_failed_=false;
     std::optional<std::uint8_t> sound_request_;
     std::unique_ptr<WideView> wide_;
+    std::unique_ptr<CleanBackground> clean_;
+    bool clean_enabled_=false;
     // The image the wide view reads (it follows rom_ at the next frame end).
     const Memory::Rom* wide_rom_=nullptr;
     // The last frame end's memory while its cartridge RAM is not yet written.

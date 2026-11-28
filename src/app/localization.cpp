@@ -95,7 +95,12 @@ constexpr Translation catalog[]{
      "PSG - SOM DOS EUA E BRASIL.\nFM - SOM JAPONES.\nO ORIGINAL E PSG."},
     {"FM NEEDS THE JAPANESE ROM.","FM PRECISA DA ROM JAPONESA."},
     {"FM OFF UNTIL POWER CYCLE.","FM DESLIGADO ATE REINICIAR."},
-    {"SAVES WHEN CHANGED","SALVA AO MUDAR"}
+    {"SAVES WHEN CHANGED","SALVA AO MUDAR"},
+    {"INTERFACE","INTERFACE"},{"ORIGINAL","ORIGINAL"},{"ENHANCED","NOVA"},
+    {"ENHANCED USES SMALLER TYPE\nAND SHOWS ITEM AND SPELL\nDETAILS IN GAME WINDOWS.",
+     "NOVA USA LETRAS MENORES E\nMOSTRA DETALHES DE ITENS E\nMAGIAS NAS JANELAS DO JOGO."},
+    {"Settings applied. They may be lost if power is interrupted before the next save.",
+     "Opcoes aplicadas. Elas podem ser perdidas se faltar energia antes da proxima gravacao."}
 };
 static_assert(std::size(catalog)==std::size_t(UiText::count));
 }
@@ -112,6 +117,8 @@ std::string_view language_label(LanguagePreference preference,Language language)
     case LanguagePreference::native:return ui_text(UiText::automatic,language);
     case LanguagePreference::english:return ui_text(UiText::english,language);
     case LanguagePreference::portuguese:return ui_text(UiText::portuguese,language);
+    case LanguagePreference::sms_english:return "SMS POWER!";
+    case LanguagePreference::sms_literal:return "SMS LITERAL";
     }
     throw std::invalid_argument("Unknown language preference.");
 }

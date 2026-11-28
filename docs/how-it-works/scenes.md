@@ -56,6 +56,15 @@ the picture. It advances the game mode before drawing begins.
 execution, including partial overlapping copies. Whole-sequence visual evidence
 is a separate replay check.
 
+**ROM run (Enhanced).** The Continue screen uses two rows for its load
+and delete instructions. The US prompt fills the first row exactly. The
+Brazilian prompt tells the printer to start a new row. The instruction
+for selecting a slot then scrolls the previous choice out of view. From
+the title the game draws the five slots directly at `00:39B1`. The field
+menu first saves the background at `00:39A5`. Enhanced follows both
+paths and reads the slot names and cursor from the same data as the game.
+On both cartridges the selection moved down and loaded the second save.
+
 ## Flying and landing
 
 Flight keeps a fractional scroll position as well as the visible tile row.

@@ -876,7 +876,7 @@ void register_scenes(RoutineRegistry& registry) {
     add(0x06EF,0x06EF,{F(0x06F2)},calls,[](auto& z) -> Exit { return show_text(z,0x06EF); });
     add(0x06F5,0x06F5,{cartridge(0x06F7)},none,[](auto& z) -> Exit { return cartridge_switch(z,0x06F5); });   // after the text
     add(0x06FA,0x06FA,{cartridge(0x0727)},none,[](auto& z) -> Exit { return erase_slot(z); });
-    add(0x072A,0x072A,{R(0x072F)},none,[](auto& z) -> Exit { return erase_done(z); });
+    add(0x072A,0x072A,{R(0x072F)},none,[](auto& z) -> Exit { return erase_done(z); },true);
 
     // ---- the slot-flag check ----
     add(0x073A,0x073A,{cartridge(0x073C)},none,[](auto& z) -> Exit { return cartridge_switch(z,0x073A); });

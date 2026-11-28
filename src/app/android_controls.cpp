@@ -96,12 +96,7 @@ void AndroidControls::event(const SDL_Event& e) {
     redraw=true;
 }
 MenuInput AndroidControls::menu(MenuInput in,bool start,bool in_menu) const {
-    const auto held=touch_.held();
-    auto on=[&](Action a){return taps_[a] || held[a];};
-    in.up|=on(Action::up); in.down|=on(Action::down); in.left|=on(Action::left); in.right|=on(Action::right);
-    in.accept|=on(Action::button1); in.cancel|=(!start && on(Action::button2)) || (in_menu && back_);
-    in.toggle|=on(Action::options) || (!in_menu && back_); in.map|=on(Action::map);
-    return in;
+    return touch_menu_input(in,touch_.held(),taps_,start,in_menu,back_);
 }
 FrameInput AndroidControls::frame(FrameInput in) const {
     const auto held=touch_.held();

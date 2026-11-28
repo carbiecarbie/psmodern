@@ -6,6 +6,7 @@
 // are segments of their own.
 #include "game/menu_remainder.h"
 #include "game/menu_kit.h"
+#include "game/retro_events.h"
 namespace psmodern::game {
 namespace mk=menu_kit;
 void register_menu_remainder(RoutineRegistry& registry) {
@@ -17,6 +18,7 @@ void register_menu_remainder(RoutineRegistry& registry) {
         exit.interrupt_mask=value;
         auto spec=mk::segment(unit,{exit});
         spec.single_instruction=true;
+        spec.observe_entry=retro_window_entry(entry.address);
         const auto at=entry.address;
         mk::add_segment(registry,entry,std::move(spec),[](const Machine&) { return 4; },[at,value](auto& z)->mk::Exit {
             return value==InterruptMask::disable ? z.final_disable_interrupts(at) : z.final_enable_interrupts(at);
@@ -56,7 +58,9 @@ void register_menu_remainder(RoutineRegistry& registry) {
         auto exit=mk::core_final_at(last,two ? 4 : 2);
         exit.interrupt_mask=InterruptMask::enable;
         const RoutineEntry entry{0,at};
-        mk::add_segment(registry,entry,mk::segment(unit,{exit},{.inherited_stack=two ? 4u : 2u}),[=](auto& z)->mk::Exit {
+        auto spec=mk::segment(unit,{exit},{.inherited_stack=two ? 4u : 2u});
+        spec.observe_entry=at==0x340F; // both dialogue glyph tiles have been written
+        mk::add_segment(registry,entry,std::move(spec),[=](auto& z)->mk::Exit {
             if(two) {
                 if(at==0x319A || at==0x35B3) z.pop(at,z.r.h,z.r.l);
                 else z.pop(at,z.r.d,z.r.e);
@@ -83,7 +87,9 @@ void register_menu_remainder(RoutineRegistry& registry) {
         const RoutineEntry entry{0,at};
         auto exit=mk::core_final_at(last);
         exit.cartridge_control=true;
-        mk::add_segment(registry,entry,mk::segment(menu::save_slots_unit,{exit}),[=](auto& z)->mk::Exit {
+        auto spec=mk::segment(menu::save_slots_unit,{exit});
+        spec.observe_entry=retro_window_entry(at);
+        mk::add_segment(registry,entry,std::move(spec),[=](auto& z)->mk::Exit {
             z.load_immediate(at,z.r.a);
             z.store_a_direct(last);
             return mk::fall_through(last,static_cast<std::uint16_t>(last+3));
@@ -104,8 +110,9 @@ void register_menu_remainder(RoutineRegistry& registry) {
     // wait's index and the call of the frame wait follow the enabling
     // instruction directly (the instruction after an EI is never interrupted).
     auto frame_wait_after_enable=[&](std::uint16_t at,RoutineEntry unit) {
-        mk::add_segment(registry,{0,at},mk::segment(unit,{mk::core_final_at(static_cast<std::uint16_t>(at+2))},{.scratch_stack=2}),
-                        [at](auto& z)->mk::Exit {
+        auto spec=mk::segment(unit,{mk::core_final_at(static_cast<std::uint16_t>(at+2))},{.scratch_stack=2});
+        spec.observe_entry=at==0x332B || retro_window_entry(at);
+        mk::add_segment(registry,{0,at},std::move(spec),[at](auto& z)->mk::Exit {
             z.load_immediate(at,z.r.a);
             return z.final_call(static_cast<std::uint16_t>(at+2));
         });

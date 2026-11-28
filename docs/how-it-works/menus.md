@@ -201,7 +201,7 @@ What each group of routines is for:
   (`00:2ED9`, boxes `00:2F16`, redraw `00:2F3C` and `00:2F6D`, refresh of one
   member `00:2F93`, close `00:30B7`); the command window (`00:30C3`, `00:30D5`,
   `00:30E1`); the two enemy windows, the list of enemy names with a count and
-  the party's HP column beside them (`00:30ED`, `00:3105`, close `00:319E`); the
+  the enemy HP column beside them (`00:30ED`, `00:3105`, close `00:319E`); the
   member choice windows (`00:3665`, `00:3682`, names `00:369F`, close `00:36BB`
   and `00:36CC`).
 - *Field menu and what it opens*: the field menu itself (`00:36DD`, redraw
@@ -312,6 +312,25 @@ Rev-A and Brazilian cartridges (compared byte for byte over these ranges).
 The windows it opens are drawn by the window routines described above, the
 choosing is done by the cursor loop, and the texts by the dialogue printer;
 this section is what the menu itself decides.
+
+**ROM run (Enhanced).** Choosing a party member in the field menu leaves
+the command list open. On the cartridge the member picker covers the last
+three rows at its right edge. Enhanced places the picker to the right, so
+the command window follows its own row writes and restorations. Its Save
+command and bottom border stay visible while the player chooses a member
+and when the player cancels. This was checked with both cartridges.
+
+In Enhanced, the item list still rewrites its eight names in order when
+the player changes page. The old names remain on the screen until the
+printer reaches them. Equipment, status, saves and selection windows
+similarly track the rows drawn or restored by their own routines.
+
+**ROM run:** The party strip draws six rows per member. A refresh can
+replace the frame immediately while the HP and MP printers are still
+finishing; a single-member redraw touches only that card. The displayed
+numbers follow the cells the video chip scanned. The enemy HP column and
+battle command list use the same principle. Battle windows are drawn by
+`00:2ED9`, `00:2F3C`, `00:2F93` and the adjacent routines described above.
 
 ### The menu and the byte that ends it
 

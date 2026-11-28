@@ -145,11 +145,16 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
         auto wide_picture=[&]()->const WidePicture* { return driver.wide_picture(); };
         std::array<std::uint32_t,256*192> pixels{};
         Vdp::Picture menu_background{};
+        std::vector<std::uint32_t> retro_menu_background;
         // Beside menu_background: the wide picture when the hold began, so a
         // held menu keeps its bands.
         std::optional<WidePicture> wide_menu_background;
         auto capture_menu_background=[&]() {
             menu_background=driver.machine().picture();
+            if (driver.clean_frame()) {
+                retro_menu_background.resize(pixels.size());
+                driver.render_retro(retro_menu_background,wide_picture());
+            } else retro_menu_background.clear();
             if(const auto* wide=wide_picture())wide_menu_background=*wide; else wide_menu_background.reset();
         };
         Controller controller; controller.refresh();
@@ -168,6 +173,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             if(elapsed>=.045)std::cerr<<"host_slow="<<operation<<" frame="<<frame<<" duration_ms="<<elapsed*1000<<'\n';
         };
         FrameClock clock(start);
+        std::uint64_t options_open_frame=0;
         std::uint64_t frames=0; bool quit=false,toggle_held=false,map_held=false;
         unsigned chosen_speed=1; SpeedShortcut speed_shortcut;
         SpeedIndicator speed_indicator;
@@ -283,6 +289,10 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
 #ifdef __ANDROID__
             menu_input=mobile.menu(menu_input,false,driver.menu_active());
 #endif
+            // A short press can start and end in this event pump. Deliver it
+            // to the same menu logic as a held button, including save/exit.
+            if (menu_input.focused && !lost_focus && !controller_changed && !power_cycled)
+                menu_input.toggle|=options_pressed;
             const bool speed_allowed=!recorder && !driver.menu_active() && !menu_input.toggle && !options_pressed && !power_cycled;
 #ifdef __ANDROID__
             if (speed_allowed && mobile.speed_pressed()) press_speed();
@@ -346,13 +356,13 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 const auto action=menu.update(menu_input,now());
                 if(action==MenuAction::apply) {
                     const auto began=now();
-                    const auto error=driver.choose_options(menu.draft(),menu.automap_draft(),menu.widescreen_draft());
+                    const auto error=driver.choose_options(menu.draft(),menu.automap_draft(),menu.widescreen_draft(),menu.interface_draft());
                     report_slow("save-options",began,frames);
                     if(error) { report_save(error);menu.failed(); }
                     else {
                         // Applied at once, as the automap is.
                         apply_widescreen();
-                        menu.close();driver.close_menu();report_save({});release.consume(); }
+                        menu.close();driver.close_menu();report_save(driver.store().durability_warning(),UiText::settings_durability);release.consume(); }
                 } else if(action==MenuAction::close) { menu.close();driver.close_menu();release.consume(); }
                 else if(action==MenuAction::controls) controls_screen.open(controller.bindings());
                 else if(action==MenuAction::language) {
@@ -389,7 +399,7 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 const bool was_active=driver.menu_active();
                 FrameOutput output;
                 const auto began=now();
-                try { output=driver.run(input); }
+                try { output=driver.run(input,i+1==count); }
                 catch(const std::exception& error) {
                     // Milestone 14 (planning decision 6): code with no C++ body,
                     // or a state a body does not handle, stops the game; there
@@ -410,7 +420,8 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
                 if(!was_active && driver.menu_active()) {
                     if(driver.menu_purpose()==HostMenu::map) map_screen.open();
                     else {
-                        menu.open(driver.chosen_options(),driver.options_pending(),driver.automap_option(),driver.widescreen_option());
+                        options_open_frame=frames;
+                        menu.open(driver.chosen_options(),driver.options_pending(),driver.automap_option(),driver.widescreen_option(),driver.interface_preference());
                         menu.set_language(preference,{session.available(LanguagePreference::native),
                             session.available(LanguagePreference::english),session.available(LanguagePreference::portuguese)});
                         menu.set_sound(sound_preference,sound_availability());
@@ -452,17 +463,19 @@ int play(const SessionRoms& session,Display* launcher_display,const std::optiona
             redraw|=mobile.redraw;
 #endif
             if (redraw && !(SDL_GetWindowFlags(window)&SDL_WINDOW_MINIMIZED)) {
-                const auto& picture=driver.menu_active() ? menu_background : driver.machine().picture();
                 // The wide picture only on the wide canvas; the narrow canvas
                 // shows the VDP picture alone, as 0.4.0 did.
                 const WidePicture* wide=!display.wide_canvas() ? nullptr :
                     driver.menu_active() ? (wide_menu_background ? &*wide_menu_background : nullptr) : wide_picture();
-                centre_pixels(pixels,picture,wide);
+                if (driver.menu_active()) {
+                    if (retro_menu_background.empty()) centre_pixels(pixels,menu_background,wide);
+                    else std::copy(retro_menu_background.begin(),retro_menu_background.end(),pixels.begin());
+                } else if (!driver.render_retro(pixels,wide)) centre_pixels(pixels,driver.machine().picture(),wide);
                 if(controls_screen.visible())controls_screen.render(pixels,font,language);
                 else if(menu.visible()) {
                     // The frames just run may have stopped FM: show what is heard.
                     menu.sound_available(sound_availability());
-                    menu.render(pixels,font,language);
+                    menu.render(pixels,font,language,int(std::min<std::uint64_t>(48,frames-options_open_frame+1)));
                 }
                 else if(map_screen.visible()) {
                     if(driver.map_view())render_automap(pixels,font,*driver.map_view(),language);

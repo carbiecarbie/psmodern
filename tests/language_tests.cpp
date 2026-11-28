@@ -129,6 +129,39 @@ bool shows(const Frame& pixels,const RomFont& font,int x,int y,std::string_view 
     for(std::size_t i=0;i<expected.size();++i)if(expected[i]) {drawn=true;if(pixels[i]!=expected[i])return false;}
     return drawn;
 }
+void five_choice_frames(const RomFont& font,Language language) {
+    using P=LanguagePreference;
+    Rig rig;
+    rig.screen.open(P::sms_literal,true,true,language,true);
+    rig.step({});
+    Frame pixels(256*192);
+    rig.screen.render(pixels,font,language);
+    check(shows(pixels,font,32,88,"SMS POWER!") && shows(pixels,font,32,104,"SMS LITERAL",menu_style::yellow) &&
+          shows(pixels,font,32,120,ui_text(UiText::save,language)) && shows(pixels,font,32,136,ui_text(UiText::cancel,language)) &&
+          shows(pixels,font,32,160,ui_text(UiText::applies_to_app,language)),"five choices, Save, Cancel and status fit");
+    rig.down();check(rig.tap({.accept=true})==LanguageAction::save,"Save follows the fifth choice");
+    rig.down();check(rig.tap({.accept=true})==LanguageAction::close,"Cancel follows Save");
+    OptionsMenu menu;menu.open({},false);menu.update({},0);
+    menu.update({.up=true},1);menu.update({},2);menu.update({.up=true},3);
+    check(menu.selected()==options_layout::language_row && menu.first_visible()==1,"language selected on scrolled page");
+    for(auto p:{P::sms_english,P::sms_literal,P::portuguese}) {
+        menu.set_language(p,{true,true,true},true);
+        menu.render(pixels,font,language);
+        const auto win=menu.values_window(language);
+        check(win && win->column+win->width==32 && win->column==19 && win->height==11,"five full popup values fit the native viewport");
+        const int y=8*options_layout::line_row(menu.selected()-menu.first_visible());
+        const auto value=p==P::sms_english ? "SMS EN" : p==P::sms_literal ? "SMS LIT" : "PORTUGUES";
+        check(shows(pixels,font,16,y,ui_text(UiText::language,language)) &&
+              shows(pixels,font,8*(win->column-int(std::string_view(value).size())),y,value,menu_style::grey),
+              "the clamped popup leaves the inline value and language label intact");
+        for(unsigned n=3;n<5;++n) {
+            const auto label=language_label(P(n),language);
+            for(char c:label)check(font.supports(c),"full pack label uses cartridge glyphs");
+            check(shows(pixels,font,8*(win->column+win->width-1-int(label.size())),8*(win->row+1+2*int(n)),label,
+                        unsigned(p)==n ? menu_style::yellow : menu_style::grey),"full pack choices in the popup");
+        }
+    }
+}
 void localized_screens(const RomFont& font,Language language,const std::filesystem::path& output) {
     RomList list;list.us="C:/us.sms";list.br="C:/br.sms";
     StartScreen start(list);start.update({},0);
@@ -149,7 +182,7 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
         if(row==0)preview(output,"start",language,pixels);
         start.update({.down=true},2*row+1);start.update({},2*row+2);
     }
-    // Options (milestone 12): every row on one page, the state on the
+    // Options: seven rows per page, the state on the
     // explanation window's last line; options_tests checks the layout in full.
     OptionsMenu menu;menu.open({25,400},false,true,WidescreenMode::fill);menu.update({},0);
     for(unsigned row=0;row<options_layout::rows;++row) {
@@ -158,8 +191,8 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
         const bool at_once=row==options_layout::language_row || row==options_layout::sound_row;
         check(shows(pixels,font,16,8*options_layout::state_row,ui_text(at_once ? UiText::saves_when_changed : UiText::saves_on_exit,language),0xffaaaaaa),
             "Options explains when it saves in the current language");
-        for(unsigned r=0;r<options_layout::rows;++r)
-            check(shows(pixels,font,16,8*options_layout::line_row(r),OptionsMenu::label(r,language)),"every Options row is visible");
+        for(unsigned r=menu.first_visible();r<menu.first_visible()+options_layout::visible_rows;++r)
+            check(shows(pixels,font,16,8*options_layout::line_row(r-menu.first_visible()),OptionsMenu::label(r,language)),"visible Options rows match the scroll position");
         const auto explanation=OptionsMenu::explanation(row,language);
         check(shows(pixels,font,16,8*(options_layout::explanation.row+1),explanation[0]),"the selected row is explained");
         for(int y=0;y<192;++y)for(int x=0;x<256;++x)
@@ -178,8 +211,8 @@ void localized_screens(const RomFont& font,Language language,const std::filesyst
             on.render(on_pixels,font,language);
             check_value(on_pixels,"ON","SIM");
         }
-        if(row==5)preview(output,"options-language",language,pixels);
-        if(row==6)preview(output,"options-sound",language,pixels);
+        if(row==options_layout::language_row)preview(output,"options-language",language,pixels);
+        if(row==options_layout::sound_row)preview(output,"options-sound",language,pixels);
         menu.update({.down=true},2*row+1);menu.update({},2*row+2);
     }
     menu.failed();Frame failed(256*192);menu.render(failed,font,language);
@@ -228,6 +261,7 @@ void rom(const std::filesystem::path& path,const std::filesystem::path& output) 
         for(const auto entry:key_table)check(ui_key_label(entry.key,language).size()<=9,"key label fits Controls column");
         for(unsigned i=0;i<unsigned(PadInput::count);++i)check(ui_pad_label(PadInput(i),language).size()<=7,"localized pad label fits Controls column");
         localized_screens(font,language,output);
+        five_choice_frames(font,language);
         for(bool us:{false,true})for(bool br:{false,true})for(auto preference:{LanguagePreference::native,LanguagePreference::english,LanguagePreference::portuguese}) {
             Rig rig(preference,us,br);
             for(unsigned i=0;i<5;++i) {

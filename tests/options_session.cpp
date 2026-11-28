@@ -26,6 +26,11 @@ bool checked_options_failure=false;
 bool kept_wide_history=false,saw_expected_display=false;
 app::Bindings mode4_start;
 SDL_JoystickID virtual_pad=-1;
+bool four_members() { return mode_under_test==3 || mode_under_test==4; }
+enum class OpeningEdge { idle, down, held, up, done };
+OpeningEdge opening_edge=OpeningEdge::idle;
+unsigned opening_sample=0,exit_sample=0;
+bool exit_tap=false;
 unsigned power_cycles=0,fullscreen_toggles=0,shortcut_events=0;
 bool send_shortcuts=false,hold_tab=false,checked_failed_save=false,checked_new_binding=false;
 void counted_fullscreen(SDL_Window* window){++fullscreen_toggles;app::toggle_fullscreen(window);}
@@ -48,6 +53,23 @@ public:
         :app::FrameDriver(std::move(rom),std::move(store),overrides,original,std::move(sound_rom)) {
         const auto rec=replay::read(recording_path);
         for(unsigned i=0;i<3400;++i)run(rec.input_at(i));
+        if(four_members()) {
+            auto& memory=machine().memory();
+            memory.write(0xc4f0,3);
+            for(unsigned i=0;i<4;++i) {
+                const unsigned member=0xc400+16*i;
+                memory.write(member,1);
+                memory.write(member+1,20);memory.write(member+6,20);
+            }
+            // Re-enter the cartridge's map loader to build all four native
+            // walking objects. The actor draw now commonly crosses frame end.
+            memory.write(0xc202,8);
+            for(unsigned n=0;n<220;++n)run({});
+            if(machine().peek(0xc202)!=9 || machine().peek(0xc265) || machine().peek(0xc4f0)!=3)
+                throw std::runtime_error("Four-member party did not settle on the map");
+            for(unsigned i=0;i<4;++i)if(!machine().peek(0xc800+32*i))
+                throw std::runtime_error("Missing native party walking object");
+        }
         tested=this;
     }
     std::optional<std::string> power_cycle(){++power_cycles;return app::FrameDriver::power_cycle();}
@@ -68,6 +90,26 @@ public:
     }
 };
 int scripted_poll(SDL_Event* event){
+    if(opening_edge==OpeningEdge::down || opening_edge==OpeningEdge::up) {
+        const bool down=opening_edge==OpeningEdge::down;
+        *event={};
+        if(mode_under_test==3) {
+            // An entire Escape tap is delivered in this one event pump.
+            event->type=down ? SDL_KEYDOWN : SDL_KEYUP;
+            event->key.windowID=SDL_GetWindowID(focused_window);
+            event->key.keysym.scancode=SDL_SCANCODE_ESCAPE;event->key.keysym.sym=SDLK_ESCAPE;
+            opening_edge=down ? OpeningEdge::up : OpeningEdge::done;
+        } else {
+            auto* joystick=SDL_JoystickFromInstanceID(virtual_pad);
+            if(!joystick || SDL_JoystickSetVirtualButton(joystick,SDL_CONTROLLER_BUTTON_Y,down)!=0)
+                throw std::runtime_error("Could not drive virtual Y");
+            SDL_JoystickUpdate();
+            event->type=down ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+            event->cbutton.which=virtual_pad;event->cbutton.button=SDL_CONTROLLER_BUTTON_Y;
+            opening_edge=down ? (exit_tap ? OpeningEdge::up : OpeningEdge::held) : OpeningEdge::done;
+        }
+        return 1;
+    }
     if(send_shortcuts) {
         // F5 down/up, then the bound pad power and fullscreen inputs down/up, then Tab down/up.
         const unsigned i=shortcut_events++;
@@ -101,8 +143,31 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
             throw std::runtime_error("The saved controls are not the game's controls");
     }
     if(mode_under_test>=6 || sampled<12 || speed_stage<2 || release_speed)return {};
-    if(!toggle_sent){toggle_sent=true;return {.toggle=true};}
-    if(!tested || !tested->menu_active())return {};
+    if(!toggle_sent) {
+        toggle_sent=true;
+        if(four_members()) {
+            opening_sample=sampled;opening_edge=OpeningEdge::down;
+            return {};
+        }
+        return {.toggle=true};
+    }
+    if(opening_edge==OpeningEdge::held) {
+        // Keep Y down through the host snapshot, then release it in the next
+        // pump. The same binding reached the production SDL event path.
+        app::InputSnapshot snapshot;controller.snapshot(snapshot);
+        const auto input=app::menu_input(controller.bindings(),snapshot);
+        if(!input.toggle)throw std::runtime_error("Held virtual Y did not reach the Options binding");
+        opening_edge=OpeningEdge::up;
+        return input;
+    }
+    if(!tested || !tested->menu_active()) {
+        if(four_members() && !was_active && sampled>opening_sample+32)
+            throw std::runtime_error(mode_under_test==3 ? "Idle four-member party ignored one Escape tap" :
+                                                           "Idle four-member party ignored one Y press");
+        return {};
+    }
+    if(exit_tap && sampled>exit_sample+32 && !tested->menu_closing())
+        throw std::runtime_error("Open Options ignored one short Y exit tap");
     was_active=true;
     if(mode_under_test>=3) {
         // Three ups reach CONTROLS through SOUND and LANGUAGE; accept opens Controls. Back in
@@ -146,7 +211,8 @@ app::MenuInput scripted_menu(SDL_Window* w,const app::Controller& controller){
             case 19:return {.down=true};
             case 21:return {.down=true};
             case 23:return {.right=true};
-            case 25:return {.toggle=true};
+            case 25: // Exit by a complete Y tap between input snapshots.
+                exit_tap=true;exit_sample=sampled;opening_edge=OpeningEdge::down;return {};
             default:return {};
         }
     }
@@ -353,6 +419,7 @@ int main(int argc,char**argv){
         // Mode 2 was the --no-routines session with read-only Options; milestone
         // 14 removed both (app_tests checks that the flag is refused).
         if(mode_under_test==2)continue;
+        opening_edge=OpeningEdge::idle;exit_tap=false;
         sampled=stage=modal_frames=speed_stage=0;release_speed=false;sent_quit=toggle_sent=was_active=restored_speed=saved_menu=saved_game=false;last_modal_cycle=0;tested=nullptr;
         controls_calls=controls_frames=0;awaiting_controls=controls_closed=false;
         power_cycles=fullscreen_toggles=shortcut_events=0;send_shortcuts=hold_tab=checked_failed_save=checked_new_binding=false;
@@ -366,6 +433,7 @@ int main(int argc,char**argv){
             app::save_bindings(controls_folder,mode4_start);
             for(const char* driver:{SDL_HINT_JOYSTICK_RAWINPUT,SDL_HINT_JOYSTICK_HIDAPI,SDL_HINT_JOYSTICK_WGI,SDL_HINT_XINPUT_ENABLED,SDL_HINT_DIRECTINPUT_ENABLED})
                 SDL_SetHintWithPriority(driver,"0",SDL_HINT_OVERRIDE);
+            SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,"1",SDL_HINT_OVERRIDE);
             SDL_SetHintWithPriority(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT,"0xffff/0x5053",SDL_HINT_OVERRIDE);
             if(SDL_Init(SDL_INIT_GAMECONTROLLER)!=0 || SDL_NumJoysticks()!=0)throw std::runtime_error("Isolated controller subsystem");
             SDL_VirtualJoystickDesc descriptor{};descriptor.version=SDL_VIRTUAL_JOYSTICK_DESC_VERSION;

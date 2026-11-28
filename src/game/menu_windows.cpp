@@ -10,6 +10,7 @@
 // player's ROM at run time by the kit's loads.
 #include "game/joins.h"
 #include "game/menu.h"
+#include "game/retro_events.h"
 #include "game/menu_kit.h"
 #include "game/routines.h"
 
@@ -23,7 +24,9 @@ struct Adder {
     RoutineRegistry& registry;
     template<class Logic> void operator()(RoutineEntry entry, RoutineEntry unit, std::vector<SegmentExit> exits,
                                           mk::Permissions permissions, Logic logic) const {
-        mk::add_segment(registry,entry,mk::segment(unit,std::move(exits),permissions),std::move(logic));
+        auto spec=mk::segment(unit,std::move(exits),permissions);
+        spec.observe_entry=retro_window_entry(entry.address);
+        mk::add_segment(registry,entry,std::move(spec),std::move(logic));
     }
 };
 }
