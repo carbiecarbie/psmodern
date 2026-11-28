@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds the universal macOS release package of an existing release tag with
+# tools/package-macos.sh, tests the extracted zip and uploads the zip and its
+# SHA-256 as workflow artifacts. It never writes to the repository or to a
+# release: the maintainer attaches the package after review.
+name: Package macOS
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to package (v<major>.<minor>.<patch>, e.g. v1.4.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check the tag name
+        run: |
+          set -eu
+          printf '%s\n' "$TAG" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' \
+            || { echo "Not a release tag name: $TAG"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      - name: Check the checkout against the tag
+        id: ref
+        run: |
+          set -eu
+          head=$(git rev-parse HEAD)
+          tagged=$(git rev-parse "refs/tags/$TAG^{commit}")
+          [ "$head" = "$tagged" ] || { echo "HEAD $head is not $TAG ($tagged)."; exit 1; }
+          [ -z "$(git status --porcelain)" ] || { echo 'The checkout is not clean.'; exit 1; }
+          [ -f tools/package-macos.sh ] || { echo "$TAG has no tools/package-macos.sh (added after 1.3.1)."; exit 1; }
+          version=$(sed -n 's/^project(PSModern VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          [ "v$version" = "$TAG" ] || { echo "CMakeLists.txt says $version, the tag says $TAG."; exit 1; }
+          echo "commit=$head" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "name=PSModern-$version-macos-universal" >> "$GITHUB_OUTPUT"
+      - name: Install Ninja and Rosetta
+        run: |
+          set -eu
+          brew install ninja
+          # Rosetta lets the package script and the check below run the x86_64 slice.
+          arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+          arch -x86_64 /usr/bin/true
+      - name: Package
+        run: tools/package-macos.sh "$RUNNER_TEMP/package"
+      - name: Test the extracted package
+        env:
+          VERSION: ${{ steps.ref.outputs.version }}
+          COMMIT: ${{ steps.ref.outputs.commit }}
+          NAME: ${{ steps.ref.outputs.name }}
+        run: |
+          set -eu
+          zip="$RUNNER_TEMP/package/$NAME.zip"
+          unzip -tq "$zip"
+          dir="$RUNNER_TEMP/extracted"
+          mkdir "$dir"
+          ditto -x -k "$zip" "$dir"
+          [ "$(ls -A "$dir")" = "$NAME" ] || { echo "Unexpected top level: $(ls -A "$dir")"; exit 1; }
+          root="$dir/$NAME"
+          app="$root/PSModern.app"
+          exe="$app/Contents/MacOS/PSModern"
+          files=$(cd "$root" && find . -path ./PSModern.app -print -prune -o -print | sort | tr '\n' ' ')
+          expected='. ./LICENSE.txt ./PSModern.app ./README.txt ./THIRD-PARTY.txt ./licenses ./licenses/Nuked-OPLL.txt ./licenses/SDL2.txt '
+          [ "$files" = "$expected" ] || { echo "Unexpected files: $files"; exit 1; }
+          codesign --verify --strict --verbose=2 "$app"
+          plist="$app/Contents/Info.plist"
+          for key in CFBundleShortVersionString CFBundleVersion; do
+            [ "$(plutil -extract $key raw "$plist")" = "$VERSION" ] || { echo "$key is not $VERSION"; exit 1; }
+          done
+          [ "$(plutil -extract LSMinimumSystemVersion raw "$plist")" = 11.0 ] || { echo 'LSMinimumSystemVersion is not 11.0'; exit 1; }
+          [ "$(lipo -archs "$exe" | tr ' ' '\n' | sort | tr '\n' ' ')" = 'arm64 x86_64 ' ] \
+            || { echo "Slices: $(lipo -archs "$exe")"; exit 1; }
+          for arch in arm64 x86_64; do
+            vtool -arch $arch -show-build "$exe" | grep -Eq 'minos 11\.0$' || { echo "$arch: minimum is not macOS 11.0"; exit 1; }
+            reported=$(arch -$arch "$exe" --version)
+            [ "$reported" = "PSModern $VERSION" ] || { echo "$arch reported: $reported"; exit 1; }
+            echo "$arch: $reported"
+          done
+          otool -L -arch all "$exe" | awk '/^\t/ && $1 !~ /^\/(System\/Library|usr\/lib)\// { print; bad=1 } END { exit bad }' \
+            || { echo 'The app links a library outside macOS.'; exit 1; }
+          grep -Fq "(commit $COMMIT)" "$root/THIRD-PARTY.txt" || { echo "THIRD-PARTY.txt does not cite $COMMIT"; exit 1; }
+          cd "$RUNNER_TEMP/package"
+          shasum -a 256 "$NAME.zip" > "$NAME.zip.sha256"
+          shasum -a 256 -c "$NAME.zip.sha256"
+          {
+            echo "### $NAME.zip"
+            echo
+            echo "Built from \`$TAG\` (\`$COMMIT\`); the extracted app passed every check."
+            echo
+            echo "SHA-256 \`$(cut -d ' ' -f 1 "$NAME.zip.sha256")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.ref.outputs.name }}
+          path: |
+            ${{ runner.temp }}/package/${{ steps.ref.outputs.name }}.zip
+            ${{ runner.temp }}/package/${{ steps.ref.outputs.name }}.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
